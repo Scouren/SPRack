@@ -2,7 +2,7 @@
 //! region.
 //!
 //! Cites (rule ids of `dev/research/hspice-syntax.md`, as
-//! `grammar/hspice.peg` cites them;  = ,  =
+//! the old HSPICE grammar cites them;  = ,  =
 //! ): L1 title; L2 comment lines; L3 the `$` rule; L5
 //! `+` continuation; L6 `\` and `\\` breaks; L9 `.END`; T1 separators; T2
 //! quotes (`$` is text inside); T3 numbers (`X` is mega, `D` an exponent);
