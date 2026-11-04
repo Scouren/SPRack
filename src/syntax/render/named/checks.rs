@@ -3,8 +3,7 @@
 //! flag (a parameter with no value: Spectre takes `name=value` only), a
 //! `^` the target reads with the other meaning (`CaretReread`).
 //!
-//! Cites: `docs/research/transpiler-architecture.md` §2.3 (`Verbatim`),
-//! §3 (`^`);  (`name=value`); ngspice manual
+//! Cites:  (`name=value`); ngspice manual
 //! §2.8.5; LTspice help, Xyce RG §2.1.18 (`^` XOR).
 //!
 //! Contents:

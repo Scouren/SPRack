@@ -1,8 +1,8 @@
 //! HSPICE's lexicon, also read inside a Spectre `simulator lang=spice`
 //! region.
 //!
-//! Cites (rule ids of `dev/research/hspice-syntax.md`, as
-//! the old HSPICE grammar cites them;  = ,  =
+//! Cites (the rule ids the old HSPICE grammar labels its rules with,
+//! `git show daa0ad0:grammar/hspice.peg`;  = ,  =
 //! ): L1 title; L2 comment lines; L3 the `$` rule; L5
 //! `+` continuation; L6 `\` and `\\` breaks; L9 `.END`; T1 separators; T2
 //! quotes (`$` is text inside); T3 numbers (`X` is mega, `D` an exponent);

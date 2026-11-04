@@ -105,7 +105,10 @@ fn trrandom_uniform_stays_in_range_with_the_offset_as_mean() {
 
 #[test]
 fn trnoise_and_trrandom_are_ngspice_only() {
-    // No other dialect has a source form (dev/research/ir-gaps.md §2), and
+    // No other dialect has a source form (HSPICE only the `.TRANNOISE`
+    // analysis, ; Spectre's `noisefile` is
+    // small-signal, ; VACASK's trannoise is
+    // device noise, its `docs/cmd-analysis-trannoise.md`), and
     // ESPice 0.3.0 refuses both cards ("the trnoise source waveform is not
     // supported").
     let z = || IrNum::Num(0.0);
