@@ -298,12 +298,6 @@ test "25 translations: write, read back, same circuit, no errors" {
 
             var report2: ir.Report = .init(a);
             const back = try readAs(a, to, text, &report2);
-            // HSPICE writes a noise analysis as .AC plus .NOISE and does not
-            // read the pair back as one analysis.
-            if (std.mem.eql(u8, to, "hspice") and countKind(src_nl, .noise) > 0) {
-                try testing.expectEqual(1, countKind(back, .@"opaque"));
-                continue;
-            }
             try testing.expectEqual(0, countKind(back, .@"opaque"));
             try testing.expect(ir.sameCircuit(&src_nl, &back));
         }
@@ -1184,4 +1178,87 @@ test "corpus: a VACASK deck the way upstream writes them" {
     try has(ng, ".options method=gear\n");
     try has(ng, ".tran 1u 1 0 1u\n");
     try clean(&report);
+}
+
+test "define: a named pattern compiles to the same nodes as writing it out" {
+    const g = comptime sprack.grammar.compile(
+        \\dialect tiny
+        \\lexer
+        \\end
+        \\define pre = "dc" dc
+        \\define both = <pre> [ "ac" acmag ]
+        \\rule vsource = name~"V" pos neg <both>
+        \\rule isource = name~"I" pos neg "dc" dc [ "ac" acmag ]
+    );
+    const a = g.rules[0].pat;
+    const b = g.rules[1].pat;
+    try testing.expectEqual(b.len, a.len);
+    for (a[3..], b[3..]) |x, y| {
+        try testing.expectEqual(y.tag, x.tag);
+        try testing.expectEqualStrings(y.text, x.text);
+        try testing.expectEqual(y.slot, x.slot);
+    }
+    // The shipped grammars use it for the source waveforms.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    var report: ir.Report = .init(arena_state.allocator());
+    const out = try tr(arena_state.allocator(), "hspice", "xyce", "t\nV1 a 0 SIN(0 1 1k)\nI1 a 0 PWL(0 0 1n 1)\n.end\n", &report);
+    try has(out, "V1 a 0 sin(0 1 1k)");
+    try has(out, "I1 a 0 pwl(0 0 1n 1)");
+}
+
+test "HSPICE .ac plus .noise is one noise analysis" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // Adjacent, with a comment between: one statement.
+    const one = try readAs(a, "hspice", "t\n.ac dec 10 1k 1meg\n* noise\n.noise v(out) vin\n.end\n", &report);
+    try testing.expectEqual(0, countKind(one, .ac));
+    try testing.expectEqual(1, countKind(one, .noise));
+    try testing.expectEqual(1, countKind(one, .comment));
+    const ng = try tr(a, "hspice", "ngspice", "t\nVin in 0 ac 1\n.ac dec 10 1k 1meg\n.noise v(out,ref) vin\n.end\n", &report);
+    try has(ng, ".noise v(out,ref) Vin dec 10 1k 1meg\n");
+    try testing.expect(std.mem.indexOf(u8, ng, ".ac") == null);
+    // Apart: the .ac stays an analysis of its own and lends its sweep.
+    const two = try tr(a, "hspice", "ngspice", "t\nVin in 0 ac 1\n.ac dec 10 1k 1meg\n.print ac v(out)\n.noise v(out) vin\n.end\n", &report);
+    try has(two, ".ac dec 10 1k 1meg\n");
+    try has(two, ".noise v(out) Vin dec 10 1k 1meg\n");
+    try clean(&report);
+}
+
+test "repeated groups: list slots in lockstep, with a separator" {
+    const g = comptime sprack.grammar.compile(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3
+        \\end
+        \\rule hb = ".hb" ( "f" freqs "h" harms )+"and"
+    );
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const nl = try sprack.read(a, &g, "t\n.hb f 1k h 3 and f 2k h 5\n.hb f 1k h 3 and\n", &report);
+    try testing.expectEqual(2, nl.stmts.len);
+    const hb = nl.stmts[0];
+    try testing.expectEqual(schema.Kind.hb, hb.kind);
+    try testing.expectEqual(2, hb.get("freqs").list.len);
+    try testing.expectEqual(5, hb.get("harms").list[1].num.toFloat());
+    // A separator with nothing after it is not a pass.
+    try testing.expectEqual(schema.Kind.@"opaque", nl.stmts[1].kind);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &g, &aw.writer, &nl, &report);
+    try has(aw.written(), ".hb f 1k h 3 and f 2k h 5\n");
+
+    // HSPICE `.hb tones=f1 f2 ... nharms=h1 h2 ...`, both ways.
+    var r2: ir.Report = .init(a);
+    const src = "t\n.hb tones=1k 1.3k nharms=7 7 intmodmax=7\n.end\n";
+    const xy = try tr(a, "hspice", "xyce", src, &r2);
+    try has(xy, ".hb 1k 1.3k\n");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", src, &r3), ".hb tones=1k 1.3k nharms=7 7 intmodmax=7\n");
+    try clean(&r3);
+    try has(try tr(a, "xyce", "hspice", "t\n.hb 1k 2k\n.end\n", &r3), ".hb tones=1k 2k\n");
 }

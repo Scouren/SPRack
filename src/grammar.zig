@@ -89,6 +89,10 @@ pub const NodeTag = enum {
     /// `-slot`: when writing, the slot is deliberately not written (a
     /// `caveat` says why). Matches nothing when reading.
     drop,
+    /// `( ... )*` or `( ... )+`: `kids` is the one group, repeated; each
+    /// pass takes the next item of every list slot in it. `sep` goes
+    /// between passes.
+    rep,
 };
 
 pub const BagForm = enum { plain, quoted, vector, fixed, rest, call };
@@ -125,6 +129,8 @@ pub const Node = struct {
     soft: bool = false,
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
+    /// Separator of a repeated group: none, or one `lit` or `glue` node.
+    sep: []const Node = &.{},
 };
 
 pub const Dir = enum { both, read, write };
@@ -154,6 +160,11 @@ pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 pub const EnumMap = struct { kind: Kind, slot: u8, pairs: []const EnumPair };
 /// The dialect says this value on a different statement.
 pub const Move = struct { from: Kind, from_slot: u8, to: Kind, to_slot: u8 };
+/// `merge ac -> noise`: what this dialect writes as two statements is one.
+/// When reading, an `into` statement takes the slots it lacks from the
+/// nearest `from` statement before it, and absorbs that statement when only
+/// comments stand between them.
+pub const Merge = struct { from: Kind, into: Kind };
 pub const SignalForm = struct { form: []const u8, template: []const u8 };
 /// One canonical function, variable or operator and its spellings here.
 /// The first spelling is the one written.
@@ -186,6 +197,7 @@ pub const Grammar = struct {
     implied: []const Implied = &.{},
     enums: []const EnumMap = &.{},
     moves: []const Move = &.{},
+    merges: []const Merge = &.{},
     signals: []const SignalForm = &.{},
     functions: []const Spellings = &.{},
     variables: []const Spellings = &.{},
@@ -310,6 +322,10 @@ fn kindOf(comptime gname: []const u8, comptime line: u32, comptime name: []const
     return schema.kindFromName(name) orelse fail(gname, line, "unknown kind '" ++ name ++ "'");
 }
 
+/// `define name = pattern`: a named fragment, kept as text and parsed
+/// where it is used, so its slot names resolve against the using rule's kind.
+const Def = struct { name: []const u8, text: []const u8 };
+
 const P = struct {
     s: []const u8,
     i: usize = 0,
@@ -317,6 +333,9 @@ const P = struct {
     fold: bool,
     gname: []const u8,
     line: u32,
+    defs: []const Def = &.{},
+    /// Inside a repeated group: list slots are taken one item at a time.
+    in_rep: bool = false,
 
     fn err(comptime p: *P, comptime msg: []const u8) noreturn {
         fail(p.gname, p.line, msg ++ " in pattern `" ++ p.s ++ "`");
@@ -379,9 +398,48 @@ const P = struct {
             p.ws();
             const c = p.peek();
             if (c == 0 or c == ']' or c == ')' or c == '|') break;
+            if (c == '<') {
+                out = out ++ p.use();
+                continue;
+            }
             out = out ++ &[_]Node{p.item()};
         }
         return out;
+    }
+
+    /// `<name>`: the nodes of a `define`, spliced in place.
+    fn use(comptime p: *P) []const Node {
+        p.i += 1;
+        const name = p.ident();
+        if (p.peek() != '>') p.err("missing '>' after '<" ++ name ++ "'");
+        p.i += 1;
+        for (p.defs, 0..) |d, di| {
+            if (!std.mem.eql(u8, d.name, name)) continue;
+            // A define sees only the ones before it, so it cannot refer to itself.
+            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .gname = p.gname, .line = p.line, .defs = p.defs[0..di] };
+            const out = sub.seq();
+            if (sub.i < sub.s.len) sub.err("unexpected '" ++ sub.s[sub.i .. sub.i + 1] ++ "'");
+            return out;
+        }
+        p.err("no `define " ++ name ++ "` before this rule");
+    }
+
+    /// Is the group opened just before `p.i` followed by `*` or `+`?
+    fn repeats(comptime p: *P) bool {
+        var depth: usize = 1;
+        var j = p.i;
+        while (j < p.s.len) : (j += 1) {
+            switch (p.s[j]) {
+                '"', '\'' => j = std.mem.indexOfScalarPos(u8, p.s, j + 1, p.s[j]) orelse return false,
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if (depth == 0) return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+');
+                },
+                else => {},
+            }
+        }
+        return false;
     }
 
     fn item(comptime p: *P) Node {
@@ -397,6 +455,10 @@ const P = struct {
             },
             '(' => {
                 p.i += 1;
+                const rep = p.repeats();
+                if (rep and p.in_rep) p.err("a repeated group cannot hold another");
+                const outer = p.in_rep;
+                p.in_rep = outer or rep;
                 var alts: []const Node = &.{};
                 while (true) {
                     alts = alts ++ &[_]Node{.{ .tag = .seq, .kids = p.seq() }};
@@ -406,11 +468,28 @@ const P = struct {
                     }
                     break;
                 }
+                p.in_rep = outer;
                 if (p.peek() != ')') p.err("missing ')'");
                 p.i += 1;
-                return .{ .tag = .alt, .kids = alts };
+                const group: Node = .{ .tag = .alt, .kids = alts };
+                if (!rep) return group;
+                // `( ... )*` or `( ... )+`, a separator glued on: `( ... )*","`.
+                var n: Node = .{ .tag = .rep, .plus = p.peek() == '+', .kids = &.{group} };
+                p.i += 1;
+                if (p.peek() == '"' or p.peek() == '\'') {
+                    n.sep = &.{.{ .tag = .lit, .text = p.lit(p.string()) }};
+                } else if (p.peek() == '~') {
+                    p.i += 1;
+                    if (p.peek() != '"' and p.peek() != '\'') p.err("expected a quoted separator after '~'");
+                    n.sep = &.{.{ .tag = .glue, .text = p.string() }};
+                }
+                if (canBeEmpty(n.kids)) p.err("a repeated group must take at least one word each time");
+                return n;
             },
-            '{' => return p.bag(),
+            '{' => {
+                if (p.in_rep) p.err("a repeated group cannot hold '{ }'");
+                return p.bag();
+            },
             '/' => {
                 p.i += 1;
                 return .{ .tag = .nl };
@@ -425,12 +504,14 @@ const P = struct {
                 return .{ .tag = .glue, .text = p.string() };
             },
             '.' => if (p.startsWith("...")) {
+                if (p.in_rep) p.err("a repeated group cannot take the rest of the line");
                 p.i += 3;
                 return .{ .tag = .rest, .slot = wild_slot };
             },
             else => {},
         }
         const name = p.ident();
+        if (p.in_rep and p.startsWith("...")) p.err("a repeated group cannot take the rest of the line");
         if (p.startsWith("...")) {
             p.i += 3;
             const slot = p.slotOf(name);
@@ -449,6 +530,7 @@ const P = struct {
             }
             const slot = p.slotOf(name);
             if (p.slotInfo(slot).ty != .atom) p.err("tagged literal needs an atom slot, '" ++ name ++ "' is not one");
+            if (p.in_rep and !p.slotInfo(slot).list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
             var soft = false;
             if (p.peek() == '?') {
                 p.i += 1;
@@ -481,7 +563,10 @@ const P = struct {
         if (n.slot != wild_slot) {
             const si = p.slotInfo(n.slot);
             if ((n.star or n.plus) and !si.list) p.err("'" ++ name ++ "' is not a list slot");
-            if (!(n.star or n.plus) and si.list) p.err("list slot '" ++ name ++ "' needs '*' or '+'");
+            if (p.in_rep) {
+                if (!si.list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
+                if (n.star or n.plus) p.err("in a repeated group, '" ++ name ++ "' takes one item per pass; drop the '*' or '+'");
+            } else if (!(n.star or n.plus) and si.list) p.err("list slot '" ++ name ++ "' needs '*' or '+'");
             if (si.ty == .params or si.ty == .text) p.err("slot '" ++ name ++ "' cannot be captured as a single token");
         }
         return n;
@@ -560,14 +645,34 @@ const P = struct {
     }
 };
 
+/// Can these nodes match no word at all?
+fn canBeEmpty(comptime items: []const Node) bool {
+    for (items) |n| {
+        switch (n.tag) {
+            .lit, .taglit => return false,
+            .cap => if (!n.star) return false,
+            .seq => if (!canBeEmpty(n.kids)) return false,
+            .alt => {
+                var all = true;
+                for (n.kids) |k| all = all and !canBeEmpty(k.kids);
+                if (all) return false;
+            },
+            .rep => if (n.plus and !canBeEmpty(n.kids)) return false,
+            else => {},
+        }
+    }
+    return true;
+}
+
 fn pattern(
     comptime gname: []const u8,
     comptime line: u32,
     comptime kind: Kind,
     comptime fold: bool,
     comptime text: []const u8,
+    comptime defs: []const Def,
 ) []const Node {
-    var p: P = .{ .s = text, .kind = kind, .fold = fold, .gname = gname, .line = line };
+    var p: P = .{ .s = text, .kind = kind, .fold = fold, .gname = gname, .line = line, .defs = defs };
     const out = p.seq();
     if (p.i < p.s.len) p.err("unexpected '" ++ p.s[p.i .. p.i + 1] ++ "'");
     if (out.len == 0) p.err("empty pattern");
@@ -760,11 +865,13 @@ pub fn compile(comptime src: []const u8) Grammar {
     var implied: []const Implied = &.{};
     var enums: []const EnumMap = &.{};
     var moves: []const Move = &.{};
+    var merges: []const Merge = &.{};
     var signals: []const SignalForm = &.{};
     var functions: []const Spellings = &.{};
     var variables: []const Spellings = &.{};
     var operators: []const Spellings = &.{};
     var absent: []const Absent = &.{};
+    var defs: []const Def = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -810,7 +917,7 @@ pub fn compile(comptime src: []const u8) Grammar {
                 const bl = lines.next() orelse fail(name, lines.no, "block is missing 'end'");
                 if (std.mem.eql(u8, bl, "end")) break;
                 const bh, const br = splitHead(bl);
-                const pat = pattern(name, lines.no, kind, fold, br);
+                const pat = pattern(name, lines.no, kind, fold, br, defs);
                 if (std.mem.eql(u8, bh, "open")) {
                     open = pat;
                 } else if (std.mem.eql(u8, bh, "close")) {
@@ -828,9 +935,14 @@ pub fn compile(comptime src: []const u8) Grammar {
             rules = rules ++ &[_]Rule{.{
                 .kind = kind,
                 .dir = dir,
-                .pat = pattern(name, lines.no, kind, fold, rest[eq + 3 ..]),
+                .pat = pattern(name, lines.no, kind, fold, rest[eq + 3 ..], defs),
                 .line = lines.no,
             }};
+        } else if (std.mem.eql(u8, head, "define")) {
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse fail(name, lines.no, "expected `define name = pattern`");
+            const dname = std.mem.trim(u8, rest[0..eq], " \t");
+            for (defs) |d| if (std.mem.eql(u8, d.name, dname)) fail(name, lines.no, "`" ++ dname ++ "` is already defined");
+            defs = defs ++ &[_]Def{.{ .name = dname, .text = rest[eq + 3 ..] }};
         } else if (std.mem.eql(u8, head, "caveat")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "caveat is `caveat kind slot : text`");
             const ks = args(name, lines.no, rest[0..colon]);
@@ -863,6 +975,10 @@ pub fn compile(comptime src: []const u8) Grammar {
             const fk, const fs = dotted(name, lines.no, a[0]);
             const tk, const ts = dotted(name, lines.no, a[2]);
             moves = moves ++ &[_]Move{.{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts }};
+        } else if (std.mem.eql(u8, head, "merge")) {
+            const a = args(name, lines.no, rest);
+            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) fail(name, lines.no, "merge is `merge kind -> kind`");
+            merges = merges ++ &[_]Merge{.{ .from = kindOf(name, lines.no, a[0]), .into = kindOf(name, lines.no, a[2]) }};
         } else if (std.mem.eql(u8, head, "signals")) {
             signals = parseSignals(name, &lines, fold);
         } else if (std.mem.eql(u8, head, "functions")) {
@@ -892,6 +1008,7 @@ pub fn compile(comptime src: []const u8) Grammar {
         .implied = implied,
         .enums = enums,
         .moves = moves,
+        .merges = merges,
         .signals = signals,
         .functions = functions,
         .variables = variables,

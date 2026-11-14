@@ -88,7 +88,7 @@ rule  dc        = [ "sweep" _?outer$# { instance="src2"! parameter=="dc" from=st
 rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points ...params }
 rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep ...params }
 rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points ...params }
-rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=harms ...params }      # assumed
+rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] ...params }      # assumed
 
 # With a model of its own the device keeps it; these forms are write-only
 # because any two-terminal instance would match them when reading.

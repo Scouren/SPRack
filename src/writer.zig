@@ -70,6 +70,9 @@ const Emit = struct {
     foreign: bool = false,
     /// The next token goes directly after the previous one.
     tight: bool = false,
+    /// Inside a repeated group: the pass being written, whose item of
+    /// every list slot stands for the whole list.
+    pass: ?usize = null,
 
     const Save = struct { len: usize, used: u64, tight: bool };
 
@@ -116,8 +119,16 @@ const Emit = struct {
         };
     }
 
+    /// The value of a slot; in a repeated group, this pass's item of a list.
+    fn val(e: *const Emit, idx: u8) Value {
+        const v = e.st.vals[idx];
+        const i = e.pass orelse return v;
+        if (v != .list) return v;
+        return if (i < v.list.len) v.list[i] else .none;
+    }
+
     fn present(e: *const Emit, idx: u8) bool {
-        return switch (e.st.vals[idx]) {
+        return switch (e.val(idx)) {
             .none => false,
             .list => |l| l.len > 0,
             .params => |p| p.len > 0,
@@ -156,7 +167,7 @@ const Emit = struct {
                 if (!e.quiet) for (problems.items) |pb| {
                     const who = if (e.caps) |c| c.word(pb.text) else "";
                     e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
-                        canon,                                                             @tagName(pb.kind),                             pb.text, e.g.name,
+                        canon,                                                @tagName(pb.kind), pb.text, e.g.name,
                         if (who.len > 0) ". Dialects that have it: " else "", who,
                     });
                 };
@@ -206,7 +217,7 @@ const Emit = struct {
     /// The text of a bound slot, or null (with `why` set) when this dialect
     /// has no spelling for the value.
     fn slotText(e: *Emit, idx: u8, quoted: bool) Allocator.Error!?[]const u8 {
-        const v = e.st.vals[idx];
+        const v = e.val(idx);
         const sl = e.slot(idx);
         if (sl.ty == .atom and v == .atom) {
             if (e.g.enumOf(e.st.kind, idx)) |em| {
@@ -293,7 +304,7 @@ const Emit = struct {
         for (items) |n| {
             switch (n.tag) {
                 .cap, .rest, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot)) return true,
-                .opt, .alt, .seq => if (e.anyBound(n.kids)) return true,
+                .opt, .alt, .seq, .rep => if (e.anyBound(n.kids)) return true,
                 .bag => for (n.bag) |b| {
                     if (b.form != .fixed and e.bound(b.slot)) return true;
                 },
@@ -303,11 +314,22 @@ const Emit = struct {
         return false;
     }
 
+    fn passCount(e: *const Emit, items: []const Node, out: *usize) void {
+        for (items) |n| {
+            switch (n.tag) {
+                .cap, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot) and e.st.vals[n.slot] == .list) {
+                    out.* = @max(out.*, e.st.vals[n.slot].list.len);
+                },
+                else => e.passCount(n.kids, out),
+            }
+        }
+    }
+
     fn hasSlots(items: []const Node) bool {
         for (items) |n| {
             switch (n.tag) {
                 .cap, .rest, .taglit, .bag => return true,
-                .opt, .alt, .seq => if (hasSlots(n.kids)) return true,
+                .opt, .alt, .seq, .rep => if (hasSlots(n.kids)) return true,
                 .lit, .glue, .nl, .drop => {},
             }
         }
@@ -338,7 +360,7 @@ const Emit = struct {
             .nl => try e.buf.append(e.arena, '\n'),
             .drop => if (e.present(n.slot)) e.mark(n.slot),
             .taglit => {
-                const v = e.st.vals[n.slot];
+                const v = e.val(n.slot);
                 if (n.soft and !e.present(n.slot)) {
                     try e.tok(n.text);
                     return true;
@@ -421,6 +443,21 @@ const Emit = struct {
                 return false;
             },
             .seq => return e.seq(n.kids),
+            .rep => {
+                // As many passes as the longest list in the group has items.
+                var passes: usize = 0;
+                e.passCount(n.kids, &passes);
+                if (passes == 0 and n.plus) {
+                    if (e.why.len == 0) e.why = "a statement without the repeated items";
+                    return false;
+                }
+                defer e.pass = null;
+                for (0..passes) |i| {
+                    if (i > 0 and !try e.seq(n.sep)) return false;
+                    e.pass = i;
+                    if (!try e.seq(n.kids)) return false;
+                }
+            },
             .bag => {
                 for (n.bag) |b| {
                     switch (b.form) {

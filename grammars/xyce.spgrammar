@@ -58,11 +58,13 @@ rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
 rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
-rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] {...params}
-read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+# The waveform of a V or I source; vsource and isource share these slots.
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
-rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] {...params}
-read  isource   = name~"I" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 rule  bsource   = name~"E" pos neg { value=v! }
