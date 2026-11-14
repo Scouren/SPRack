@@ -29,7 +29,7 @@ Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
 | `vacask` | VACASK, from its README, slides and upstream decks | 9 |
 | `espice` | ESPice, from its docs: ngspice's dialect with `.hdl` for Verilog-A source, `.pss f0 [points]`, `.hb TONES= NHARMS=`, `.stb probe ...`, and its model levels (BSIM-CMG 72, BSIM-BULK 77, PSP 103 at 1040) | 0 |
 | `ltspice` | LTspice, from knowledge of its syntax; no LTspice was available to check against | 13 |
-| `cdl` | CDL for LVS (Cadence netlister, Calibre): subcircuits, `X ... / name` instances, devices, `.PARAM`, `.GLOBAL`, `$` comments. No sources, analyses or controls: each is a `no` line | 4 |
+| `cdl` | CDL, the connectivity netlist of layout-versus-schematic checks: subcircuits, `X ... / name` instances, devices, `.PARAM`, `.GLOBAL`, `$` comments. No sources, analyses or controls: each is a `no` line | 4 |
 
 Each file's header says what it was written from. A line marked `assumed` is
 syntax that source does not settle.

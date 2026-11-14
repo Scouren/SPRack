@@ -1,8 +1,8 @@
 # CDL
 #
-# The Circuit Description Language of Cadence's netlister and Mentor
-# Calibre's LVS: a SPICE netlist of connectivity only. Written from
-# knowledge of that format; no LVS tool was available to check against.
+# CDL, the netlist that layout-versus-schematic checks compare against: a
+# SPICE netlist of connectivity only. Written in our own words from general
+# knowledge of the format; no LVS tool was run against it.
 # Lines marked "assumed" are the ones that knowledge does not settle.
 #
 # CDL has subcircuits, instances with `/` before the subcircuit name, the

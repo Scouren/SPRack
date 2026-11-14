@@ -1,8 +1,8 @@
 # LTspice
 #
-# Written from knowledge of LTspice's syntax (its help file's "LTspice
-# Simulator" chapter); no LTspice was available to check against. Lines
-# marked "assumed" are the ones that knowledge does not settle.
+# Written from general knowledge of LTspice's netlist syntax; no LTspice was
+# available to check against. Lines marked "assumed" are the ones that
+# knowledge does not settle.
 #
 # Differences from ngspice captured here: `;` is the only trailing comment,
 # braces are the only expression delimiters, there is no atto suffix, sources
