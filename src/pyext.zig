@@ -46,8 +46,16 @@ extern fn PyUnicode_FromStringAndSize(s: [*]const u8, n: isize) ?*PyObject;
 extern fn PyErr_SetString(ty: *PyObject, msg: [*:0]const u8) void;
 extern fn PyErr_NoMemory() ?*PyObject;
 extern fn PyObject_IsTrue(o: *PyObject) c_int;
-extern var PyExc_ValueError: *PyObject;
-extern var PyExc_TypeError: *PyObject;
+/// `PyExc_ValueError`. A Windows DLL's data is reached through its
+/// import-table slot.
+fn valueError() *PyObject {
+    if (@import("builtin").os.tag == .windows) return struct {
+        extern var __imp_PyExc_ValueError: **PyObject;
+    }.__imp_PyExc_ValueError.*;
+    return struct {
+        extern var PyExc_ValueError: *PyObject;
+    }.PyExc_ValueError;
+}
 
 const METH_VARARGS = 1;
 const Allocator = std.mem.Allocator;
@@ -85,7 +93,7 @@ fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
             error.CannotRead, error.BadGrammar => w.writeAll(diag.msg) catch {},
         }
         buf[w.end] = 0;
-        PyErr_SetString(PyExc_ValueError, @ptrCast(&buf));
+        PyErr_SetString(valueError(), @ptrCast(&buf));
         return error.Raised;
     };
 }

@@ -148,17 +148,36 @@ statements of the canonical vocabulary and the core writes them.
 
 ### Shipping it inside another program
 
-`zig build py` also writes the package as a self-contained directory:
+The package to ship is a self-contained directory:
 
-    zig-out/python/sprack/__init__.py
-    zig-out/python/sprack/_core.abi3.so     # statically linked; CPython 3.10+
-    zig-out/python/sprack/pdks/*.json       # the PDK manifests
+    python/sprack/__init__.py
+    python/sprack/_core.abi3.so     # _core.pyd on Windows; CPython 3.10+
+    python/sprack/pdks/*.json       # the PDK manifests
 
-Copy `zig-out/python/` anywhere and put it on `PYTHONPATH`; nothing is
-installed and nothing else is needed. Build it with `-Doptimize=ReleaseSafe`
-(about 6 MB) for a release. The only file written outside it is the PDK
-translation cache, `~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=`
-says otherwise. `pip wheel .` packages the same files as a wheel.
+Put the directory holding `sprack/` on `PYTHONPATH`; nothing is installed and
+nothing else is needed. The flake builds it for five platforms from any one,
+offline, in the Nix sandbox:
+
+    nix build .#python                       # this system's
+    nix build .#python-x86_64-linux-gnu      # glibc 2.28 or later, baseline x86-64
+    nix build .#python-aarch64-linux-gnu     # glibc 2.28 or later
+    nix build .#python-x86_64-macos
+    nix build .#python-aarch64-macos
+    nix build .#python-x86_64-windows-gnu    # _core.pyd, imports python3.dll
+
+each giving `result/python/sprack/`. Without Nix, the same is
+`zig build bundle -Doptimize=ReleaseSafe -Dtarget=<target> --prefix <dir>`
+(targets as in `flake.nix`'s `bundleTargets`); `zig build py` also writes the
+host's bundle into `zig-out/python/`. A Windows build links an import library
+for `python3.dll` that `zig dlltool` makes from `src/python3.def`, so no
+Python is needed to build it. Checked: the x86_64 Linux bundle imports and
+runs under CPython 3.11 and 3.13; the macOS ones leave the Python symbols to
+flat-namespace lookup and the Windows one imports them from `python3.dll`,
+but neither has been loaded by a Python here.
+
+The only file written outside the package is the translation cache,
+`~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=` says otherwise.
+`pip wheel .` packages the same files as a wheel for the host.
 
 ### PDKs
 

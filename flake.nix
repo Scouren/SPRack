@@ -28,6 +28,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       flake-utils,
       zig-overlay,
@@ -52,6 +53,55 @@
           ln -s ${inputs.freepdk45}/FreePDK45/ncsu_basekit/models $out/freepdk45/FreePDK45/ncsu_basekit/
         '';
 
+        # The Python package to ship (zig build bundle): $out/python/sprack/
+        # with __init__.py, pdks/*.json and the extension, for one Zig target.
+        # Any system builds any target: Zig cross-compiles, and the Windows
+        # import library for python3.dll comes from src/python3.def.
+        mkBundle =
+          target:
+          pkgs.stdenvNoCC.mkDerivation {
+            pname = "sprack-python-${target}";
+            version = "0.1.0";
+            src = pkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = pkgs.lib.fileset.unions [
+                ./build.zig
+                ./build.zig.zon
+                ./src
+                ./grammars
+                (pkgs.lib.fileset.fileFilter (f: f.hasExt "py" || f.hasExt "json") ./python/sprack)
+              ];
+            };
+            nativeBuildInputs = [ zig ];
+            dontConfigure = true;
+            dontInstall = true;
+            # The binary is for elsewhere (another OS, or any Linux): no
+            # patching, no stripping.
+            dontFixup = true;
+            buildPhase = ''
+              export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global ZIG_LOCAL_CACHE_DIR=$TMPDIR/zig-local
+              zig build bundle -Doptimize=ReleaseSafe -Dtarget=${target} --prefix $out
+            '';
+          };
+        # glibc 2.28 (2018) and baseline CPUs, so a Linux bundle loads on any
+        # distribution of the last years.
+        bundleTargets = {
+          x86_64-linux-gnu = "x86_64-linux-gnu.2.28";
+          aarch64-linux-gnu = "aarch64-linux-gnu.2.28";
+          x86_64-macos = "x86_64-macos";
+          aarch64-macos = "aarch64-macos";
+          x86_64-windows-gnu = "x86_64-windows-gnu";
+        };
+        hostTarget =
+          {
+            x86_64-linux = "x86_64-linux-gnu";
+            aarch64-linux = "aarch64-linux-gnu";
+            x86_64-darwin = "x86_64-macos";
+            aarch64-darwin = "aarch64-macos";
+          }
+          .${system};
+        bundles = pkgs.lib.mapAttrs' (n: t: pkgs.lib.nameValuePair "python-${n}" (mkBundle t)) bundleTargets;
+
         ci = pkgs.mkShell {
           packages = [
             zig
@@ -62,7 +112,11 @@
         };
       in
       {
-        packages.test-pdks = testPdks;
+        packages = bundles // {
+          test-pdks = testPdks;
+          # This system's own bundle.
+          python = bundles."python-${hostTarget}";
+        };
 
         devShells = {
           inherit ci;

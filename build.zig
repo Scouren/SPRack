@@ -79,6 +79,19 @@ pub fn build(b: *std.Build) void {
         }),
     });
     pyext.linker_allow_shlib_undefined = true;
+    if (target.result.os.tag == .windows) {
+        // A PE file cannot leave symbols to the loading process: link an
+        // import library for python3.dll, made here from src/python3.def.
+        const machine = switch (target.result.cpu.arch) {
+            .x86_64 => "i386:x86-64",
+            .aarch64 => "arm64",
+            else => @panic("Windows Python extension: x86_64 or aarch64 only"),
+        };
+        const dlltool = b.addSystemCommand(&.{ b.graph.zig_exe, "dlltool", "-m", machine, "-d" });
+        dlltool.addFileArg(b.path("src/python3.def"));
+        dlltool.addArg("-l");
+        pyext.root_module.addObjectFile(dlltool.addOutputFileArg("python3.lib"));
+    }
     const ext_name = if (target.result.os.tag == .windows) "_core.pyd" else "_core.abi3.so";
     const install_py = b.addInstallFileWithDir(pyext.getEmittedBin(), .{ .custom = "../python/sprack" }, ext_name);
     // The same package as a self-contained directory to ship: zig-out/python
@@ -94,6 +107,11 @@ pub fn build(b: *std.Build) void {
     py_step.dependOn(&install_py.step);
     py_step.dependOn(&bundle_pkg.step);
     py_step.dependOn(&bundle_ext.step);
+    // Only the shipped package, under the install prefix: what a sandboxed or
+    // cross build (`-Dtarget=`, `--prefix`) runs, leaving python/ untouched.
+    const bundle_step = b.step("bundle", "Install only the package to ship, into <prefix>/python/sprack/");
+    bundle_step.dependOn(&bundle_pkg.step);
+    bundle_step.dependOn(&bundle_ext.step);
 
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());

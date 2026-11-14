@@ -1,0 +1,17 @@
+; The part of CPython's stable ABI (python3.dll) that src/pyext.zig calls.
+; build.zig turns this into an import library with `zig dlltool` for a
+; Windows target, so no Python install is needed to build the .pyd.
+LIBRARY python3.dll
+EXPORTS
+PyModule_Create2
+PyTuple_Size
+PyTuple_GetItem
+PyTuple_New
+PyTuple_SetItem
+PyUnicode_AsUTF8AndSize
+PyUnicode_FromStringAndSize
+PyErr_SetString
+PyErr_NoMemory
+PyObject_IsTrue
+PyExc_ValueError DATA
+PyExc_TypeError DATA
