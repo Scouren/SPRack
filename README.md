@@ -12,7 +12,8 @@ the same canonical statements, and every writer consumes them.
 
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 44 tests
+    zig build test                 # 45 tests
+    pip wheel . -w dist            # sprack-<ver>-cp310-abi3-<platform>.whl (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
 

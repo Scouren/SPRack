@@ -76,3 +76,24 @@ export fn sprack_result_free(r: ?*Result) void {
     p.arena.deinit();
     gpa.destroy(p);
 }
+
+test "C ABI: dialects, translate, report, free" {
+    try std.testing.expectEqual(1, sprack_abi_version());
+    var len: usize = 0;
+    try std.testing.expect(sprack_dialect_count() > 0);
+    _ = sprack_dialect_name(0, &len).?;
+    try std.testing.expect(len > 0);
+    try std.testing.expectEqual(null, sprack_dialect_name(sprack_dialect_count(), &len));
+
+    const src = "t\nR1 a 0 1M\n.pz a 0 b 0 vol pz\n.end\n";
+    const r = sprack_translate("ngspice", 7, "xyce", 4, src, src.len).?;
+    defer sprack_result_free(r);
+    const text = sprack_result_text(r, &len);
+    try std.testing.expect(std.mem.indexOf(u8, text[0..len], "R1 a 0 1m") != null);
+    const report = sprack_result_report(r, &len);
+    try std.testing.expect(std.mem.indexOf(u8, report[0..len], "pole-zero") != null);
+    try std.testing.expectEqual(1, sprack_result_errors(r));
+
+    try std.testing.expectEqual(null, sprack_translate("pspice", 6, "xyce", 4, src, src.len));
+    sprack_result_free(null);
+}
