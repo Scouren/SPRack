@@ -107,6 +107,11 @@ def test_vocabulary_is_closed():
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
 
 
+def unwrap(text):
+    """Join continuation lines: the writer wraps at 100 columns, and PDK paths are long."""
+    return text.replace("\n+ ", " ")
+
+
 def pdk(name, sub, **kw):
     cache = tempfile.mkdtemp(prefix="sprack-test-")
     return sprack.PDK(name, root=os.path.join(PDKS, sub), cache_dir=cache, **kw)
@@ -125,7 +130,7 @@ def test_pdk_sky130():
     c.pfet_01v8("Mp", "out", "in", "vdd", "vdd", w=1, l=0.15)
     c.nfet_01v8("Mn", "out", "in", 0, 0, w=0.5, l=0.15)
     c.tran("10p", "8n")
-    ng = c.netlist("ngspice")
+    ng = unwrap(c.netlist("ngspice"))
     assert f'.lib "{p.root}/models/sky130.lib.spice" tt\n' in ng
     assert "XMp out in vdd vdd sky130_fd_pr__pfet_01v8 w=1 l=0.15\n" in ng
     raises(TypeError, lambda: c.nfet_01v8("M3", "a", "b", "c"), "has 4 terminals (d, g, s, b), got 3")
@@ -137,7 +142,7 @@ def test_pdk_sky130():
     xy = c.netlist("xyce", strict=False)
     assert [x.code for x in xy.report.errors] == ["untranslated", "untranslated"] and "pm3.spice" in xy.report.errors[0].file
     tree = p.translate("xyce", strict=False)
-    assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in xy
+    assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
     lib = open(os.path.join(tree, "models", "sky130.lib.spice")).read()
     assert '.include "../cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"' in lib
     assert os.path.isfile(os.path.join(tree, "cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"))
@@ -154,10 +159,10 @@ def test_pdk_ihp():
     c.rppd("R1", "vdd", "out", 0, w="0.5u", l="2u")
     c.npn13G2("Q1", "c", "b", "e", "s", Nx=1)
     c.op()
-    ng = c.netlist("ngspice")
+    ng = unwrap(c.netlist("ngspice"))
     assert ng.count(".lib ") == 6 and '/cornerMOSlv.lib" mos_tt\n' in ng and '/cornerHBT.lib" hbt_typ\n' in ng
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
-    hs = c.netlist("hspice")          # translates the library: conditionals and all
+    hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
     # Spectre has no gauss()/agauss() and this grammar no conditional block: reported, per file and line.
     e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "function 'gauss' has no spelling in spectre")
@@ -174,7 +179,7 @@ def test_pdk_asap7():
     c.nmos_rvt("M1", "out", "in", 0, 0, nfin=3)
     c.pmos_rvt("M2", "out", "in", "vdd", "vdd", nfin=3)
     c.tran("1p", "1n")
-    hs = c.netlist("hspice")
+    hs = unwrap(c.netlist("hspice"))
     assert f'.include "{p.root}/models/hspice/7nm_FF.pm"\n' in hs and "M1 out in 0 0 nmos_rvt nfin=3\n" in hs
     sp = c.netlist("spectre")
     assert "M1 (out in 0 0) nmos_rvt nfin=3\n" in sp
