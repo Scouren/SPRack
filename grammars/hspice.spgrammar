@@ -8,9 +8,10 @@
 # and CUR=, Verilog-A is loaded with .HDL and instantiated as X.
 #
 # .NOISE rides on the .AC statement before it and has no sweep of its own.
-# A noise analysis is therefore written as the two lines together; reading a
-# lone .NOISE line is not attempted, because the .AC it belongs to is an
-# analysis in its own right.
+# A noise analysis is therefore written as the two lines together. A .NOISE
+# read takes its sweep from the .AC before it (`merge`), and is one statement
+# with it when nothing but comments stands between them; otherwise the .AC
+# stays an analysis in its own right.
 
 dialect hspice
 
@@ -100,6 +101,8 @@ rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
 write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src
+read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src
+merge ac -> noise
 rule  sens      = ".sens" out
 rule  four      = ".four" freq signals+
 rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {...params}

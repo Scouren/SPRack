@@ -298,12 +298,6 @@ test "25 translations: write, read back, same circuit, no errors" {
 
             var report2: ir.Report = .init(a);
             const back = try readAs(a, to, text, &report2);
-            // HSPICE writes a noise analysis as .AC plus .NOISE and does not
-            // read the pair back as one analysis.
-            if (std.mem.eql(u8, to, "hspice") and countKind(src_nl, .noise) > 0) {
-                try testing.expectEqual(1, countKind(back, .@"opaque"));
-                continue;
-            }
             try testing.expectEqual(0, countKind(back, .@"opaque"));
             try testing.expect(ir.sameCircuit(&src_nl, &back));
         }
@@ -1211,6 +1205,26 @@ test "define: a named pattern compiles to the same nodes as writing it out" {
     const out = try tr(arena_state.allocator(), "hspice", "xyce", "t\nV1 a 0 SIN(0 1 1k)\nI1 a 0 PWL(0 0 1n 1)\n.end\n", &report);
     try has(out, "V1 a 0 sin(0 1 1k)");
     try has(out, "I1 a 0 pwl(0 0 1n 1)");
+}
+
+test "HSPICE .ac plus .noise is one noise analysis" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // Adjacent, with a comment between: one statement.
+    const one = try readAs(a, "hspice", "t\n.ac dec 10 1k 1meg\n* noise\n.noise v(out) vin\n.end\n", &report);
+    try testing.expectEqual(0, countKind(one, .ac));
+    try testing.expectEqual(1, countKind(one, .noise));
+    try testing.expectEqual(1, countKind(one, .comment));
+    const ng = try tr(a, "hspice", "ngspice", "t\nVin in 0 ac 1\n.ac dec 10 1k 1meg\n.noise v(out,ref) vin\n.end\n", &report);
+    try has(ng, ".noise v(out,ref) Vin dec 10 1k 1meg\n");
+    try testing.expect(std.mem.indexOf(u8, ng, ".ac") == null);
+    // Apart: the .ac stays an analysis of its own and lends its sweep.
+    const two = try tr(a, "hspice", "ngspice", "t\nVin in 0 ac 1\n.ac dec 10 1k 1meg\n.print ac v(out)\n.noise v(out) vin\n.end\n", &report);
+    try has(two, ".ac dec 10 1k 1meg\n");
+    try has(two, ".noise v(out) Vin dec 10 1k 1meg\n");
+    try clean(&report);
 }
 
 test "repeated groups: list slots in lockstep, with a separator" {

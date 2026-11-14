@@ -1134,6 +1134,42 @@ fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
     }
 }
 
+/// A `merge a -> b` in the grammar: this dialect writes one statement as
+/// two (HSPICE noise is `.ac` plus `.noise`). Reading makes them one again.
+fn undoMerges(g: *const Grammar, list: *std.ArrayList(ir.Stmt)) void {
+    for (g.merges) |mg| {
+        var i: usize = 0;
+        while (i < list.items.len) : (i += 1) {
+            if (list.items[i].kind != mg.into) continue;
+            var j = i;
+            const from = while (j > 0) {
+                j -= 1;
+                if (list.items[j].kind == mg.from) break j;
+            } else continue;
+            const src = list.items[from];
+            const dst = &list.items[i];
+            for (schema.info(mg.into).slots, 0..) |sl, k| {
+                if (isBound(dst.vals[k])) continue;
+                const fk = schema.slotIndex(mg.from, sl.name) orelse continue;
+                dst.vals[k] = src.vals[fk];
+            }
+            // Only comments between: the two lines were one statement.
+            const adjacent = for (list.items[from + 1 .. i]) |st| {
+                if (st.kind != .comment) break false;
+            } else true;
+            if (!adjacent) continue;
+            if (dst.tail.len == 0) {
+                dst.tail = src.tail;
+                _ = list.orderedRemove(from);
+            } else if (src.tail.len > 0) {
+                list.items[from] = .{ .kind = .comment, .raw = src.tail, .line = src.line };
+                continue;
+            } else _ = list.orderedRemove(from);
+            i -= 1;
+        }
+    }
+}
+
 /// Several option statements under one heading are one set of options.
 fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
     const package = schema.slotIndex(.options, "package").?;
@@ -1167,6 +1203,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
         if (st.body.len > 0) st.body = try normalizeLists(g, arena, st.body, report);
     }
     try undoMoves(g, arena, &list, report);
+    undoMerges(g, &list);
     try mergeOptions(arena, &list);
     return list.toOwnedSlice(arena);
 }

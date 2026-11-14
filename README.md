@@ -244,6 +244,9 @@ no single rule holds everything, which is how `.options timeint ...` and
     implied noise ref = 0              # what the dialect assumes when it says nothing
     enum options method : trap=trap gear=gear2      # canonical = this dialect's word
     move options.method -> tran.method # this dialect says it on another statement
+    merge ac -> noise                  # read: noise takes what it lacks from the ac
+                                       # before it, and absorbs it if only comments
+                                       # stand between them
     caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 
@@ -308,8 +311,9 @@ dialects that have it; so is one that nothing defines.
   libraries, initial conditions), where the syntax could not be confirmed, and
   in Spectre (user functions, conditional blocks, `tf`, `pz`, `sens`, `four`,
   `hb`).
-* HSPICE noise is written as `.AC` plus `.NOISE` and a lone `.NOISE` is not
-  read. Nested DC sweeps have no Spectre form here. Parameter sweeps (`.dc` of
+* HSPICE noise is written as `.AC` plus `.NOISE`. A `.NOISE` read takes its
+  sweep from the `.AC` before it; a `.NOISE` with an output-interval number
+  after the source is not read. Nested DC sweeps have no Spectre form here. Parameter sweeps (`.dc` of
   a parameter, `.step`, `.alter`, `.data`) are not in the vocabulary;
   temperature sweeps are.
 * Parameters of model cards are copied by name, with a warning: the simulators

@@ -160,6 +160,11 @@ pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 pub const EnumMap = struct { kind: Kind, slot: u8, pairs: []const EnumPair };
 /// The dialect says this value on a different statement.
 pub const Move = struct { from: Kind, from_slot: u8, to: Kind, to_slot: u8 };
+/// `merge ac -> noise`: what this dialect writes as two statements is one.
+/// When reading, an `into` statement takes the slots it lacks from the
+/// nearest `from` statement before it, and absorbs that statement when only
+/// comments stand between them.
+pub const Merge = struct { from: Kind, into: Kind };
 pub const SignalForm = struct { form: []const u8, template: []const u8 };
 /// One canonical function, variable or operator and its spellings here.
 /// The first spelling is the one written.
@@ -192,6 +197,7 @@ pub const Grammar = struct {
     implied: []const Implied = &.{},
     enums: []const EnumMap = &.{},
     moves: []const Move = &.{},
+    merges: []const Merge = &.{},
     signals: []const SignalForm = &.{},
     functions: []const Spellings = &.{},
     variables: []const Spellings = &.{},
@@ -859,6 +865,7 @@ pub fn compile(comptime src: []const u8) Grammar {
     var implied: []const Implied = &.{};
     var enums: []const EnumMap = &.{};
     var moves: []const Move = &.{};
+    var merges: []const Merge = &.{};
     var signals: []const SignalForm = &.{};
     var functions: []const Spellings = &.{};
     var variables: []const Spellings = &.{};
@@ -968,6 +975,10 @@ pub fn compile(comptime src: []const u8) Grammar {
             const fk, const fs = dotted(name, lines.no, a[0]);
             const tk, const ts = dotted(name, lines.no, a[2]);
             moves = moves ++ &[_]Move{.{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts }};
+        } else if (std.mem.eql(u8, head, "merge")) {
+            const a = args(name, lines.no, rest);
+            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) fail(name, lines.no, "merge is `merge kind -> kind`");
+            merges = merges ++ &[_]Merge{.{ .from = kindOf(name, lines.no, a[0]), .into = kindOf(name, lines.no, a[2]) }};
         } else if (std.mem.eql(u8, head, "signals")) {
             signals = parseSignals(name, &lines, fold);
         } else if (std.mem.eql(u8, head, "functions")) {
@@ -997,6 +1008,7 @@ pub fn compile(comptime src: []const u8) Grammar {
         .implied = implied,
         .enums = enums,
         .moves = moves,
+        .merges = merges,
         .signals = signals,
         .functions = functions,
         .variables = variables,
