@@ -2084,3 +2084,26 @@ test "parse check: ngspice MESA and HFET cards are not plain MESFETs" {
     const out = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 zm\n.model zm nmf vto=-1\n.end\n", &r3);
     try has(out, ".model zm nmf vto=-1\n");
 }
+
+test "parse check: a long .lib or .include line is never wrapped" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const long = "/a/very/long/path/to/a/process/design/kit/that/goes/on/and/on/and/on/models/sky130.lib.spice";
+    var r: ir.Report = .init(a);
+    // ngspice takes `.lib` with its path on a `+` line for an unknown subcircuit library.
+    const out = try tr(a, "ngspice", "xyce", "t\n.lib \"" ++ long ++ "\" tt\n.include \"" ++ long ++ long ++ "\"\n.end\n", &r);
+    try has(out, ".lib \"" ++ long ++ "\" tt\n");
+    try has(out, ".include \"" ++ long ++ long ++ "\"\n");
+}
+
+test "parse check: a model parameter given twice keeps the last, as SPICE does" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // FreePDK45's PMOS_VTL gives toxref twice; Xyce rejects such a card.
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "hspice", "xyce", "t\n.model p1 pmos level=54 toxref=1.26n vsat=69000 toxref=1.3n\n.end\n", &r);
+    try has(out, ".model p1 pmos level=14 vsat=69000 toxref=1.3n\n");
+    try reported(&r, .warning, "model 'p1': 'toxref' is given twice; the last value is kept");
+}

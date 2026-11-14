@@ -657,6 +657,8 @@ const Writer = struct {
     instances: ir.CaselessSet = .empty,
     ordinals: [schema.kind_count]usize = @splat(0),
     last_blank: bool = true,
+    /// The statement being written names a file: one line, however long.
+    nowrap: bool = false,
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -675,7 +677,7 @@ const Writer = struct {
         w.last_blank = false;
         const cfg = &w.g.lex;
         const can_wrap = cfg.cont_lead.len > 0 or cfg.cont_trail.len > 0;
-        if (text.len <= wrap_at or !can_wrap or std.mem.indexOfScalar(u8, text, '\n') != null) {
+        if (text.len <= wrap_at or !can_wrap or w.nowrap or std.mem.indexOfScalar(u8, text, '\n') != null) {
             try w.out.writeAll(text);
             return w.out.writeByte('\n');
         }
@@ -820,6 +822,19 @@ const Writer = struct {
             try ps.append(a, .{ .key = kv.key, .val = v });
         }
         if (st.get("params") == .params) try ps.appendSlice(a, st.get("params").params);
+        if (!same) {
+            // A key given twice: SPICE keeps the last, Xyce rejects the card.
+            var i: usize = ps.items.len;
+            while (i > 0) {
+                i -= 1;
+                const k = ps.items[i].key;
+                for (ps.items[i + 1 ..]) |later| if (std.ascii.eqlIgnoreCase(later.key, k)) {
+                    w.report.add(.warning, .invalid, st.line, "model '{s}': '{s}' is given twice; the last value is kept", .{ st.get("name").atom, k });
+                    _ = ps.orderedRemove(i);
+                    break;
+                };
+            }
+        }
         try out.set(a, schema.slotIndex(.model, "params").?, if (ps.items.len > 0) .{ .params = ps.items } else .none);
         if (!same and st.get("params") == .params) {
             w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
@@ -974,6 +989,9 @@ const Writer = struct {
         };
         var e = w.emitter(a, st);
         _ = try e.seq(rule.pat);
+        // ngspice reads .lib and .include before it joins continuation lines.
+        w.nowrap = st.kind == .include or st.kind == .lib or st.kind == .hdl;
+        defer w.nowrap = false;
         try w.lineTail(e.buf.items, st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
