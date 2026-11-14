@@ -2066,3 +2066,21 @@ test "parse check: forms ngspice and Xyce reject when they load the netlist" {
     _ = try tr(a, "ngspice", "xyce", "t\nV1 a 0 SIN(0 1)\n.tran 10n 1u\n.end\n", &r2);
     try testing.expect(r2.hasErrors());
 }
+
+test "parse check: ngspice MESA and HFET cards are not plain MESFETs" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // nmf level=2 is MESA, which Xyce does not have; it was written as Xyce's Z level 1 card.
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 nm\n.model nm nmf level=2 vto=-1\n.end\n", &r1);
+    try reported(&r1, .@"error", "'nmf' is a built-in ngspice model type that the ngspice models table does not list");
+    // An HFET card with nothing but its level still names a model Xyce lacks.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 hm\n.model hm nhfet level=6\n.end\n", &r2);
+    try reported(&r2, .@"error", "xyce.spgrammar has no spelling for model family 'hfet n'");
+    // A plain MESFET still translates.
+    var r3: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 zm\n.model zm nmf vto=-1\n.end\n", &r3);
+    try has(out, ".model zm nmf vto=-1\n");
+}

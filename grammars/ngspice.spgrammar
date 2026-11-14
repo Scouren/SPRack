@@ -185,10 +185,11 @@ models
   hicum2 pnp = pnp level=8
   jfet n     = njf
   jfet p     = pjf
-  mesfet n   = nmf
-  mesfet p   = pmf
   # nmf/pmf/nhfet/phfet share one level switch: 0-1 MES, 2-4 MESA, 5 HFET1,
   # 6 HFET2 (inpdomod.c:124-175). An nhfet card without a level is a MESFET.
+  # MESA has no family here, so a MESA card is an error, not a MESFET.
+  mesfet n   = nmf !level | nmf level=1 | nmf level=0
+  mesfet p   = pmf !level | pmf level=1 | pmf level=0
   hfet n     = nhfet level=5 | nhfet level=6
   hfet p     = phfet level=5 | phfet level=6
   mos1 n     = nmos level=1 | nmos !level
