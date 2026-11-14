@@ -14,7 +14,7 @@ the same canonical statements, and every writer consumes them.
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
     zig build test                 # 44 tests
 
-Built and tested with Zig 0.17.1.
+Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
 
 ## What it guarantees
 
