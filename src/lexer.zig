@@ -19,8 +19,6 @@ pub const Tok = struct {
     raw: []const u8,
     /// Index into `Lexed.lines`.
     lno: u32,
-    /// One byte for the three flags keeps a token at 40 bytes; a large
-    /// netlist has tens of millions of them.
     f: Flags = .{},
     /// How many `)` follow this token. Only counted where parentheses are
     /// otherwise blanks, so that `v(a,b)` can still be told from `v(a) b`.
@@ -37,30 +35,23 @@ pub const Tok = struct {
     };
 };
 
-comptime {
-    std.debug.assert(@sizeOf(Tok) == 40);
-}
-
 pub const LineKind = enum { code, comment, blank };
 
 /// A logical line: a statement with its continuation lines joined, or one
 /// comment line, or a run of blank lines.
 pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, tail: []const u8 = "" };
 
+/// A netlist cut into logical lines. `lines` stops before the end marker.
 pub const Lexed = struct {
     title: []const u8,
-    toks: []Tok,
     lines: []Line,
     all_lines: []Line = &.{},
 
-    /// The token list is by far the largest allocation and nothing points
-    /// into it once the statements are built, so it lives outside the arena
-    /// and is returned to the system as soon as reading is done.
+    /// The line list lives outside the arena and is freed when reading is done.
     pub fn deinit(lx: *Lexed) void {
-        std.heap.page_allocator.free(lx.toks);
         std.heap.page_allocator.free(lx.all_lines);
-        lx.toks = &.{};
         lx.lines = &.{};
+        lx.all_lines = &.{};
     }
 };
 
@@ -416,37 +407,99 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
     }
 }
 
+/// Join physical lines into logical ones and find the end marker. Tokens
+/// come later, a few lines at a time, from a `Window`.
 pub fn lex(arena: Allocator, cfg: *const LexCfg, src: []const u8) Allocator.Error!Lexed {
     var title: []const u8 = "";
     const lines = try joinLines(arena, cfg, src, &title);
-    const big = std.heap.page_allocator;
-    var toks: std.ArrayList(Tok) = .empty;
-    errdefer toks.deinit(big);
-    try toks.ensureTotalCapacity(big, src.len / 6 + 16);
-    var kept: usize = lines.len;
+    var lx: Lexed = .{ .title = title, .lines = lines, .all_lines = lines };
+    if (cfg.end_marker.len == 0) return lx;
+    var w: Window = .init(cfg, lines);
+    defer w.deinit();
     for (lines, 0..) |ln, idx| {
-        const lno: u32 = @intCast(idx);
+        // Only a line that starts like the marker can be it.
+        if (ln.kind != .code or ln.text.len < cfg.end_marker.len or
+            !std.ascii.eqlIgnoreCase(ln.text[0..cfg.end_marker.len], cfg.end_marker)) continue;
+        w.drop(w.toks.items.len);
+        w.next = @intCast(idx);
+        _ = try w.has(0);
+        const first = w.toks.items[0];
+        if (first.tag == .word and std.mem.eql(u8, first.text, cfg.end_marker)) {
+            lx.lines = lines[0..idx];
+            break;
+        }
+    }
+    return lx;
+}
+
+/// The tokens of a few logical lines at a time. A pass over a netlist lexes
+/// each line when it reaches it and forgets it once it is read: the tokens
+/// of a whole netlist would take five times its size.
+pub const Window = struct {
+    const gpa = std.heap.page_allocator;
+    cfg: *const LexCfg,
+    lines: []const Line,
+    /// Case-folded copies of words, freed whenever the window empties. A
+    /// value that keeps a folded `text` must copy it.
+    scratch: std.heap.ArenaAllocator = .init(gpa),
+    toks: std.ArrayList(Tok) = .empty,
+    /// The next line to lex.
+    next: u32 = 0,
+
+    pub fn init(cfg: *const LexCfg, lines: []const Line) Window {
+        return .{ .cfg = cfg, .lines = lines };
+    }
+
+    pub fn deinit(w: *Window) void {
+        w.toks.deinit(gpa);
+        w.scratch.deinit();
+    }
+
+    /// Is there a token at `i`? Lexes lines until there is one or the lines
+    /// run out. A line is lexed whole: every token up to the `nl` that ends
+    /// the line of token `i` is there too.
+    pub fn has(w: *Window, i: usize) Allocator.Error!bool {
+        while (i >= w.toks.items.len) {
+            if (w.next >= w.lines.len) return false;
+            try w.lexLine(w.next);
+            w.next += 1;
+        }
+        return true;
+    }
+
+    /// Back to the first line, for another pass.
+    pub fn rewind(w: *Window) void {
+        w.drop(w.toks.items.len);
+        w.next = 0;
+    }
+
+    /// Forget the tokens before `i`; token `i` becomes token 0.
+    pub fn drop(w: *Window, i: usize) void {
+        const left = w.toks.items.len - i;
+        if (left == 0) {
+            w.toks.clearRetainingCapacity();
+            _ = w.scratch.reset(.retain_capacity);
+            return;
+        }
+        std.mem.copyForwards(Tok, w.toks.items[0..left], w.toks.items[i..]);
+        w.toks.shrinkRetainingCapacity(left);
+    }
+
+    fn lexLine(w: *Window, lno: u32) Allocator.Error!void {
+        const ln = w.lines[lno];
+        const cfg = w.cfg;
         if (ln.kind != .code) {
             const tag: TokTag = if (ln.kind == .blank) .blank else .comment;
             var text = ln.text;
             if (startsWithAny(text, cfg.line_comments)) |n| text = commentText(text[n..]) else if (startsWithAny(text, cfg.tail_comments)) |n| text = commentText(text[n..]);
-            try toks.append(big, .{ .tag = tag, .text = text, .raw = ln.text, .lno = lno });
-            try toks.append(big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
-            continue;
+            try w.toks.append(gpa, .{ .tag = tag, .text = text, .raw = ln.text, .lno = lno });
+            try w.toks.append(gpa, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
+            return;
         }
-        const start = toks.items.len;
-        try tokenizeLine(arena, big, cfg, ln.text, lno, &toks);
-        if (cfg.end_marker.len > 0 and toks.items.len > start and toks.items[start].tag == .word and
-            std.mem.eql(u8, toks.items[start].text, cfg.end_marker))
-        {
-            toks.shrinkRetainingCapacity(start);
-            kept = idx;
-            break;
-        }
-        try toks.append(big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
+        try tokenizeLine(w.scratch.allocator(), gpa, cfg, ln.text, lno, &w.toks);
+        try w.toks.append(gpa, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
     }
-    return .{ .title = title, .toks = try toks.toOwnedSlice(big), .lines = lines[0..kept], .all_lines = lines };
-}
+};
 
 // ------------------------------------------------------------------ numbers
 
@@ -684,16 +737,20 @@ test "lines, comments, continuation" {
         \\R9 never seen 1
     );
     defer lx.deinit();
+    var w: Window = .init(&spice_cfg, lx.lines);
+    defer w.deinit();
+    while (try w.has(w.toks.items.len)) {}
+    const toks = w.toks.items;
     try testing.expectEqualStrings("My Title", lx.title);
     try testing.expectEqual(3, lx.lines.len);
-    try testing.expectEqual(TokTag.comment, lx.toks[0].tag);
-    try testing.expectEqualStrings("a comment", lx.toks[0].text);
-    try testing.expectEqualStrings("r1", lx.toks[2].text);
-    try testing.expectEqualStrings("R1", lx.toks[2].raw);
-    try testing.expectEqualStrings("trailing", lx.toks[6].text);
+    try testing.expectEqual(TokTag.comment, toks[0].tag);
+    try testing.expectEqualStrings("a comment", toks[0].text);
+    try testing.expectEqualStrings("r1", toks[2].text);
+    try testing.expectEqualStrings("R1", toks[2].raw);
+    try testing.expectEqualStrings("trailing", toks[6].text);
     try testing.expectEqual(@as(u32, 4), lx.lines[2].no);
     var saw_expr = false;
-    for (lx.toks) |t| {
+    for (toks) |t| {
         if (t.tag == .expr) {
             saw_expr = true;
             try testing.expectEqualStrings("2*0.5U", t.text);
@@ -714,12 +771,16 @@ test "spectre tokens" {
         \\    wave=[0 0 1n 1]
     );
     defer lx.deinit();
+    var w: Window = .init(&cfg, lx.lines);
+    defer w.deinit();
+    while (try w.has(w.toks.items.len)) {}
+    const toks = w.toks.items;
     try testing.expectEqual(2, lx.lines.len);
-    try testing.expectEqual(TokTag.lparen, lx.toks[1].tag);
-    try testing.expect(lx.toks[6].f.key);
-    try testing.expectEqual(TokTag.expr, lx.toks[8].tag);
-    try testing.expectEqualStrings("(ra + rb)*2", lx.toks[8].text);
-    try testing.expectEqual(TokTag.vec, lx.toks[lx.toks.len - 2].tag);
+    try testing.expectEqual(TokTag.lparen, toks[1].tag);
+    try testing.expect(toks[6].f.key);
+    try testing.expectEqual(TokTag.expr, toks[8].tag);
+    try testing.expectEqualStrings("(ra + rb)*2", toks[8].text);
+    try testing.expectEqual(TokTag.vec, toks[toks.len - 2].tag);
 }
 
 test "odd scale factors are exact" {

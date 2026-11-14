@@ -104,6 +104,28 @@ pub const Stmt = struct {
     }
 };
 
+/// Hashes and compares names as an ASCII case-folding dialect reads them.
+pub const Caseless = struct {
+    pub fn hash(_: Caseless, s: []const u8) u64 {
+        var h: std.hash.Wyhash = .init(0);
+        var buf: [64]u8 = undefined;
+        var i: usize = 0;
+        while (i < s.len) : (i += buf.len) {
+            const part = s[i..@min(s.len, i + buf.len)];
+            h.update(std.ascii.lowerString(&buf, part));
+        }
+        return h.final();
+    }
+
+    pub fn eql(_: Caseless, a: []const u8, b: []const u8) bool {
+        return std.ascii.eqlIgnoreCase(a, b);
+    }
+};
+
+/// A set of names that ignores case. Each key is the spelling it was first
+/// added with, so no lower-cased copy is ever made.
+pub const CaselessSet = std.HashMapUnmanaged([]const u8, void, Caseless, std.hash_map.default_max_load_percentage);
+
 /// Marks a `comment` statement that stands for a blank line.
 pub const blank_line = "\n";
 
