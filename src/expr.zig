@@ -255,6 +255,115 @@ pub fn write(
     return aw.written();
 }
 
+/// A plain number as an integer times a power of ten, when it fits.
+fn decimal(n: ir.Number) ?struct { i128, i32 } {
+    var m: i128 = 0;
+    var e = n.exp10;
+    var neg = false;
+    var point = false;
+    for (n.digits(), 0..) |c, i| switch (c) {
+        '-', '+' => {
+            if (i != 0) return null;
+            neg = c == '-';
+        },
+        '.' => {
+            if (point) return null;
+            point = true;
+        },
+        '0'...'9' => {
+            m = std.math.add(i128, std.math.mul(i128, m, 10) catch return null, c - '0') catch return null;
+            if (point) e -= 1;
+        },
+        else => return null,
+    };
+    return .{ if (neg) -m else m, e };
+}
+
+fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
+    return switch (v) {
+        .num => |n| if (n.exp10 == 0) n.digits() else try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
+        .expr => |s| s,
+        .atom => |s| s,
+        else => "0",
+    };
+}
+
+pub const Op = enum { add, sub, recip };
+
+/// `a + b`, `a - b` or `1 / a`, exact when both are plain numbers (and, for
+/// `1 / a`, when `a` is a power of ten); otherwise a canonical expression.
+pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error!ir.Value {
+    const da = if (a == .num) decimal(a.num) else null;
+    const db = if (b == .num) decimal(b.num) else null;
+    switch (op) {
+        .recip => if (da) |x| {
+            var m = if (x[0] < 0) -x[0] else x[0];
+            var k: i32 = 0;
+            while (m >= 10 and @rem(m, 10) == 0) : (k += 1) m = @divExact(m, 10);
+            if (m == 1) return .{ .num = .init(if (x[0] < 0) "-1" else "1", -(x[1] + k)) };
+        },
+        .add, .sub => if (da != null and db != null) exact: {
+            const e = @min(da.?[1], db.?[1]);
+            const ma = std.math.mul(i128, da.?[0], std.math.powi(i128, 10, @as(i128, da.?[1] - e)) catch break :exact) catch break :exact;
+            const mb = std.math.mul(i128, db.?[0], std.math.powi(i128, 10, @as(i128, db.?[1] - e)) catch break :exact) catch break :exact;
+            var m = (if (op == .add) std.math.add(i128, ma, mb) else std.math.sub(i128, ma, mb)) catch break :exact;
+            var ex = e;
+            // Fewest digits, at an exponent a scale suffix can spell (900n, 1u).
+            while (m != 0 and @rem(m, 10) == 0) : (ex += 1) m = @divExact(m, 10);
+            while (m != 0 and @mod(ex, 3) != 0) : (ex -= 1) m *= 10;
+            return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), ex) };
+        },
+    }
+    const ta = try canonText(arena, a);
+    return .{ .expr = switch (op) {
+        .recip => try std.fmt.allocPrint(arena, "1/({s})", .{ta}),
+        .add => try std.fmt.allocPrint(arena, "{s} + ({s})", .{ ta, try canonText(arena, b) }),
+        .sub => try std.fmt.allocPrint(arena, "{s} - ({s})", .{ ta, try canonText(arena, b) }),
+    } };
+}
+
+/// Apply a grammar's `convert` lines in place: `forward` turns canonical
+/// values into the dialect's (writing), otherwise the dialect's into
+/// canonical ones (reading, in reverse order). Values are copied before
+/// they change; bodies are walked too.
+pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: bool) Allocator.Error!void {
+    if (g.converts.len == 0) return;
+    for (stmts) |*st| {
+        if (st.body.len > 0) {
+            st.body = try arena.dupe(ir.Stmt, st.body);
+            try convert(arena, g, st.body, forward);
+        }
+        var copied = false;
+        for (0..g.converts.len) |n| {
+            const cv = g.converts[if (forward) n else g.converts.len - 1 - n];
+            if (cv.kind != st.kind) continue;
+            if (cv.when_slot != grammar.no_slot) {
+                const w = st.at(cv.when_slot);
+                if (w != .atom or !std.mem.eql(u8, w.atom, cv.when_atom)) continue;
+            }
+            const from = if (forward) cv.src else cv.dst;
+            const to = if (forward) cv.dst else cv.src;
+            const v = st.at(from);
+            if (v == .none) continue;
+            const arg: ir.Value = if (cv.arg_slot != grammar.no_slot)
+                st.at(cv.arg_slot)
+            else if (cv.arg_num.len > 0) .{ .num = .init(cv.arg_num, 0) } else .none;
+            const out: ir.Value = switch (cv.op) {
+                .copy => v,
+                .recip => try arith(arena, .recip, v, .none),
+                // A missing operand counts as zero: nothing to do.
+                .sub, .add => if (arg == .none) continue else try arith(arena, if ((cv.op == .sub) == forward) .sub else .add, v, arg),
+            };
+            if (!copied) {
+                try st.own(arena);
+                copied = true;
+            }
+            if (cv.op == .copy) try st.set(arena, from, .none);
+            try st.set(arena, to, out);
+        }
+    }
+}
+
 /// Every function name an expression calls that is not a canonical one.
 pub fn isPlainNumber(text: []const u8) bool {
     if (text.len == 0) return false;
@@ -321,4 +430,18 @@ test "expressions between two small tables" {
     problems.clearRetainingCapacity();
     _ = try write(a, &spectre, "abs(x) + mystery(y)", null, true, &problems);
     try testing.expectEqual(2, problems.items.len);
+}
+
+test "convert arithmetic is exact where it can be" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const d = try arith(a, .sub, .{ .num = .init("1", -6) }, .{ .num = .init("100", -9) });
+    try testing.expectEqualStrings("900", d.num.digits());
+    try testing.expectEqual(-9, d.num.exp10);
+    const r = try arith(a, .recip, .{ .num = .init("1", 6) }, .none);
+    try testing.expectEqual(-6, r.num.exp10);
+    // 1/3 is not a decimal: it stays an expression.
+    try testing.expectEqualStrings("1/(3)", (try arith(a, .recip, .{ .num = .init("3", 0) }, .none)).expr);
+    try testing.expectEqualStrings("w - (1e-9)", (try arith(a, .sub, .{ .expr = "w" }, .{ .num = .init("1", -9) })).expr);
 }

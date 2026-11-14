@@ -211,6 +211,19 @@ pub const Caseless = struct {
 /// added with, so no lower-cased copy is ever made.
 pub const CaselessSet = std.HashMapUnmanaged([]const u8, void, Caseless, std.hash_map.default_max_load_percentage);
 
+/// Note the model families that model cards in `stmts` (and their bodies) use.
+pub fn markFamilies(stmts: []const Stmt, out: *[schema.families.len]bool) void {
+    for (stmts) |*s| {
+        markFamilies(s.body, out);
+        if (s.kind != .model) continue;
+        const fam = s.get("family");
+        if (fam != .atom) continue;
+        for (schema.families, 0..) |f, i| {
+            if (std.mem.eql(u8, f.name, fam.atom)) out[i] = true;
+        }
+    }
+}
+
 /// Marks a `comment` statement that stands for a blank line.
 pub const blank_line = "\n";
 
@@ -227,9 +240,12 @@ pub const Env = struct {
     /// Statement kinds used anywhere in the project. The top netlist writes
     /// the boilerplate (`needs`) for all of them.
     used: [schema.kind_count]bool = @splat(false),
+    /// Model families used anywhere in the project, by `schema.families` index.
+    families: [schema.families.len]bool = @splat(false),
 
     /// Everything is copied into `arena`, so `stmts` may be freed afterwards.
     pub fn absorb(env: *Env, arena: Allocator, stmts: []const Stmt) Allocator.Error!void {
+        markFamilies(stmts, &env.families);
         for (stmts) |*s| {
             env.used[@backingInt(s.kind)] = true;
             const name = s.get("name");

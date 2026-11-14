@@ -111,6 +111,10 @@ const source_spec = "name pos:node neg:node dc:value acmag:value acphase:value w
 
 const sweep_spec = "sweep:atom points:value fstart:value fstop:value";
 
+/// Where a dialect says initial guesses on the analysis itself (VACASK
+/// `nodeset=`), the reader moves them back to a `nodeset` statement.
+const ns = " nodeset:params";
+
 /// One line per kind: `slot[:type][*]`. A bare slot named `name` has type `name`.
 const defs = [_]Def{
     .{ .resistor, .device, "name pos:node neg:node r:value master:ident params:params" },
@@ -165,23 +169,23 @@ const defs = [_]Def{
     .{ .ic, .control, "values:params" },
     .{ .nodeset, .control, "values:params" },
     .{ .measure, .control, "analysis:atom name spec:text" },
-    .{ .op, .analysis, "name params:params" },
+    .{ .op, .analysis, "name params:params" ++ ns },
     // src2 is the outer loop of a nested sweep; src is swept for each of its values.
     // `var` is set instead of `src` when the sweep is over temperature.
     .{ .dc, .analysis, "name src:ref var:atom start:value stop:value step:value " ++
-        "src2:ref start2:value stop2:value step2:value params:params" },
-    .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" },
-    .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params" },
-    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " params:params" },
-    .{ .tf, .analysis, "name out:node ref:node src:ref params:params" },
+        "src2:ref start2:value stop2:value step2:value params:params" ++ ns },
+    .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
+    .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns },
+    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " params:params" ++ ns },
+    .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns },
     .{ .pz, .analysis, "name in_pos:node in_neg:node out_pos:node out_neg:node transfer:atom find:atom params:params" },
     .{ .sens, .analysis, "name out:signal params:params" },
     .{ .disto, .analysis, "name " ++ sweep_spec ++ " f2overf1:value params:params" },
     .{ .four, .analysis, "name freq:value signals:signal* params:params" },
-    .{ .hb, .analysis, "name freqs:value* harms:value* params:params" },
-    .{ .sp, .analysis, "name " ++ sweep_spec ++ " params:params" },
-    .{ .pss, .analysis, "name fund:value harms:value tstab:value points:value params:params" },
-    .{ .stb, .analysis, "name " ++ sweep_spec ++ " probe:ref params:params" },
+    .{ .hb, .analysis, "name freqs:value* harms:value* params:params" ++ ns },
+    .{ .sp, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
+    .{ .pss, .analysis, "name fund:value harms:value tstab:value points:value params:params ic:params" ++ ns },
+    .{ .stb, .analysis, "name " ++ sweep_spec ++ " probe:ref params:params" ++ ns },
     .{ .@"opaque", .other, "" },
     .{ .comment, .other, "" },
 };

@@ -179,6 +179,28 @@ const Matcher = struct {
         return out.toOwnedSlice(self.arena);
     }
 
+    /// `{"out",0.5,"a","b",1}`: quoted names, each run of them ended by a
+    /// value; two names are a difference, kept as the key `a,b`.
+    fn pairs(self: *Matcher, into: u8, vt: Tok) Allocator.Error!bool {
+        const t = vt.text;
+        if (t.len < 2 or t[0] != '{' or t[t.len - 1] != '}') return false;
+        const start = self.log.items.len;
+        var names: std.ArrayList(u8) = .empty;
+        var it = std.mem.tokenizeAny(u8, t[1 .. t.len - 1], ", ");
+        while (it.next()) |w| {
+            if (w.len >= 2 and w[0] == '"' and w[w.len - 1] == '"') {
+                if (names.items.len > 0) try names.append(self.arena, ',');
+                try names.appendSlice(self.arena, w[1 .. w.len - 1]);
+                continue;
+            }
+            if (names.items.len == 0) break;
+            const v: Value = if (lexer.parseNumber(self.arena, &self.g.lex, w)) |n| .{ .num = n } else .{ .expr = w };
+            try self.log.append(self.arena, .{ .slot = into, .key = try names.toOwnedSlice(self.arena), .val = v });
+        } else if (names.items.len == 0 and self.log.items.len > start) return true;
+        self.log.shrinkRetainingCapacity(start);
+        return false;
+    }
+
     fn litMatches(node: Node, t: Tok) bool {
         return switch (t.tag) {
             .word => std.mem.eql(u8, t.text, node.text),
@@ -487,6 +509,7 @@ const Matcher = struct {
                     if (vt.tag != .vec) return false;
                     for (try self.vector(vt.text)) |v| try self.log.append(self.arena, .{ .slot = e.slot, .val = v });
                 },
+                .pairs => if (!try self.pairs(e.slot, vt)) return false,
                 .rest, .call => unreachable,
             }
             if (e.tag_slot != grammar.no_slot) {
@@ -1275,6 +1298,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     for (list.items) |*st| {
         if (st.body.len > 0) st.body = try normalizeLists(g, arena, st.body, report);
     }
+    try expr.convert(arena, g, list.items, false);
     try undoMoves(g, arena, &list, report);
     try undoMerges(g, arena, &list);
     try mergeOptions(arena, &list);

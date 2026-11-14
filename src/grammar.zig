@@ -64,6 +64,8 @@ pub const LexCfg = struct {
     bare_after_eq: bool = false,
     /// A bare identifier may stand where a value is expected (`R1 a b rval`).
     ident_values: bool = false,
+    /// Between the items of a written `[...]` vector.
+    vector_sep: []const u8 = " ",
     /// First entry for an exponent is the one used when writing.
     scales: []const Scale = &.{},
     /// Accepted when reading, never used when writing (`%`, `c`).
@@ -101,7 +103,9 @@ pub const NodeTag = enum {
     rep,
 };
 
-pub const BagForm = enum { plain, quoted, vector, fixed, rest, call };
+/// `pairs`: `k={slot}` writes a params slot as a list of quoted names and
+/// values, `ic={"out",0.5,"a","b",1}` (a name pair is a difference).
+pub const BagForm = enum { plain, quoted, vector, fixed, rest, call, pairs };
 
 pub const BagEntry = struct {
     key: []const u8 = "",
@@ -154,8 +158,37 @@ pub const Block = struct {
 pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Kind };
 /// A region in a different language, kept verbatim (ngspice `.control`).
 pub const RawBlock = struct { open: []const u8, close: []const u8 };
-/// Boilerplate this dialect needs when a kind is used (VACASK `load`).
-pub const Needs = struct { kind: Kind, lines: []const []const u8 };
+/// Boilerplate this dialect needs when a kind, or a model of a family, is
+/// used (VACASK `load`).
+pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const []const u8 };
+
+/// `convert kind [slot=atom] : a = b op c`: this dialect's slot `a` holds a
+/// function of canonical slots. Writing computes it; reading inverts it.
+/// `op` is `-` or `+` (`c` a slot or a number), `1/` (`a = 1 / a`), or none
+/// (`a = b`, the value only changes slot).
+pub const Convert = struct {
+    kind: Kind,
+    when_slot: u8 = no_slot,
+    when_atom: []const u8 = "",
+    dst: u8,
+    src: u8,
+    op: enum { copy, sub, add, recip } = .copy,
+    /// The other operand of `-` or `+`: a slot, or else a number.
+    arg_slot: u8 = no_slot,
+    arg_num: []const u8 = "",
+};
+
+/// `invalid kind slot[=0] [slot=atom] : text`: a statement without that slot
+/// (or, with `=0`, with it zero) means something else here; an error
+/// whenever it crosses into or out of this dialect.
+pub const Check = struct {
+    kind: Kind,
+    slot: u8,
+    zero: bool,
+    when_slot: u8 = no_slot,
+    when_atom: []const u8 = "",
+    text: []const u8,
+};
 
 /// Something a reader of the translated netlist should know when a slot
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
@@ -211,6 +244,8 @@ pub const Grammar = struct {
     variables: []const Spellings = &.{},
     operators: []const Spellings = &.{},
     absent: []const Absent = &.{},
+    converts: []const Convert = &.{},
+    checks: []const Check = &.{},
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
         for (g.enums) |*e| if (e.kind == kind and e.slot == slot) return e;
@@ -244,6 +279,13 @@ pub const Grammar = struct {
             if (std.mem.eql(u8, m.family, family) and std.mem.eql(u8, m.polarity, polarity)) return true;
         }
         return false;
+    }
+
+    /// The statement this dialect carries a kind's values on, when it has
+    /// no statement of its own for them (`move ic.values -> tran.ic`).
+    pub fn movedTo(g: *const Grammar, kind: Kind) ?*const Move {
+        for (g.moves) |*m| if (m.from == kind) return m;
+        return null;
     }
 
     pub fn wrapOf(g: *const Grammar, kind: Kind) ?*const Wrap {
@@ -685,6 +727,14 @@ const P = struct {
                     e.form = .quoted;
                     e.slot = try p.slotOf(try p.string());
                 },
+                '{' => {
+                    p.i += 1;
+                    e.form = .pairs;
+                    e.slot = try p.slotOf(try p.ident());
+                    if (p.peek() != '}') return p.err("missing '}}'", .{});
+                    p.i += 1;
+                    if (p.slotInfo(e.slot).ty != .params) return p.err("'{{slot}}' needs a params slot", .{});
+                },
                 '[' => {
                     p.i += 1;
                     e.form = .vector;
@@ -773,6 +823,8 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
             cfg.bare_after_eq = true;
         } else if (std.mem.eql(u8, key, "expr") and n == 2) {
             cfg.expr_delims = try c.add([2][]const u8, cfg.expr_delims, .{ a[1], a[2] });
+        } else if (std.mem.eql(u8, key, "vectors") and n == 1) {
+            cfg.vector_sep = if (std.mem.eql(u8, a[1], "comma")) ", " else " ";
         } else if (std.mem.eql(u8, key, "values") and n == 1) {
             cfg.ident_values = std.mem.eql(u8, a[1], "idents");
         } else if (std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "readscale")) {
@@ -932,6 +984,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var variables: []const Spellings = &.{};
     var operators: []const Spellings = &.{};
     var absent: []const Absent = &.{};
+    var converts: []const Convert = &.{};
+    var checks: []const Check = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -949,8 +1003,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "header")) {
             header = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "needs")) {
-            const kind = try kindOf(c, no, rest);
-            needs = try c.add(Needs, needs, .{ .kind = kind, .lines = try literalLines(c, &lines) });
+            if (schema.kindFromName(rest) == null and schema.familyKind(rest) != null) {
+                needs = try c.add(Needs, needs, .{ .kind = .model, .family = rest, .lines = try literalLines(c, &lines) });
+            } else {
+                const kind = try kindOf(c, no, rest);
+                needs = try c.add(Needs, needs, .{ .kind = kind, .lines = try literalLines(c, &lines) });
+            }
         } else if (std.mem.eql(u8, head, "wrap")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "wrap is `wrap \"open\" \"close\" : kind ...`", .{});
             const lits = try args(c, no, rest[0..colon]);
@@ -1010,6 +1068,44 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
             const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
             caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "convert")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "convert is `convert kind [slot=atom] : a = b [op c]`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len < 1 or ks.len > 2) return c.fail(no, "convert needs a kind and at most one condition", .{});
+            const kind = try kindOf(c, no, ks[0]);
+            var cv: Convert = .{ .kind = kind, .dst = 0, .src = 0 };
+            if (ks.len == 2) cv.when_slot, cv.when_atom = try condition(c, no, kind, ks[1]);
+            const e = try args(c, no, rest[colon + 3 ..]);
+            if (e.len < 3 or !std.mem.eql(u8, e[1], "=")) return c.fail(no, "expected `a = b [op c]` after ':'", .{});
+            cv.dst = try slotNamed(c, no, kind, e[0]);
+            if (e.len == 3) {
+                cv.src = try slotNamed(c, no, kind, e[2]);
+            } else if (e.len == 5 and std.mem.eql(u8, e[2], "1") and std.mem.eql(u8, e[3], "/")) {
+                cv.op = .recip;
+                cv.src = try slotNamed(c, no, kind, e[4]);
+                if (cv.src != cv.dst) return c.fail(no, "`a = 1 / b` needs a and b to be the same slot", .{});
+            } else if (e.len == 5 and (std.mem.eql(u8, e[3], "-") or std.mem.eql(u8, e[3], "+"))) {
+                cv.op = if (e[3][0] == '-') .sub else .add;
+                cv.src = try slotNamed(c, no, kind, e[2]);
+                if (cv.src != cv.dst) return c.fail(no, "`a = b - c` needs a and b to be the same slot", .{});
+                if (schema.slotIndex(kind, e[4])) |si| {
+                    cv.arg_slot = si;
+                } else {
+                    _ = try parseDecimal(c, no, e[4]);
+                    cv.arg_num = e[4];
+                }
+            } else return c.fail(no, "expected `a = b`, `a = a - c`, `a = a + c` or `a = 1 / a`", .{});
+            converts = try c.add(Convert, converts, cv);
+        } else if (std.mem.eql(u8, head, "invalid")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "invalid is `invalid kind slot[=0] [slot=atom] : text`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len < 2 or ks.len > 3) return c.fail(no, "invalid needs a kind, a slot and at most one condition", .{});
+            const kind = try kindOf(c, no, ks[0]);
+            const zero = std.mem.endsWith(u8, ks[1], "=0");
+            const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
+            var ck: Check = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .text = rest[colon + 3 ..] };
+            if (ks.len == 3) ck.when_slot, ck.when_atom = try condition(c, no, kind, ks[2]);
+            checks = try c.add(Check, checks, ck);
         } else if (std.mem.eql(u8, head, "models")) {
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
@@ -1074,7 +1170,21 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .variables = variables,
         .operators = operators,
         .absent = absent,
+        .converts = converts,
+        .checks = checks,
     };
+}
+
+fn slotNamed(c: *C, line: u32, kind: Kind, s: []const u8) Error!u8 {
+    return schema.slotIndex(kind, s) orelse c.fail(line, "unknown slot '{s}' for kind '{s}'", .{ s, @tagName(kind) });
+}
+
+/// `slot=atom`: a condition on an atom slot.
+fn condition(c: *C, line: u32, kind: Kind, text: []const u8) Error!struct { u8, []const u8 } {
+    const eq = std.mem.indexOfScalar(u8, text, '=') orelse return c.fail(line, "expected slot=atom, found '{s}'", .{text});
+    const slot = try slotNamed(c, line, kind, text[0..eq]);
+    if (schema.info(kind).slots[slot].ty != .atom) return c.fail(line, "a condition needs an atom slot", .{});
+    return .{ slot, text[eq + 1 ..] };
 }
 
 /// `compile` for a built-in grammar, evaluated at compile time.

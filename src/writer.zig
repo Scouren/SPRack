@@ -195,6 +195,16 @@ const Emit = struct {
         return aw.written();
     }
 
+    /// The items of a `[...]` vector, with the dialect's separator.
+    fn vectorText(e: *Emit, v: Value) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (v.list, 0..) |it, i| {
+            if (i > 0) try out.appendSlice(e.arena, e.g.lex.vector_sep);
+            try out.appendSlice(e.arena, try e.valueText(it, false));
+        }
+        return out.items;
+    }
+
     /// A value as shown in messages: no dialect delimiters around it.
     fn signalText(e: *Emit, canon: []const u8) Allocator.Error!?[]const u8 {
         var args: [3][]const u8 = undefined;
@@ -476,13 +486,28 @@ const Emit = struct {
                                     continue;
                                 }
                                 const vt = if (p.val == .list)
-                                    try e.arena.print("[{s}]", .{try e.valueText(p.val, false)})
+                                    try e.arena.print("[{s}]", .{try e.vectorText(p.val)})
                                 else
                                     try e.valueText(p.val, false);
                                 if (b.form == .call) {
                                     try e.tok(try e.arena.print("{s}({s})={s}", .{ b.key, p.key, vt }));
                                 } else try e.tok(try e.arena.print("{s}={s}", .{ p.key, vt }));
                             }
+                            e.mark(b.slot);
+                        },
+                        .pairs => {
+                            if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
+                            // No blanks: a bare value in this form runs to the next one.
+                            var out: std.ArrayList(u8) = .empty;
+                            try out.print(e.arena, "{s}={{", .{b.key});
+                            for (e.st.at(b.slot).params, 0..) |p, i| {
+                                if (i > 0) try out.append(e.arena, ',');
+                                var nodes = std.mem.splitScalar(u8, p.key, ',');
+                                while (nodes.next()) |nd| try out.print(e.arena, "\"{s}\",", .{nd});
+                                for (try e.valueText(p.val, false)) |c| if (c != ' ') try out.append(e.arena, c);
+                            }
+                            try out.append(e.arena, '}');
+                            try e.tok(out.items);
                             e.mark(b.slot);
                         },
                         .plain, .quoted, .vector => {
@@ -498,7 +523,10 @@ const Emit = struct {
                             }
                             // A value this dialect cannot spell is left
                             // unwritten, and reported as such.
-                            const vt = (try e.slotText(b.slot, b.form == .quoted)) orelse continue;
+                            const vt = if (b.form == .vector and e.val(b.slot) == .list)
+                                try e.vectorText(e.val(b.slot))
+                            else
+                                (try e.slotText(b.slot, b.form == .quoted)) orelse continue;
                             const text = if (b.form == .vector)
                                 try e.arena.print("{s}=[{s}]", .{ b.key, vt })
                             else
@@ -772,7 +800,12 @@ const Writer = struct {
             .device => "device",
             else => "statement",
         };
-        const reason = w.g.absentReason(st.kind) orelse try a.print("{s}.spgrammar defines no rule for it", .{w.g.name});
+        const reason = w.g.absentReason(st.kind) orelse if (w.g.movedTo(st.kind)) |mv|
+            try a.print("{s} says it as {s}.{s}, and this netlist has no {s}", .{
+                w.g.name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name, @tagName(mv.to),
+            })
+        else
+            try a.print("{s}.spgrammar defines no rule for it", .{w.g.name});
         w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}. Dialects that define it: {s}", .{
             what, @tagName(st.kind), w.g.name, reason, if (who.len > 0) who else "none",
         });
@@ -956,11 +989,36 @@ const Writer = struct {
         return false;
     }
 
+    /// A grammar's `invalid` lines, for a netlist crossing into or out of
+    /// that dialect: a value it leaves out (or gives as zero) means
+    /// something else there.
+    fn check(w: *Writer, g: *const Grammar, stmts: []const ir.Stmt) Allocator.Error!void {
+        for (stmts) |*st| {
+            try w.check(g, st.body);
+            for (g.checks) |ck| {
+                if (ck.kind != st.kind) continue;
+                if (ck.when_slot != grammar.no_slot) {
+                    const v = st.at(ck.when_slot);
+                    if (v != .atom or !std.mem.eql(u8, v.atom, ck.when_atom)) continue;
+                }
+                const v = st.at(ck.slot);
+                const zero = v == .num and v.num.toFloat() == 0;
+                if (v != .none and !(ck.zero and zero)) continue;
+                w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s}", .{
+                    @tagName(st.kind), schema.info(st.kind).slots[ck.slot].name, if (zero) "is 0" else "is not given", ck.text,
+                });
+            }
+        }
+    }
+
     /// Apply the grammar's `move` lines: values this dialect says on another
     /// statement are carried there before anything is written.
     fn applyMoves(w: *Writer, stmts: []const ir.Stmt) Allocator.Error![]const ir.Stmt {
         if (!w.anyMove(stmts)) return stmts;
         const list = try w.arena.dupe(ir.Stmt, stmts);
+        // One value may go to several kinds (`nodeset` onto every analysis),
+        // so a source is emptied only after every move has seen it.
+        var emptied: std.ArrayList(struct { *ir.Stmt, u8 }) = .empty;
         for (w.g.moves) |mv| {
             for (list) |*src| {
                 if (src.kind != mv.from or src.at(mv.from_slot) == .none) continue;
@@ -971,10 +1029,12 @@ const Writer = struct {
                     try dst.set(w.arena, mv.to_slot, src.at(mv.from_slot));
                     moved = true;
                 }
-                if (!moved) continue;
-                try src.own(w.arena);
-                try src.set(w.arena, mv.from_slot, .none);
+                if (moved) try emptied.append(w.arena, .{ src, mv.from_slot });
             }
+        }
+        for (emptied.items) |em| {
+            try em[0].own(w.arena);
+            try em[0].set(w.arena, em[1], .none);
         }
         return list;
     }
@@ -1112,12 +1172,30 @@ pub fn write(
         for (g.preamble) |l| try w.line(l);
         var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
         markUsed(nl.stmts, &used);
+        var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
+        ir.markFamilies(nl.stmts, &fams);
         for (g.needs) |n| {
-            if (!used[@backingInt(n.kind)]) continue;
+            if (n.family.len > 0) {
+                const fi = for (schema.families, 0..) |f, i| {
+                    if (std.mem.eql(u8, f.name, n.family)) break i;
+                } else unreachable;
+                if (!fams[fi]) continue;
+            } else if (!used[@backingInt(n.kind)]) continue;
             for (n.lines) |l| try w.line(l);
         }
     }
-    const stmts = try w.applyMoves(nl.stmts);
+    if (!std.mem.eql(u8, nl.dialect, g.name)) {
+        try w.check(g, nl.stmts);
+        if (caps) |c| for (c.grammars) |*sg| {
+            if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, nl.stmts);
+        };
+    }
+    var stmts = try w.applyMoves(nl.stmts);
+    if (g.converts.len > 0) {
+        const list = try arena.dupe(ir.Stmt, stmts);
+        try expr.convert(arena, g, list, true);
+        stmts = list;
+    }
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }

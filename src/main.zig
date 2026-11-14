@@ -111,6 +111,8 @@ pub fn main(init: std.process.Init) !void {
             for (&sprack.grammars) |*g| {
                 const mark: []const u8 = if (g.canWrite(info.kind))
                     "yes"
+                else if (g.movedTo(info.kind) != null)
+                    "param"
                 else if (g.absentReason(info.kind) != null)
                     "none"
                 else if (info.class == .device and g.canWrite(.instance) and sprack.schema.slotIndex(info.kind, "master") != null)
@@ -125,6 +127,7 @@ pub fn main(init: std.process.Init) !void {
             \\
             \\yes:  has its own statement.
             \\inst: written as a generic instance of its model.
+            \\param: written as a parameter of another statement (VACASK tran ic=).
             \\none: the simulator has no such thing; an error that says why.
             \\-:    the grammar has no rule; an error naming the dialects that have one.
             \\
