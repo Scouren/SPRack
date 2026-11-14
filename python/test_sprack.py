@@ -24,7 +24,7 @@ def test_translate():
     assert "R1 (a 0) resistor r=1m\n" in out and "tran1 tran step=1n stop=1u\n" in out
     assert out.report == []
     e = raises(sprack.Unsupported, lambda: sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce"),
-               "Xyce has no pole-zero analysis", "Dialects that define it: ngspice")
+               "Xyce has no pole-zero analysis", "Dialects that define it: espice, ngspice")
     assert "not written: analysis 'pz'" in e.text and e.report.errors[0].code == "unsupported"
     lax = sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce", strict=False)
     assert len(lax.report.errors) == 1
@@ -73,7 +73,7 @@ def test_build_every_dialect():
     # Xyce records only what .print lists: a bare save is an error there, and says so.
     raises(sprack.Unsupported, lambda: c.netlist("xyce"), "Xyce records only what .PRINT lists")
     # VACASK has no BSIM4 card in its grammar and no initial conditions.
-    e = raises(sprack.Unsupported, lambda: c.netlist("vacask"), "model family 'bsim4 n'", "Defined by: hspice, ngspice, spectre, xyce")
+    e = raises(sprack.Unsupported, lambda: c.netlist("vacask"), "model family 'bsim4 n'", "Defined by: espice, hspice, ltspice, ngspice, spectre, xyce")
     assert "analysis tran1 tran step=10p stop=8n" in e.text
     # Reading any netlist back gives a circuit that can be written again.
     again = sprack.read(ng, "ngspice")
@@ -94,7 +94,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "espice", "ltspice", "cdl"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
