@@ -1,0 +1,39 @@
+name: Nightly corpus audit
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@9383ce2bf08796b65508822f5982f49151badc4e # main
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@f69a2d3e148e90223fe63ab6e3f6331f2e7e33dc # main
+
+      # The audit needs only the corpus, not the simulators the verify shell builds.
+      # The baseline was taken from ngspice and HSPICE sources; .sim decks are read as VACASK.
+      - name: Corpus audit
+        run: |
+          export SPRACK_SUITE=$(nix eval --raw .#devShells.x86_64-linux.verify.SPRACK_SUITE)
+          nix develop .#ci --command sh -c '
+            zig build -Doptimize=ReleaseSafe &&
+            python3 -I tools/corpus_audit.py zig-out/bin/sprack "$SPRACK_SUITE/tests" out.tsv ngspice,hspice &&
+            python3 -I tools/corpus_summary.py out.tsv &&
+            python3 -I tools/corpus_compare.py conformance-suite-audit.tsv out.tsv'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: corpus-audit
+          path: out.tsv*
