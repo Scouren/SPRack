@@ -71,6 +71,8 @@ pub fn build(b: *std.Build) void {
         .linkage = .dynamic,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/pyext.zig"),
+            // Zig's own TLS is not set up in a dlopen'd library; glibc's is.
+            .link_libc = true,
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "sprack", .module = sprack }},

@@ -28,8 +28,11 @@ jobs:
       - name: Zig tests
         run: nix develop .#ci --command zig build test
 
+      # The PDK checkouts alone; the verify shell would also build the simulators.
       - name: Python tests
-        run: nix develop .#ci --command sh -c 'zig build py && cd python && python3 test_sprack.py'
+        run: |
+          export SPRACK_TEST_PDKS=$(nix build .#test-pdks --no-link --print-out-paths)
+          nix develop .#ci --command sh -c 'zig build py && cd python && python3 test_sprack.py'
 
   wheel:
     # Zig from setup-zig, not nix, so macOS needs no Nix install.
