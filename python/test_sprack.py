@@ -104,6 +104,28 @@ def test_vocabulary_is_closed():
     assert "B1 (out 0) bsource v=v(inp)*2 + log(k)\n".replace("v=v(inp)*2 + log(k)", "v=(v(inp)*2 + log(k))") in c2.netlist("spectre", strict=False)
 
 
+GRAMMARS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "grammars")
+
+
+def test_grammar_file():
+    path = os.path.join(GRAMMARS, "ngspice.spgrammar")
+    c = build()
+    ng = c.netlist("ngspice")
+    assert c.netlist(path) == ng
+    assert sprack.translate(ng, frm=path, to="spectre") == sprack.translate(ng, frm="ngspice", to="spectre")
+    assert sprack.translate(ng, frm="ngspice", to=path) == sprack.translate(ng, frm="ngspice", to="ngspice")
+    assert sprack.read(ng, path).statements == sprack.read(ng, "ngspice").statements
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, "tb.spice")
+        c.write(out, path)
+        assert open(out).read() == ng
+        bad = os.path.join(d, "bad.spgrammar")
+        with open(bad, "w") as f:
+            f.write('dialect bad\nlexer\nend\nrule op = ".op" zz\n')
+        raises(ValueError, lambda: c.netlist(bad), f"{bad}:4: unknown slot 'zz' for kind 'op'")
+    raises(ValueError, lambda: c.netlist("/no/such.spgrammar"), "cannot read /no/such.spgrammar")
+
+
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
 
 

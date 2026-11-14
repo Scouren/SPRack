@@ -128,11 +128,27 @@ def dialects() -> tuple[str, ...]:
     return DIALECTS
 
 
-def _dialect(name: str) -> str:
-    low = str(name).lower()
+def _dialect(name: str | os.PathLike) -> str:
+    """A built-in dialect's name, or the absolute path of a `.spgrammar` file
+    (compiled by the core on each call; a mistake in it raises ValueError
+    with `path:line: message`)."""
+    name = os.fspath(name)
+    if name.endswith(".spgrammar"):
+        return os.path.abspath(name)
+    low = name.lower()
     if low not in DIALECTS:
-        raise ValueError(f"unknown dialect {name!r}; built in: {', '.join(DIALECTS)}")
+        raise ValueError(f"unknown dialect {name!r}; built in: {', '.join(DIALECTS)}; or a path to a .spgrammar file")
     return low
+
+
+def _dialect_tag(d: str) -> str:
+    """A directory-name-safe key for a resolved dialect: its name, or for a
+    grammar file its base name and a hash of its contents."""
+    if not d.endswith(".spgrammar"):
+        return d
+    with open(d, "rb") as f:
+        digest = hashlib.sha1(f.read()).hexdigest()[:8]
+    return f"{os.path.basename(d)[:-len('.spgrammar')]}-{digest}"
 
 
 def can_write(kind: str, dialect: str) -> bool:
@@ -660,7 +676,7 @@ class PDK:
         accepts the copy as it is.
         """
         d = _dialect(dialect)
-        out = out or os.path.join(self.cache_dir, self.name, f"{d}-{self._stamp()}")
+        out = out or os.path.join(self.cache_dir, self.name, f"{_dialect_tag(d)}-{self._stamp()}")
         marker = os.path.join(out, "sprack.json")
         if os.path.isfile(marker):
             with open(marker) as f:
