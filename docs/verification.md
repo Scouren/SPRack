@@ -74,7 +74,7 @@ used instead.
    `docs/cmd-options.md` table. Also available and missing from the rule: `chgtol`
    (`lib/options.cpp:260`). There is no `trtol`; the nearest is `tran_lteratio`
    (`lib/options.cpp:327`, default 3.5 vs SPICE trtol 7), not the same quantity, so do not map it.
-   Proposed: add `chgtol=chgtol` to the `options` rule.
+   Proposed: add `chgtol=chgtol` to the `options` rule. **Fixed in 8ee108cb.**
 
 4. **`rule save = "save" signals+`** (line 82): **correct**, with a caveat to add.
    `docs/cmd-save.md`; lexer `lib/dfllexer.l:860` (`save` is a keyword only inside
@@ -82,7 +82,7 @@ used instead.
    directive `v(node)` saves the **operating point** value; the AC phasor is `dv(node)` and
    `di(inst)` (`docs/cmd-analysis-ac.md` "Save directives"). A translated `.save v(out)`
    followed by `.ac` therefore records the DC value. Proposed:
-   `caveat save signals : in VACASK ac analyses v() saves the operating point; the AC phasor is dv()`.
+   `caveat save signals : in VACASK ac analyses v() saves the operating point; the AC phasor is dv()`. **Fixed in 8ee108cb.**
 
 5. **`rule hb = "analysis" name "hb" { freq=[freqs] nharm=harms ...params }`** (line 91): **correct.**
    `docs/cmd-analysis-hb.md` "Parameters" (`freq` real vector, `nharm` integer or vector);
@@ -117,6 +117,9 @@ used instead.
      pulse (`lib/devvisrc.cpp:192-198`, defaults at `:100-105`). SPICE substitutes TSTEP for a
      zero rise/fall and TSTOP for a missing width/period. A SPICE pulse with omitted
      fall/width/period therefore changes shape in VACASK.
+   **Fixed in 8ee108cb**: tdphase/theta, exp/pwl/fm are mapped; `td2` is converted both ways
+   (`convert`, engine 0eaab6a8); a missing or zero rise/fall, a missing width, and the sine,
+   exp and sffm defaults that differ are `invalid` errors in both directions.
    * SPICE `am(...)` has a different parametrisation from VACASK `type="am"`
      (`modindex`, `docs/dev-builtin-src.md` "AM"): **unclear** whether a one-to-one
      mapping exists; leave unmapped.
@@ -154,6 +157,8 @@ used instead.
           pow "**"
           xor "^"
         end
+
+   **Fixed in 8ee108cb**, except `sgn`: VACASK's `sgn(0)` is 1 (`include/rpnfunctor.h:300`), SPICE's 0, so it is left unmapped.
 
    (`int = integer`: SPICE `int` truncates toward zero; VACASK `integer` is `FwTrunc`,
    `lib/context.cpp:59`. VACASK `int` is a type conversion whose rounding was not
@@ -193,26 +198,26 @@ Every builtin below needs a `model <name> <builtin>` line before use
 
 | kind | VACASK has it? | syntax and source | proposed grammar text |
 |---|---|---|---|
-| mutual | **yes**, builtin `mutual` | `m12 () mutual k=0.95 ind1="l1" ind2="l2"`; empty terminal list required. `docs/dev-builtin-mutual.md`; params `lib/devctlsrc.cpp:804-809`; registered `lib/devbuiltins.cpp:15`. Needs inductors exposing `flow(br)` and `l`; `sp_inductor` has `branch (pos, neg) br` and `aliasparam l` (`devices/spice/inductor.va:61-65`), so it should qualify (**unclear**, not run). | `needs mutual` / `  model mutual mutual` / `end`; `rule mutual = name "(" ")" "mutual" { k=k ind1="l1" ind2="l2" }` |
-| vcvs | **yes**, builtin `vcvs` | `e1 (out 0 in 0) vcvs gain=10`; `docs/dev-builtin-vcvs.md`; `lib/devctlsrc.cpp:17-19`, `lib/devbuiltins.cpp:12` | `needs vcvs` / `model vcvs vcvs`; `rule vcvs = name "(" pos neg cpos cneg ")" "vcvs" { gain=gain ...params }` |
-| vccs | **yes**, builtin `vccs`; transconductance is `gain` | `docs/dev-builtin.md`; `lib/devctlsrc.cpp:17-19`, `lib/devbuiltins.cpp:11` | `needs vccs` / `model vccs vccs`; `rule vccs = name "(" pos neg cpos cneg ")" "vccs" { gain=gm ...params }` |
-| cccs | **yes**, builtin `cccs`; controlling source by name | `f1 (0 out) cccs ctlinst="vprobe" gain=10`; `docs/dev-builtin-cccs.md`; `lib/devctlsrc.cpp:28-32`. Direction `I(p->n) = gain*I(ctlinst)`, same as SPICE F | `needs cccs` / `model cccs cccs`; `rule cccs = name "(" pos neg ")" "cccs" { ctlinst="vsrc" gain=gain ...params }` |
-| ccvs | **yes**, builtin `ccvs`; transresistance is `gain` | `docs/dev-builtin.md`; `lib/devctlsrc.cpp:28-32`, `lib/devbuiltins.cpp:14` | `needs ccvs` / `model ccvs ccvs`; `rule ccvs = name "(" pos neg ")" "ccvs" { ctlinst="vsrc" gain=gain ...params }` |
-| bsource | **yes** (grammar says `no`) | `b1 (p n) v=<expr>` / `i=<expr>` (also `potential=`, `flow=`); no master name. `docs/dev-builtin-behavioral.md` "Syntax"; parser `behavioral` production `lib/dflparser.y:1058-1066` (allowed at top level and in subckts, `:372`, and in conditional blocks, `:474`). Expression accessors `v(n)`, `v(a,b)`, `i(inst)`; time is `$abstime` (behavioural only, `docs/dev-builtin-behavioral.md:265-275`). | `rule bsource = name "(" pos neg ")" { v=v i=i ...params }`, placed before `rule instance`; `variables time = $abstime` only valid inside it |
-| tline | **yes**, as a shipped Verilog-A device | `tline_ideal.osdi`, module `tline_ideal(p1,n1,p2,n2)`, params `z0 td f nl`, `td` wins, else `nl/f`. `docs/dev-vacask.md` table; `devices/tline_ideal.va:4-30`; `devices/CMakeLists.txt:7` | `needs tline` / `load "tline_ideal.osdi"` / `model tline tline_ideal` / `end`; `rule tline = name "(" p1 n1 p2 n2 ")" "tline" { z0=z0 td=td f=f nl=nl ...params }` |
-| libsection | **yes** | `section name` ... `endsection`. `docs/input-include.md` "Section syntax"; `lib/dfllexer.l:536,553` | `block libsection` / `open "section" name` / `close "endsection"` / `end` |
-| lib | **yes** | `include "file" section=name`. `docs/input-include.md`; `lib/dfllexer.l:300,374-381` | `rule lib = "include" path { section=section! }` before `rule include` |
-| cond_if / elif / else | **yes** | `@if expr` / `@elseif expr` / `@else` / `@end`. `docs/cir-conditional.md`; `lib/dfllexer.l:783-798`; `lib/dflparser.y:463-499`. A branch may hold only instances, behavioural sources, models and nested blocks (`lib/dflparser.y:467-499`), not `parameters`. | `block cond_if` / `open "@if" cond...` / `close "@end"` / `end`; `rule cond_elif = "@elseif" cond...`; `rule cond_else = "@else"`; plus a `caveat` that parameters inside a branch are not allowed |
-| ic | **no statement**; `ic=` is a parameter of `tran` and `pss` | `analysis t tran ... ic={"n1", 2.0, "n2", 1.0}` (list of node,value; a node pair gives a difference). `docs/cmd-analysis-tran.md` "Parameters"; `lib/coretran.cpp:247` | Not a rule: needs an engine `move ic -> tran.ic` that renders `{"node", value, ...}`. Until then `no ic : VACASK takes initial conditions as the ic= list of a tran analysis` would be wrong (it has them); keep `-` and record it for Phase 3. |
-| nodeset | **no statement**; `nodeset=` parameter of `op`, `ac`, `tran`, `noise`, `hb`, ... | `analysis op1 op nodeset={"node1", 1.2}`. `docs/cmd-analysis-op.md` "Parameters" and examples; `lib/corehb.cpp:38` | Same as ic: an engine move to every analysis's `nodeset=`. |
-| sens | **no** | No sensitivity analysis among the registered analyses (`include/an*.h` `analysisId`: `op ac noise dcxf hb dcinc acxf tran acstb pss pnoise acsp hbnoise pac hbac`); no `docs/cmd-analysis-sens*` | `no sens : VACASK has no sensitivity analysis` |
-| sp | **yes**, analysis `acsp` | `analysis s acsp ports=["v1","r1","v2","r2"] from=... to=... mode="dec" points=...`; a port is a vsource **plus a series resistor**, named in pairs. `docs/cmd-analysis-acsp.md`; `include/anacsp.h:20`; `lib/coreacsp.cpp:19-24` | `rule sp = "analysis" name?sp$# "acsp" { from=fstart to=fstop mode="sweep" points=points ...params }` plus `caveat sp : VACASK ports are named in ports=[vsrc, rser, ...]; SPICE portnum/z0 on a source has no direct form` |
-| pss | **yes**, analysis `pss` (shooting) | `tper` (period, not frequency), `tstab`, `maxharm`, `oscillator`. `docs/cmd-analysis-pss.md`; `lib/corepss.cpp:27-31` | Canonical `fund` is a frequency; VACASK wants `tper=1/fund`. Grammar cannot invert; needs an engine transform or `rule pss = "analysis" name?pss$# "pss" { tper=fund ... }` is **wrong**. Proposed after engine support: `{ tper='1/$fund' tstab=tstab maxharm=harms ...params }`. |
-| stb | **yes**, analysis `acstb` | `analysis s acstb probe="vprobe" from=... to=... mode="dec" points=...`; probe is a series voltage source. `docs/cmd-analysis-acstb.md`; `lib/coreacstb.cpp:19-23`; `include/anacstb.h:16` | `rule stb = "analysis" name?stb$# "acstb" { probe="probe"! from=fstart to=fstop mode="sweep" points=points ...params }` |
-| tf | **yes**, analysis `dcxf` (grammar says `no`) | `analysis xf1 dcxf out="out"` (or `out=["p","n"]`); saves `tf(src)`, `zin(src)`, `yin(src)` for every independent source. No output resistance. `docs/cmd-analysis-dcxf.md`; `lib/coredcxf.cpp:16`; `include/andcxf.h:16` | `rule tf = "analysis" name?tf$# "dcxf" { out="out" ...params }` with `caveat tf src : dcxf reports tf() and zin() for every source; SPICE's output resistance has no counterpart`. `ref` needs the vector form `out=["out","ref"]`. |
-| PWL sources | **yes** | `type="pwl" wave=[t1,v1,t2,v2,...]`, plus `file=`, `period`, `stretch`, `scale`, `offset`. `docs/dev-builtin-src.md` "PWL"; `lib/devvisrc.cpp:51-60` | in the source rules: `wave=[pwl]`; enum `pwl=pwl` |
-| exp sources | **yes**, with a different `td2` origin | see 1.2 item 6 | `tau1=tau1 tau2=tau2` + `td2` transform |
-| switches | **no builtin**, no shipped module | `docs/dev-builtin.md` lists exactly 7 builtins; `docs/dev-vacask.md` and `docs/dev-spice.md` list no switch. `demo/sc/swtest.sim:3` loads a user Verilog-A `vsw.va`. | keep `no vswitch`, `no cswitch` |
+| mutual (fixed in 8ee108cb) | **yes**, builtin `mutual` | `m12 () mutual k=0.95 ind1="l1" ind2="l2"`; empty terminal list required. `docs/dev-builtin-mutual.md`; params `lib/devctlsrc.cpp:804-809`; registered `lib/devbuiltins.cpp:15`. Needs inductors exposing `flow(br)` and `l`; `sp_inductor` has `branch (pos, neg) br` and `aliasparam l` (`devices/spice/inductor.va:61-65`), so it should qualify (**unclear**, not run). | `needs mutual` / `  model mutual mutual` / `end`; `rule mutual = name "(" ")" "mutual" { k=k ind1="l1" ind2="l2" }` |
+| vcvs (fixed in 8ee108cb) | **yes**, builtin `vcvs` | `e1 (out 0 in 0) vcvs gain=10`; `docs/dev-builtin-vcvs.md`; `lib/devctlsrc.cpp:17-19`, `lib/devbuiltins.cpp:12` | `needs vcvs` / `model vcvs vcvs`; `rule vcvs = name "(" pos neg cpos cneg ")" "vcvs" { gain=gain ...params }` |
+| vccs (fixed in 8ee108cb) | **yes**, builtin `vccs`; transconductance is `gain` | `docs/dev-builtin.md`; `lib/devctlsrc.cpp:17-19`, `lib/devbuiltins.cpp:11` | `needs vccs` / `model vccs vccs`; `rule vccs = name "(" pos neg cpos cneg ")" "vccs" { gain=gm ...params }` |
+| cccs (fixed in 8ee108cb) | **yes**, builtin `cccs`; controlling source by name | `f1 (0 out) cccs ctlinst="vprobe" gain=10`; `docs/dev-builtin-cccs.md`; `lib/devctlsrc.cpp:28-32`. Direction `I(p->n) = gain*I(ctlinst)`, same as SPICE F | `needs cccs` / `model cccs cccs`; `rule cccs = name "(" pos neg ")" "cccs" { ctlinst="vsrc" gain=gain ...params }` |
+| ccvs (fixed in 8ee108cb) | **yes**, builtin `ccvs`; transresistance is `gain` | `docs/dev-builtin.md`; `lib/devctlsrc.cpp:28-32`, `lib/devbuiltins.cpp:14` | `needs ccvs` / `model ccvs ccvs`; `rule ccvs = name "(" pos neg ")" "ccvs" { ctlinst="vsrc" gain=gain ...params }` |
+| bsource (fixed in 8ee108cb) | **yes** (grammar says `no`) | `b1 (p n) v=<expr>` / `i=<expr>` (also `potential=`, `flow=`); no master name. `docs/dev-builtin-behavioral.md` "Syntax"; parser `behavioral` production `lib/dflparser.y:1058-1066` (allowed at top level and in subckts, `:372`, and in conditional blocks, `:474`). Expression accessors `v(n)`, `v(a,b)`, `i(inst)`; time is `$abstime` (behavioural only, `docs/dev-builtin-behavioral.md:265-275`). | `rule bsource = name "(" pos neg ")" { v=v i=i ...params }`, placed before `rule instance`; `variables time = $abstime` only valid inside it |
+| tline (fixed in 8ee108cb) | **yes**, as a shipped Verilog-A device | `tline_ideal.osdi`, module `tline_ideal(p1,n1,p2,n2)`, params `z0 td f nl`, `td` wins, else `nl/f`. `docs/dev-vacask.md` table; `devices/tline_ideal.va:4-30`; `devices/CMakeLists.txt:7` | `needs tline` / `load "tline_ideal.osdi"` / `model tline tline_ideal` / `end`; `rule tline = name "(" p1 n1 p2 n2 ")" "tline" { z0=z0 td=td f=f nl=nl ...params }` |
+| libsection (fixed in 8ee108cb) | **yes** | `section name` ... `endsection`. `docs/input-include.md` "Section syntax"; `lib/dfllexer.l:536,553` | `block libsection` / `open "section" name` / `close "endsection"` / `end` |
+| lib (fixed in 8ee108cb) | **yes** | `include "file" section=name`. `docs/input-include.md`; `lib/dfllexer.l:300,374-381` | `rule lib = "include" path { section=section! }` before `rule include` |
+| cond_if / elif / else (fixed in 8ee108cb) | **yes** | `@if expr` / `@elseif expr` / `@else` / `@end`. `docs/cir-conditional.md`; `lib/dfllexer.l:783-798`; `lib/dflparser.y:463-499`. A branch may hold only instances, behavioural sources, models and nested blocks (`lib/dflparser.y:467-499`), not `parameters`. | `block cond_if` / `open "@if" cond...` / `close "@end"` / `end`; `rule cond_elif = "@elseif" cond...`; `rule cond_else = "@else"`; plus a `caveat` that parameters inside a branch are not allowed |
+| ic (fixed in 0eaab6a8, 8ee108cb: carried as tran ic=) | **no statement**; `ic=` is a parameter of `tran` and `pss` | `analysis t tran ... ic={"n1", 2.0, "n2", 1.0}` (list of node,value; a node pair gives a difference). `docs/cmd-analysis-tran.md` "Parameters"; `lib/coretran.cpp:247` | Not a rule: needs an engine `move ic -> tran.ic` that renders `{"node", value, ...}`. Until then `no ic : VACASK takes initial conditions as the ic= list of a tran analysis` would be wrong (it has them); keep `-` and record it for Phase 3. |
+| nodeset (fixed in 0eaab6a8, 8ee108cb) | **no statement**; `nodeset=` parameter of `op`, `ac`, `tran`, `noise`, `hb`, ... | `analysis op1 op nodeset={"node1", 1.2}`. `docs/cmd-analysis-op.md` "Parameters" and examples; `lib/corehb.cpp:38` | Same as ic: an engine move to every analysis's `nodeset=`. |
+| sens (`no` line in 8ee108cb) | **no** | No sensitivity analysis among the registered analyses (`include/an*.h` `analysisId`: `op ac noise dcxf hb dcinc acxf tran acstb pss pnoise acsp hbnoise pac hbac`); no `docs/cmd-analysis-sens*` | `no sens : VACASK has no sensitivity analysis` |
+| sp (fixed in 8ee108cb; ports stay a loss error) | **yes**, analysis `acsp` | `analysis s acsp ports=["v1","r1","v2","r2"] from=... to=... mode="dec" points=...`; a port is a vsource **plus a series resistor**, named in pairs. `docs/cmd-analysis-acsp.md`; `include/anacsp.h:20`; `lib/coreacsp.cpp:19-24` | `rule sp = "analysis" name?sp$# "acsp" { from=fstart to=fstop mode="sweep" points=points ...params }` plus `caveat sp : VACASK ports are named in ports=[vsrc, rser, ...]; SPICE portnum/z0 on a source has no direct form` |
+| pss (fixed in 8ee108cb, tper = 1/fund by `convert`) | **yes**, analysis `pss` (shooting) | `tper` (period, not frequency), `tstab`, `maxharm`, `oscillator`. `docs/cmd-analysis-pss.md`; `lib/corepss.cpp:27-31` | Canonical `fund` is a frequency; VACASK wants `tper=1/fund`. Grammar cannot invert; needs an engine transform or `rule pss = "analysis" name?pss$# "pss" { tper=fund ... }` is **wrong**. Proposed after engine support: `{ tper='1/$fund' tstab=tstab maxharm=harms ...params }`. |
+| stb (fixed in 8ee108cb) | **yes**, analysis `acstb` | `analysis s acstb probe="vprobe" from=... to=... mode="dec" points=...`; probe is a series voltage source. `docs/cmd-analysis-acstb.md`; `lib/coreacstb.cpp:19-23`; `include/anacstb.h:16` | `rule stb = "analysis" name?stb$# "acstb" { probe="probe"! from=fstart to=fstop mode="sweep" points=points ...params }` |
+| tf (fixed in 8ee108cb) | **yes**, analysis `dcxf` (grammar says `no`) | `analysis xf1 dcxf out="out"` (or `out=["p","n"]`); saves `tf(src)`, `zin(src)`, `yin(src)` for every independent source. No output resistance. `docs/cmd-analysis-dcxf.md`; `lib/coredcxf.cpp:16`; `include/andcxf.h:16` | `rule tf = "analysis" name?tf$# "dcxf" { out="out" ...params }` with `caveat tf src : dcxf reports tf() and zin() for every source; SPICE's output resistance has no counterpart`. `ref` needs the vector form `out=["out","ref"]`. |
+| PWL sources (fixed in 8ee108cb) | **yes** | `type="pwl" wave=[t1,v1,t2,v2,...]`, plus `file=`, `period`, `stretch`, `scale`, `offset`. `docs/dev-builtin-src.md` "PWL"; `lib/devvisrc.cpp:51-60` | in the source rules: `wave=[pwl]`; enum `pwl=pwl` |
+| exp sources (fixed in 8ee108cb) | **yes**, with a different `td2` origin | see 1.2 item 6 | `tau1=tau1 tau2=tau2` + `td2` transform |
+| switches (reasons reworded in 8ee108cb) | **no builtin**, no shipped module | `docs/dev-builtin.md` lists exactly 7 builtins; `docs/dev-vacask.md` and `docs/dev-spice.md` list no switch. `demo/sc/swtest.sim:3` loads a user Verilog-A `vsw.va`. | keep `no vswitch`, `no cswitch` |
 
 ### 1.5 Model families beyond R, C, L, diode, PSP103
 
@@ -292,11 +297,11 @@ Reference Guide has one `*_Command.tex` per command, and the two lists match.
 
 | # | line | verdict | source |
 |---|---|---|---|
-| V1 | `no bsource` | **wrong** | `docs/dev-builtin-behavioral.md` "Syntax": `name (p n) v=<expr>` / `i=<expr>`; `lib/dflparser.y:1058-1066`. Rule in 1.4. |
+| V1 | `no bsource` | **wrong**; fixed in 8ee108cb | `docs/dev-builtin-behavioral.md` "Syntax": `name (p n) v=<expr>` / `i=<expr>`; `lib/dflparser.y:1058-1066`. Rule in 1.4. |
 | V2 | `no func` | correct | `lib/dflparser.y` has no function-definition production; the items allowed at top level and in subckts (`:344-428`) are parameters, model, instance, behavioral, condblock, subckt, global, ground, load, embed and control. No doc page. |
 | V3 | `no measure` | correct | no measure command among `docs/cmd-*.md`; results go to raw files and `postprocess` |
-| V4 | `no print` | correct in substance; **reason text wrong** | VACASK **has** `print`, but it prints expressions and circuit state, not analysis results (`docs/cmd-print.md`). Proposed text: `no print : VACASK's print shows expressions and circuit state; analysis results go to raw files` |
-| V5 | `no tf` | **wrong** | `dcxf` is the DC small-signal transfer function: `analysis xf1 dcxf out="out"` saves `tf(src)`, `zin(src)`, `yin(src)` (`docs/cmd-analysis-dcxf.md`; `include/andcxf.h:16`; `lib/coredcxf.cpp:16`). It gives no output resistance. Rule in 1.4. |
+| V4 | `no print` | correct in substance; **reason text wrong**; fixed in 8ee108cb | VACASK **has** `print`, but it prints expressions and circuit state, not analysis results (`docs/cmd-print.md`). Proposed text: `no print : VACASK's print shows expressions and circuit state; analysis results go to raw files` |
+| V5 | `no tf` | **wrong**; fixed in 8ee108cb | `dcxf` is the DC small-signal transfer function: `analysis xf1 dcxf out="out"` saves `tf(src)`, `zin(src)`, `yin(src)` (`docs/cmd-analysis-dcxf.md`; `include/andcxf.h:16`; `lib/coredcxf.cpp:16`). It gives no output resistance. Rule in 1.4. |
 | V6 | `no pz` | correct | analysis ids in `include/an*.h` (list in 1.4, row sens) |
 | V7 | `no disto` | correct | same list; `hb` and `hbac` exist |
 | V8 | `no four` | correct | no Fourier command among `docs/cmd-*.md`; same analysis list |
@@ -337,7 +342,7 @@ Reference Guide has one `*_Command.tex` per command, and the two lists match.
 | `bsimsoi = level=10 \| level=58` | correct (B4SOI) | `:347-348`. Level 57 is B3SOIPD (`:339-340`); 55 and 56 are B3SOI FD and DD. |
 | `hisim2 = level=68` | correct | `:363-364` |
 | `hisimhv = level=73` | correct | `:371-377` (version 1.x selects HiSIMHV1, the default and 2.x select HiSIMHV2) |
-| `hfet n = nhfet`, `hfet p = phfet` | **wrong** | `nmf pmf nhfet phfet` share one level switch (`:124-175`): level 0 or 1 is MES (Statz), 2-4 MESA, **5 HFET1, 6 HFET2**. An `nhfet` card with no level is a MESFET. Proposed: `hfet n = nhfet level=5 \| nhfet level=6` and `hfet p = phfet level=5 \| phfet level=6`. |
+| `hfet n = nhfet`, `hfet p = phfet` | **wrong**; fixed in 4a70b88c | `nmf pmf nhfet phfet` share one level switch (`:124-175`): level 0 or 1 is MES (Statz), 2-4 MESA, **5 HFET1, 6 HFET2**. An `nhfet` card with no level is a MESFET. Proposed: `hfet n = nhfet level=5 \| nhfet level=6` and `hfet p = phfet level=5 \| phfet level=6`. |
 | `mesfet n = nmf` | correct | same switch, level 0 or 1 |
 | `vdmos = vdmos` | correct | `:195-197` (`vdmosn` and `vdmosp` are also read) |
 | `vswitch = sw`, `cswitch = csw` | correct | `:500-512` |
@@ -356,16 +361,16 @@ Sources: `.registerDevice` calls under `src/DeviceModelPKG`;
 
 | grammar line | verdict | source |
 |---|---|---|
-| `vbic npn = npn level=10 \| level=11 \| level=12` | **wrong**: there is no level 10 | Q levels registered: 1, 11, 12, 23, 230, 234, 504, 505 (`OpenModels/N_DEV_BJT.C:4705`, `ADMS/N_DEV_ADMSvbic13.C:9194`, `ADMS/N_DEV_ADMSvbic13_4t.C:10175`, ...). VBIC 1.3 is 11 for 3 terminals and 12 for 4 (`deviceFeatureSupportTbl.tex:64-68`). Proposed: `vbic npn = npn level=11 \| npn level=12`, the same for pnp. |
+| `vbic npn = npn level=10 \| level=11 \| level=12` | **wrong**: there is no level 10; fixed in 4a70b88c | Q levels registered: 1, 11, 12, 23, 230, 234, 504, 505 (`OpenModels/N_DEV_BJT.C:4705`, `ADMS/N_DEV_ADMSvbic13.C:9194`, `ADMS/N_DEV_ADMSvbic13_4t.C:10175`, ...). VBIC 1.3 is 11 for 3 terminals and 12 for 4 (`deviceFeatureSupportTbl.tex:64-68`). Proposed: `vbic npn = npn level=11 \| npn level=12`, the same for pnp. |
 | `hicum2 = level=234` | correct | `ADMS/N_DEV_ADMShicumL2va.C:14587`; HICUM L0 is 230 |
 | `bsim3 = level=9 \| level=49` | correct | `OpenModels/N_DEV_MOSFET_B3.C:11668-11669` |
 | `bsim4 = level=14 \| level=54` | correct | `OpenModels/N_DEV_MOSFET_B4.C:11704-11705` |
-| `bsimsoi = level=70 \| level=10` | correct; note the versions | 70 is BSIM-SOI 4.6.1 (`ADMS/N_DEV_ADMSbsimsoi461.C:38096`); 10 and 57 are BSIM-SOI 3.2 (`OpenModels/N_DEV_MOSFET_B3SOI.C:19130-19131`); 70450 is 4.5.0 and 70470 is 4.7.0 (`M_Device.tex:147-149,672-677`). Reading level 57 is missing. |
-| `bsimcmg = level=110 \| level=107` | correct but stale | level 111 (BSIM-CMG 111.2.1) is current (`ADMS/N_DEV_ADMSbsimcmg_111.C:52253`; `M_Device.tex:865,891`: 110 "has been superceded by the level 111 version"); 108 also exists. Proposed: `bsimcmg n = nmos level=111 \| nmos level=110 \| nmos level=108 \| nmos level=107`. |
+| `bsimsoi = level=70 \| level=10` | correct; note the versions | 70 is BSIM-SOI 4.6.1 (`ADMS/N_DEV_ADMSbsimsoi461.C:38096`); 10 and 57 are BSIM-SOI 3.2 (`OpenModels/N_DEV_MOSFET_B3SOI.C:19130-19131`); 70450 is 4.5.0 and 70470 is 4.7.0 (`M_Device.tex:147-149,672-677`). Reading level 57 is missing (added in 4a70b88c). |
+| `bsimcmg = level=110 \| level=107` | correct but stale; 111 and 108 added in 4a70b88c | level 111 (BSIM-CMG 111.2.1) is current (`ADMS/N_DEV_ADMSbsimcmg_111.C:52253`; `M_Device.tex:865,891`: 110 "has been superceded by the level 111 version"); 108 also exists. Proposed: `bsimcmg n = nmos level=111 \| nmos level=110 \| nmos level=108 \| nmos level=107`. |
 | `bsimbulk = level=77` | correct | `ADMS/N_DEV_ADMSbsim6.C:31325`; documented as "BSIM6 model version 6.1.1" (`M_Device.tex:788`), BSIM-BULK before the rename |
 | `psp103 = level=103` | correct | `ADMS/N_DEV_ADMSPSP103VA.C:34418`; 1031 is the self-heating version (`ADMS/N_DEV_ADMSPSP103TVA.C:36451`) |
 | `jfet`, `mesfet`, `mos1/2/3` | correct | `registerDevice("j",1)`, `("j",2)`, `("z",1)`, `("m",1/2/3/6)` |
-| switch models `vswitch \| sw`, `iswitch \| csw` | `vswitch` and `iswitch` correct; **`sw` and `csw` are not Xyce model types** | `OpenModels/N_DEV_SW.C:1089-1092` registers only `switch`, `iswitch` and `vswitch`; there is no `"sw"` or `"csw"` anywhere in `src/`; `doc/Reference_Guide/S_Device.tex:26-27`. As read spellings they accept netlists Xyce rejects. Proposed: `vswitch = vswitch`, `cswitch = iswitch`. (`switch` is the expression-controlled generic switch, `SW_Device.tex`, not SPICE `sw`.) |
+| switch models `vswitch \| sw`, `iswitch \| csw` | `vswitch` and `iswitch` correct; **`sw` and `csw` are not Xyce model types** | `OpenModels/N_DEV_SW.C:1089-1092` registers only `switch`, `iswitch` and `vswitch`; there is no `"sw"` or `"csw"` anywhere in `src/`; `doc/Reference_Guide/S_Device.tex:26-27`. As read spellings they accept netlists Xyce rejects. Proposed: `vswitch = vswitch`, `cswitch = iswitch`. Fixed in 4a70b88c. (`switch` is the expression-controlled generic switch, `SW_Device.tex`, not SPICE `sw`.) |
 
 HiSIM2 and HiSIM-HV are not registered in Xyce, and the grammar correctly omits them.
 
@@ -386,27 +391,27 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 | dialect | grammar | verdict | source |
 |---|---|---|---|
 | ngspice | `ln = ln log` (log is natural) | correct | `src/spicelib/parser/inpptree.c:149-151` (B sources: `ln` and `log` are both `PTF_LOG`); `src/frontend/numparam/xpressn.c:127,158` (`.param`: both compute `log(x)`) |
-| Xyce | `ln = ln log` | **wrong**: Xyce `log` is **base 10** | `src/UtilityPKG/ExpressionSrc/ExpressionParser.yxx:1424-1446` (natural only under `useHspiceMath`). `useHspiceMath_` defaults to false and is set only by `-hspice-ext math` or `all` (`src/IOInterfacePKG/N_IO_ParsingMgr.C:65,77-110`). `doc/Reference_Guide/Expression_Arithmetic_Functions.tex:205`: "LOG(x) ... log base 10". Proposed: `ln = ln` and `log10 = log10 log`. |
+| Xyce | `ln = ln log` | **wrong**: Xyce `log` is **base 10**; fixed in 4a70b88c | `src/UtilityPKG/ExpressionSrc/ExpressionParser.yxx:1424-1446` (natural only under `useHspiceMath`). `useHspiceMath_` defaults to false and is set only by `-hspice-ext math` or `all` (`src/IOInterfacePKG/N_IO_ParsingMgr.C:65,77-110`). `doc/Reference_Guide/Expression_Arithmetic_Functions.tex:205`: "LOG(x) ... log base 10". Proposed: `ln = ln` and `log10 = log10 log`. |
 | HSPICE | `ln = log` | pending tool check | - |
 | Spectre | `ln = log` | pending tool check | - |
-| VACASK | `ln = ln` | correct, incomplete | `lib/context.cpp:52-54`: `log` and `ln` are both natural. Proposed: `ln = ln log`. |
+| VACASK | `ln = ln` | correct, incomplete; fixed in 8ee108cb | `lib/context.cpp:52-54`: `log` and `ln` are both natural. Proposed: `ln = ln log`. |
 
 ### 4.2 Operators
 
 | dialect | grammar | verdict | source |
 |---|---|---|---|
 | ngspice | `pow "**" "^"` | correct | `src/frontend/numparam/xpressn.c:706-707` (`**` becomes `^`); `src/spicelib/parser/inpptree-parser.y:94` |
-| Xyce | `pow "**" "^"` | **wrong**: `^` is XOR by default | `ExpressionParser.yxx:1783-1792` (`^` is power only under `useHspiceMath`); `ExpressionLexer.l:268-269`; `doc/Reference_Guide/Expression_Operator.tex:29,35` (`**` is exponentiation, `^` is boolean XOR). Proposed: `pow "**"` and `xor "^"`. |
+| Xyce | `pow "**" "^"` | **wrong**: `^` is XOR by default; fixed in 4a70b88c | `ExpressionParser.yxx:1783-1792` (`^` is power only under `useHspiceMath`); `ExpressionLexer.l:268-269`; `doc/Reference_Guide/Expression_Operator.tex:29,35` (`**` is exponentiation, `^` is boolean XOR). Proposed: `pow "**"` and `xor "^"`. |
 | HSPICE | `pow "**" "^"` | pending tool check | - |
 | Spectre | `pow "**"`, `xor "^"` | pending tool check | - |
-| VACASK | `pow "**"` | correct, incomplete | `lib/dfllexer.l:722` (`**`) and `:749-750` (`^` is `BITEXOR`); `docs/expr-operators.md`. Proposed: add `xor "^"`. |
+| VACASK | `pow "**"` | correct, incomplete; fixed in 8ee108cb | `lib/dfllexer.l:722` (`**`) and `:749-750` (`^` is `BITEXOR`); `docs/expr-operators.md`. Proposed: add `xor "^"`. |
 
 ### 4.3 Function tables and variables
 
 | dialect | finding | verdict | source |
 |---|---|---|---|
 | ngspice | every listed name exists in at least one of its two parsers | correct | `xpressn.c:91-94` (`.param`), `inpptree.c:138-182` (B sources). Caveat: the parsers differ. `int`, `sqr`, `limit`, `agauss`, ... exist only in `.param`; `u`, `uramp`, `pwl`, `ddt` only in B sources. `pwr` discards the sign in `.param` (`xpressn.c:139-141`, `pow(fabs(z), x)`) but keeps it in B sources (VACASK's `docs/input-include.md` documents the same split). `nint` rounds half to even (`xpressn.c:150-155`). |
-| Xyce | every listed name exists | correct | `src/UtilityPKG/ExpressionSrc/ExpressionLexer.l`, one line per name: `abs:556 min:548 max:547 sqrt:613 exp:308 pow:586 pwr:585 floor:575 ceil:574 int:583 sgn:610 sign:611 limit:576 agauss:607 gauss:608 aunif:606 unif:605 nint:572 atan2:563 stp:612 uramp:695 if:582`. Missing from the grammar: `fmod` (`:573`) and `db` (`:545`). Xyce `pwr` keeps the sign (`Expression_Arithmetic_Functions.tex:61-66`). |
+| Xyce | every listed name exists | correct | `src/UtilityPKG/ExpressionSrc/ExpressionLexer.l`, one line per name: `abs:556 min:548 max:547 sqrt:613 exp:308 pow:586 pwr:585 floor:575 ceil:574 int:583 sgn:610 sign:611 limit:576 agauss:607 gauss:608 aunif:606 unif:605 nint:572 atan2:563 stp:612 uramp:695 if:582`. Missing from the grammar: `fmod` (`:573`) and `db` (`:545`); added in 4a70b88c. Xyce `pwr` keeps the sign (`Expression_Arithmetic_Functions.tex:61-66`). |
 | Xyce variables | `temper = temp`, `hertz = freq`, `time = time` | correct | `ExpressionLexer.l:592-597` (`time temp temper freq hertz` are all tokens) |
 | HSPICE | function table | pending tool check | - |
 | Spectre | function table | pending tool check | - |
@@ -430,15 +435,15 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 
 ### Wrong (9)
 
-1. **Xyce `log` is base 10.** Change `ln = ln log` to `ln = ln` and `log10 = log10 log`. (4.1)
-2. **Xyce `^` is XOR.** Change `pow "**" "^"` to `pow "**"` and `xor "^"`. (4.2)
-3. **Xyce has no VBIC level 10.** Change to `npn level=11 | npn level=12` (11 is 3-terminal, 12 is 4-terminal); the same for pnp. (3.2)
-4. **Xyce has no `sw`/`csw` model types.** Use `vswitch = vswitch` and `cswitch = iswitch`. (3.2)
-5. **ngspice `nhfet`/`phfet` without a level is a MESFET.** Use `hfet n = nhfet level=5 | nhfet level=6`, and the same for p. (3.1)
-6. **VACASK `no bsource` is wrong.** Add `rule bsource = name "(" pos neg ")" { v=v i=i ...params }` before `rule instance`. (1.4, V1)
-7. **VACASK `no tf` is wrong.** Add `rule tf = "analysis" name?tf$# "dcxf" { out="out" ...params }`, with a caveat for the missing output resistance. (1.4, V5)
-8. **VACASK subckt parentheses are mandatory.** Change to `open "subckt" name "(" ports* ")"`. (1.2)
-9. **VACASK `v0`/`v1` are not source parameters.** Drop them from the source rules. (1.2 item 6)
+1. **Xyce `log` is base 10.** Change `ln = ln log` to `ln = ln` and `log10 = log10 log`. (4.1) **Fixed in 4a70b88c.**
+2. **Xyce `^` is XOR.** Change `pow "**" "^"` to `pow "**"` and `xor "^"`. (4.2) **Fixed in 4a70b88c.**
+3. **Xyce has no VBIC level 10.** Change to `npn level=11 | npn level=12` (11 is 3-terminal, 12 is 4-terminal); the same for pnp. (3.2) **Fixed in 4a70b88c.**
+4. **Xyce has no `sw`/`csw` model types.** Use `vswitch = vswitch` and `cswitch = iswitch`. (3.2) **Fixed in 4a70b88c.**
+5. **ngspice `nhfet`/`phfet` without a level is a MESFET.** Use `hfet n = nhfet level=5 | nhfet level=6`, and the same for p. (3.1) **Fixed in 4a70b88c.**
+6. **VACASK `no bsource` is wrong.** Add `rule bsource = name "(" pos neg ")" { v=v i=i ...params }` before `rule instance`. (1.4, V1) **Fixed in 8ee108cb** (two rules, `v=v!` and `i=i!`).
+7. **VACASK `no tf` is wrong.** Add `rule tf = "analysis" name?tf$# "dcxf" { out="out" ...params }`, with a caveat for the missing output resistance. (1.4, V5) **Fixed in 8ee108cb**; the input source is a loss error, since dcxf reports every source.
+8. **VACASK subckt parentheses are mandatory.** Change to `open "subckt" name "(" ports* ")"`. (1.2) **Fixed in 8ee108cb.**
+9. **VACASK `v0`/`v1` are not source parameters.** Drop them from the source rules. (1.2 item 6) **Fixed in 8ee108cb.**
 
 Gaps found alongside the verdicts (not counted as wrong):
 

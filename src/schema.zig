@@ -266,10 +266,10 @@ pub const families = [_]Family{
 /// Functions an expression may call, by canonical name. A grammar's
 /// `functions` section gives the dialect's spelling of each one it has.
 pub const functions = [_][]const u8{
-    "abs",   "sgn",   "sign2", "min",   "max",   "sqrt",  "sqr",    "exp",   "ln",    "log10",
-    "pow",   "pwr",   "floor", "ceil",  "int",   "nint",  "fmod",   "hypot", "db",    "sin",
-    "cos",   "tan",   "asin",  "acos",  "atan",  "atan2", "sinh",   "cosh",  "tanh",  "asinh",
-    "acosh", "atanh", "limit", "if",    "stp",   "uramp", "agauss", "gauss", "aunif", "unif",
+    "abs",   "sgn",   "sign2", "min",  "max",  "sqrt",  "sqr",    "exp",   "ln",    "log10",
+    "pow",   "pwr",   "floor", "ceil", "int",  "nint",  "fmod",   "hypot", "db",    "sin",
+    "cos",   "tan",   "asin",  "acos", "atan", "atan2", "sinh",   "cosh",  "tanh",  "asinh",
+    "acosh", "atanh", "limit", "if",   "stp",  "uramp", "agauss", "gauss", "aunif", "unif",
     "v",     "i",
 };
 

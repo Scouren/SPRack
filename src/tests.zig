@@ -1784,11 +1784,11 @@ test "verification: VACASK coupling, controlled sources, lines, libraries, condi
     const va = try tr(a, "ngspice", "vacask", src, &r1);
     const want = [_][]const u8{
         "model mutual mutual\n",                 "load \"tline_ideal.osdi\"\nmodel tline tline_ideal\n",
-        "include \"models.lib\" section=typ\n", "K1 () mutual k=0.9 ind1=\"L1\" ind2=\"L2\"\n",
-        "E1 (e 0 in 0) vcvs gain=2\n",          "G1 (0 g in 0) vccs gain=1m\n",
+        "include \"models.lib\" section=typ\n",  "K1 () mutual k=0.9 ind1=\"L1\" ind2=\"L2\"\n",
+        "E1 (e 0 in 0) vcvs gain=2\n",           "G1 (0 g in 0) vccs gain=1m\n",
         "F1 (0 f) cccs ctlinst=\"V1\" gain=3\n", "H1 (h 0) ccvs ctlinst=\"V1\" gain=500\n",
-        "T1 (c 0 d 0) tline z0=50 td=1n\n",     "@if (a == 1)\n",
-        "@elseif (a == 2)\n",                   "@else\n",
+        "T1 (c 0 d 0) tline z0=50 td=1n\n",      "@if (a == 1)\n",
+        "@elseif (a == 2)\n",                    "@else\n",
         "@end\n",
     };
     for (want) |w| try has(va, w);
@@ -1863,9 +1863,9 @@ test "verification: VACASK model families load their modules" {
         \\.end
     , &r1);
     const want = [_][]const u8{
-        "load \"spice/bjt.osdi\"\n",        "load \"vbic_1p3_4t.osdi\"\n",   "load \"spice/jfet1.osdi\"\n",
-        "load \"spice/mos3.osdi\"\n",       "load \"spice/vdmos.osdi\"\n",   "model qn sp_bjt (type=1 bf=100)\n",
-        "model qv vbic13_4t (type=-1)\n",   "model jp sp_jfet1 (type=-1)\n", "model m3 sp_mos3 (type=1)\n",
+        "load \"spice/bjt.osdi\"\n",      "load \"vbic_1p3_4t.osdi\"\n",   "load \"spice/jfet1.osdi\"\n",
+        "load \"spice/mos3.osdi\"\n",     "load \"spice/vdmos.osdi\"\n",   "model qn sp_bjt (type=1 bf=100)\n",
+        "model qv vbic13_4t (type=-1)\n", "model jp sp_jfet1 (type=-1)\n", "model m3 sp_mos3 (type=1)\n",
         "model vd sp_vdmos\n",
     };
     for (want) |w| try has(va, w);

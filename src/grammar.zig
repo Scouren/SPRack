@@ -75,7 +75,6 @@ pub const LexCfg = struct {
     units_ignored: bool = true,
     /// Statement that ends the input (`.end`).
     end_marker: []const u8 = "",
-
 };
 
 pub const no_slot: u8 = 0xff;
