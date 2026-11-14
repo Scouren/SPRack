@@ -574,7 +574,7 @@ const Writer = struct {
     declared: std.StringHashMapUnmanaged(void) = .empty,
     funcs: expr.Funcs = .empty,
     /// Lower-cased names of every device instance, to check references.
-    instances: std.StringHashMapUnmanaged(void) = .empty,
+    instances: ir.CaselessSet = .empty,
     ordinals: [schema.kind_count]usize = @splat(0),
     last_blank: bool = true,
 
@@ -915,7 +915,7 @@ const Writer = struct {
             // the temperature in another, under the same spelling.
             for (schema.info(st.kind).slots, 0..) |sl, i| {
                 if (sl.ty != .ref or st.vals[i] != .atom) continue;
-                if (w.instances.contains(try std.ascii.allocLowerString(a, st.vals[i].atom))) continue;
+                if (w.instances.contains(st.vals[i].atom)) continue;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a device in this netlist; if {s} means a parameter by it, {s} has to be told so in its own way", .{
                     @tagName(st.kind), sl.name, st.vals[i].atom, w.sourceOf(st), w.g.name,
                 });
@@ -935,10 +935,24 @@ const Writer = struct {
         }
     }
 
+    /// Would `applyMoves` change anything? The list it copies can be large.
+    fn anyMove(w: *const Writer, stmts: []const ir.Stmt) bool {
+        for (w.g.moves) |mv| {
+            var from = false;
+            var to = false;
+            for (stmts) |*s| {
+                from = from or (s.kind == mv.from and s.vals[mv.from_slot] != .none);
+                to = to or (s.kind == mv.to and s.vals[mv.to_slot] == .none);
+            }
+            if (from and to) return true;
+        }
+        return false;
+    }
+
     /// Apply the grammar's `move` lines: values this dialect says on another
     /// statement are carried there before anything is written.
     fn applyMoves(w: *Writer, stmts: []const ir.Stmt) Allocator.Error![]const ir.Stmt {
-        if (w.g.moves.len == 0) return stmts;
+        if (!w.anyMove(stmts)) return stmts;
         const list = try w.arena.dupe(ir.Stmt, stmts);
         for (w.g.moves) |mv| {
             for (list) |*src| {
@@ -974,23 +988,35 @@ fn markUsed(stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {
 }
 
 /// Two names that differ only by case are one name in a case-folding dialect.
+/// Each key is the spelling last seen. The tables hold every node and
+/// instance name, so they live outside the arena and are freed when done.
 const CaseMaps = struct {
-    nodes: std.StringHashMapUnmanaged([]const u8) = .empty,
-    instances: std.StringHashMapUnmanaged([]const u8) = .empty,
-    definitions: std.StringHashMapUnmanaged([]const u8) = .empty,
+    nodes: ir.CaselessSet = .empty,
+    instances: ir.CaselessSet = .empty,
+    definitions: ir.CaselessSet = .empty,
+
+    fn deinit(m: *CaseMaps) void {
+        m.nodes.deinit(table_gpa);
+        m.instances.deinit(table_gpa);
+        m.definitions.deinit(table_gpa);
+    }
 };
+
+const table_gpa = std.heap.page_allocator;
 
 /// Names that differ only by case collide in a dialect that ignores case.
 /// Nodes, instances and definitions are separate name spaces: a source
 /// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
 /// instances are its own scope; definitions are shared by all scopes.
-fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8) Allocator.Error!void {
+fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8) Allocator.Error!void {
     for (stmts) |*s| {
         const scoped = s.kind == .subckt;
         var inner: CaseMaps = .{ .definitions = seen.definitions };
         const maps = if (scoped) &inner else seen;
         defer if (scoped) {
             seen.definitions = inner.definitions;
+            inner.nodes.deinit(table_gpa);
+            inner.instances.deinit(table_gpa);
         };
         for (schema.info(s.kind).slots, 0..) |sl, i| {
             const map = switch (sl.ty) {
@@ -1008,26 +1034,23 @@ fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: 
             };
             for (items) |v| {
                 if (v != .atom) continue;
-                const low = try std.ascii.allocLowerString(arena, v.atom);
-                const gop = try map.getOrPut(arena, low);
-                if (!gop.found_existing) {
-                    gop.value_ptr.* = v.atom;
-                } else if (!std.mem.eql(u8, gop.value_ptr.*, v.atom)) {
+                const gop = try map.getOrPut(table_gpa, v.atom);
+                if (gop.found_existing and !std.mem.eql(u8, gop.key_ptr.*, v.atom)) {
                     report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different names in the source but the same name in {s}, which ignores case", .{
-                        gop.value_ptr.*, v.atom, target,
+                        gop.key_ptr.*, v.atom, target,
                     });
-                    gop.value_ptr.* = v.atom;
+                    gop.key_ptr.* = v.atom;
                 }
             }
         }
-        try checkCase(arena, s.body, maps, report, target);
+        try checkCase(s.body, maps, report, target);
     }
 }
 
-fn collectInstances(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged(void)) Allocator.Error!void {
+fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
-        try collectInstances(arena, s.body, out);
+        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(table_gpa, s.get("name").atom, {});
+        try collectInstances(s.body, out);
     }
 }
 
@@ -1060,7 +1083,8 @@ pub fn write(
 
     try collectDeclared(arena, nl.stmts, &w.declared);
     try collectFuncs(arena, nl.stmts, &w.funcs);
-    try collectInstances(arena, nl.stmts, &w.instances);
+    defer w.instances.deinit(table_gpa);
+    try collectInstances(nl.stmts, &w.instances);
     if (env) |e| {
         var it = e.declared.keyIterator();
         while (it.next()) |k| try w.declared.put(arena, try std.ascii.allocLowerString(arena, k.*), {});
@@ -1069,7 +1093,8 @@ pub fn write(
     }
     if (!g.lex.case_sensitive) {
         var seen: CaseMaps = .{};
-        try checkCase(arena, nl.stmts, &seen, report, g.name);
+        defer seen.deinit();
+        try checkCase(nl.stmts, &seen, report, g.name);
     }
     // An included file is not a netlist: it has no title of its own, must
     // not end the simulation, and leaves the boilerplate to the top file.
