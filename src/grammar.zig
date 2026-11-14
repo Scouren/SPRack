@@ -73,6 +73,7 @@ pub const LexCfg = struct {
     units_ignored: bool = true,
     /// Statement that ends the input (`.end`).
     end_marker: []const u8 = "",
+
 };
 
 pub const no_slot: u8 = 0xff;
@@ -132,6 +133,8 @@ pub const Node = struct {
     atom: []const u8 = "",
     /// A tagged literal that is also written when its slot is unbound.
     soft: bool = false,
+    /// `path!`: written without quotes when it has no blank.
+    bare: bool = false,
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
     /// Separator of a repeated group: none, or one `lit` or `glue` node.
@@ -615,6 +618,11 @@ const P = struct {
                 '?' => {
                     p.i += 1;
                     n.default = if (p.quoted()) try p.string() else p.bare();
+                },
+                '!' => {
+                    p.i += 1;
+                    if (n.slot == wild_slot or p.slotInfo(n.slot).ty != .path) return p.err("'{s}!' needs a path slot", .{name});
+                    n.bare = true;
                 },
                 else => break,
             }

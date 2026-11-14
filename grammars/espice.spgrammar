@@ -9,6 +9,7 @@
 #   N card; ESPice compiles the source itself and never loads OSDI binaries
 #   (`pre_osdi` is an error there). `.control` blocks are skipped with a
 #   warning, so they are still kept verbatim.
+# - `.verilog "design.v"` loads a digital Verilog design (reference.md).
 # - `.pss f0 [points]`, `.hb TONES= NHARMS=` (HSPICE's form) and
 #   `.stb Vprobe dec|oct|lin N fstart fstop` exist.
 # - The model levels follow ESPice's tables (ngspice's, plus BSIM-CMG 72,
@@ -68,6 +69,7 @@ rule  lib       = ".lib" path section
 # Model cards may carry bare flags (vdmos pchan, ltra steplimit).
 rule  model     = ".model" name type {...params?}
 rule  hdl       = ".hdl" path
+rule  verilog   = ".verilog" path
 
 rule  options   = ".temp" temp
 rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
@@ -138,6 +140,7 @@ implied noise ref = 0
 implied tf ref = 0
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
+no xspice : ESPice has no XSPICE code models; a digital block is a Verilog design loaded with .verilog and instantiated with an N card
 
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values, and ESPice uses .ic only under UIC; other simulators seed the first time point differently

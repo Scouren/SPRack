@@ -849,6 +849,87 @@ test "a dialect's own options round-trip, also as statements added from another 
     try reported(&r3, .@"error", "options: 'plotwinsize=0' has no spelling in ngspice");
 }
 
+/// `src` read as `from`, through the JSON the Python package uses, then
+/// written as `to`.
+fn viaJson(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
+    const nl = try readAs(a, from, src, report);
+    var j: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeNetlist(&j.writer, &nl);
+    const back = try sprack.json.parseNetlist(a, j.written(), report);
+    return writeAs(a, to, &back, report);
+}
+
+test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive the JSON trip" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    // Paths survive the JSON trip; pre_osdi, a .control command, stays bare.
+    const ng =
+        \\t
+        \\.lib "models.lib" tt
+        \\.include "extra.inc"
+        \\AU1 [ clk rst cmp ] [ d_7 eoc ] sar_m
+        \\AU2 [ A ] [ y ] dinv
+        \\.model dinv d_cosim simulation="dinv.vvp"
+        \\.control
+        \\pre_osdi amp.osdi
+        \\.endc
+        \\.control
+        \\run
+        \\.endc
+        \\.end
+        \\
+    ;
+    var r1: ir.Report = .init(a);
+    try testing.expectEqualStrings(ng, try viaJson(a, "ngspice", "ngspice", ng, &r1));
+    try clean(&r1);
+    // A bare relative file name is a path too.
+    var r0: ir.Report = .init(a);
+    try has(try viaJson(a, "ngspice", "xyce", "t\n.lib models.lib tt\n.include extra.inc\n.end\n", &r0), ".lib \"models.lib\" tt\n.include \"extra.inc\"\n");
+    try clean(&r0);
+    // XSPICE is ngspice's alone, and the reason says so.
+    var r2: ir.Report = .init(a);
+    _ = try viaJson(a, "ngspice", "espice", ng, &r2);
+    try reported(&r2, .@"error", "ESPice has no XSPICE code models");
+
+    // ESPice loads a digital design with .verilog.
+    const es = "t\n.verilog \"cnt.v\"\nNU1 clk q cnt vdd=1.8\n.model cnt cnt\n.end\n";
+    var r3: ir.Report = .init(a);
+    try testing.expectEqualStrings(es, try viaJson(a, "espice", "espice", es, &r3));
+    try clean(&r3);
+    var r4: ir.Report = .init(a);
+    _ = try viaJson(a, "espice", "ngspice", es, &r4);
+    try reported(&r4, .@"error", "ngspice runs digital Verilog through an XSPICE d_cosim model");
+
+    // Nets are local to a subcircuit: `IN` inside and `in` outside are
+    // different nets, not a case collision. In one scope they still are.
+    const sc =
+        \\t
+        \\.subckt inv IN OUT
+        \\R1 IN OUT 1k
+        \\.ends inv
+        \\.subckt buf a y
+        \\R1 a y 1k
+        \\.ends buf
+        \\X1 in out inv
+        \\.end
+        \\
+    ;
+    var r5: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a,
+        \\{"title":"t","dialect":"sprack","stmts":[
+        \\ {"kind":"subckt","name":"inv","ports":["IN","OUT"],"body":[{"kind":"resistor","name":"R1","pos":"IN","neg":"OUT","r":"1k"}]},
+        \\ {"kind":"subckt","name":"buf","ports":["a","y"],"body":[{"kind":"resistor","name":"R1","pos":"a","neg":"y","r":"1k"}]},
+        \\ {"kind":"instance","name":"X1","nodes":["in","out"],"master":"inv"}]}
+    , &r5);
+    try testing.expectEqualStrings(sc, try writeAs(a, "ngspice", &nl, &r5));
+    try clean(&r5);
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "ngspice", "// t\nr1 (in Out) resistor r=1k\nr2 (IN out) resistor r=1k\n", &r6);
+    try reported(&r6, .@"error", "'in' and 'IN' are different names in the source but the same name in ngspice");
+}
+
 test "a broken grammar file is reported with its path and line" {
     const io = testing.io;
     var tmp = testing.tmpDir(.{});
@@ -1038,7 +1119,7 @@ test "Verilog-A: loading a module and instantiating it" {
         \\model dmod mydiode is=1e-14
         \\d1 (a 0) dmod area=2
     , &r1);
-    try has(ng, ".control\npre_osdi \"mydiode.va\"\n.endc\n");
+    try has(ng, ".control\npre_osdi mydiode.va\n.endc\n");
     try has(ng, ".model dmod mydiode is=1e-14\n");
     // An instance of a model that is not a built-in family is an N device.
     try has(ng, "nd1 a 0 dmod area=2\n");

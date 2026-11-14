@@ -147,6 +147,12 @@ def test_code():
     raises(sprack.Unsupported, lambda: c.netlist("spectre"), "no ngspice rule understood this line", ".bogus 1 2")
     assert any(e.code == "untranslated" for e in c.netlist("xyce", strict=False).report.errors)
     raises(ValueError, lambda: c.code(".op\n", "pspice"), "unknown dialect")
+    # An ngspice .control block in a code block is kept for ngspice only.
+    ctl = sprack.Circuit("ctl")
+    ctl.R("1", "a", 0, "1k")
+    ctl.code(".control\nrun\n.endc\n")
+    assert ".control\nrun\n.endc\n" in ctl.netlist("ngspice")
+    raises(sprack.Unsupported, lambda: ctl.netlist("xyce"), "no ngspice rule understood this line")
     # A dialect's own options survive a code block written in it.
     lt = sprack.Circuit("lt")
     lt.R("1", "a", 0, "1k")

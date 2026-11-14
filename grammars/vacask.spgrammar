@@ -118,6 +118,8 @@ no disto   : VACASK has no .DISTO analysis; use hb
 no four    : VACASK has no .FOUR statement; use hb or post-process the transient result
 no vswitch : VACASK has no built-in switch
 no cswitch : VACASK has no built-in switch
+no xspice : XSPICE code models are ngspice's; VACASK has no such element
+no verilog : VACASK has no card that loads a digital Verilog design
 
 caveat hdl path : VACASK loads compiled OSDI files; compile Verilog-A source with OpenVAF first
 

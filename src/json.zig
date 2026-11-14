@@ -265,11 +265,14 @@ const Parser = struct {
             .string => |s| return s,
             .integer => |i| return try p.arena.print("{d}", .{i}),
             .number_string => |s| return s,
-            else => {
-                p.fail(line, "'{s}' must be a name", .{slot});
-                return null;
+            // A path as `writeNetlist` writes it (a quoted string).
+            .object => |obj| if (obj.count() == 1) {
+                if (obj.get("str")) |s| if (s == .string) return s.string;
             },
+            else => {},
         }
+        p.fail(line, "'{s}' must be a name", .{slot});
+        return null;
     }
 
     fn slotValue(p: *Parser, sl: schema.Slot, j: J, line: u32) Allocator.Error!Value {

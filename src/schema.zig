@@ -59,6 +59,7 @@ pub const Kind = enum(u8) {
     cswitch,
     tline,
     device,
+    xspice,
     instance,
     subckt,
     libsection,
@@ -72,6 +73,7 @@ pub const Kind = enum(u8) {
     include,
     lib,
     hdl,
+    verilog,
     options,
     save,
     print,
@@ -134,6 +136,9 @@ const defs = [_]Def{
     // An instance of a compact model that is not one of the families below,
     // typically a Verilog-A module. Any number of terminals.
     .{ .device, .device, "name nodes:node* master:ident params:params" },
+    // An ngspice XSPICE code-model instance (`A1 [ a b ] y model`). A vector
+    // port's `[` and `]` are items of `nodes` of their own.
+    .{ .xspice, .device, "name nodes:node* master:ident params:params" },
     .{ .instance, .device, "name nodes:node* master:ident params:params" },
     .{ .subckt, .structure, "name ports:node* params:params" },
     .{ .libsection, .structure, "name" },
@@ -149,6 +154,8 @@ const defs = [_]Def{
     .{ .include, .structure, "path:path" },
     .{ .lib, .structure, "path:path section:ident" },
     .{ .hdl, .structure, "path:path" },
+    // A digital Verilog design, loaded as source (ESPice's `.verilog`).
+    .{ .verilog, .structure, "path:path" },
     // `package` is for dialects that file options under headings (Xyce).
     .{ .options, .control, "package:atom reltol:value abstol:value vntol:value gmin:value temp:value tnom:value " ++
         "scale:value method:atom maxord:value chgtol:value trtol:value params:params" },

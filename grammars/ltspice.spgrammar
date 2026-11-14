@@ -113,6 +113,8 @@ no device    : LTspice cannot instantiate a Verilog-A module
 no cond_if   : LTspice has no conditional netlist blocks; use if() in an expression
 no cond_elif : LTspice has no conditional netlist blocks; use if() in an expression
 no cond_else : LTspice has no conditional netlist blocks; use if() in an expression
+no xspice : XSPICE code models are ngspice's; LTspice's A devices are its own digital primitives with fixed pins
+no verilog : LTspice cannot load Verilog
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic values; other simulators seed the first time point differently
 

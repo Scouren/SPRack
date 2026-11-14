@@ -396,6 +396,9 @@ const Emit = struct {
                     return true;
                 }
                 var text = (try e.slotText(n.slot, false)) orelse return false;
+                // `path!`: a path with no blank goes out without quotes.
+                const v = e.st.vals[n.slot];
+                if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null) text = v.str;
                 if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
                     const upper = text.len > 0 and std.ascii.isUpper(text[0]);
                     const renamed = if (upper)
@@ -979,14 +982,21 @@ const CaseMaps = struct {
 
 /// Names that differ only by case collide in a dialect that ignores case.
 /// Nodes, instances and definitions are separate name spaces: a source
-/// `Vdd` on a node `vdd` is no collision.
+/// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
+/// instances are its own scope; definitions are shared by all scopes.
 fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8) Allocator.Error!void {
     for (stmts) |*s| {
+        const scoped = s.kind == .subckt;
+        var inner: CaseMaps = .{ .definitions = seen.definitions };
+        const maps = if (scoped) &inner else seen;
+        defer if (scoped) {
+            seen.definitions = inner.definitions;
+        };
         for (schema.info(s.kind).slots, 0..) |sl, i| {
             const map = switch (sl.ty) {
-                .node => &seen.nodes,
-                .name => if (schema.info(s.kind).class == .device) &seen.instances else &seen.definitions,
-                .ident => &seen.definitions,
+                .node => &maps.nodes,
+                .name => if (schema.info(s.kind).class == .device) &maps.instances else &maps.definitions,
+                .ident => &maps.definitions,
                 else => continue,
             };
             // A model's type word is a keyword of the dialect, not a name.
@@ -1010,7 +1020,7 @@ fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: 
                 }
             }
         }
-        try checkCase(arena, s.body, seen, report, target);
+        try checkCase(arena, s.body, maps, report, target);
     }
 }
 
