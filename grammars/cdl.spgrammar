@@ -1,0 +1,103 @@
+# CDL
+#
+# The Circuit Description Language of Cadence's netlister and Mentor
+# Calibre's LVS: a SPICE netlist of connectivity only. Written from
+# knowledge of that format; no LVS tool was available to check against.
+# Lines marked "assumed" are the ones that knowledge does not settle.
+#
+# CDL has subcircuits, instances with `/` before the subcircuit name, the
+# primitive devices, parameters, globals and includes. It has no sources, no
+# analyses and no simulator controls. `$` starts a trailing comment, which
+# is also where CDL keeps its annotations (`$[model]`, `$X=...`): they are
+# carried over as comments. `*.PININFO`, `*.BIPOLAR` and the other `*.`
+# lines are comments to a simulator and are carried over the same way.
+
+dialect cdl
+
+lexer
+  case      insensitive
+  # The first line is the title, written as a comment (assumed: CDL files
+  # start with a `*` header, and LVS tools read nothing on that line).
+  title     yes "* "
+  comment   line "*"
+  comment   tail "$"
+  continue  lead "+"
+  parens    space
+  expr      "'" "'"                              # assumed
+  values    idents
+  scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  units     ignore
+  end       ".end"
+end
+
+block subckt
+  open   ".subckt" name ports* {...params}      # params on the header: assumed
+  close  ".ends" [name]
+end
+
+rule  param     = ".param" {...params}
+rule  global    = ".global" nodes+
+rule  include   = ".include" path
+read  include   = ".inc" path
+
+rule  resistor  = name~"R" pos neg r {...params}
+rule  capacitor = name~"C" pos neg c {...params}
+rule  inductor  = name~"L" pos neg l {...params}
+rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  instance  = name~"X" nodes+ "/" master {...params}
+read  instance  = name~"X" nodes+ master {...params}
+
+no vsource   : CDL describes connectivity for LVS; it has no sources
+no isource   : CDL describes connectivity for LVS; it has no sources
+no bsource   : CDL describes connectivity for LVS; it has no sources
+no vcvs      : CDL describes connectivity for LVS; it has no sources
+no vccs      : CDL describes connectivity for LVS; it has no sources
+no cccs      : CDL describes connectivity for LVS; it has no sources
+no ccvs      : CDL describes connectivity for LVS; it has no sources
+no mutual    : CDL has no coupled inductors
+no vswitch   : CDL has no switches
+no cswitch   : CDL has no switches
+no tline     : CDL has no transmission lines
+no mesfet    : CDL has no MESFET element
+no device    : CDL has no Verilog-A instances; a device is named by its model or subcircuit
+no hdl       : CDL cannot load Verilog-A
+no model     : CDL names device models but does not define them; LVS takes them from the rule deck
+no func      : CDL has no user-defined functions
+no lib       : CDL has no library sections
+no libsection : CDL has no library sections
+no cond_if   : CDL has no conditional blocks
+no cond_elif : CDL has no conditional blocks
+no cond_else : CDL has no conditional blocks
+no options   : CDL is a netlist, not a simulation deck; it has no options
+no save      : CDL is a netlist, not a simulation deck; it has no outputs
+no print     : CDL is a netlist, not a simulation deck; it has no outputs
+no ic        : CDL is a netlist, not a simulation deck; it has no initial conditions
+no nodeset   : CDL is a netlist, not a simulation deck; it has no initial conditions
+no measure   : CDL is a netlist, not a simulation deck; it has no measurements
+no op        : CDL is a netlist, not a simulation deck; it has no analyses
+no dc        : CDL is a netlist, not a simulation deck; it has no analyses
+no ac        : CDL is a netlist, not a simulation deck; it has no analyses
+no tran      : CDL is a netlist, not a simulation deck; it has no analyses
+no noise     : CDL is a netlist, not a simulation deck; it has no analyses
+no tf        : CDL is a netlist, not a simulation deck; it has no analyses
+no pz        : CDL is a netlist, not a simulation deck; it has no analyses
+no sens      : CDL is a netlist, not a simulation deck; it has no analyses
+no disto     : CDL is a netlist, not a simulation deck; it has no analyses
+no four      : CDL is a netlist, not a simulation deck; it has no analyses
+no hb        : CDL is a netlist, not a simulation deck; it has no analyses
+no sp        : CDL is a netlist, not a simulation deck; it has no analyses
+no pss       : CDL is a netlist, not a simulation deck; it has no analyses
+no stb       : CDL is a netlist, not a simulation deck; it has no analyses
+
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  ln    = log
+  log10 = log10
+end
+
+operators
+  pow "**" "^"                                   # assumed
+end
