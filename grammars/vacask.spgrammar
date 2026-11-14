@@ -1,22 +1,19 @@
 # VACASK
 #
-# Written from the project README and conference slides, then checked against
-# the four upstream benchmark decks in the VAMS Conformance Suite
-# (tests/netlist/stress/vacask_*). Those decks confirm: the title line, `//`
-# and `/* */` comments, `load`, `model name module ( params )`, instance
-# lines, `subckt` with `parameters`, pulse sources with val0/val1, sine
-# sources with sinedc/ampl/freq, `control ... endc` with `analysis` lines,
-# `options tran_method="gear2"`, and the psp103va module with type=1/-1.
-# Lines marked "assumed" are not covered by those decks; the VACASK manual
-# could not be consulted when this file was written.
+# Checked against the VACASK manual and source at codeberg.org/arpadbuermen/VACASK
+# b2c15511 (docs/verification.md section 1): docs/*.md, the parser
+# lib/dfllexer.l and lib/dflparser.y, the source device lib/devvisrc.cpp, the
+# built-in function table lib/context.cpp. Every rule here was load-checked
+# with vacask at that revision.
 #
 # VACASK has no built-in device letters. Every instance names a model, every
-# model names a Verilog-A module, and the module must be loaded first. The
-# `needs` sections below write that boilerplate when a device kind is used
-# and hide it again when reading.
+# model names a builtin or a Verilog-A module, and a module must be loaded
+# first. The `needs` sections below write that boilerplate when a device kind
+# or a model family is used and hide it again when reading.
 #
 # Analyses and options live inside control ... endc. A DC sweep is a `sweep`
-# line in front of an `op` analysis.
+# line in front of an `op` analysis. Initial conditions and nodesets are
+# parameters of the analyses (ic=, nodeset=), not statements.
 
 dialect vacask
 
@@ -30,7 +27,11 @@ lexer
   parens     token
   expr       bare
   values     idents
+  vectors    comma
   scale      M=6 T=12 G=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  # lib/dfllexer.l:643 and docs/input-numbers.md: K is kilo, x, X and meg mega.
+  readscale  K=3 X=6 x=6 meg=6
+  oddscale   mil=25.4e-6
   units      after-scale
 end
 
@@ -39,6 +40,7 @@ preamble
 end
 
 # The SPICE-compatible modules, so a translated R or C keeps SPICE semantics.
+# devices/CMakeLists.txt; module names in docs/dev-spice.md.
 needs resistor
   load "spice/resistor.osdi"
   model resistor sp_resistor
@@ -48,11 +50,11 @@ needs capacitor
   model capacitor sp_capacitor
 end
 needs inductor
-  load "spice/inductor.osdi"          # assumed, by analogy with the two above
+  load "spice/inductor.osdi"
   model inductor sp_inductor
 end
 needs diode
-  load "spice/diode.osdi"             # assumed; the benchmark decks load spice/sn/diode.osdi
+  load "spice/diode.osdi"
 end
 needs vsource
   model vsource vsource
@@ -60,35 +62,117 @@ end
 needs isource
   model isource isource
 end
+# Builtins (docs/dev-builtin.md): each needs a model line, no load.
+needs mutual
+  model mutual mutual
+end
+needs vcvs
+  model vcvs vcvs
+end
+needs vccs
+  model vccs vccs
+end
+needs cccs
+  model cccs cccs
+end
+needs ccvs
+  model ccvs ccvs
+end
+# Shipped Verilog-A devices (docs/dev-vacask.md; devices/tline_ideal.va).
+needs tline
+  load "tline_ideal.osdi"
+  model tline tline_ideal
+end
+# Model families: the OSDI file a model card of that family needs.
+needs bjt
+  load "spice/bjt.osdi"
+end
+needs vbic
+  load "vbic_1p3_4t.osdi"
+end
+needs jfet
+  load "spice/jfet1.osdi"
+end
+needs mesfet
+  load "spice/mes1.osdi"
+end
+needs mos1
+  load "spice/mos1.osdi"
+end
+needs mos2
+  load "spice/mos2.osdi"
+end
+needs mos3
+  load "spice/mos3.osdi"
+end
+needs bsim3
+  load "spice/bsim3v3.osdi"
+end
+needs bsim4
+  load "spice/bsim4v8.osdi"
+end
+needs bsimbulk
+  load "bsimbulk106.osdi"
+end
+needs vdmos
+  load "spice/vdmos.osdi"
+end
+needs psp103
+  load "psp103v4.osdi"
+end
 
-wrap "control" "endc" : options save op dc ac tran noise hb
+wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb
 
 # A file carried inside the netlist (a Python post-processing script, say).
 raw "embed" ">>>FILE"
 
+# The terminal list is in parentheses, always (lib/dflparser.y:324,334).
 block subckt
-  open   "subckt" name ["("] ports* [")"]
+  open   "subckt" name "(" ports* ")"
   inner  "parameters" {...params}
-  close  "ends"
+  close  "ends" [name]
 end
 
+# include "f" section=name reads only that section (docs/input-include.md).
+block libsection
+  open   "section" name
+  close  "endsection"
+end
+
+# docs/cir-conditional.md; lib/dflparser.y:463-499.
+block cond_if
+  open   "@if" cond...
+  close  "@end"
+end
+
+rule  cond_elif = "@elseif" cond...
+rule  cond_else = "@else"
 rule  param     = "parameters" {...params}
 rule  global    = "global" nodes+
+rule  lib       = "include" path { section=section! }
 rule  include   = "include" path
-rule  model     = "model" name type ["("] {...params} [")"]
+# Parentheses only around parameters: `model d sp_diode ()` is a syntax error.
+rule  model     = "model" name type [ "(" {...params} ")" ]
+read  model     = "model" name type {...params}
 rule  hdl       = "load" path
-# Option names other than tran_method are assumed to follow SPICE.
-rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin temp=temp tnom=tnom scale=scale tran_method="method" tran_maxord=maxord ...params }
-rule  save      = "save" signals+                 # assumed
+# lib/options.cpp:245-260 and :317; there is no trtol (tran_lteratio is not the same quantity).
+rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin temp=temp tnom=tnom scale=scale chgtol=chgtol tran_method="method" tran_maxord=maxord ...params }
+rule  save      = "save" signals+
 read  opaque    = ( "ground" | "elaborate" | "postprocess" | "save" | "print" | "abort" ) ...
 
-rule  op        = "analysis" name?op$# "op"
+rule  op        = "analysis" name?op$# "op" { nodeset={nodeset} ...params }
 # Nested sweep: the line written first is the outer loop.
-rule  dc        = [ "sweep" _?outer$# { instance="src2"! parameter=="dc" from=start2 to=stop2 step=step2 } / ] "sweep" _?sweep$# { instance="src" parameter=="dc" from=start to=stop step=step } / "analysis" name?dc$# "op"
-rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points ...params }
-rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep ...params }
-rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points ...params }
-rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] ...params }      # assumed
+rule  dc        = [ "sweep" _?outer$# { instance="src2"! parameter=="dc" from=start2 to=stop2 step=step2 } / ] "sweep" _?sweep$# { instance="src" parameter=="dc" from=start to=stop step=step } / "analysis" name?dc$# "op" { nodeset={nodeset} }
+rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
+rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
+rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
+# docs/cmd-analysis-dcxf.md: the transfer function to `out` from every source.
+rule  tf        = "analysis" name?tf$# "dcxf" { out="out" nodeset={nodeset} ...params }
+rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] nodeset={nodeset} ...params }
+# docs/cmd-analysis-acsp.md, cmd-analysis-acstb.md, cmd-analysis-pss.md.
+rule  sp        = "analysis" name?sp$# "acsp" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
+rule  stb       = "analysis" name?stb$# "acstb" { probe="probe"! from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
+rule  pss       = "analysis" name?pss$# "pss" { tper=fund! tstab=tstab maxharm=harms ic={ic} nodeset={nodeset} ...params }
 
 # With a model of its own the device keeps it; these forms are write-only
 # because any two-terminal instance would match them when reading.
@@ -97,49 +181,141 @@ write capacitor = name "(" pos neg ")" master { c=c ...params }
 rule  resistor  = name "(" pos neg ")" "resistor" { r=r ...params }
 rule  capacitor = name "(" pos neg ")" "capacitor" { c=c ...params }
 rule  inductor  = name "(" pos neg ")" "inductor" { l=l ...params }
-# mag and phase are assumed. The slides show both val0/val1 and v0/v1 for the
-# pulse levels; both are read, val0/val1 are written.
-rule  vsource   = name "(" pos neg ")" "vsource" { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 v0=val0 v1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq ...params }
-rule  isource   = name "(" pos neg ")" "isource" { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 v0=val0 v1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq ...params }
+# docs/dev-builtin-mutual.md: no terminals, the inductors by name.
+rule  mutual    = name "(" ")" "mutual" { k=k ind1="l1" ind2="l2" }
+# docs/dev-builtin-src.md; parameters lib/devvisrc.cpp:27-72. mag and phase
+# are the AC excitation; the sine phase is tdphase and its damping theta.
+define wave = { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq theta=damp tdphase=sphase td2=td2 tau1=tau1 tau2=tau2 wave=[pwl] modindex=mdi modfreq=fsig ...params }
+rule  vsource   = name "(" pos neg ")" "vsource" <wave>
+rule  isource   = name "(" pos neg ")" "isource" <wave>
+# docs/dev-builtin-behavioral.md: two terminals and no master name.
+rule  bsource   = name "(" pos neg ")" { v=v! ...params }
+rule  bsource   = name "(" pos neg ")" { i=i! ...params }
+# docs/dev-builtin-vcvs.md and the three next to it. gain is the gain, the
+# transconductance or the transresistance; a current is sensed in ctlinst.
+rule  vcvs      = name "(" pos neg cpos cneg ")" "vcvs" { gain=gain ...params }
+rule  vccs      = name "(" pos neg cpos cneg ")" "vccs" { gain=gm ...params }
+rule  cccs      = name "(" pos neg ")" "cccs" { ctlinst="vsrc" gain=gain ...params }
+rule  ccvs      = name "(" pos neg ")" "ccvs" { ctlinst="vsrc" gain=gain ...params }
+rule  tline     = name "(" p1 n1 p2 n2 ")" "tline" { z0=z0 td=td f=f nl=nl ...params }
 rule  instance  = name "(" nodes* ")" master {...params}
 
 enum options method : trap=trap gear=gear2 euler=euler
-enum vsource wave : pulse=pulse sine=sine
-enum isource wave : pulse=pulse sine=sine
+enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl sffm=fm
+enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl sffm=fm
+enum tran skip_dc : yes=uic
 implied noise ref = 0
+implied tf ref = 0
 
-no bsource : VACASK has no behavioural source; the expression has to be written as a Verilog-A module
+# Initial conditions are an ic= list of tran and pss; nodesets a nodeset=
+# list of every analysis (docs/cmd-analysis-tran.md, cmd-analysis-op.md).
+move ic.values -> tran.ic
+move ic.values -> pss.ic
+move nodeset.values -> op.nodeset
+move nodeset.values -> dc.nodeset
+move nodeset.values -> ac.nodeset
+move nodeset.values -> tran.nodeset
+move nodeset.values -> noise.nodeset
+move nodeset.values -> tf.nodeset
+move nodeset.values -> sp.nodeset
+move nodeset.values -> stb.nodeset
+move nodeset.values -> pss.nodeset
+move nodeset.values -> hb.nodeset
+
+# An exp source starts at `delay`, and its td2 counts from there
+# (lib/devvisrc.cpp:798); SPICE's TD2 is absolute.
+convert vsource wave=exp : td2 = td2 - td1
+convert vsource wave=exp : delay = td1
+convert isource wave=exp : td2 = td2 - td1
+convert isource wave=exp : delay = td1
+# pss takes the period, not the frequency (docs/cmd-analysis-pss.md).
+convert pss : fund = 1 / fund
+# A linear sweep's points counts intervals: points+1 frequencies
+# (docs/cmd-analysis-ac.md); SPICE counts the frequencies.
+convert ac sweep=lin : points = points - 1
+convert noise sweep=lin : points = points - 1
+convert sp sweep=lin : points = points - 1
+convert stb sweep=lin : points = points - 1
+
+# Source parameters whose VACASK default is not SPICE's (lib/devvisrc.cpp:90-140).
+invalid vsource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
+invalid isource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
+invalid vsource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step
+invalid isource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step
+invalid vsource width wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
+invalid isource width wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
+invalid vsource freq=0 wave=sine : VACASK's default frequency is 1k; SPICE's is 1/TSTOP
+invalid isource freq=0 wave=sine : VACASK's default frequency is 1k; SPICE's is 1/TSTOP
+invalid vsource tau1 wave=exp : VACASK's default rise time constant is 0; SPICE's is the time step
+invalid isource tau1 wave=exp : VACASK's default rise time constant is 0; SPICE's is the time step
+invalid vsource td2 wave=exp : VACASK needs td2 > delay; SPICE's default is TD1 plus the time step
+invalid isource td2 wave=exp : VACASK needs td2 > delay; SPICE's default is TD1 plus the time step
+invalid vsource tau2 wave=exp : VACASK's default fall time constant is 0; SPICE's is the time step
+invalid isource tau2 wave=exp : VACASK's default fall time constant is 0; SPICE's is the time step
+invalid vsource freq=0 wave=sffm : VACASK's default carrier frequency is 1k; SPICE's is 1/TSTOP
+invalid isource freq=0 wave=sffm : VACASK's default carrier frequency is 1k; SPICE's is 1/TSTOP
+invalid vsource mdi wave=sffm : VACASK's default modulation index is 0.5; SPICE's is 0
+invalid isource mdi wave=sffm : VACASK's default modulation index is 0.5; SPICE's is 0
+invalid vsource fsig=0 wave=sffm : VACASK's default modulating frequency is 1k; SPICE's is 1/TSTOP
+invalid isource fsig=0 wave=sffm : VACASK's default modulating frequency is 1k; SPICE's is 1/TSTOP
+
+# lib/dflparser.y:344-428: no function-definition production.
 no func    : VACASK netlists have no user-defined functions
+# No measure command among docs/cmd-*.md.
 no measure : VACASK has no measure statement; results are post-processed in Python
-no print   : VACASK has no print statement; results are written to raw files
-no tf      : VACASK has no SPICE .TF analysis; its dcxf analysis is the closest and needs different inputs
+# docs/cmd-print.md: print shows expressions and circuit state.
+no print   : VACASK's print shows expressions and circuit state; analysis results go to raw files
+# Analysis ids in include/an*.h: op ac noise dcxf hb dcinc acxf tran acstb pss pnoise acsp hbnoise pac hbac.
 no pz      : VACASK has no pole-zero analysis
 no disto   : VACASK has no .DISTO analysis; use hb
 no four    : VACASK has no .FOUR statement; use hb or post-process the transient result
-no vswitch : VACASK has no built-in switch
-no cswitch : VACASK has no built-in switch
-no xspice : XSPICE code models are ngspice's; VACASK has no such element
+no sens    : VACASK has no sensitivity analysis
+# docs/dev-builtin.md lists seven builtins and no switch; devices/ ships none.
+no vswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module (demo/sc/swtest.sim loads vsw.va)
+no cswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module
+no xspice  : XSPICE code models are ngspice's; VACASK has no such element
 no verilog : VACASK has no card that loads a digital Verilog design
 
-caveat hdl path : VACASK loads compiled OSDI files; compile Verilog-A source with OpenVAF first
+caveat bsource name : VACASK (b2c1551) names the module it synthesizes after the instance but looks it up in lower case, so an instance name with capitals is not found
+caveat hdl path : VACASK loads compiled OSDI files, or compiles a .va file it is given
+caveat save signals : in VACASK's ac, noise, acxf and dcinc analyses v() saves the operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)
+caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
+caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
+caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
+caveat cond_if cond : a VACASK @if branch may hold instances, models and nested blocks, but not parameters (lib/dflparser.y:467-499)
 
-signals                               # assumed
+signals
   v = "v(%)"
   i = "i(%)"
 end
 
-functions                             # assumed
-  same abs min max sqrt exp pow floor ceil sin cos tan asin acos atan atan2 sinh cosh tanh hypot
-  ln    = ln
+# lib/context.cpp:37-116 and docs/expr-functions.md. log is natural, as ln.
+# sgn is left out: VACASK's sgn(0) is 1, SPICE's is 0 (include/rpnfunctor.h:300).
+functions
+  same abs min max sqrt exp pow floor ceil sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot fmod
+  same agauss gauss aunif unif v i
+  ln    = ln log
   log10 = log10
+  sign2 = sign
+  int   = integer
 end
 
+# docs/expr-special.md: $temp everywhere, $abstime only in a behavioural source.
+variables
+  temper = $temp
+  time   = $abstime
+end
+
+# lib/dfllexer.l:722 (**) and :749-750 (^ is bitwise exclusive-or).
 operators
   pow "**"
+  xor "^"
 end
 
 # A netlist may give a module any model name (`model r sp_resistor`);
-# instances of that model are still resistors.
+# instances of that model are still resistors. type=1 is n/npn, -1 p/pnp
+# (devices/spice/bjt.va:89, mos1.va:112, jfet1.va:95, mes1.va:76,
+# bsim3v3.va:566, bsim4v8.va:1038; bsimbulk106.va:706; vbic_1p3.va:302).
 models
   resistor   = sp_resistor | resistor
   capacitor  = sp_capacitor | capacitor
@@ -147,6 +323,27 @@ models
   diode      = sp_diode
   vsource    = vsource
   isource    = isource
+  bjt npn    = sp_bjt type=1
+  bjt pnp    = sp_bjt type=-1
+  vbic npn   = vbic13_4t type=1 | vbic13 type=1
+  vbic pnp   = vbic13_4t type=-1 | vbic13 type=-1
+  jfet n     = sp_jfet1 type=1
+  jfet p     = sp_jfet1 type=-1
+  mesfet n   = sp_mes1 type=1
+  mesfet p   = sp_mes1 type=-1
+  mos1 n     = sp_mos1 type=1
+  mos1 p     = sp_mos1 type=-1
+  mos2 n     = sp_mos2 type=1
+  mos2 p     = sp_mos2 type=-1
+  mos3 n     = sp_mos3 type=1
+  mos3 p     = sp_mos3 type=-1
+  bsim3 n    = sp_bsim3v3 type=1 | bsim3 type=1
+  bsim3 p    = sp_bsim3v3 type=-1 | bsim3 type=-1
+  bsim4 n    = sp_bsim4v8 type=1 | bsim4 type=1
+  bsim4 p    = sp_bsim4v8 type=-1 | bsim4 type=-1
+  bsimbulk n = bsimbulk type=1
+  bsimbulk p = bsimbulk type=-1
+  vdmos      = sp_vdmos
   psp103 n   = psp103va type=1
   psp103 p   = psp103va type=-1
 end

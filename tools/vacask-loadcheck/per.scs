@@ -1,0 +1,8 @@
+// periodic
+simulator lang=spectre
+V1 (in 0) vsource type=sine ampl=1 freq=1M
+Vp (in a) vsource dc=0
+R1 (a out) resistor r=1k
+C1 (out 0) capacitor c=100p
+pss1 pss fund=1M harms=10 tstab=1u
+stb1 stb start=1k stop=1G dec=10 probe=Vp

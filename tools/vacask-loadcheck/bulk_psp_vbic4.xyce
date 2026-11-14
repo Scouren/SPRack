@@ -1,0 +1,14 @@
+bulk and psp
+V1 vdd 0 1
+V2 g 0 0.8
+R1 vdd d1 1k
+M1 d1 g 0 0 bb w=1u l=100n
+R2 vdd d2 1k
+M2 d2 g 0 0 pp w=1u l=100n
+R3 vdd d3 1k
+Q3 d3 g 0 0 vb
+.model bb nmos level=77
+.model pp nmos level=103
+.model vb npn level=12
+.op
+.end

@@ -1,0 +1,7 @@
+hb
+V1 in 0 sin(0 1 1meg)
+R1 in out 1k
+D1 out 0 dd
+.model dd d
+.hb 1meg 2meg
+.end

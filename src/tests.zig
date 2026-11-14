@@ -446,9 +446,8 @@ test "nothing is dropped: a value with no place in the target is an error" {
 
     var r1: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\n.tran 1n 100n 5n 0.5n uic\n.end\n", &r1);
-    try has(va, "analysis tran1 tran step=1n stop=100n maxstep=0.5n\n");
+    try has(va, "analysis tran1 tran step=1n stop=100n maxstep=0.5n icmode=\"uic\"\n");
     try reported(&r1, .@"error", "tran.start = 5n has no spelling in vacask");
-    try reported(&r1, .@"error", "tran.skip_dc = yes has no spelling in vacask");
 
     // HSPICE has START= but no step ceiling on .TRAN.
     var r2: ir.Report = .init(a);
@@ -613,10 +612,15 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     try has(hs, "M1 out in 0 0 nch w=1u l=0.18u\n");
     try clean(&r3);
 
-    // VACASK has no BSIM4 module in its grammar: say so, and say who has.
+    // VACASK: the model names the OSDI module, which has to be loaded.
     var r4: ir.Report = .init(a);
-    _ = try tr(a, "ngspice", "vacask", src, &r4);
-    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'bsim4 n'. Defined by: espice, hspice, ltspice, ngspice, spectre, xyce");
+    const va = try tr(a, "ngspice", "vacask", src, &r4);
+    try has(va, "load \"spice/bsim4v8.osdi\"\n");
+    try has(va, "model nch sp_bsim4v8 (type=1 version=4.5 vth0=0.4)\n");
+    try has(va, "M1 (out in 0 0) nch w=1u l=0.18u\n");
+    // It ships no HiSIM2: say so, and say who has.
+    _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
+    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'hisim2 n'. Defined by: espice, hspice, ngspice, spectre");
 
     // FinFET models: HSPICE level 72 is Xyce level 111, and ngspice has neither.
     var r5: ir.Report = .init(a);
@@ -754,13 +758,12 @@ test "sources: every waveform, and what each target can say" {
     _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 SFFM(0 1 20k 5 1k)\n.end\n", &r2);
     try reported(&r2, .@"error", "vsource.wave = sffm has no spelling in spectre");
 
-    // VACASK: sine and pulse are confirmed by upstream decks; PWL is not in
-    // the grammar, so it is an error rather than an invention.
+    // VACASK: a PWL is a vector of time, value pairs.
     var r3: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\nV1 a 0 SIN(0.9 0.1 1MEG)\nV2 b 0 PWL(0 0 1n 1)\n.end\n", &r3);
     try has(va, "V1 (a 0) vsource type=\"sine\" sinedc=0.9 ampl=0.1 freq=1M\n");
-    try reported(&r3, .@"error", "vsource.wave = pwl has no spelling in vacask");
-    try reported(&r3, .@"error", "vsource.pwl = 0 0 1n 1 has no spelling in vacask");
+    try has(va, "V2 (b 0) vsource type=\"pwl\" wave=[0, 0, 1n, 1]\n");
+    try clean(&r3);
 }
 
 test "libraries and includes" {
@@ -1046,7 +1049,7 @@ test "expressions: functions, operators and variables are mapped" {
     try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: ltspice, spectre");
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
-    try reported(&r3, .@"error", "function 'agauss' has no spelling in spectre. Dialects that have it: espice, hspice, ngspice, xyce");
+    try reported(&r3, .@"error", "function 'agauss' has no spelling in spectre. Dialects that have it: espice, hspice, ngspice, vacask, xyce");
     // A function nobody defines is not passed along on trust.
     var r4: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\n.param q={mystery(2)}\n.end\n", &r4);
@@ -1246,7 +1249,10 @@ test "VACASK control block and sweep" {
     try has(xy, ".dc v1 0.5 0.9 0.05\n");
     try has(xy, ".tran 1u 10m\n");
     try has(xy, "* [sprack] untranslated vacask: postprocess(PYTHON, \"runme.py\")\n");
-    try testing.expectEqual(1, report.count(.@"error"));
+    // A VACASK pulse without fall or width is not the SPICE pulse of the same words.
+    try testing.expectEqual(3, report.count(.@"error"));
+    try reported(&report, .@"error", "vsource.fall is not given: a VACASK pulse without a fall time never falls");
+    try reported(&report, .@"error", "vsource.width is not given: a VACASK pulse without a width has no flat top");
     try reported(&report, .info, "model 'v' only names a built-in vsource");
 }
 
@@ -1663,4 +1669,205 @@ test "verification: Xyce S-parameters through .LIN and P ports" {
     const back = try readAs(a, "xyce", xy, &report);
     try testing.expectEqual(1, countKind(back, .sp));
     try testing.expectEqual(0, countKind(back, .ac));
+}
+
+test "verification: VACASK behavioural sources, dcxf, subckt parentheses, val0/val1" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask",
+        \\t
+        \\.subckt div in out
+        \\R1 in out 1k
+        \\.ends div
+        \\V1 in 0 1
+        \\B1 b 0 V={v(in)*2}
+        \\B2 0 c I={v(in)*1m}
+        \\.tf v(b) V1
+        \\.end
+    , &r1);
+    try has(va, "subckt div (in out)\n");
+    try has(va, "ends div\n");
+    try has(va, "B1 (b 0) v=v(in)*2\n");
+    try has(va, "B2 (0 c) i=v(in)*1m\n");
+    try has(va, "analysis tf1 dcxf out=\"b\"\n");
+    // dcxf has no input source of its own: it reports every source.
+    try reported(&r1, .@"error", "tf.src = V1 has no spelling in vacask");
+    try reported(&r1, .warning, "tf.out: dcxf reports tf(), zin() and yin() for every independent source");
+    // v0/v1 are not VACASK source parameters, so they are not pulse levels.
+    var r2: ir.Report = .init(a);
+    const nl = try readAs(a, "vacask", "t\nv1 (a 0) vsource type=\"pulse\" v0=0 v1=1 rise=1n fall=1n width=1n\n", &r2);
+    try testing.expect(nl.stmts[0].get("val1") == .none);
+}
+
+test "verification: VACASK sources: sine phase, exp origin, pwl, fm, and SPICE defaults" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const src =
+        \\t
+        \\Va a 0 sin(0.5 1 1meg 100n 1e5 30)
+        \\Vb b 0 exp(0 1 100n 200n 1u 300n)
+        \\Vc c 0 pwl(0 0 1u 1)
+        \\Vd d 0 sffm(0 1 2meg 3 200k)
+        \\.end
+    ;
+    const va = try tr(a, "ngspice", "vacask", src, &r1);
+    try has(va, "Va (a 0) vsource type=\"sine\" delay=100n sinedc=0.5 ampl=1 freq=1M theta=1e5 tdphase=30\n");
+    // td2 counts from delay in VACASK.
+    try has(va, "Vb (b 0) vsource type=\"exp\" val0=0 val1=1 delay=100n td2=900n tau1=200n tau2=300n\n");
+    try has(va, "Vc (c 0) vsource type=\"pwl\" wave=[0, 0, 1u, 1]\n");
+    try has(va, "Vd (d 0) vsource type=\"fm\" sinedc=0 ampl=1 freq=2M modindex=3 modfreq=200k\n");
+    try clean(&r1);
+    // And back, exactly.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "vacask", "ngspice", va, &r2);
+    try has(ng, "Vb b 0 exp(0 1 100n 200n 1u 300n)\n");
+    try has(ng, "Va a 0 sin(0.5 1 1meg 100n 1e5 30)\n");
+    // What VACASK defaults differently is an error, never a quiet change.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\nV1 a 0 pulse(0 1 0 0)\nV2 b 0 sin(0 1)\nV3 c 0 exp(0 1)\n.end\n", &r3);
+    try reported(&r3, .@"error", "vsource.rise is 0: VACASK needs rise > 0");
+    try reported(&r3, .@"error", "vsource.fall is not given: a VACASK pulse without a fall time never falls");
+    try reported(&r3, .@"error", "vsource.width is not given");
+    try reported(&r3, .@"error", "vsource.freq is not given: VACASK's default frequency is 1k");
+    try reported(&r3, .@"error", "vsource.td2 is not given");
+}
+
+test "verification: VACASK functions, operators and variables" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\n.param p={log(2) + asinh(1) + temper + agauss(1,0.1,3)}\n.end\n", &r1);
+    try has(va, "parameters p=(ln(2) + asinh(1) + $temp + agauss(1,0.1,3))\n");
+    try clean(&r1);
+    // VACASK's log is natural, and its ^ is exclusive-or.
+    var r2: ir.Report = .init(a);
+    const sp = try tr(a, "vacask", "spectre", "t\nparameters q=log(2)+(3^5)+integer(2.5)\n", &r2);
+    try has(sp, "parameters q=log(2)+(3^5)+int(2.5)\n");
+    try clean(&r2);
+    // VACASK's sgn(0) is 1: not the SPICE function, so not mapped.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\n.param s={sgn(0)}\n.end\n", &r3);
+    try reported(&r3, .@"error", "function 'sgn' has no spelling in vacask");
+}
+
+test "verification: VACASK coupling, controlled sources, lines, libraries, conditionals" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const src =
+        \\t
+        \\.lib 'models.lib' typ
+        \\V1 in 0 1
+        \\L1 in 0 1u
+        \\L2 b 0 1u
+        \\K1 L1 L2 0.9
+        \\E1 e 0 in 0 2
+        \\G1 0 g in 0 1m
+        \\F1 0 f V1 3
+        \\H1 h 0 V1 500
+        \\T1 c 0 d 0 z0=50 td=1n
+        \\.if (a == 1)
+        \\R3 x 0 1k
+        \\.elseif (a == 2)
+        \\R3 x 0 2k
+        \\.else
+        \\R3 x 0 3k
+        \\.endif
+        \\.end
+    ;
+    const va = try tr(a, "ngspice", "vacask", src, &r1);
+    const want = [_][]const u8{
+        "model mutual mutual\n",                 "load \"tline_ideal.osdi\"\nmodel tline tline_ideal\n",
+        "include \"models.lib\" section=typ\n", "K1 () mutual k=0.9 ind1=\"L1\" ind2=\"L2\"\n",
+        "E1 (e 0 in 0) vcvs gain=2\n",          "G1 (0 g in 0) vccs gain=1m\n",
+        "F1 (0 f) cccs ctlinst=\"V1\" gain=3\n", "H1 (h 0) ccvs ctlinst=\"V1\" gain=500\n",
+        "T1 (c 0 d 0) tline z0=50 td=1n\n",     "@if (a == 1)\n",
+        "@elseif (a == 2)\n",                   "@else\n",
+        "@end\n",
+    };
+    for (want) |w| try has(va, w);
+    // Read back: the same circuit.
+    var r2: ir.Report = .init(a);
+    const orig = try readAs(a, "ngspice", src, &r2);
+    const back = try readAs(a, "vacask", va, &r2);
+    try testing.expectEqual(orig.stmts.len, back.stmts.len + 0);
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", "* lib\n.lib typ\n.param r=1k\n.endl typ\n", &r3), "section typ\nparameters r=1k\nendsection\n");
+}
+
+test "verification: VACASK analyses: acsp, acstb, pss period, ic and nodeset on the analysis" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "spectre", "vacask",
+        \\// t
+        \\simulator lang=spectre
+        \\V1 (in 0) vsource type=sine ampl=1 freq=1M
+        \\pss1 pss fund=1M harms=10 tstab=1u
+        \\stb1 stb start=1k stop=1G dec=10 probe=V1
+    , &r1);
+    try has(va, "analysis pss1 pss tper=1u tstab=1u maxharm=10\n");
+    try has(va, "analysis stb1 acstb probe=\"V1\" from=1k to=1G mode=\"dec\" points=10\n");
+    // The period goes back to a frequency.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "vacask", "spectre", va, &r2), "pss1 pss fund=1M harms=10 tstab=1u\n");
+
+    var r3: ir.Report = .init(a);
+    const src = "t\nR1 out 0 1k\nC1 out 0 1u\n.ic v(out)=0.2\n.nodeset v(out)=0.1\n.op\n.ac lin 5 1k 5k\n.sp dec 10 1k 1meg\n.tran 1u 1m uic\n.end\n";
+    const out = try tr(a, "ngspice", "vacask", src, &r3);
+    try has(out, "analysis op1 op nodeset={\"out\",0.1}\n");
+    // A linear sweep counts intervals in VACASK.
+    try has(out, "analysis ac1 ac from=1k to=5k mode=\"lin\" points=4 nodeset={\"out\",0.1}\n");
+    try has(out, "analysis sp1 acsp from=1k to=1M mode=\"dec\" points=10 nodeset={\"out\",0.1}\n");
+    try has(out, "analysis tran1 tran step=1u stop=1m icmode=\"uic\" ic={\"out\",0.2} nodeset={\"out\",0.1}\n");
+    // Reading lifts them back out into statements of their own.
+    var r4: ir.Report = .init(a);
+    const ng = try tr(a, "vacask", "ngspice", out, &r4);
+    try has(ng, ".ic v(out)=0.2\n");
+    try has(ng, ".nodeset v(out)=0.1\n");
+    try has(ng, ".ac lin 5 1k 5k\n");
+    // With nothing to carry them, an ic says why it cannot be written.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\nR1 out 0 1k\n.ic v(out)=0.2\n.op\n.end\n", &r5);
+    try reported(&r5, .@"error", "vacask says it as tran.ic, and this netlist has no tran");
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\n.sens v(out)\nS1 a 0 b 0 sw\n.model sw sw\n.end\n", &r6);
+    try reported(&r6, .@"error", "VACASK has no sensitivity analysis");
+    try reported(&r6, .@"error", "VACASK has no switch device");
+}
+
+test "verification: VACASK model families load their modules" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask",
+        \\t
+        \\Q1 c b 0 qn
+        \\Q2 c b 0 qv
+        \\J1 d g 0 jp
+        \\M1 d g 0 0 m3
+        \\M2 d g 0 vd
+        \\.model qn npn bf=100
+        \\.model qv pnp level=4
+        \\.model jp pjf
+        \\.model m3 nmos level=3
+        \\.model vd vdmos
+        \\.end
+    , &r1);
+    const want = [_][]const u8{
+        "load \"spice/bjt.osdi\"\n",        "load \"vbic_1p3_4t.osdi\"\n",   "load \"spice/jfet1.osdi\"\n",
+        "load \"spice/mos3.osdi\"\n",       "load \"spice/vdmos.osdi\"\n",   "model qn sp_bjt (type=1 bf=100)\n",
+        "model qv vbic13_4t (type=-1)\n",   "model jp sp_jfet1 (type=-1)\n", "model m3 sp_mos3 (type=1)\n",
+        "model vd sp_vdmos\n",
+    };
+    for (want) |w| try has(va, w);
+    try testing.expect(std.mem.indexOf(u8, va, "mos1.osdi") == null);
 }

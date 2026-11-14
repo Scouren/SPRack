@@ -1,0 +1,4 @@
+* lib
+.lib typ
+.param rtyp=1k
+.endl typ

@@ -1,0 +1,5 @@
+// functions
+simulator lang=spectre
+parameters a=hypot(3,4) b=fmod(7,4) c=sign(2,-1) d=(3 ^ 5) e=atan2(1,1) f=log(exp(2))
+R1 (x 0) resistor r=a+b+c+d+e+f
+I1 (0 x) isource dc=1

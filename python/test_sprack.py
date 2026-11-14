@@ -72,9 +72,11 @@ def test_build_every_dialect():
     c.netlist("hspice")
     # Xyce records only what .print lists: a bare save is an error there, and says so.
     raises(sprack.Unsupported, lambda: c.netlist("xyce"), "Xyce records only what .PRINT lists")
-    # VACASK has no BSIM4 card in its grammar and no initial conditions.
-    e = raises(sprack.Unsupported, lambda: c.netlist("vacask"), "model family 'bsim4 n'", "Defined by: espice, hspice, ltspice, ngspice, spectre, xyce")
-    assert "analysis tran1 tran step=10p stop=8n" in e.text
+    # VACASK loads the BSIM4 module and takes the initial condition on the analysis.
+    va = c.netlist("vacask")
+    for line in ['load "spice/bsim4v8.osdi"', "model nch sp_bsim4v8 (type=1 version=4.5 vth0=0.4)",
+                 'analysis tran1 tran step=10p stop=8n icmode="uic" ic={"out",0}']:
+        assert line + "\n" in va, f"missing {line!r} in\n{va}"
     # Reading any netlist back gives a circuit that can be written again.
     again = sprack.read(ng, "ngspice")
     assert again.netlist("spectre", strict=False).count("\n") == sp.count("\n")
