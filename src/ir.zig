@@ -182,6 +182,12 @@ pub const Stmt = struct {
     }
 };
 
+/// Where reading and writing keep their large temporary tables (the line
+/// list, the token window, name sets): outside the arena, so that they are
+/// freed as soon as they are done with. A variable so that a test can count
+/// what they take.
+pub var big: Allocator = std.heap.page_allocator;
+
 /// Hashes and compares names as an ASCII case-folding dialect reads them.
 pub const Caseless = struct {
     pub fn hash(_: Caseless, s: []const u8) u64 {

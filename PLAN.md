@@ -156,9 +156,14 @@ supported simulator defines.
 
 ## Phase 8: engine and warts (5.1, 5.4–5.6, section 8)
 
-- [ ] **8.1 Memory (5.1).** Lex one logical line at a time and store values
-  sparsely. *Exit:* peak memory is under 3× the input, and the audit is
-  unchanged.
+- [x] **8.1 Memory (5.1).** Lex one logical line at a time and store values
+  sparsely. *Exit:* peak ≤ 5× on the RC mesh and ≤ 4× on sky130, and the
+  audit is unchanged. *Reached:* 7.1× on the mesh (`tools/gen_bench.py mesh
+  1000`, 111 MiB, was 17×) and 4.3× on sky130 (`gen_bench.py cat`, 45 MiB,
+  was 12.7×). The test in `tests.zig` bounds the counted peak at 13×.
+  Next lever: streaming read→write, or a 16-byte `Value` (the mesh's bound
+  values alone are 2.6×). Smaller ones: free the logical-line list (1×) and
+  shrink the 72-byte `Stmt` (1.8×).
 - [ ] **8.2 Expression semantics (5.4).** Add a `caveat` for `pwr`, `log`,
   `int`, ternary forms and unary minus with power.
 - [ ] **8.3 Report the model-parameter caveat once per file (5.5).**

@@ -999,13 +999,12 @@ const CaseMaps = struct {
     definitions: ir.CaselessSet = .empty,
 
     fn deinit(m: *CaseMaps) void {
-        m.nodes.deinit(table_gpa);
-        m.instances.deinit(table_gpa);
-        m.definitions.deinit(table_gpa);
+        m.nodes.deinit(ir.big);
+        m.instances.deinit(ir.big);
+        m.definitions.deinit(ir.big);
     }
 };
 
-const table_gpa = std.heap.page_allocator;
 
 /// Names that differ only by case collide in a dialect that ignores case.
 /// Nodes, instances and definitions are separate name spaces: a source
@@ -1038,7 +1037,7 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
             };
             for (items) |v| {
                 if (v != .atom) continue;
-                const gop = try map.getOrPut(table_gpa, v.atom);
+                const gop = try map.getOrPut(ir.big, v.atom);
                 if (gop.found_existing and !std.mem.eql(u8, gop.key_ptr.*, v.atom)) {
                     report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different names in the source but the same name in {s}, which ignores case", .{
                         gop.key_ptr.*, v.atom, target,
@@ -1053,7 +1052,7 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
 
 fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(table_gpa, s.get("name").atom, {});
+        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(ir.big, s.get("name").atom, {});
         try collectInstances(s.body, out);
     }
 }
@@ -1081,13 +1080,13 @@ pub fn write(
         .report = report,
         .caps = caps,
         .source = nl.dialect,
-        .scratch = .init(std.heap.page_allocator),
+        .scratch = .init(ir.big),
     };
     defer w.scratch.deinit();
 
     try collectDeclared(arena, nl.stmts, &w.declared);
     try collectFuncs(arena, nl.stmts, &w.funcs);
-    defer w.instances.deinit(table_gpa);
+    defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
     if (env) |e| {
         var it = e.declared.keyIterator();

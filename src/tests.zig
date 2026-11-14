@@ -1479,3 +1479,83 @@ test "repeated groups: list slots in lockstep, with a separator" {
     try clean(&r3);
     try has(try tr(a, "xyce", "hspice", "t\n.hb 1k 2k\n.end\n", &r3), ".hb tones=1k 2k\n");
 }
+
+/// Counts the bytes held through it and the most ever held at once.
+const Counting = struct {
+    child: std.mem.Allocator,
+    now: usize = 0,
+    peak: usize = 0,
+
+    fn allocator(c: *Counting) std.mem.Allocator {
+        return .{ .ptr = c, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn grow(c: *Counting, old: usize, new: usize) void {
+        c.now = c.now - old + new;
+        c.peak = @max(c.peak, c.now);
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, a: std.mem.Alignment, ra: usize) ?[*]u8 {
+        const c: *Counting = @ptrCast(@alignCast(ctx));
+        const p = c.child.rawAlloc(len, a, ra) orelse return null;
+        c.grow(0, len);
+        return p;
+    }
+
+    fn resize(ctx: *anyopaque, m: []u8, a: std.mem.Alignment, new: usize, ra: usize) bool {
+        const c: *Counting = @ptrCast(@alignCast(ctx));
+        if (!c.child.rawResize(m, a, new, ra)) return false;
+        c.grow(m.len, new);
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, m: []u8, a: std.mem.Alignment, new: usize, ra: usize) ?[*]u8 {
+        const c: *Counting = @ptrCast(@alignCast(ctx));
+        const p = c.child.rawRemap(m, a, new, ra) orelse return null;
+        c.grow(m.len, new);
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, m: []u8, a: std.mem.Alignment, ra: usize) void {
+        const c: *Counting = @ptrCast(@alignCast(ctx));
+        c.child.rawFree(m, a, ra);
+        c.grow(m.len, 0);
+    }
+};
+
+// A large netlist is mostly short device lines. The tokens of the whole
+// file (5x its size), dense slot arrays and lower-cased copies of every
+// name once made a translation take 16 times the size of its input.
+test "translation memory stays a small multiple of the input" {
+    var src: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer src.deinit();
+    const w = &src.writer;
+    try w.writeAll("* RC mesh\n.param rval=1k\nV1 n0_0 0 PULSE(0 1.8 0 10p 10p 1n 2n)\n");
+    const n = 120;
+    for (0..n) |i| for (0..n) |j| {
+        if (j + 1 < n) try w.print("R{d}_{d}h n{d}_{d} n{d}_{d} {{rval*1.01}}\n", .{ i, j, i, j, i, j + 1 });
+        if (i + 1 < n) try w.print("R{d}_{d}v n{d}_{d} n{d}_{d} 1.5k\n", .{ i, j, i, j, i + 1, j });
+        try w.print("C{d}_{d} n{d}_{d} 0 1f $ cap\n", .{ i, j, i, j });
+    };
+    try w.writeAll(".tran 1p 10n\n.end\n");
+    const input = src.written();
+
+    for ([_][]const u8{ "spectre", "xyce" }) |to| {
+        var count: Counting = .{ .child = std.heap.page_allocator };
+        const saved = ir.big;
+        ir.big = count.allocator();
+        defer ir.big = saved;
+        var arena_state: std.heap.ArenaAllocator = .init(count.allocator());
+        defer arena_state.deinit();
+        var report: ir.Report = .init(arena_state.allocator());
+        var sink: std.Io.Writer.Discarding = .init(&.{});
+        try sprack.translate(arena_state.allocator(), "ngspice", to, input, &sink.writer, &report);
+        // Measured: 11.7x. This counts whole arena chunks, untouched pages
+        // too; the peak RSS of a 111 MiB mesh is 7.1x. The tokens of the
+        // whole file alone would add 5x.
+        if (count.peak > 13 * input.len) {
+            std.debug.print("to {s}: peak {d} bytes for {d} of input\n", .{ to, count.peak, input.len });
+            return error.TooMuchMemory;
+        }
+    }
+}

@@ -404,4 +404,4 @@ dialects that have it; so is one that nothing defines.
   temperature sweeps are.
 * Parameters of model cards are copied by name, with a warning: the simulators
   ship different versions of the same model.
-* The whole netlist is held in memory, at about 17 times its size.
+* The whole netlist is held in memory, at about 4 to 7 times its size.

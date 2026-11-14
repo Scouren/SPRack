@@ -49,7 +49,7 @@ pub const Lexed = struct {
 
     /// The line list lives outside the arena and is freed when reading is done.
     pub fn deinit(lx: *Lexed) void {
-        std.heap.page_allocator.free(lx.all_lines);
+        ir.big.free(lx.all_lines);
         lx.lines = &.{};
         lx.all_lines = &.{};
     }
@@ -95,7 +95,6 @@ fn commentText(s: []const u8) []const u8 {
 }
 
 const Joiner = struct {
-    const big = std.heap.page_allocator;
     arena: Allocator,
     lines: std.ArrayList(Line) = .empty,
     /// The open statement while it is a single physical line: a slice of
@@ -118,20 +117,20 @@ const Joiner = struct {
             if (!j.open and list.items.len == 0) return;
             if (prev) |q| if (q.kind == .blank) return;
         }
-        try list.append(if (j.open) j.arena else big, .{ .text = text, .no = no, .kind = kind });
+        try list.append(if (j.open) j.arena else ir.big, .{ .text = text, .no = no, .kind = kind });
     }
 
     fn flush(j: *Joiner) Allocator.Error!void {
         if (j.open) {
             const joined = j.cur.items.len > 0;
-            try j.lines.append(big, .{
+            try j.lines.append(ir.big, .{
                 .text = if (joined) try j.cur.toOwnedSlice(j.arena) else j.first,
                 .no = j.cur_no,
                 .tail = if (j.tail.items.len > 0) try j.tail.toOwnedSlice(j.arena) else j.first_tail,
             });
             j.open = false;
         }
-        try j.lines.appendSlice(big, j.pending.items);
+        try j.lines.appendSlice(ir.big, j.pending.items);
         j.pending.clearRetainingCapacity();
     }
 };
@@ -248,7 +247,7 @@ fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]co
     }
     try j.flush();
     while (j.lines.items.len > 0 and j.lines.items[j.lines.items.len - 1].kind == .blank) _ = j.lines.pop();
-    return j.lines.toOwnedSlice(Joiner.big);
+    return j.lines.toOwnedSlice(ir.big);
 }
 
 fn countCloses(text: []const u8, from: usize) u8 {
@@ -436,22 +435,21 @@ pub fn lex(arena: Allocator, cfg: *const LexCfg, src: []const u8) Allocator.Erro
 /// each line when it reaches it and forgets it once it is read: the tokens
 /// of a whole netlist would take five times its size.
 pub const Window = struct {
-    const gpa = std.heap.page_allocator;
     cfg: *const LexCfg,
     lines: []const Line,
     /// Case-folded copies of words, freed whenever the window empties. A
     /// value that keeps a folded `text` must copy it.
-    scratch: std.heap.ArenaAllocator = .init(gpa),
+    scratch: std.heap.ArenaAllocator,
     toks: std.ArrayList(Tok) = .empty,
     /// The next line to lex.
     next: u32 = 0,
 
     pub fn init(cfg: *const LexCfg, lines: []const Line) Window {
-        return .{ .cfg = cfg, .lines = lines };
+        return .{ .cfg = cfg, .lines = lines, .scratch = .init(ir.big) };
     }
 
     pub fn deinit(w: *Window) void {
-        w.toks.deinit(gpa);
+        w.toks.deinit(ir.big);
         w.scratch.deinit();
     }
 
@@ -492,12 +490,12 @@ pub const Window = struct {
             const tag: TokTag = if (ln.kind == .blank) .blank else .comment;
             var text = ln.text;
             if (startsWithAny(text, cfg.line_comments)) |n| text = commentText(text[n..]) else if (startsWithAny(text, cfg.tail_comments)) |n| text = commentText(text[n..]);
-            try w.toks.append(gpa, .{ .tag = tag, .text = text, .raw = ln.text, .lno = lno });
-            try w.toks.append(gpa, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
+            try w.toks.append(ir.big, .{ .tag = tag, .text = text, .raw = ln.text, .lno = lno });
+            try w.toks.append(ir.big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
             return;
         }
-        try tokenizeLine(w.scratch.allocator(), gpa, cfg, ln.text, lno, &w.toks);
-        try w.toks.append(gpa, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
+        try tokenizeLine(w.scratch.allocator(), ir.big, cfg, ln.text, lno, &w.toks);
+        try w.toks.append(ir.big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
     }
 };
 

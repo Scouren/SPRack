@@ -705,20 +705,19 @@ const Spelling = struct {
         return s;
     }
 
-    /// The table can be large and is rebuilt as it grows, so it lives
-    /// outside the arena and is freed when reading is done.
-    const table_gpa = std.heap.page_allocator;
+    // The table can be large and is rebuilt as it grows, so it lives
+    // outside the arena and is freed when reading is done.
 
     fn scan(sp: *Spelling, toks: []const Tok) Allocator.Error!void {
         for (toks) |t| {
             // The lexer folds a word into a fresh copy only if it has capitals.
             if (t.tag != .word or t.text.ptr == t.raw.ptr or t.text.len != t.raw.len) continue;
-            _ = try sp.mixed.getOrPut(table_gpa, t.raw);
+            _ = try sp.mixed.getOrPut(ir.big, t.raw);
         }
     }
 
     fn deinit(sp: *Spelling) void {
-        sp.mixed.deinit(table_gpa);
+        sp.mixed.deinit(ir.big);
     }
 
     fn spell(sp: *const Spelling, raw: []const u8) []const u8 {
@@ -838,7 +837,7 @@ const Reader = struct {
     fn body(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt) Allocator.Error![]ir.Stmt {
         // A growing list leaves every outgrown copy behind in an arena. Grow
         // it on the page allocator and keep one copy of the final size.
-        var list: Grow = .{};
+        var list: Grow = .{ .gpa = ir.big };
         defer list.items.deinit(list.gpa);
         return self.bodyInto(block, owner, &list);
     }
@@ -854,7 +853,7 @@ const Reader = struct {
     }
 
     const Grow = struct {
-        gpa: Allocator = std.heap.page_allocator,
+        gpa: Allocator,
         items: std.ArrayList(ir.Stmt) = .empty,
 
         fn append(g: *Grow, _: Allocator, st: ir.Stmt) Allocator.Error!void {
@@ -1072,7 +1071,7 @@ const Reader = struct {
         // The statements built here are thrown away: build them in a
         // scratch arena. Only names that go into `declared` and the
         // spelling tables are kept, and those are made in `self.arena`.
-        var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+        var scratch: std.heap.ArenaAllocator = .init(ir.big);
         defer scratch.deinit();
         self.m.arena = scratch.allocator();
         defer {
