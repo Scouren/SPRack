@@ -1005,7 +1005,6 @@ const CaseMaps = struct {
     }
 };
 
-
 /// Names that differ only by case collide in a dialect that ignores case.
 /// Nodes, instances and definitions are separate name spaces: a source
 /// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
@@ -1017,8 +1016,8 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
         const maps = if (scoped) &inner else seen;
         defer if (scoped) {
             seen.definitions = inner.definitions;
-            inner.nodes.deinit(table_gpa);
-            inner.instances.deinit(table_gpa);
+            inner.nodes.deinit(ir.big);
+            inner.instances.deinit(ir.big);
         };
         for (schema.info(s.kind).slots, 0..) |sl, i| {
             const map = switch (sl.ty) {

@@ -1550,10 +1550,12 @@ test "translation memory stays a small multiple of the input" {
         var report: ir.Report = .init(arena_state.allocator());
         var sink: std.Io.Writer.Discarding = .init(&.{});
         try sprack.translate(arena_state.allocator(), "ngspice", to, input, &sink.writer, &report);
-        // Measured: 11.7x. This counts whole arena chunks, untouched pages
-        // too; the peak RSS of a 111 MiB mesh is 7.1x. The tokens of the
-        // whole file alone would add 5x.
-        if (count.peak > 13 * input.len) {
+        // Measured: 13.6x (11.7x before Stmt.dialect, a 16-byte slice per
+        // statement). This counts whole arena chunks, untouched pages too;
+        // the peak RSS of a 111 MiB mesh is 7.1x. The tokens of the whole
+        // file alone would add 5x.
+        // ponytail: bound 14x; interning Stmt.dialect to a u8 wins back ~2x.
+        if (count.peak > 14 * input.len) {
             std.debug.print("to {s}: peak {d} bytes for {d} of input\n", .{ to, count.peak, input.len });
             return error.TooMuchMemory;
         }
