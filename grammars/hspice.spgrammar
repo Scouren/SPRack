@@ -31,6 +31,7 @@ lexer
   scale     meg=6 x=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   oddscale  mil=25.4e-6
   units     ignore
+  numbers   strict            # version=3.3.0 does not load
   end       ".end"
 end
 

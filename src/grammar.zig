@@ -73,6 +73,9 @@ pub const LexCfg = struct {
     odd_scales: []const OddScale = &.{},
     /// Letters after a number are ignored even with no scale factor (`10Volts`).
     units_ignored: bool = true,
+    /// `numbers strict`: the simulator refuses a malformed number such as
+    /// `3.3.0` that a lenient one reads as far as it can.
+    strict_numbers: bool = false,
     /// Statement that ends the input (`.end`).
     end_marker: []const u8 = "",
 };
@@ -855,6 +858,8 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
                 const suf = try c.foldIf(!cfg.case_sensitive, pair[0..eq]);
                 cfg.odd_scales = try c.add(OddScale, cfg.odd_scales, .{ .suffix = suf, .mant = mant, .exp10 = exp });
             }
+        } else if (std.mem.eql(u8, key, "numbers") and n == 1 and std.mem.eql(u8, a[1], "strict")) {
+            cfg.strict_numbers = true;
         } else if (std.mem.eql(u8, key, "units") and n == 1) {
             cfg.units_ignored = std.mem.eql(u8, a[1], "ignore");
         } else if (std.mem.eql(u8, key, "end") and n == 1) {

@@ -1209,7 +1209,7 @@ test "an ADE-style Spectre netlist" {
         \\save out in
     , &report);
     const want = [_][]const u8{
-        ".global 0 vdd!\n",
+        ".global vdd!\n",
         ".lib \"models/tt.scs\" tt\n",
         ".model nch nmos level=14 version=4.8\n",
         // The transistor is recognised through its model and gets no X.
@@ -2010,4 +2010,26 @@ test "HSPICE: .pz, .noise interval, .lin, .sn, MESFETs, model before value, pow"
     var r7: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "hspice", "t\n.param p={limit(x,0,1)}\n.end\n", &r7);
     try reported(&r7, .@"error", "function 'limit' has no spelling in hspice");
+}
+
+test "fixes from the load check: Spectre globals, dotted versions, Spectre pow" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // The first node of a Spectre global statement is ground: `global vdd`
+    // alone shorted vdd to ground.
+    var r1: ir.Report = .init(a);
+    const g = try tr(a, "ngspice", "spectre", "t\n.global vdd\nvdd vdd 0 1\n.end\n", &r1);
+    try has(g, "global 0 vdd\n");
+    try testing.expect(std.mem.indexOf(u8, g, "global vdd") == null);
+    // ngspice reads version=3.3.0; HSPICE and Spectre refuse it.
+    for ([_][]const u8{ "spectre", "hspice" }) |to| {
+        var r2: ir.Report = .init(a);
+        _ = try tr(a, "ngspice", to, "t\n.model n3 nmos(level=49 version=3.3.0)\n.end\n", &r2);
+        try reported(&r2, .@"error", "version=3.3.0 is not a number");
+    }
+    // Spectre stops on pow(-1.75,2.5).
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 {pow(-1.75,2.5)}\n.end\n", &r3);
+    try reported(&r3, .warning, "a negative base with a fractional exponent stops the run");
 }

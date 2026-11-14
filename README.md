@@ -273,6 +273,7 @@ compile error with the file and line.
       readscale _=0 %=-2               # accepted when reading, never written
       oddscale  mil=25.4e-6            # multipliers that are not powers of ten
       units     ignore                 # letters after a number; or: after-scale
+      numbers   strict                 # a malformed number (3.3.0) is refused
       end       ".end"
     end
 

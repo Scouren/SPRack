@@ -32,6 +32,7 @@ lexer
   scale      M=6 T=12 G=9 k=3 K=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   readscale  _=0 %=-2 c=-2
   units      after-scale
+  numbers    strict           # version=3.3.0 does not load
 end
 
 # In every file, included ones too.
@@ -65,7 +66,10 @@ rule  cond_elif = "}" "else" "if" "(" cond ")" "{"
 rule  cond_else = "}" "else" "{"
 rule  param     = "parameters" {...params}
 rule  func      = "real" name ~"(" ( "real" args )*~"," ~")" "{" / "return" expr... / "}"
-rule  global    = "global" nodes+
+# The first node of each global statement is ground, so one more global
+# node is written after 0, never on a line of its own.
+rule  global    = "global" "0" nodes+
+read  global    = "global" nodes+
 rule  include   = "include" path
 rule  lib       = "include" path { section=section }
 rule  model     = "model" name type {...params}
@@ -160,6 +164,8 @@ functions
   ln    = log
   log10 = log10
 end
+
+differs pow : a negative base with a fractional exponent stops the run instead of giving a value
 
 variables
   temper = temp

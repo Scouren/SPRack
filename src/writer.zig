@@ -20,6 +20,16 @@ const Node = grammar.Node;
 const Kind = schema.Kind;
 const Value = ir.Value;
 
+/// `3.3.0`: digits with more than one point.
+fn malformedNumber(t: []const u8) bool {
+    if (t.len == 0 or !std.ascii.isDigit(t[0])) return false;
+    var dots: usize = 0;
+    for (t) |c| {
+        if (c == '.') dots += 1 else if (!std.ascii.isDigit(c)) return false;
+    }
+    return dots > 1;
+}
+
 /// What the other registered dialects can do, for error messages.
 pub const Caps = struct {
     /// For each kind, the dialects whose grammar can write it ("ngspice, hspice").
@@ -190,11 +200,7 @@ const Emit = struct {
             },
             .params => |ps| for (ps, 0..) |p, i| {
                 if (i > 0) w.writeByte(' ') catch return error.OutOfMemory;
-                // `version=3.3.0`: one simulator's lenient reading of a
-                // malformed number is no other's.
-                if (e.foreign and !e.quiet and p.val == .atom and p.val.atom.len > 0 and std.ascii.isDigit(p.val.atom[0])) {
-                    e.report.add(.@"error", .invalid, e.st.line, "{s}={s} is not a number; {s} does not read it", .{ p.key, p.val.atom, e.g.name });
-                }
+                e.checkNumber(p);
                 if (p.val == .none) {
                     w.writeAll(p.key) catch return error.OutOfMemory;
                 } else w.print("{s}={s}", .{ p.key, try e.valueText(p.val, false) }) catch return error.OutOfMemory;
@@ -211,6 +217,20 @@ const Emit = struct {
             try out.appendSlice(e.arena, try e.valueText(it, false));
         }
         return out.items;
+    }
+
+    /// `version=3.3.0`: one simulator's lenient reading of a malformed
+    /// number is no other's.
+    fn checkNumber(e: *Emit, p: ir.Param) void {
+        const raw: []const u8 = switch (p.val) {
+            .atom => |x| x,
+            .expr => |x| x,
+            .str => |x| x,
+            else => "",
+        };
+        if (e.foreign and !e.quiet and e.g.lex.strict_numbers and malformedNumber(raw)) {
+            e.report.add(.@"error", .invalid, e.st.line, "{s}={s} is not a number; {s} does not read it", .{ p.key, raw, e.g.name });
+        }
     }
 
     /// A function or operator that one side of a translation evaluates
@@ -513,6 +533,7 @@ const Emit = struct {
                                     if (b.flags) try e.tok(p.key) else e.lost_flags += 1;
                                     continue;
                                 }
+                                e.checkNumber(p);
                                 const vt = if (p.val == .list)
                                     try e.arena.print("[{s}]", .{try e.vectorText(p.val)})
                                 else
