@@ -1999,6 +1999,9 @@ test "HSPICE: .pz, .noise interval, .lin, .sn, MESFETs, model before value, pow"
     const sx = try tr(a, "hspice", "spectre", src, &r4);
     try has(sx, "pz1 (out 0) pz iprobe=vin\n");
     try reported(&r4, .@"error", "noise.interval = 10 has no spelling in spectre");
+    // ngspice's points-per-summary is the same number.
+    var r8: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", src, &r8), ".noise v(out) vin dec 10 1 1meg 10\n");
     // HSPICE cuts a power's exponent to an integer: a caveat either way.
     var r5: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "hspice", "t\n.param p={2**x}\n.end\n", &r5);

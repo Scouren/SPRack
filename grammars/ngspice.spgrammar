@@ -117,7 +117,7 @@ rule  dc        = ".dc" var:"temp" start stop step
 rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
-rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [interval]
 rule  pz        = ".pz" in_pos in_neg out_pos out_neg ( transfer:"cur" | transfer:"vol" ) ( find:"pol" | find:"zer" | find:"pz" )
 rule  sens      = ".sens" out
 rule  disto     = ".disto" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [f2overf1]

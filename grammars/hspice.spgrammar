@@ -125,6 +125,7 @@ rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {..
 read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
 
 implied tf ref = 0
+implied noise ref = 0
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
 
