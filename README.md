@@ -194,6 +194,9 @@ compile error with the file and line.
     read  include = ".inc" path        # this form is only read
     write save = ".probe" signals+     # this form is only written
 
+    define wave = ( wave:"pulse" ... | wave:"pwl" ~"(" pwl+ ~")" )
+    rule  vsource = name~"V" pos neg [ <wave> ]   # a define, used by name
+
     block subckt
       open   ".subckt" name ports* ( {...params} | "params:" {...params} )
       inner  "parameters" {...params}  # lines inside that belong to the header
@@ -205,6 +208,10 @@ compile error with the file and line.
     needs resistor ... end             # lines written once if the kind is used
     wrap "control" "endc" : op dc tran # these kinds are collected into one block
     raw ".control" ".endc"             # kept verbatim, never translated
+
+A `define` names a pattern fragment; `<name>` in a later rule, block line or
+define stands for it. It is parsed where it is used, so its slot names are
+those of the using rule's kind (`vsource` and `isource` share one `wave`).
 
 Rules are tried in file order when reading. When writing, the rule that loses
 least is chosen and, among equals, the one that keeps the instance's name. A
@@ -227,6 +234,8 @@ no single rule holds everything, which is how `.options timeint ...` and
 | `_` | any one word |
 | `[ ... ]` | optional |
 | `( a \| b )` | alternatives |
+| `( ... )*` `( ... )+` | the group repeated, zero or more / one or more times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
+| `<name>` | the pattern of a `define`, as if written here |
 | `/` | the statement continues on the next line |
 | `{ k=slot k="slot" k=[slot] k==lit k=slot! k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, tagged, `v(node)=value`, and everything else. `...rest?` also takes bare flags |
 

@@ -179,6 +179,7 @@ const Matcher = struct {
             switch (n.tag) {
                 .glue, .drop => continue,
                 .opt => if (startsWithLit(n.kids, t)) return true,
+                .rep => if (startsWithLit(n.kids, t)) return true else if (n.plus) return false,
                 .alt => {
                     for (n.kids) |alt| if (startsWithLit(alt.kids, t)) return true;
                     return false;
@@ -206,6 +207,7 @@ const Matcher = struct {
                 .lit, .taglit => return litMatches(n, t),
                 .glue, .drop => continue,
                 .opt => if (startsWithLit(n.kids, t)) return true,
+                .rep => if (startsWithLit(n.kids, t)) return true else if (n.plus) return false,
                 .alt => {
                     for (n.kids) |alt| if (startsWithLit(alt.kids, t)) return true;
                     return false;
@@ -321,6 +323,22 @@ const Matcher = struct {
             .seq => {
                 const c: Cont = .{ .items = rest, .next = k };
                 return self.m(node.kids, ti, &c);
+            },
+            .rep => {
+                // Greedy: one more pass, then this node again; else stop
+                // here. `star` on the node marks a pass already taken, so
+                // the next one starts with the separator.
+                var again = node;
+                again.star = true;
+                again.plus = false;
+                const tail = [1]Node{again};
+                const after: Cont = .{ .items = rest, .next = k };
+                const loop: Cont = .{ .items = &tail, .next = &after };
+                const pass: Cont = .{ .items = node.kids, .next = &loop };
+                const ok = if (node.star) try self.m(node.sep, ti, &pass) else try self.m(node.kids, ti, &loop);
+                if (ok) return true;
+                self.log.shrinkRetainingCapacity(mark);
+                return !node.plus and try self.m(rest, ti, k);
             },
             .rest => {
                 const line = self.lines[t.lno].text;

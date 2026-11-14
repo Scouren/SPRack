@@ -89,6 +89,10 @@ pub const NodeTag = enum {
     /// `-slot`: when writing, the slot is deliberately not written (a
     /// `caveat` says why). Matches nothing when reading.
     drop,
+    /// `( ... )*` or `( ... )+`: `kids` is the one group, repeated; each
+    /// pass takes the next item of every list slot in it. `sep` goes
+    /// between passes.
+    rep,
 };
 
 pub const BagForm = enum { plain, quoted, vector, fixed, rest, call };
@@ -125,6 +129,8 @@ pub const Node = struct {
     soft: bool = false,
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
+    /// Separator of a repeated group: none, or one `lit` or `glue` node.
+    sep: []const Node = &.{},
 };
 
 pub const Dir = enum { both, read, write };
@@ -322,6 +328,8 @@ const P = struct {
     gname: []const u8,
     line: u32,
     defs: []const Def = &.{},
+    /// Inside a repeated group: list slots are taken one item at a time.
+    in_rep: bool = false,
 
     fn err(comptime p: *P, comptime msg: []const u8) noreturn {
         fail(p.gname, p.line, msg ++ " in pattern `" ++ p.s ++ "`");
@@ -410,6 +418,24 @@ const P = struct {
         p.err("no `define " ++ name ++ "` before this rule");
     }
 
+    /// Is the group opened just before `p.i` followed by `*` or `+`?
+    fn repeats(comptime p: *P) bool {
+        var depth: usize = 1;
+        var j = p.i;
+        while (j < p.s.len) : (j += 1) {
+            switch (p.s[j]) {
+                '"', '\'' => j = std.mem.indexOfScalarPos(u8, p.s, j + 1, p.s[j]) orelse return false,
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if (depth == 0) return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+');
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+
     fn item(comptime p: *P) Node {
         const c = p.peek();
         switch (c) {
@@ -423,6 +449,10 @@ const P = struct {
             },
             '(' => {
                 p.i += 1;
+                const rep = p.repeats();
+                if (rep and p.in_rep) p.err("a repeated group cannot hold another");
+                const outer = p.in_rep;
+                p.in_rep = outer or rep;
                 var alts: []const Node = &.{};
                 while (true) {
                     alts = alts ++ &[_]Node{.{ .tag = .seq, .kids = p.seq() }};
@@ -432,11 +462,28 @@ const P = struct {
                     }
                     break;
                 }
+                p.in_rep = outer;
                 if (p.peek() != ')') p.err("missing ')'");
                 p.i += 1;
-                return .{ .tag = .alt, .kids = alts };
+                const group: Node = .{ .tag = .alt, .kids = alts };
+                if (!rep) return group;
+                // `( ... )*` or `( ... )+`, a separator glued on: `( ... )*","`.
+                var n: Node = .{ .tag = .rep, .plus = p.peek() == '+', .kids = &.{group} };
+                p.i += 1;
+                if (p.peek() == '"' or p.peek() == '\'') {
+                    n.sep = &.{.{ .tag = .lit, .text = p.lit(p.string()) }};
+                } else if (p.peek() == '~') {
+                    p.i += 1;
+                    if (p.peek() != '"' and p.peek() != '\'') p.err("expected a quoted separator after '~'");
+                    n.sep = &.{.{ .tag = .glue, .text = p.string() }};
+                }
+                if (canBeEmpty(n.kids)) p.err("a repeated group must take at least one word each time");
+                return n;
             },
-            '{' => return p.bag(),
+            '{' => {
+                if (p.in_rep) p.err("a repeated group cannot hold '{ }'");
+                return p.bag();
+            },
             '/' => {
                 p.i += 1;
                 return .{ .tag = .nl };
@@ -451,12 +498,14 @@ const P = struct {
                 return .{ .tag = .glue, .text = p.string() };
             },
             '.' => if (p.startsWith("...")) {
+                if (p.in_rep) p.err("a repeated group cannot take the rest of the line");
                 p.i += 3;
                 return .{ .tag = .rest, .slot = wild_slot };
             },
             else => {},
         }
         const name = p.ident();
+        if (p.in_rep and p.startsWith("...")) p.err("a repeated group cannot take the rest of the line");
         if (p.startsWith("...")) {
             p.i += 3;
             const slot = p.slotOf(name);
@@ -475,6 +524,7 @@ const P = struct {
             }
             const slot = p.slotOf(name);
             if (p.slotInfo(slot).ty != .atom) p.err("tagged literal needs an atom slot, '" ++ name ++ "' is not one");
+            if (p.in_rep and !p.slotInfo(slot).list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
             var soft = false;
             if (p.peek() == '?') {
                 p.i += 1;
@@ -507,7 +557,10 @@ const P = struct {
         if (n.slot != wild_slot) {
             const si = p.slotInfo(n.slot);
             if ((n.star or n.plus) and !si.list) p.err("'" ++ name ++ "' is not a list slot");
-            if (!(n.star or n.plus) and si.list) p.err("list slot '" ++ name ++ "' needs '*' or '+'");
+            if (p.in_rep) {
+                if (!si.list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
+                if (n.star or n.plus) p.err("in a repeated group, '" ++ name ++ "' takes one item per pass; drop the '*' or '+'");
+            } else if (!(n.star or n.plus) and si.list) p.err("list slot '" ++ name ++ "' needs '*' or '+'");
             if (si.ty == .params or si.ty == .text) p.err("slot '" ++ name ++ "' cannot be captured as a single token");
         }
         return n;
@@ -585,6 +638,25 @@ const P = struct {
         return .{ .tag = .bag, .bag = entries };
     }
 };
+
+/// Can these nodes match no word at all?
+fn canBeEmpty(comptime items: []const Node) bool {
+    for (items) |n| {
+        switch (n.tag) {
+            .lit, .taglit => return false,
+            .cap => if (!n.star) return false,
+            .seq => if (!canBeEmpty(n.kids)) return false,
+            .alt => {
+                var all = true;
+                for (n.kids) |k| all = all and !canBeEmpty(k.kids);
+                if (all) return false;
+            },
+            .rep => if (n.plus and !canBeEmpty(n.kids)) return false,
+            else => {},
+        }
+    }
+    return true;
+}
 
 fn pattern(
     comptime gname: []const u8,

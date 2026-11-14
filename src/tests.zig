@@ -1212,3 +1212,39 @@ test "define: a named pattern compiles to the same nodes as writing it out" {
     try has(out, "V1 a 0 sin(0 1 1k)");
     try has(out, "I1 a 0 pwl(0 0 1n 1)");
 }
+
+test "repeated groups: list slots in lockstep, with a separator" {
+    const g = comptime sprack.grammar.compile(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3
+        \\end
+        \\rule hb = ".hb" ( "f" freqs "h" harms )+"and"
+    );
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const nl = try sprack.read(a, &g, "t\n.hb f 1k h 3 and f 2k h 5\n.hb f 1k h 3 and\n", &report);
+    try testing.expectEqual(2, nl.stmts.len);
+    const hb = nl.stmts[0];
+    try testing.expectEqual(schema.Kind.hb, hb.kind);
+    try testing.expectEqual(2, hb.get("freqs").list.len);
+    try testing.expectEqual(5, hb.get("harms").list[1].num.toFloat());
+    // A separator with nothing after it is not a pass.
+    try testing.expectEqual(schema.Kind.@"opaque", nl.stmts[1].kind);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &g, &aw.writer, &nl, &report);
+    try has(aw.written(), ".hb f 1k h 3 and f 2k h 5\n");
+
+    // HSPICE `.hb tones=f1 f2 ... nharms=h1 h2 ...`, both ways.
+    var r2: ir.Report = .init(a);
+    const src = "t\n.hb tones=1k 1.3k nharms=7 7 intmodmax=7\n.end\n";
+    const xy = try tr(a, "hspice", "xyce", src, &r2);
+    try has(xy, ".hb 1k 1.3k\n");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", src, &r3), ".hb tones=1k 1.3k nharms=7 7 intmodmax=7\n");
+    try clean(&r3);
+    try has(try tr(a, "xyce", "hspice", "t\n.hb 1k 2k\n.end\n", &r3), ".hb tones=1k 2k\n");
+}
