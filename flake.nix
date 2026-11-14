@@ -15,6 +15,10 @@
     conformance.url = "git+https://github.com/Scouren/Conformance-Suite?ref=main&rev=4d565dd4e7ca6e7304a3619031df6c17846ae1f1";
     conformance.inputs.nixpkgs.follows = "nixpkgs";
     conformance.inputs.flake-utils.follows = "flake-utils";
+    # VACASK upstream, newer than the conformance suite's fork: acsp, pss,
+    # behavioural sources and {} lists. Built as packages.vacask below.
+    vacask-src.url = "git+https://codeberg.org/arpadbuermen/VACASK?rev=b2c15511a1a7c6246cca6bcfd8d38bfb3c750d7a";
+    vacask-src.flake = false;
     # PDK model libraries for the PDK tests in python/test_sprack.py.
     sky130_fd_pr.url = "github:google/skywater-pdk-libs-sky130_fd_pr";
     sky130_fd_pr.flake = false;
@@ -100,7 +104,53 @@
             aarch64-darwin = "aarch64-macos";
           }
           .${system};
-        bundles = pkgs.lib.mapAttrs' (n: t: pkgs.lib.nameValuePair "python-${n}" (mkBundle t)) bundleTargets;
+        # VACASK from upstream, its OSDI models compiled by the suite's
+        # openvaf-r; install() stages them in lib/vacask/mod, where
+        # `load "spice/resistor.osdi"` resolves.
+        vacask = pkgs.stdenv.mkDerivation {
+          pname = "vacask";
+          version = "b2c1551";
+          src = inputs.vacask-src;
+          nativeBuildInputs = with pkgs; [
+            cmake
+            ninja
+            pkg-config
+            python3
+            bison
+            flex
+          ];
+          buildInputs = with pkgs; [
+            suitesparse
+            boost
+            tomlplusplus
+            fftw
+            # include/blaslapack.h declares BLAS with 32-bit ints.
+            (openblas.override { blas64 = false; })
+          ];
+          # nixpkgs ships boost shared only, and suitesparse's klu.h directly
+          # in include/; the source has no .git for the version banner.
+          postPatch = ''
+            substituteInPlace CMakeLists.txt \
+              --replace-fail 'set(Boost_USE_STATIC_LIBS ON)' "" \
+              --replace-fail 'set(Boost_NO_SYSTEM_PATHS TRUE)' "" \
+              --replace-fail 'set(PROGRAM_VERSION "unknown")' 'set(PROGRAM_VERSION "b2c1551")'
+            substituteInPlace include/solklu.h --replace-fail '<suitesparse/klu.h>' '<klu.h>'
+          '';
+          cmakeFlags = [
+            "-DCMAKE_BUILD_TYPE=Release"
+            "-DOPENVAF_DIR=${refPkgs.openvaf-r}/bin"
+            "-DTOMLPP_DIR=${pkgs.tomlplusplus}"
+            "-DSuiteSparse_DIR=${pkgs.suitesparse}"
+          ];
+          meta = {
+            homepage = "https://codeberg.org/arpadbuermen/VACASK";
+            license = pkgs.lib.licenses.agpl3Plus;
+            platforms = [ "x86_64-linux" ];
+            mainProgram = "vacask";
+          };
+        };
+
+        bundles = pkgs.lib.mapAttrs'(n: t: pkgs.lib.nameValuePair "python-${n}" (mkBundle t)) bundleTargets;
 
         ci = pkgs.mkShell {
           packages = [
@@ -116,7 +166,9 @@
           test-pdks = testPdks;
           # This system's own bundle.
           python = bundles."python-${hostTarget}";
-        };
+        }
+        # openvaf-r, hence vacask, is x86_64-linux only.
+        // nixpkgs.lib.optionalAttrs (refPkgs ? openvaf-r) { inherit vacask; };
 
         devShells = {
           inherit ci;
@@ -133,7 +185,7 @@
             packages = [
               pkgs.ngspice
               pkgs.xyce
-              refPkgs.vacask
+              vacask
               refPkgs.openvaf-r
             ];
             SPRACK_TEST_PDKS = testPdks;

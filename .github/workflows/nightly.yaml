@@ -32,6 +32,12 @@ jobs:
             python3 -I tools/corpus_summary.py out.tsv &&
             python3 -I tools/corpus_compare.py conformance-suite-audit.tsv out.tsv'
 
+      # Translates each deck to VACASK and runs upstream vacask on it. The
+      # verify shell builds VACASK and its OSDI models from source.
+      - name: VACASK load check
+        if: always()
+        run: nix develop .#verify --command tools/vacask-loadcheck/check.sh
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

@@ -1,11 +1,14 @@
 #!/bin/sh
 # Translate each deck here to VACASK and run vacask on the result.
 #   tools/vacask-loadcheck/check.sh [sprack] [vacask]
+# Run it in `nix develop .#verify`, whose vacask is upstream b2c1551. Without
+# a sprack argument it builds zig-out/bin/sprack first.
 # Decks: *.sp ngspice, *.xyce Xyce, *.scs Spectre. Every rule in
 # grammars/vacask.spgrammar is used by at least one of them. tline.sp loads
 # but its operating point fails, as VACASK's own demo/delay/tline.sim does
 # with the OpenVAF-Reloaded 24.0.2 build.
 here=$(cd "$(dirname "$0")" && pwd)
+[ -n "$1" ] || (cd "$here/../.." && zig build) || exit 1
 sprack=${1:-$here/../../zig-out/bin/sprack}
 vacask=${2:-vacask}
 out=$(mktemp -d)

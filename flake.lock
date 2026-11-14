@@ -132,6 +132,7 @@
         "ihp": "ihp",
         "nixpkgs": "nixpkgs",
         "sky130_fd_pr": "sky130_fd_pr",
+        "vacask-src": "vacask-src",
         "zig-overlay": "zig-overlay",
         "zls": "zls"
       }
@@ -181,6 +182,23 @@
         "owner": "nix-systems",
         "repo": "default",
         "type": "github"
+      }
+    },
+    "vacask-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794582867,
+        "narHash": "sha256-Y1ApTXMwgv4z664q7YaM1xIDIiRH5DiLwp6FKR6UPlI=",
+        "ref": "refs/heads/main",
+        "rev": "b2c15511a1a7c6246cca6bcfd8d38bfb3c750d7a",
+        "revCount": 1139,
+        "type": "git",
+        "url": "https://codeberg.org/arpadbuermen/VACASK"
+      },
+      "original": {
+        "rev": "b2c15511a1a7c6246cca6bcfd8d38bfb3c750d7a",
+        "type": "git",
+        "url": "https://codeberg.org/arpadbuermen/VACASK"
       }
     },
     "zig-flake": {
