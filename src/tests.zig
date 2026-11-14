@@ -1185,3 +1185,30 @@ test "corpus: a VACASK deck the way upstream writes them" {
     try has(ng, ".tran 1u 1 0 1u\n");
     try clean(&report);
 }
+
+test "define: a named pattern compiles to the same nodes as writing it out" {
+    const g = comptime sprack.grammar.compile(
+        \\dialect tiny
+        \\lexer
+        \\end
+        \\define pre = "dc" dc
+        \\define both = <pre> [ "ac" acmag ]
+        \\rule vsource = name~"V" pos neg <both>
+        \\rule isource = name~"I" pos neg "dc" dc [ "ac" acmag ]
+    );
+    const a = g.rules[0].pat;
+    const b = g.rules[1].pat;
+    try testing.expectEqual(b.len, a.len);
+    for (a[3..], b[3..]) |x, y| {
+        try testing.expectEqual(y.tag, x.tag);
+        try testing.expectEqualStrings(y.text, x.text);
+        try testing.expectEqual(y.slot, x.slot);
+    }
+    // The shipped grammars use it for the source waveforms.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    var report: ir.Report = .init(arena_state.allocator());
+    const out = try tr(arena_state.allocator(), "hspice", "xyce", "t\nV1 a 0 SIN(0 1 1k)\nI1 a 0 PWL(0 0 1n 1)\n.end\n", &report);
+    try has(out, "V1 a 0 sin(0 1 1k)");
+    try has(out, "I1 a 0 pwl(0 0 1n 1)");
+}

@@ -310,6 +310,10 @@ fn kindOf(comptime gname: []const u8, comptime line: u32, comptime name: []const
     return schema.kindFromName(name) orelse fail(gname, line, "unknown kind '" ++ name ++ "'");
 }
 
+/// `define name = pattern`: a named fragment, kept as text and parsed
+/// where it is used, so its slot names resolve against the using rule's kind.
+const Def = struct { name: []const u8, text: []const u8 };
+
 const P = struct {
     s: []const u8,
     i: usize = 0,
@@ -317,6 +321,7 @@ const P = struct {
     fold: bool,
     gname: []const u8,
     line: u32,
+    defs: []const Def = &.{},
 
     fn err(comptime p: *P, comptime msg: []const u8) noreturn {
         fail(p.gname, p.line, msg ++ " in pattern `" ++ p.s ++ "`");
@@ -379,9 +384,30 @@ const P = struct {
             p.ws();
             const c = p.peek();
             if (c == 0 or c == ']' or c == ')' or c == '|') break;
+            if (c == '<') {
+                out = out ++ p.use();
+                continue;
+            }
             out = out ++ &[_]Node{p.item()};
         }
         return out;
+    }
+
+    /// `<name>`: the nodes of a `define`, spliced in place.
+    fn use(comptime p: *P) []const Node {
+        p.i += 1;
+        const name = p.ident();
+        if (p.peek() != '>') p.err("missing '>' after '<" ++ name ++ "'");
+        p.i += 1;
+        for (p.defs, 0..) |d, di| {
+            if (!std.mem.eql(u8, d.name, name)) continue;
+            // A define sees only the ones before it, so it cannot refer to itself.
+            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .gname = p.gname, .line = p.line, .defs = p.defs[0..di] };
+            const out = sub.seq();
+            if (sub.i < sub.s.len) sub.err("unexpected '" ++ sub.s[sub.i .. sub.i + 1] ++ "'");
+            return out;
+        }
+        p.err("no `define " ++ name ++ "` before this rule");
     }
 
     fn item(comptime p: *P) Node {
@@ -566,8 +592,9 @@ fn pattern(
     comptime kind: Kind,
     comptime fold: bool,
     comptime text: []const u8,
+    comptime defs: []const Def,
 ) []const Node {
-    var p: P = .{ .s = text, .kind = kind, .fold = fold, .gname = gname, .line = line };
+    var p: P = .{ .s = text, .kind = kind, .fold = fold, .gname = gname, .line = line, .defs = defs };
     const out = p.seq();
     if (p.i < p.s.len) p.err("unexpected '" ++ p.s[p.i .. p.i + 1] ++ "'");
     if (out.len == 0) p.err("empty pattern");
@@ -765,6 +792,7 @@ pub fn compile(comptime src: []const u8) Grammar {
     var variables: []const Spellings = &.{};
     var operators: []const Spellings = &.{};
     var absent: []const Absent = &.{};
+    var defs: []const Def = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -810,7 +838,7 @@ pub fn compile(comptime src: []const u8) Grammar {
                 const bl = lines.next() orelse fail(name, lines.no, "block is missing 'end'");
                 if (std.mem.eql(u8, bl, "end")) break;
                 const bh, const br = splitHead(bl);
-                const pat = pattern(name, lines.no, kind, fold, br);
+                const pat = pattern(name, lines.no, kind, fold, br, defs);
                 if (std.mem.eql(u8, bh, "open")) {
                     open = pat;
                 } else if (std.mem.eql(u8, bh, "close")) {
@@ -828,9 +856,14 @@ pub fn compile(comptime src: []const u8) Grammar {
             rules = rules ++ &[_]Rule{.{
                 .kind = kind,
                 .dir = dir,
-                .pat = pattern(name, lines.no, kind, fold, rest[eq + 3 ..]),
+                .pat = pattern(name, lines.no, kind, fold, rest[eq + 3 ..], defs),
                 .line = lines.no,
             }};
+        } else if (std.mem.eql(u8, head, "define")) {
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse fail(name, lines.no, "expected `define name = pattern`");
+            const dname = std.mem.trim(u8, rest[0..eq], " \t");
+            for (defs) |d| if (std.mem.eql(u8, d.name, dname)) fail(name, lines.no, "`" ++ dname ++ "` is already defined");
+            defs = defs ++ &[_]Def{.{ .name = dname, .text = rest[eq + 3 ..] }};
         } else if (std.mem.eql(u8, head, "caveat")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "caveat is `caveat kind slot : text`");
             const ks = args(name, lines.no, rest[0..colon]);
