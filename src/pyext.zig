@@ -90,7 +90,7 @@ fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
                 for (&sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
                 w.writeAll("; or a path to a .spgrammar file") catch {};
             },
-            error.CannotRead, error.BadGrammar => w.writeAll(diag.msg) catch {},
+            error.CannotRead, error.BadGrammar, error.TooManyDialects => w.writeAll(diag.msg) catch {},
         }
         buf[w.end] = 0;
         PyErr_SetString(valueError(), @ptrCast(&buf));

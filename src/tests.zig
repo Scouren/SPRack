@@ -930,6 +930,39 @@ test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive 
     try reported(&r6, .@"error", "'in' and 'IN' are different names in the source but the same name in ngspice");
 }
 
+test "statement dialects are table indices; the JSON keeps the name" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Built-ins have fixed indices; a name is interned once, case ignored.
+    try testing.expectEqualStrings(sprack.grammars[0].name, sprack.dialectName(1));
+    try testing.expectEqual(@as(?u8, 1), try sprack.internDialect(sprack.grammars[0].name));
+    const mine = (try sprack.internDialect("MyDialectForTest")).?;
+    try testing.expectEqual(@as(?u8, mine), try sprack.internDialect("mydialectfortest"));
+    try testing.expect(mine > sprack.dialect_count);
+    // A grammar loaded at run time is registered; its statements keep their
+    // name through JSON and are its own when written by it.
+    var diag: sprack.grammar.Diag = .{};
+    const g = try sprack.resolve(a, testing.io, "grammars/ngspice.spgrammar", &diag);
+    const json = "{\"title\":\"t\",\"dialect\":\"sprack\",\"stmts\":[{\"kind\":\"options\",\"params\":{\"klu\":null},\"dialect\":\"MyDialectForTest\"}]}";
+    var r: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, json, &r);
+    try testing.expectEqual(mine, nl.stmts[0].dialect);
+    var j: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeNetlist(&j.writer, &nl);
+    try has(j.written(), "\"dialect\":\"MyDialectForTest\"");
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, g, &aw.writer, &nl, &r);
+    try reported(&r, .@"error", "options: 'klu' has no spelling in ngspice");
+    // The same statement marked as ngspice's is the loaded grammar's own.
+    var r2: ir.Report = .init(a);
+    const own = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"dialect\":\"sprack\",\"stmts\":[{\"kind\":\"options\",\"params\":{\"klu\":null},\"dialect\":\"ngspice\"}]}", &r2);
+    var aw2: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, g, &aw2.writer, &own, &r2);
+    try has(aw2.written(), ".options klu\n");
+    try clean(&r2);
+}
+
 test "a broken grammar file is reported with its path and line" {
     const io = testing.io;
     var tmp = testing.tmpDir(.{});
@@ -1550,12 +1583,11 @@ test "translation memory stays a small multiple of the input" {
         var report: ir.Report = .init(arena_state.allocator());
         var sink: std.Io.Writer.Discarding = .init(&.{});
         try sprack.translate(arena_state.allocator(), "ngspice", to, input, &sink.writer, &report);
-        // Measured: 13.6x (11.7x before Stmt.dialect, a 16-byte slice per
-        // statement). This counts whole arena chunks, untouched pages too;
-        // the peak RSS of a 111 MiB mesh is 7.1x. The tokens of the whole
-        // file alone would add 5x.
-        // ponytail: bound 14x; interning Stmt.dialect to a u8 wins back ~2x.
-        if (count.peak > 14 * input.len) {
+        // Measured: 11.55x to Spectre, 11.74x to Xyce, with Stmt.dialect a
+        // u8 index (13.6x when it was a 16-byte slice). This counts whole
+        // arena chunks, untouched pages too; the peak RSS of a 111 MiB mesh
+        // is 7.1x. The tokens of the whole file alone would add 5x.
+        if (count.peak * 10 > 118 * input.len) {
             std.debug.print("to {s}: peak {d} bytes for {d} of input\n", .{ to, count.peak, input.len });
             return error.TooMuchMemory;
         }

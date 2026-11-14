@@ -72,12 +72,42 @@ pub fn find(name: []const u8) ?*const Grammar {
     return null;
 }
 
+/// Every dialect name a statement can carry (`ir.Stmt.dialect`), by index.
+/// 0 is "the netlist's"; the built-ins take 1..dialect_count in registry
+/// order; names met later (a grammar loaded at run time, a name in JSON) are
+/// added and keep their index for the life of the process.
+// ponytail: one process-wide table, not locked; a host that reads from
+// several threads at once needs a mutex around `internDialect`.
+var dialect_names: [256][]const u8 = blk: {
+    var t: [256][]const u8 = @splat("");
+    for (grammars, 1..) |g, i| t[i] = g.name;
+    break :blk t;
+};
+var dialect_len: usize = dialect_count + 1;
+
+/// The index of dialect `name` (case ignored), added to the table if new.
+/// Null when the table is full (255 names).
+pub fn internDialect(name: []const u8) Allocator.Error!?u8 {
+    std.debug.assert(name.len > 0);
+    for (dialect_names[1..dialect_len], 1..) |n, i| if (std.ascii.eqlIgnoreCase(n, name)) return @intCast(i);
+    if (dialect_len == dialect_names.len) return null;
+    dialect_names[dialect_len] = try std.heap.page_allocator.dupe(u8, name);
+    dialect_len += 1;
+    return @intCast(dialect_len - 1);
+}
+
+/// The name behind an index from `internDialect`; "" for 0.
+pub fn dialectName(i: u8) []const u8 {
+    std.debug.assert(i < dialect_len);
+    return dialect_names[i];
+}
+
 /// Whether a dialect argument names a grammar file rather than a built-in.
 pub fn isGrammarPath(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".spgrammar");
 }
 
-pub const LoadError = error{ UnknownDialect, CannotRead, BadGrammar, OutOfMemory };
+pub const LoadError = error{ UnknownDialect, CannotRead, BadGrammar, TooManyDialects, OutOfMemory };
 
 /// A built-in dialect by name, or a `.spgrammar` file by path compiled now.
 /// A loaded grammar lives in `arena` with its source. On `CannotRead` and
@@ -92,6 +122,10 @@ pub fn resolve(arena: Allocator, io: std.Io, name: []const u8, diag: *grammar.Di
     };
     const g = try arena.create(Grammar);
     g.* = try grammar.compile(arena, src, name, diag);
+    if (try internDialect(g.name) == null) {
+        diag.msg = try std.fmt.allocPrint(arena, "{s}: dialect '{s}' is one more than the 255 dialect names a process can hold", .{ name, g.name });
+        return error.TooManyDialects;
+    }
     return g;
 }
 

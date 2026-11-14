@@ -8,6 +8,8 @@ const std = @import("std");
 const grammar = @import("grammar.zig");
 const schema = @import("schema.zig");
 const ir = @import("ir.zig");
+/// The dialect table (`internDialect`, `dialectName`).
+const sprack = @import("root.zig");
 const lexer = @import("lexer.zig");
 const expr = @import("expr.zig");
 const reader = @import("reader.zig");
@@ -659,7 +661,7 @@ const Writer = struct {
 
     /// The dialect `st` was read in.
     fn sourceOf(w: *const Writer, st: *const ir.Stmt) []const u8 {
-        return if (st.dialect.len > 0) st.dialect else w.source;
+        return if (st.dialect != 0) sprack.dialectName(st.dialect) else w.source;
     }
 
     fn supporters(w: *Writer, kind: Kind) []const u8 {

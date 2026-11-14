@@ -73,7 +73,7 @@ fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []cons
             for (&sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
             die(io, "unknown dialect '{s}'. Built in:{s}; or a path to a .spgrammar file\n", .{ n, known.items });
         },
-        error.CannotRead, error.BadGrammar => die(io, "{s}\n", .{diag.msg}),
+        error.CannotRead, error.BadGrammar, error.TooManyDialects => die(io, "{s}\n", .{diag.msg}),
         error.OutOfMemory => die(io, "out of memory\n", .{}),
     };
 }

@@ -16,6 +16,8 @@
 const std = @import("std");
 const schema = @import("schema.zig");
 const ir = @import("ir.zig");
+/// The dialect table (`internDialect`, `dialectName`).
+const sprack = @import("root.zig");
 const grammar = @import("grammar.zig");
 const lexer = @import("lexer.zig");
 
@@ -104,9 +106,9 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
             try w.writeAll(",\"tail\":");
             try str(w, s.tail);
         }
-        if (s.dialect.len > 0) {
+        if (s.dialect != 0) {
             try w.writeAll(",\"dialect\":");
-            try str(w, s.dialect);
+            try str(w, sprack.dialectName(s.dialect));
         }
         for (schema.info(s.kind).slots, 0..) |sl, k| {
             if (s.at(k) == .none) continue;
@@ -335,7 +337,12 @@ const Parser = struct {
                 } else if (std.mem.eql(u8, key, "tail")) {
                     if (val == .string) st.tail = val.string;
                 } else if (std.mem.eql(u8, key, "dialect")) {
-                    if (val == .string) st.dialect = val.string;
+                    if (val == .string and val.string.len > 0) {
+                        st.dialect = (try sprack.internDialect(val.string)) orelse blk: {
+                            p.fail(st.line, "dialect '{s}' is one more than the 255 dialect names a process can hold", .{val.string});
+                            break :blk 0;
+                        };
+                    }
                 } else if (std.mem.eql(u8, key, "body")) {
                     st.body = try p.stmtList(val);
                 } else if (schema.slotIndex(kind, key)) |si| {

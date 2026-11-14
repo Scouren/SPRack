@@ -94,10 +94,11 @@ pub const Stmt = struct {
     /// Trailing comment on the statement's line.
     tail: []const u8 = "",
     /// The dialect this statement was read in, when it is not the
-    /// netlist's (a block of text added to a circuit built in Python).
-    /// Empty: the netlist's. A target of the same dialect writes the
+    /// netlist's (a block of text added to a circuit built in Python), as
+    /// an index into the process's dialect table (`root.dialectName`).
+    /// 0: the netlist's. A target of the same dialect writes the
     /// statement's private values (options, analysis parameters) as they are.
-    dialect: []const u8 = "",
+    dialect: u8 = 0,
 
     fn bit(i: usize) u64 {
         return @as(u64, 1) << @intCast(i);
