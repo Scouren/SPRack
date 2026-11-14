@@ -11,9 +11,12 @@
 # global option; the `move` line carries it over in both directions.
 #
 # Not expressible in this grammar: `simulator lang=spice` sections, inline
-# subckt, user functions (`real f(real x) { return ...; }`), statistics
-# blocks and the RF analyses in the last opaque list. Such lines are kept
-# verbatim for Spectre output and reported as errors for any other target.
+# subckt, statistics blocks and the RF analyses in the last opaque list. Such
+# lines are kept verbatim for Spectre output and reported as errors for any
+# other target.
+#
+# Checked by loading decks in Spectre 25.10: every rule below that writes a
+# statement was run, and the expression and model tables were measured.
 
 dialect spectre
 
@@ -47,12 +50,21 @@ block subckt
   close  "ends" [name]
 end
 
+# `if (c) { ... } else if (c) { ... } else { ... }`, the branches as markers.
+block cond_if
+  open   "if" "(" cond ")" "{"
+  close  "}"
+end
+
 block libsection
   open   "section" name
   close  "endsection" [name]
 end
 
+rule  cond_elif = "}" "else" "if" "(" cond ")" "{"
+rule  cond_else = "}" "else" "{"
 rule  param     = "parameters" {...params}
+rule  func      = "real" name ~"(" ( "real" args )*~"," ~")" "{" / "return" expr... / "}"
 rule  global    = "global" nodes+
 rule  include   = "include" path
 rule  lib       = "include" path { section=section }
@@ -71,9 +83,13 @@ rule  nodeset   = "nodeset" { ...values }
 read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "statistics" | "library" | "endlibrary" | "real" ) ...
 read  opaque    = _ ( "options" | "info" | "alter" | "altergroup" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
 
+# A nested DC sweep is a sweep statement around the inner dc analysis.
+rule  dc        = _?sweep$# "sweep" { dev=src2! param==dc start=start2 stop=stop2 step=step2 } "{" / name?dc$# "dc" { dev=src! param==dc start=start stop=stop step=step ...params } / "}"
 # A dc analysis that sweeps something is a DC sweep; any other is an operating point.
 rule  dc        = name?dc$# "dc" { dev=src! param==dc start=start stop=stop step=step ...params }
 rule  dc        = name?dc$# "dc" { param=var! start=start stop=stop step=step ...params }
+# SPICE's .sens runs its own operating point; here sens names the analysis.
+rule  sens      = name?sens$# "dc" / "sens" "(" out ")" "for" "(" name?sens$# ")"
 rule  op        = name?op$# "dc" {...params}
 rule  ac        = name?ac$# "ac" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
 rule  tran      = name?tran$# "tran" { step=step stop=stop start=start maxstep=maxstep skipdc=skip_dc method=method ...params }
@@ -81,6 +97,14 @@ rule  noise     = name?noise$# "(" out ref?0 ")" "noise" { iprobe=src start=fsta
 rule  stb       = name?stb$# "stb" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin probe=probe! ...params }
 rule  pss       = name?pss$# "pss" { fund=fund! harms=harms tstab=tstab ...params }
 rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+# xf at one frequency, 0 Hz, is the DC transfer function. It is computed
+# from every source at once, so the source is not named, and an xf read
+# back names none: the form is write-only.
+write tf        = name?xf$# "(" out ref?0 ")" "xf" -src { freq==0 ...params }
+rule  pz        = name?pz$# "(" out "0" ")" "pz" { iprobe=src! ...params }
+rule  hb        = name?hb$# "hb" { fundfreqs=[freqs]! maxharms=[harms] ...params }
+# The Fourier analyser is an instance that watches one signal during tran.
+rule  four      = name?four$# "(" signals#1 "0" ")" "fourier" { fund=freq! ...params }
 read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "montecarlo" | "sweep" | "envlp" | "qpss" ) ...
 
 # With a model of its own the device keeps it; these forms are write-only
@@ -102,6 +126,9 @@ rule  vccs      = name ["("] pos neg cpos cneg [")"] "vccs" { gm=gm }
 rule  cccs      = name ["("] pos neg [")"] "cccs" { probe=vsrc gain=gain }
 rule  ccvs      = name ["("] pos neg [")"] "ccvs" { probe=vsrc rm=gain }
 rule  tline     = name ["("] p1 n1 p2 n2 [")"] "tline" { z0=z0 td=td f=f nl=nl ...params }
+rule  vswitch   = name ["("] pos neg cpos cneg [")"] master { region=state! }
+write vswitch   = name "(" pos neg cpos cneg ")" master
+rule  cswitch   = name ["("] pos neg [")"] master { probe=vsrc! region=state }
 rule  instance  = name ["("] nodes+ [")"] master {...params}
 
 move options.method -> tran.method
@@ -113,14 +140,13 @@ implied noise ref = 0
 
 no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
-no vswitch : Spectre's relay is a four-terminal switch with different parameters (vt1, vt2, ropen, rclosed); the SPICE switch model has no direct form
-no cswitch : Spectre has no current-controlled switch element
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : this grammar has no form that loads a digital Verilog design
 
 caveat tran skip_dc : skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
 caveat tran method : the integration methods are near equivalents, not the same algorithm
 caveat print signals : Spectre has no print statement; the signals are saved instead
+caveat tf src : xf gives the transfer function from every source, the named one among them; the input and output resistances are not reported
 caveat hdl path : ahdl_include expects Verilog-A source, not a compiled OSDI file
 
 signals
@@ -129,7 +155,8 @@ signals
 end
 
 functions
-  same abs min max sqrt exp pow floor ceil int sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot fmod v i
+  same abs min max sqrt exp pow pwr floor ceil int nint sgn db sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot fmod v i
+  sign2 = sign
   ln    = log
   log10 = log10
 end
@@ -170,7 +197,7 @@ models
   bsimsoi p  = bsimsoi type=p
   bsimcmg n  = bsimcmg type=n
   bsimcmg p  = bsimcmg type=p
-  bsimbulk n = bsimbulk type=n       # assumed; older releases call it bsim6
+  bsimbulk n = bsimbulk type=n       # bsim6 is a second name for the same model
   bsimbulk p = bsimbulk type=p
   psp103 n   = psp103 type=n
   psp103 p   = psp103 type=p
@@ -178,4 +205,6 @@ models
   hisim2 p   = hisim2 type=p
   hisimhv n  = hisim_hv type=n
   hisimhv p  = hisim_hv type=p
+  vswitch    = vswitch
+  cswitch    = iswitch
 end

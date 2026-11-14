@@ -7,6 +7,9 @@
 # are .PARAM f(x)='...', behavioural sources are E and G elements with VOL=
 # and CUR=, Verilog-A is loaded with .HDL and instantiated as X.
 #
+# Checked by loading decks in HSPICE Y-2026.03: every rule below that writes
+# a statement was run, and the expression and model tables were measured.
+#
 # .NOISE rides on the .AC statement before it and has no sweep of its own.
 # A noise analysis is therefore written as the two lines together. A .NOISE
 # read takes its sweep from the .AC before it (`merge`), and is one statement
@@ -67,8 +70,11 @@ rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 
-rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
-rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
+# The model comes before the value; `R1 a b 1k rmod` does not load.
+rule  resistor  = name~"R" pos neg [r] { r=r ...params }
+rule  resistor  = name~"R" pos neg master [r] { r=r ...params }
+rule  capacitor = name~"C" pos neg [c] { c=c ...params }
+rule  capacitor = name~"C" pos neg master [c] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
@@ -91,18 +97,27 @@ rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
 rule  mosfet    = name~"M" d g s b master {...params}
 rule  jfet      = name~"J" d g s master [area] {...params}
+# A MESFET is a J element whose model has a MESFET level; reading sorts the
+# two apart by the model.
+write mesfet    = name~"J" d g s master [area] {...params}
 rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
 rule  instance  = name~"X" nodes+ master {...params}
 
 rule  op        = ".op"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
+rule  pz        = ".pz" out src
 rule  dc        = ".dc" var:"temp" start stop step
 rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
-write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src
-read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src
+write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
+read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 merge ac -> noise
+# S-parameters: .LIN over the .AC sweep, ports are P elements.
+write sp        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lin"
+read  sp        = ".lin"
+merge ac -> sp
+rule  pss       = ".sn" { tone=fund! nharms=harms trinit=tstab ...params }
 rule  sens      = ".sens" out
 rule  four      = ".four" freq signals+
 rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {...params}
@@ -113,9 +128,8 @@ enum options method : trap=trap gear=gear
 enum dc var : temp=temp
 
 no vswitch : HSPICE has no S switch element; a voltage-controlled resistor (G element, VCR) is the closest form
-no cswitch : HSPICE has no W switch element
-no mesfet  : HSPICE models MESFETs as J elements with their own model levels
-no disto   : HSPICE has no .DISTO small-signal distortion analysis
+no cswitch : HSPICE's W element is a transmission line; there is no current-controlled switch
+no disto   : HSPICE's .DISTO measures distortion power into a named load resistor; the SPICE form has no load resistor to name
 no stb     : HSPICE's loop stability analysis (.LSTB) probes a voltage source and has no counterpart of the probe-based form
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : this grammar has no form that loads a digital Verilog design
@@ -139,12 +153,15 @@ signals
 end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
-  same limit agauss gauss aunif unif v i
+  same agauss gauss aunif unif v i
   same nint db
   ln    = log
   log10 = log10
   sign2 = sign
 end
+
+differs pow  : the exponent is cut to an integer first, so pow(2,2.5) and 2**2.5 are 4
+differs nint : halves round away from zero (nint(2.5) is 3), not to even
 
 variables
   same temper time hertz
@@ -189,4 +206,6 @@ models
   hisim2 p   = pmos level=68
   hisimhv n  = nmos level=73
   hisimhv p  = pmos level=73
+  mesfet n   = njf level=3
+  mesfet p   = pjf level=3
 end

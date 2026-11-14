@@ -428,15 +428,25 @@ test "an analysis the target cannot express is an error naming who can, and why"
         \\.end
     , &report);
     try testing.expect(report.hasErrors());
-    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, ngspice");
+    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre");
     // The rest of the netlist is still produced.
     try has(out, "R1 in out 1k\n");
     try has(out, "* [sprack] not written: analysis 'pz'");
 
     // Where the grammar simply has no rule, it says that instead.
+    // No shipped grammar has such a gap any more; a tiny one does.
+    const tiny = comptime sprack.grammar.compileBuiltin(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\end
+        \\rule op = ".op"
+    );
     var r2: ir.Report = .init(a);
-    _ = try tr(a, "ngspice", "spectre", "t\n.tf v(out) V1\nV1 in 0 1\n.end\n", &r2);
-    try reported(&r2, .@"error", "analysis 'tf' cannot be written for spectre: spectre.spgrammar defines no rule for it. Dialects that define it: espice, hspice, ltspice, ngspice");
+    const nl = try readAs(a, "ngspice", "t\n.op\n.tran 1n 1u\n.end\n", &r2);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &tiny, &aw.writer, &nl, &r2);
+    try reported(&r2, .@"error", "analysis 'tran' cannot be written for tiny: tiny.spgrammar defines no rule for it.");
 }
 
 test "nothing is dropped: a value with no place in the target is an error" {
@@ -1123,7 +1133,9 @@ test "more devices: behavioural and controlled sources, coupling, switches, line
     try has(sp, "F1 (x 0) cccs probe=V1 gain=3\n");
     try has(sp, "H1 (y 0) ccvs probe=V1 rm=50\n");
     try has(sp, "T1 (a 0 b 0) tline z0=50 td=1n\n");
-    try reported(&r1, .@"error", "device 'vswitch' cannot be written for spectre: Spectre's relay is a four-terminal switch with different parameters");
+    // Spectre has the switch, as an instance of a vswitch model.
+    try has(sp, "S1 (p 0 in 0) swm region=on\n");
+    try has(sp, "model swm vswitch vt=0.5 ron=1\n");
 
     var r2: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", src, &r2);
@@ -1365,8 +1377,8 @@ test "corpus: more source and analysis forms" {
     , &report);
     try has(sp, "model jm jfet type=n vto=-2\n");
     try has(sp, "J1 (d g 0) jm\n");
-    // Spectre nests sweeps with a sweep statement the grammar does not have: say so.
-    try reported(&report, .@"error", "dc.src2 = VGS has no spelling in spectre");
+    // Spectre nests sweeps with a sweep statement around the inner dc.
+    try has(sp, "sweep1 sweep dev=VGS param=dc start=1 stop=3 step=0.5 {\ndc1 dc dev=VDS param=dc start=0 stop=5 step=0.1\n}\n");
 
     var r2: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\nV1 d 0 1\nV2 g 0 1\n.dc V1 0 5 0.1 V2 1 3 0.5\n.end\n", &r2);
@@ -1870,4 +1882,132 @@ test "verification: VACASK model families load their modules" {
     };
     for (want) |w| try has(va, w);
     try testing.expect(std.mem.indexOf(u8, va, "mos1.osdi") == null);
+}
+
+// Each written form below was loaded in Spectre 25.10 or HSPICE Y-2026.03.
+
+test "Spectre: conditionals, functions, xf, pz, sens, fourier, hb, nested dc, switches" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const src =
+        \\t
+        \\V1 in 0 dc 1 ac 1
+        \\V2 b 0 dc 0
+        \\R1 in out 1k
+        \\S1 out 0 in 0 smod on
+        \\W1 out 0 V1 wmod
+        \\.model smod sw vt=0.5
+        \\.model wmod csw it=1m
+        \\.func f1(x,y) {x*2+y}
+        \\.param a=2
+        \\.if (a > 1)
+        \\R9 out 0 1k
+        \\.elseif (a < 0)
+        \\R9 out 0 2k
+        \\.else
+        \\R9 out 0 3k
+        \\.endif
+        \\.tf v(out) V1
+        \\.sens v(out)
+        \\.dc V1 0 1 0.1 V2 0 1 0.5
+        \\.tran 1u 1m
+        \\.four 1k v(out)
+        \\.end
+    ;
+    const sp = try tr(a, "ngspice", "spectre", src, &report);
+    try has(sp, "S1 (out 0 in 0) smod region=on\n");
+    try has(sp, "W1 (out 0) wmod probe=V1\n");
+    try has(sp, "model wmod iswitch it=1m\n");
+    try has(sp, "real f1(real x,real y) {\nreturn (x*2+y)\n}\n");
+    try has(sp, "if ((a > 1)) {\nR9 (out 0) resistor r=1k\n} else if ((a < 0)) {\n");
+    try has(sp, "} else {\nR9 (out 0) resistor r=3k\n}\n");
+    try has(sp, "xf1 (out 0) xf freq=0\n");
+    try reported(&report, .warning, "tf.src: xf gives the transfer function from every source");
+    try has(sp, "sens1 dc\nsens (out) for (sens1)\n");
+    try has(sp, "four1 (out 0) fourier fund=1k\n");
+    try testing.expect(!report.hasErrors());
+
+    // Read back: the same circuit, the conditional and the function included.
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try has(back, ".if (a > 1)\n");
+    try has(back, ".elseif (a < 0)\n");
+    try has(back, ".sens v(out)\n");
+    try has(back, ".dc V1 0 1 0.1 V2 0 1 0.5\n");
+    try has(back, ".four 1k v(out)\n");
+
+    // The Fourier analyser watches one signal; two cannot be one instance.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\n.tran 1u 1m\n.four 1k v(a) v(b)\n.end\n", &r3);
+    try testing.expect(r3.hasErrors());
+
+    // hb: frequencies and harmonics as vectors.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", "t\n.hb tones=1k nharms=5\n.end\n", &r4), "hb1 hb fundfreqs=[1k] maxharms=[5]\n");
+
+    // Functions Spectre has under the SPICE names.
+    var r5: ir.Report = .init(a);
+    const fx = try tr(a, "ngspice", "spectre", "t\n.param p={pwr(a,2)+sgn(b)+nint(c)}\n.end\n", &r5);
+    try has(fx, "pwr(a,2)+sgn(b)+nint(c)");
+    try testing.expect(!r5.hasErrors());
+}
+
+test "HSPICE: .pz, .noise interval, .lin, .sn, MESFETs, model before value, pow" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const src =
+        \\t
+        \\vin in 0 dc 1 ac 1
+        \\r1 in out rm 1k
+        \\.model rm r tc1=1m
+        \\j1 out in 0 mm 2
+        \\.model mm njf level=3
+        \\.pz v(out) vin
+        \\.ac dec 10 1 1meg
+        \\.noise v(out) vin 10
+        \\.ac dec 10 1meg 1g
+        \\.lin
+        \\.sn tone=1k nharms=5 trinit=1m
+        \\.end
+    ;
+    const nl = try readAs(a, "hspice", src, &report);
+    try testing.expectEqual(1, countKind(nl, .mesfet));
+    try testing.expectEqual(1, countKind(nl, .pz));
+    try testing.expectEqual(1, countKind(nl, .sp));
+    try testing.expectEqual(1, countKind(nl, .pss));
+    try testing.expectEqual(0, countKind(nl, .ac));
+    const same = try tr(a, "hspice", "hspice", src, &report);
+    try has(same, "r1 in out rm 1k\n");
+    try has(same, ".pz v(out) vin\n");
+    try has(same, ".noise v(out) vin 10\n");
+    try has(same, ".ac dec 10 1meg 1g\n.lin\n");
+    try has(same, ".sn tone=1k nharms=5 trinit=1m\n");
+
+    // A SPICE resistor with a model is written model first.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\nR1 a 0 1k rm\n.model rm r tc1=1m\n.end\n", &r2), "R1 a 0 rm 1k\n");
+    // A MESFET is a J element with a level-3 model.
+    var r3: ir.Report = .init(a);
+    const ms = try tr(a, "ngspice", "hspice", "t\nZ1 d g 0 zm\n.model zm nmf\n.end\n", &r3);
+    try has(ms, ".model zm njf level=3\n");
+    // The pole-zero output and source go to Spectre; the interval does not.
+    var r4: ir.Report = .init(a);
+    const sx = try tr(a, "hspice", "spectre", src, &r4);
+    try has(sx, "pz1 (out 0) pz iprobe=vin\n");
+    try reported(&r4, .@"error", "noise.interval = 10 has no spelling in spectre");
+    // HSPICE cuts a power's exponent to an integer: a caveat either way.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", "t\n.param p={2**x}\n.end\n", &r5);
+    try reported(&r5, .warning, "the exponent is cut to an integer");
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.param p='pow(2,x)'\n.end\n", &r6);
+    try reported(&r6, .warning, "the exponent is cut to an integer");
+    // HSPICE's limit() is not the clamp of the other dialects.
+    var r7: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", "t\n.param p={limit(x,0,1)}\n.end\n", &r7);
+    try reported(&r7, .@"error", "function 'limit' has no spelling in hspice");
 }

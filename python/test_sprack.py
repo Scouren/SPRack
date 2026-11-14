@@ -24,7 +24,7 @@ def test_translate():
     assert "R1 (a 0) resistor r=1m\n" in out and "tran1 tran step=1n stop=1u\n" in out
     assert out.report == []
     e = raises(sprack.Unsupported, lambda: sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce"),
-               "Xyce has no pole-zero analysis", "Dialects that define it: espice, ngspice")
+               "Xyce has no pole-zero analysis", "Dialects that define it: espice, hspice, ngspice, spectre")
     assert "not written: analysis 'pz'" in e.text and e.report.errors[0].code == "unsupported"
     lax = sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce", strict=False)
     assert len(lax.report.errors) == 1
@@ -289,9 +289,9 @@ def test_pdk_ihp():
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
     hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
-    # Spectre has no gauss()/agauss() and this grammar no conditional block: reported, per file and line.
-    e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "function 'gauss' has no spelling in spectre")
-    assert any("cond_if" in x.message for x in e.report.errors)
+    # Spectre has no agauss(): reported, per file and line. Conditional blocks translate.
+    e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "function 'agauss' has no spelling in spectre")
+    assert not any("cond_if" in x.message for x in e.report.errors)
     assert sprack.PDK("ihp", root=os.path.join(PDKS, "ihp"), corner="ss").entries()[0][1] == "mos_ss"
 
 
