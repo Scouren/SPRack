@@ -45,7 +45,8 @@ block cond_if
   close  ".endif"
 end
 
-rule  func      = ".func" name ~"(" args* ~")" expr
+# The arguments need their commas: ngspice and Xyce reject `g(x y)`.
+rule  func      = ".func" name ~"(" ( args )*~"," ~")" expr
 read  func      = ".func" name args* "=" expr
 read  func      = ".param" name args+ "=" expr
 rule  param     = ".param" {...params}
@@ -92,7 +93,11 @@ rule  vcvs      = name~"E" pos neg cpos cneg gain
 rule  vccs      = name~"G" pos neg cpos cneg gm
 rule  cccs      = name~"F" pos neg vsrc gain
 rule  ccvs      = name~"H" pos neg vsrc gain
-rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+# A bare area after the model is read; area= is written, because ngspice 45
+# takes `D1 a k dm 2` for a diode with a thermal node and rejects it, and
+# Xyce rejects a bare area followed by named parameters.
+read  diode     = name~"D" pos neg master area { area=area ...params? }
+rule  diode     = name~"D" pos neg master { area=area ...params? }
 rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 # With a substrate node and a thermal node (self-heating models).
 rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }

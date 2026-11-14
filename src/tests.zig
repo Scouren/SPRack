@@ -2036,3 +2036,33 @@ test "fixes from the load check: Spectre globals, dotted versions, Spectre pow" 
     _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 {pow(-1.75,2.5)}\n.end\n", &r3);
     try reported(&r3, .warning, "a negative base with a fractional exponent stops the run");
 }
+
+test "parse check: forms ngspice and Xyce reject when they load the netlist" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\.func g(x, y) {x+y}
+        \\D1 a 0 dm 2 pj=1m
+        \\.model n3 nmos level=49 version=3.3.0
+        \\.end
+    ;
+    for ([_][]const u8{ "ngspice", "xyce" }) |to| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, "ngspice", to, src, &r);
+        // `g(x y)`: ngspice and Xyce both refuse a .func without commas.
+        try has(out, ".func g(x,y) {x+y}\n");
+        // `D1 a 0 dm 2`: ngspice 45 takes the bare area for a thermal node's model.
+        try has(out, "D1 a 0 dm area=2 pj=1m\n");
+        // `{3.3.0}` is not an expression.
+        try has(out, "version=3.3.0\n");
+    }
+    // Xyce's .noise parser handles only V(out); SIN needs its frequency.
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nV1 a 0 1 ac 1\n.noise v(a,b) V1 dec 3 10 10k\n.end\n", &r1);
+    try testing.expect(r1.hasErrors());
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nV1 a 0 SIN(0 1)\n.tran 10n 1u\n.end\n", &r2);
+    try testing.expect(r2.hasErrors());
+}

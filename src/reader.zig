@@ -159,7 +159,8 @@ const Matcher = struct {
                 // Keep the exact spelling rather than guess.
                 return .{ .atom = t.raw };
             },
-            .expr => return .{ .expr = t.text },
+            // `version=3.3.0` read as an undelimited expression is a word, not arithmetic.
+            .expr => return if (isVersion(t.text)) .{ .atom = t.text } else .{ .expr = t.text },
             .str => return .{ .str = t.text },
             .vec => return .{ .list = try self.vector(t.text) },
             else => return null,
@@ -1131,7 +1132,7 @@ const Reader = struct {
             if (v != .params) continue;
             if (schema.info(st.kind).class == .control) continue;
             for (v.params) |p| {
-                if (p.val == .atom) self.report.add(.warning, .invalid, st.line, "{s}={s}: not a number, a name or a delimited expression in {s}; copied as written", .{ p.key, p.val.atom, self.g.name });
+                if (p.val == .atom and !isVersion(p.val.atom)) self.report.add(.warning, .invalid, st.line, "{s}={s}: not a number, a name or a delimited expression in {s}; copied as written", .{ p.key, p.val.atom, self.g.name });
             }
         }
     }
@@ -1394,4 +1395,14 @@ pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Re
     try rebindParams(g, arena, nl.stmts);
     try ir.checkModelKinds(arena, &nl, report, env);
     return nl;
+}
+
+/// A dotted version number, `3.3.0`: digits with two or more dots.
+fn isVersion(s: []const u8) bool {
+    if (s.len == 0 or !std.ascii.isDigit(s[0])) return false;
+    var dots: usize = 0;
+    for (s) |c| {
+        if (c == '.') dots += 1 else if (!std.ascii.isDigit(c)) return false;
+    }
+    return dots >= 2;
 }

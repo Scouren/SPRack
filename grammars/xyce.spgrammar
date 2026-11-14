@@ -36,7 +36,8 @@ end
 
 rule  param     = ".param" {...params}
 read  param     = ".global_param" {...params}
-rule  func      = ".func" name ~"(" args* ~")" expr
+# The arguments need their commas: ngspice and Xyce reject `g(x y)`.
+rule  func      = ".func" name ~"(" ( args )*~"," ~")" expr
 rule  global    = ".global" nodes+
 rule  include   = ".include" path
 read  include   = ".inc" path
@@ -59,7 +60,9 @@ rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+# Xyce requires FREQ in SIN(); ngspice defaults it to 1/tstop, which a source
+# line cannot say here, so a SIN without it is not written.
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
@@ -73,7 +76,11 @@ rule  vcvs      = name~"E" pos neg cpos cneg gain
 rule  vccs      = name~"G" pos neg cpos cneg gm
 rule  cccs      = name~"F" pos neg vsrc gain
 rule  ccvs      = name~"H" pos neg vsrc gain
-rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+# A bare area after the model is read; area= is written, because ngspice 45
+# takes `D1 a k dm 2` for a diode with a thermal node and rejects it, and
+# Xyce rejects a bare area followed by named parameters.
+read  diode     = name~"D" pos neg master area { area=area ...params? }
+rule  diode     = name~"D" pos neg master { area=area ...params? }
 rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 # With a substrate node and a thermal node (self-heating models).
 rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
@@ -95,7 +102,10 @@ rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
 rule  sp        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lin" {...params}
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
-rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+# Xyce 7.10 documents V(out,ref) but its parser mistakes the comma form for
+# other fields ("Cannot convert 'tox' to integer for expression
+# PTS_PER_SUMMARY") or crashes, even for V(out,0); only V(out) works.
+rule  noise     = ".noise" "v" ~"(" out ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  four      = ".four" freq signals+
 rule  hb        = ".hb" freqs+
 

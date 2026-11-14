@@ -29,7 +29,7 @@ from concurrent.futures import ProcessPoolExecutor
 EXT = {"ngspice": ".cir", "xyce": ".cir", "vacask": ".sim", "hspice": ".sp"}
 # Lines that are errors; a match on RUNTIME makes it a runtime error.
 ERROR = re.compile(r"error|unknown|not found|undefined|cannot|can't|could not|unrecognized|abort|interrupted|fatal|failed|invalid|illegal|missing|unexpected", re.I)
-BENIGN = re.compile(r"no simulations run|incomplete or empty netlist|or no \"\.plot\"|MSG_FATAL errors and \d+ MSG_ERROR|^\*\*\* Xyce Abort|^\s*errors\s*$|unknown\.$|compatibility mode", re.I)
+BENIGN = re.compile(r"no simulations run|incomplete or empty netlist|or no \"\.plot\"|MSG_FATAL errors and \d+ MSG_ERROR|^\*\*\* Xyce Abort|^\s*errors\s*$|unknown\.$|compatibility mode|^\*+ Executing netlist", re.I)
 RUNTIME = re.compile(r"timestep too small|singular|gmin stepping|source stepping|iteration limit|no convergence|doAnalyses|analysis failed|converge|"
                      r"factorization failed|homotopy failed|analysis '\w+' aborted|dc solution failed|measure '", re.I)
 # ngspice warnings are not failures, except an instance dropped for want of its model.
@@ -130,7 +130,9 @@ def main():
             s = src[(r[0], r[1])][3]
             if r[3] == "loaded":
                 count[(r[1], r[2], "loaded")] += 1
-            elif s == "syntax":  # the source loaded if it got as far as running
+            # The source loaded if it got as far as running; a runtime failure
+            # excuses the translation only in the same simulator.
+            elif s == "syntax" or (s == r[3] == "runtime" and r[2] == (r[1] if r[1] != "hspice" else "ngspice")):
                 count[(r[1], r[2], "excluded")] += 1
                 f.write(f"{r[0]}\t{r[1]}\t{r[2]}\texcluded:{r[3]}\t{s}\t{r[4]}\n")
             else:
