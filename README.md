@@ -131,6 +131,18 @@ statements of the canonical vocabulary and the core writes them.
   and lines no rule understands are written as they are; for any other
   target they are errors in `netlist()`'s report, so a strict `netlist()`
   raises.
+* A `lib` or `include` read from text in one dialect (`c.code('.lib
+  "/pdk/sky130.lib.spice" tt')`) and written for another is pointed at a
+  translated copy of the whole file tree it reaches, made as `sprack project
+  --lib` makes one and kept in `$SPRACK_CACHE/libs` (default
+  `~/.cache/sprack`). The copy is reused while every file it was made from is
+  unchanged (size and mtime, then content); it is built in a temporary
+  directory and renamed into place, so parallel writers can share the cache.
+  `$VAR` in the path expands from the environment; a missing file is an
+  `invalid` error. What the library cannot say is in the netlist's report
+  with file and line. sky130 tt to Xyce: 2.1 s the first time, 8 ms after.
+  Paths added by method (`c.include(...)`) are in no dialect and stay as
+  written.
 * Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
   may also be a path to a `.spgrammar` file.
 

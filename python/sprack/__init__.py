@@ -27,6 +27,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from typing import Any, Iterable, NamedTuple
 
 from . import _core
@@ -521,8 +523,10 @@ class Circuit(_Scope):
         anyway, with the report attached as `.report`.
         """
         d = _dialect(dialect)
-        text, rep = _core.write(d, self.to_json(d, strict=strict))
-        report = Report(self._report + Report._from_json(rep))
+        data = json.loads(self.to_json(d, strict=strict))
+        lib_report = _translate_libraries(data["stmts"], data["dialect"], d)
+        text, rep = _core.write(d, json.dumps(data))
+        report = Report(self._report + lib_report + Report._from_json(rep))
         if strict and report.errors:
             raise Unsupported(d, report, text)
         if self.pdk is not None:
@@ -540,6 +544,133 @@ class Circuit(_Scope):
     def check(self, dialect: str) -> Report:
         """What writing this circuit for `dialect` would report, without raising."""
         return self.netlist(dialect, strict=False).report
+
+
+# ------------------------------------------------------------------- libraries
+
+def _grammar_name(d: str) -> str:
+    """The name a resolved dialect calls itself: a built-in's name, or the
+    `dialect` line of a grammar file."""
+    if not d.endswith(".spgrammar"):
+        return d
+    try:
+        with open(d) as f:
+            for line in f:
+                words = line.split("#", 1)[0].split()
+                if len(words) == 2 and words[0] == "dialect":
+                    return words[1]
+    except OSError:
+        pass  # the core says why when it reads the file
+    return d
+
+
+def _cache_root() -> str:
+    return os.path.expanduser(os.environ.get("SPRACK_CACHE") or "~/.cache/sprack")
+
+
+def _sha1(path: str) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _fresh(files: list[dict]) -> bool:
+    """Every file the translation read is unchanged: same size and mtime, or
+    failing that, same content."""
+    for f in files:
+        try:
+            st = os.stat(f["path"])
+        except OSError:
+            return False
+        if (st.st_size, st.st_mtime_ns) != (f["size"], f["mtime_ns"]) and _sha1(f["path"]) != f["sha1"]:
+            return False
+    return True
+
+
+def _errors(log: str) -> Report:
+    return Report(e for e in Report._from_log(log) if e.severity == "error")
+
+
+def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
+    """`src` and every file it includes, translated from `frm` to `to` into
+    the cache; returns the translated `src` and what could not be said.
+
+    Keyed by the source path, the target grammar and the core; valid while
+    every file read is unchanged. A copy is built in a temporary directory
+    and renamed into place, so parallel writers never see half of one.
+    """
+    key = hashlib.sha1(f"{src}\0{frm}\0{_dialect_tag(to)}\0{_core.info()}".encode()).hexdigest()[:16]
+    base = os.path.join(_cache_root(), "libs")
+    final = os.path.join(base, f"{os.path.basename(src)}-{key}")
+    marker = os.path.join(final, "sprack.json")
+    try:
+        with open(marker) as f:
+            meta = json.load(f)
+        if _fresh(meta["files"]):
+            return os.path.join(final, "tree", meta["top"]), _errors(meta["log"])
+    except (OSError, ValueError, KeyError):
+        pass
+    os.makedirs(base, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix=f".{os.path.basename(final)}-", dir=base)
+    try:
+        tree = os.path.join(tmp, "tree")
+        defines = "\n".join(f"{k}={v}" for k, v in os.environ.items() if "\n" not in v)
+        text, log = _core.project(frm, to, src, tree, defines, True)
+        summary = json.loads(text)
+        root = summary["root"]
+        files = []
+        for dirpath, _dirs, names in os.walk(tree):
+            for n in names:
+                orig = os.path.join(root, os.path.relpath(os.path.join(dirpath, n), tree))
+                if os.path.isfile(orig):
+                    st = os.stat(orig)
+                    files.append({"path": orig, "size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha1": _sha1(orig)})
+        meta = {"top": os.path.relpath(src, root), "files": files, "summary": summary, "log": log}
+        with open(os.path.join(tmp, "sprack.json"), "w") as f:
+            json.dump(meta, f)
+        try:
+            os.rename(tmp, final)
+        except OSError:
+            # A stale copy, or another writer got there first: replace the
+            # stale one; a fresh one from the other writer is as good as ours.
+            old = f"{final}.old-{os.getpid()}"
+            try:
+                os.rename(final, old)
+                os.rename(tmp, final)
+                shutil.rmtree(old, ignore_errors=True)
+            except OSError:
+                pass
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return os.path.join(final, "tree", meta["top"]), _errors(log)
+
+
+def _translate_libraries(stmts: list[dict], default: str, target: str) -> Report:
+    """Point every `lib` and `include` written in another dialect than
+    `target` at a translated copy of the file tree it reaches (see
+    `_library_copy`); returns what the libraries could not say."""
+    report = Report()
+    name = _grammar_name(target)
+    for st in stmts:
+        report.extend(_translate_libraries(st.get("body", []), st.get("dialect", default), target))
+        frm = st.get("dialect", default)
+        if st.get("kind") not in ("lib", "include") or frm == name or frm not in DIALECTS:
+            continue
+        path = st.get("path")
+        path = path.get("str") if isinstance(path, dict) else path
+        if not isinstance(path, str):
+            continue
+        src = os.path.abspath(os.path.expandvars(path))
+        if not os.path.isfile(src):
+            report.append(Entry("error", "invalid", st.get("line", 0), f"{st['kind']}: cannot open {src}"))
+            continue
+        copy, errors = _library_copy(src, frm, target)
+        report.extend(errors)
+        st["path"] = {"str": copy}
+        st["dialect"] = name
+    return report
 
 
 # ------------------------------------------------------------------------ PDKs

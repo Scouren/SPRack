@@ -4,7 +4,7 @@ The PDK tests need the model libraries of the four PDKs. Point
 SPRACK_TEST_PDKS at a directory holding checkouts named sky130_fd_pr, ihp,
 asap7 and freepdk45; without it those tests are skipped and say so.
 """
-import os, sys, tempfile, traceback
+import os, shutil, sys, tempfile, time, traceback
 
 import sprack
 
@@ -162,6 +162,71 @@ def test_code():
     raises(sprack.Unsupported, lambda: lt.netlist("ngspice"), "'plotwinsize=0' has no spelling in ngspice")
 
 
+def _with_cache(fn):
+    old = os.environ.get("SPRACK_CACHE")
+    with tempfile.TemporaryDirectory() as cache:
+        os.environ["SPRACK_CACHE"] = cache
+        try:
+            return fn(cache)
+        finally:
+            if old is None:
+                del os.environ["SPRACK_CACHE"]
+            else:
+                os.environ["SPRACK_CACHE"] = old
+
+
+def _netlist_xyce(stmts):
+    c = sprack.Circuit("t")
+    c.statements = stmts
+    return str(c.netlist("xyce", strict=False))
+
+
+def test_library_translated_on_the_fly():
+    def body(cache):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "m"))
+            top = os.path.join(d, "top.lib")
+            with open(top, "w") as f:
+                f.write('* lib\n.lib tt\n.include "m/nch.mod"\n.param vth=0.4\n.endl tt\n'
+                        '.lib ff\n.include "m/nch.mod"\n.param vth=0.3\n.endl ff\n')
+            with open(os.path.join(d, "m", "nch.mod"), "w") as f:
+                f.write("* model\n.model nch nmos level=54 vth0={vth}\n")
+            os.environ["SPRACK_TEST_LIB"] = d
+            c = sprack.Circuit("t")
+            c.code('.lib "$SPRACK_TEST_LIB/top.lib" tt\nM1 d g 0 0 nch w=1u l=1u\n.op\n')
+            # The source dialect keeps the library as it is.
+            assert top not in unwrap(c.netlist("ngspice")) and "$SPRACK_TEST_LIB/top.lib" in unwrap(c.netlist("ngspice"))
+            xy = unwrap(c.netlist("xyce"))
+            libs = os.path.join(cache, "libs")
+            (key,) = os.listdir(libs)
+            copy = os.path.join(libs, key, "tree", "top.lib")
+            assert f'.lib "{copy}" tt\n' in xy, xy
+            back = sprack.Circuit("back")
+            back.code(open(copy).read(), "xyce")
+            assert [s["kind"] for s in back.statements if s["kind"] != "comment"] == ["libsection", "libsection"]
+            assert ".model nch nmos level=14" in open(os.path.join(libs, key, "tree", "m", "nch.mod")).read()
+            # A second write is a cache hit: nothing is translated again.
+            marker = os.path.join(libs, key, "sprack.json")
+            stamp = os.stat(marker).st_mtime_ns
+            assert unwrap(c.netlist("xyce")) == xy and os.stat(marker).st_mtime_ns == stamp
+            # A changed file is translated again.
+            with open(os.path.join(d, "m", "nch.mod"), "a") as f:
+                f.write(".model pch pmos level=54\n")
+            c.netlist("xyce")
+            assert os.stat(marker).st_mtime_ns != stamp
+            assert ".model pch pmos level=14" in open(os.path.join(libs, key, "tree", "m", "nch.mod")).read()
+            # Writers in parallel on an empty cache all get a whole copy.
+            shutil.rmtree(libs)
+            import concurrent.futures as cf, multiprocessing as mp
+            with cf.ProcessPoolExecutor(4, mp_context=mp.get_context("fork")) as pool:
+                outs = list(pool.map(_netlist_xyce, [c.statements] * 8))
+            assert len(set(outs)) == 1 and os.listdir(libs) == [key], (set(outs), os.listdir(libs))
+            # A library that is not there is an error naming it.
+            c.code(".include nowhere.inc\n")
+            raises(sprack.Unsupported, lambda: c.netlist("xyce"), "cannot open", "nowhere.inc")
+    _with_cache(body)
+
+
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
 
 
@@ -264,6 +329,25 @@ def test_pdk_freepdk45():
     assert '.include "tran_models/models_nom/NMOS_VTL.inc"' in open(os.path.join(tree, "hspice_nom.include")).read()
     assert ".model NMOS_VTL nmos level=14" in open(os.path.join(tree, "tran_models/models_nom/NMOS_VTL.inc")).read()
     assert "model NMOS_VTL bsim4 type=n" in open(os.path.join(p.translate("spectre"), "tran_models/models_nom/NMOS_VTL.inc")).read()
+
+
+def test_pdk_sky130_library_on_the_fly():
+    def body(cache):
+        lib = os.path.join(PDKS, "sky130_fd_pr", "models", "sky130.lib.spice")
+        c = sprack.Circuit("sky130 tt")
+        c.code(f'.lib "{lib}" tt\n', "ngspice")
+        t = time.perf_counter()
+        first = c.netlist("xyce", strict=False)
+        t_first = time.perf_counter() - t
+        t = time.perf_counter()
+        again = c.netlist("xyce", strict=False)
+        t_hit = time.perf_counter() - t
+        print(f"      sky130 tt -> xyce: first write {t_first:.2f} s, cache hit {t_hit:.3f} s, {len(first.report.errors)} errors")
+        assert again == first and len(again.report.errors) == len(first.report.errors)
+        assert all(e.file for e in first.report.errors)
+        assert os.path.join(cache, "libs") in unwrap(first) and "sky130.lib.spice\" tt" in unwrap(first)
+        raises(sprack.Unsupported, lambda: c.netlist("xyce"))
+    _with_cache(body)
 
 
 def test_pdk_errors():
