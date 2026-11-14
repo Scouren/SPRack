@@ -12,7 +12,7 @@ meant to be pasted in later; they have not been compiled.
 | VACASK | `https://codeberg.org/arpadbuermen/VACASK` (manual = `docs/*.md`, parser = `lib/dfllexer.l`, `lib/dflparser.y`) | `b2c15511a1a7c6246cca6bcfd8d38bfb3c750d7a` (2026-11-13) |
 | ngspice | `https://git.code.sf.net/p/ngspice/ngspice` (source); manual: see section 0 | see section 0 |
 | Xyce | `https://github.com/Xyce/Xyce` (source, `doc/` LaTeX Reference Guide) | see section 0 |
-| HSPICE, Spectre | checked by running the tools on decks we wrote (pending) | - |
+| HSPICE, Spectre | behaviour observed by running tiny decks we wrote | HSPICE Y-2026.03-SP2-1, Spectre 25.10 |
 
 Paths below are relative to each repository root. Line numbers are for the
 revision above.
@@ -165,8 +165,8 @@ used instead.
    checked.)
 
 9. **The ninth `assumed` line is the file header comment at line 10.** Resolved by this
-   section. (The other `assumed` in the repo is `grammars/spectre.spgrammar:171`,
-   `bsimbulk`; see 3.4.)
+   section. (The other `assumed` in the repo was Spectre's `bsimbulk`, now
+   confirmed; see 3.4.)
 
 Also checked, not marked `assumed`:
 
@@ -262,7 +262,9 @@ writer has to handle; **unclear** how the grammar should express that.
 
 ## 2. The 31 `no` lines (6.4)
 
-"pending tool check" means the claim has not yet been tested by running the tool.
+HSPICE and Spectre rows: "observed" is the behaviour of HSPICE Y-2026.03-SP2-1 or
+Spectre 25.10 on a deck of a few lines written for the check; the deck is
+quoted in the row.
 
 ### ngspice (3)
 
@@ -312,20 +314,20 @@ Reference Guide has one `*_Command.tex` per command, and the two lists match.
 
 | # | line | verdict | source |
 |---|---|---|---|
-| H1 | `no vswitch` | pending tool check | - |
-| H2 | `no cswitch` | pending tool check | - |
-| H3 | `no mesfet` | pending tool check | - |
-| H4 | `no disto` | pending tool check | - |
-| H5 | `no stb` | pending tool check | - |
+| H1 | `no vswitch` | correct | observed: `s1 a b c 0 smod` with `.model smod sw vt=0.5` is refused as a syntax error; `g1 a b vcr pwl(1) c 0 0,1e-9 1,1` loads |
+| H2 | `no cswitch` | correct; reason reworded | observed: `w1 a b v1 wmod` with `.model wmod csw it=0.5m` is refused because a W element is read as a transmission line and wants a conductor count. New reason: the W element is a transmission line. |
+| H3 | `no mesfet` | **wrong** | observed: `z1 d g 0 mm` with `.model mm nmf` is a syntax error, but `j1 d g 0 mm 2` with `.model mm njf level=3` loads, and that model warns about an unknown parameter while accepting `sat=1`, so level 3 is a model of its own. Now `mesfet n = njf level=3` (p likewise) and a J-element write rule; reading tells it from a JFET by its model. |
+| H4 | `no disto` | **wrong reason** | observed: after `.ac dec 10 1 1k`, `.disto rl 1` loads and `.disto rl` alone does not. HSPICE has the analysis, but it reports into a named load resistor, which the SPICE form does not name. Kept as `no` with that reason. |
+| H5 | `no stb` | correct | observed: `.lstb mode=single vsource=vin` after an `.ac` loads: the probe is a voltage source in the loop, not the probe instance of the canonical form |
 
 ### Spectre (4)
 
 | # | line | verdict | source |
 |---|---|---|---|
-| S1 | `no disto` | pending tool check | - |
-| S2 | `no measure` | pending tool check | - |
-| S3 | `no vswitch` | pending tool check | - |
-| S4 | `no cswitch` | pending tool check | - |
+| S1 | `no disto` | correct | observed: `d1 disto start=1 stop=1k dec=10` is taken as an instance of an undefined master `disto` |
+| S2 | `no measure` | correct | observed: `measure m1 tran find v(a) at=0.5m` is taken as an instance named `measure` |
+| S3 | `no vswitch` | **wrong** | observed: `s1 (a b c 0) sm region=on` with `model sm vswitch vt=0.5 ron=1 roff=1e9` loads and solves. Now a rule and `vswitch = vswitch`. |
+| S4 | `no cswitch` | **wrong** | observed: `w1 (a b) wm probe=v1` with `model wm iswitch it=0.5m ron=1 roff=1e9` loads and solves. Now a rule and `cswitch = iswitch`. |
 
 ---
 
@@ -380,7 +382,12 @@ See 1.5.
 
 ### 3.4 HSPICE and Spectre
 
-All level and master names, including Spectre `bsimbulk`: pending tool check.
+| dialect | grammar | verdict | observed |
+|---|---|---|---|
+| Spectre | every master in the table, `bsimbulk` included | correct | a deck per master (`model mm <master> type=n`, one instance with the right terminal count, `op1 dc`) loads and solves for `diode bjt vbic jfet gaas mos1 mos2 mos3 bsim3v3 bsim4 bsimsoi bsimcmg bsimbulk psp103 hisim2 hisim_hv`; `bsim6` loads too, as a second name for `bsimbulk` |
+| HSPICE | MOSFET levels | correct | a deck per level (`.model mm nmos level=N`, one M element, `.op`, `.option list`) loads, and the listing names the model: 49 and 53 BSIM3v3, 54 BSIM4, 57 BSIM-SOI (3.x, PD), 70 BSIM-SOI 4, 72 BSIM-CMG, 77 BSIM6 (BSIM-BULK), 69 PSP, 68 HiSIM2, 73 HiSIM-HV; levels 1, 2, 3 and no level load |
+| HSPICE | BJT levels 4 (`vbic`) and 8 (`hicum2`) | loads; family not shown | `.model mm npn level=4` and `level=8` both load with a Q element; the run does not name the model family |
+| HSPICE | `mesfet` | added | see H3 |
 
 ---
 
@@ -392,8 +399,8 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 |---|---|---|---|
 | ngspice | `ln = ln log` (log is natural) | correct | `src/spicelib/parser/inpptree.c:149-151` (B sources: `ln` and `log` are both `PTF_LOG`); `src/frontend/numparam/xpressn.c:127,158` (`.param`: both compute `log(x)`) |
 | Xyce | `ln = ln log` | **wrong**: Xyce `log` is **base 10**; fixed in 4a70b88c | `src/UtilityPKG/ExpressionSrc/ExpressionParser.yxx:1424-1446` (natural only under `useHspiceMath`). `useHspiceMath_` defaults to false and is set only by `-hspice-ext math` or `all` (`src/IOInterfacePKG/N_IO_ParsingMgr.C:65,77-110`). `doc/Reference_Guide/Expression_Arithmetic_Functions.tex:205`: "LOG(x) ... log base 10". Proposed: `ln = ln` and `log10 = log10 log`. |
-| HSPICE | `ln = log` | pending tool check | - |
-| Spectre | `ln = log` | pending tool check | - |
+| HSPICE | `ln = log` | correct; signed outside the domain | observed (`.meas tran pv param='...'`): `log(2)` is 0.693, `ln(2)` the same; `log(-2)` is -0.693 and `log10(-100)` is -2, the sign carried over instead of an error |
+| Spectre | `ln = log` | correct | observed (`parameters p=...` on a source, read back from the operating point): `log(2)` and `ln(2)` are 0.693; `log(-2)` and `log10(-100)` stop the run with a domain error |
 | VACASK | `ln = ln` | correct, incomplete; fixed in 8ee108cb | `lib/context.cpp:52-54`: `log` and `ln` are both natural. Proposed: `ln = ln log`. |
 
 ### 4.2 Operators
@@ -402,8 +409,8 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 |---|---|---|---|
 | ngspice | `pow "**" "^"` | correct | `src/frontend/numparam/xpressn.c:706-707` (`**` becomes `^`); `src/spicelib/parser/inpptree-parser.y:94` |
 | Xyce | `pow "**" "^"` | **wrong**: `^` is XOR by default; fixed in 4a70b88c | `ExpressionParser.yxx:1783-1792` (`^` is power only under `useHspiceMath`); `ExpressionLexer.l:268-269`; `doc/Reference_Guide/Expression_Operator.tex:29,35` (`**` is exponentiation, `^` is boolean XOR). Proposed: `pow "**"` and `xor "^"`. |
-| HSPICE | `pow "**" "^"` | pending tool check | - |
-| Spectre | `pow "**"`, `xor "^"` | pending tool check | - |
+| HSPICE | `pow "**" "^"` | correct spelling; **semantics differ** | observed: `2^3` is 8 and `5^3` is 125, so `^` is power; `2**3` is 8. But `pow(2,2.5)` is 4, `pow(2,-1.5)` is 0.5 and `(-2)**2.5` is 4: the exponent is cut to an integer first. Now `differs pow` in the grammar: a caveat on every crossing. |
+| Spectre | `pow "**"`, `xor "^"` | correct | observed: `2^3` is 1 and `5^3` is 6 (exclusive-or); `5~^3` is -7 (exclusive-nor); `2**3` is 8; `(-2)**2.5` and `pow(-2,2.5)` stop the run |
 | VACASK | `pow "**"` | correct, incomplete; fixed in 8ee108cb | `lib/dfllexer.l:722` (`**`) and `:749-750` (`^` is `BITEXOR`); `docs/expr-operators.md`. Proposed: add `xor "^"`. |
 
 ### 4.3 Function tables and variables
@@ -413,8 +420,8 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 | ngspice | every listed name exists in at least one of its two parsers | correct | `xpressn.c:91-94` (`.param`), `inpptree.c:138-182` (B sources). Caveat: the parsers differ. `int`, `sqr`, `limit`, `agauss`, ... exist only in `.param`; `u`, `uramp`, `pwl`, `ddt` only in B sources. `pwr` discards the sign in `.param` (`xpressn.c:139-141`, `pow(fabs(z), x)`) but keeps it in B sources (VACASK's `docs/input-include.md` documents the same split). `nint` rounds half to even (`xpressn.c:150-155`). |
 | Xyce | every listed name exists | correct | `src/UtilityPKG/ExpressionSrc/ExpressionLexer.l`, one line per name: `abs:556 min:548 max:547 sqrt:613 exp:308 pow:586 pwr:585 floor:575 ceil:574 int:583 sgn:610 sign:611 limit:576 agauss:607 gauss:608 aunif:606 unif:605 nint:572 atan2:563 stp:612 uramp:695 if:582`. Missing from the grammar: `fmod` (`:573`) and `db` (`:545`); added in 4a70b88c. Xyce `pwr` keeps the sign (`Expression_Arithmetic_Functions.tex:61-66`). |
 | Xyce variables | `temper = temp`, `hertz = freq`, `time = time` | correct | `ExpressionLexer.l:592-597` (`time temp temper freq hertz` are all tokens) |
-| HSPICE | function table | pending tool check | - |
-| Spectre | function table | pending tool check | - |
+| HSPICE | function table | **wrong** (`limit`), incomplete | observed: `int(-2.5)` is -2 and `int(2.7)` is 2 (truncation); `nint(2.5)` is 3 and `nint(3.5)` 4 (halves away from zero, now `differs nint`); `sqrt(-4)` is -2 and `db(-10)` is -20 (signed); `pwr(-2,2)` is -4 and `pwr(-2,3)` -8 (sign kept); `sgn(0)` is 0; `sign(3,-1)` is -3; `floor`, `ceil`, `fmod`, `hypot`, `atan2`, `asinh`, `cosh`, `min` give the usual values. `limit(5,0,2)` is refused inside an expression: HSPICE's `limit` is not the clamp of the other dialects, so it is dropped from the table. Added: `atan2 hypot fmod asinh`. |
+| Spectre | function table | **incomplete** | observed: `pwr(-2,2)` is -4 (sign kept), `sgn(-3)` is -1, `sign(3,-1)` is -3, `nint(2.5)` is 2 and `nint(3.5)` 4 (halves to even), `db(10)` is 20 and `db(-10)` -20, `int(-2.5)` is -2 (truncation), `floor(-2.5)` -3, `ceil(-2.5)` -2; `limit` is not defined; `sqrt(-4)` stops the run. Added: `pwr sgn nint db` and `sign2 = sign`. |
 | VACASK | see 1.2 item 8 | names correct, table incomplete | `lib/context.cpp:37-116` |
 
 ---
@@ -426,8 +433,8 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 | ngspice | `trap=trap gear=gear` | correct | `src/spicelib/analysis/cktsopt.c:141-146` (`trap` matches as a prefix, `gear` exactly; anything else is `E_METHOD`) |
 | Xyce | `trap=trap gear=gear trap=7 gear=8` | correct | `doc/Reference_Guide/timetbl.tex:19-23` ("trap or 7", "gear or 8"; trap is the default) |
 | VACASK | `trap=trap gear=gear2 euler=euler` | correct | `lib/coretran.cpp:585-591`; `docs/cmd-options-tran.md` |
-| HSPICE | `trap=trap gear=gear` | pending tool check | - |
-| Spectre | `trap gear2 euler` | pending tool check | - |
+| HSPICE | `trap=trap gear=gear` | correct | observed: `.option method=trap`, `method=gear` and `method=bdf` each load with a `.tran` |
+| Spectre | `trap gear2 euler` | correct | observed: `tran stop=1m method=trap`, `method=gear2` and `method=euler` each load and run |
 
 ---
 
@@ -444,6 +451,12 @@ All level and master names, including Spectre `bsimbulk`: pending tool check.
 7. **VACASK `no tf` is wrong.** Add `rule tf = "analysis" name?tf$# "dcxf" { out="out" ...params }`, with a caveat for the missing output resistance. (1.4, V5) **Fixed in 8ee108cb**; the input source is a loss error, since dcxf reports every source.
 8. **VACASK subckt parentheses are mandatory.** Change to `open "subckt" name "(" ports* ")"`. (1.2) **Fixed in 8ee108cb.**
 9. **VACASK `v0`/`v1` are not source parameters.** Drop them from the source rules. (1.2 item 6) **Fixed in 8ee108cb.**
+10. **HSPICE has MESFETs** as J elements with an `njf`/`pjf` level-3 model. Done. (H3)
+11. **HSPICE has `.DISTO`**, into a named load resistor; the `no` line now says so. (H4)
+12. **Spectre has `vswitch` and `iswitch`.** Done. (S3, S4)
+13. **HSPICE `limit()` is not the clamp.** Dropped from the table. (4.3)
+14. **Spectre has `pwr`, `sgn`, `sign`, `nint`, `db`.** Added. (4.3)
+15. **HSPICE `pow` and `**` cut the exponent to an integer**, and `nint` rounds halves away from zero. Written as before, with a `differs` caveat. (4.2, 4.3)
 
 Gaps found alongside the verdicts (not counted as wrong):
 
@@ -451,7 +464,7 @@ Gaps found alongside the verdicts (not counted as wrong):
 * VACASK: `readscale` (K, x, X, meg, mil); the `functions`/`variables`/`operators` tables; `chgtol`; `icmode="uic"`; the temperature sweep; the `save` caveat for AC; the reason text of `no print`.
 * VACASK has every statement kind in 1.4 except sens and switches. ic and nodeset are analysis parameters, so they need engine work.
 * Xyce: `bsimcmg` level 111; level 57 for `bsimsoi`; `fmod` and `db`; `.LIN` for `sp`.
-* HSPICE and Spectre: pending tool check.
+* HSPICE: `log`, `log10`, `sqrt` and `db` carry the sign of a negative argument instead of failing; `pwr` keeps the sign, as Spectre's does (ngspice's `.param` `pwr` drops it).
 
 ### Counts
 
@@ -461,13 +474,14 @@ and the "has it?" findings) are not counted.
 | section | correct | wrong | unclear |
 |---|---|---|---|
 | 1. VACASK: lexer (8), assumed lines (9 claims in 8 items; the ninth `assumed` is the header), other rules (12 claims) | 26 | 2 | 0 |
-| 2. `no` lines (31) | 19 | 2 | 10 |
-| 3. model levels (ngspice 11, Xyce 10, Spectre `bsimbulk` 1) | 18 | 3 | 1 |
-| 4. functions, operators, variables (16) | 8 | 2 | 6 |
-| 5. enums (5) | 3 | 0 | 2 |
-| **total** | **74** | **9** | **19** |
+| 2. `no` lines (31) | 24 | 6 | 1 |
+| 3. model levels (ngspice 11, Xyce 10, Spectre `bsimbulk` 1) | 19 | 3 | 0 |
+| 4. functions, operators, variables (16) | 12 | 4 | 0 |
+| 5. enums (5) | 5 | 0 | 0 |
+| **total** | **86** | **15** | **1** |
 
-All 19 "unclear" are HSPICE or Spectre (pending tool check), except Xyce
-`no device` (X9). The VACASK `mutual` coupling to `sp_inductor` (1.4) is also
+The 18 HSPICE and Spectre rows were settled by running the tools (counts
+above include them; the HSPICE `pow` row counts as correct, with its
+caveat). The one left unclear is Xyce `no device` (X9). The VACASK `mutual` coupling to `sp_inductor` (1.4) is also
 unclear and untested but is not counted.
 

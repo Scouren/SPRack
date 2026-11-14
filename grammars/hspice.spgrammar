@@ -154,7 +154,7 @@ end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
   same agauss gauss aunif unif v i
-  same nint db
+  same nint db atan2 hypot fmod asinh
   ln    = log
   log10 = log10
   sign2 = sign

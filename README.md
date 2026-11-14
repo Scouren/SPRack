@@ -227,9 +227,9 @@ Pass `manifest=` to use a PDK that has no manifest here.
   | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
 
   Every error names a file and a line. They are: two lines in the sky130
-  repository that are not ngspice syntax; `pwr()`, `gauss()` and `agauss()`,
-  which Spectre does not have; conditional blocks, which Xyce does not have
-  and the Spectre grammar here cannot write; Verilog-A models in Xyce;
+  repository that are not ngspice syntax; `gauss()` and `agauss()`,
+  which Spectre does not have; conditional blocks, which Xyce does not have;
+  Verilog-A models in Xyce;
   BSIM-CMG, which ngspice has only as a Verilog-A model; and, for VACASK,
   library sections and the BSIM model families, which its grammar does not
   cover. sky130 takes 3 to 4 seconds per target.
@@ -240,8 +240,11 @@ Pass `manifest=` to use a PDK that has no manifest here.
   wider dialect than ngspice).
 * A 117 MiB netlist translates in 14 seconds using 2.0 GiB.
 
-No simulator was available where this was developed, so no translated netlist
-has been simulated. The VACASK manual could not be consulted; that grammar is
+Spectre and HSPICE output is load-checked with `tools/licensed_check.py`, which
+runs every error-free translation of the suite on a host that has the tools
+(Spectre 25.10, HSPICE Y-2026.03) and compares against the source deck run in
+its own simulator. The expression, model and enum tables of both grammars were
+measured there with decks of a few lines (`docs/verification.md`). The VACASK manual could not be consulted; that grammar is
 written from the project's README, slides and four upstream decks, and its
 unconfirmed lines are marked `assumed`.
 
@@ -310,7 +313,7 @@ no single rule holds everything, which is how `.options timeint ...` and
 |---|---|
 | `"lit"` | a literal word |
 | `~"("` | a literal glued to its neighbours when written (`v(out)`) |
-| `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more |
+| `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
 | `path!` | a path written without quotes when it has no blank |
 | `slot?default` | written when the slot is empty; `$other` and `$#` expand |
@@ -335,6 +338,8 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # stand between them
     caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
+    differs pow : the exponent is cut to an integer  # a shared function or operator
+                                                     # evaluated differently: a caveat
 
     signals                            # how recordable things are written
       v = "v(%)"
@@ -394,12 +399,11 @@ dialects that have it; so is one that nothing defines.
 * `sprack caps` shows every kind per dialect. A `-` there is a statement the
   simulator has but its grammar here has no rule for; it is an error when
   used. Most are in VACASK (controlled sources, coupling, transmission lines,
-  libraries, initial conditions), where the syntax could not be confirmed, and
-  in Spectre (user functions, conditional blocks, `tf`, `pz`, `sens`, `four`,
-  `hb`).
+  libraries, initial conditions), where the syntax could not be confirmed.
+  Spectre and HSPICE have none.
 * HSPICE noise is written as `.AC` plus `.NOISE`. A `.NOISE` read takes its
-  sweep from the `.AC` before it; a `.NOISE` with an output-interval number
-  after the source is not read. Nested DC sweeps have no Spectre form here. Parameter sweeps (`.dc` of
+  sweep from the `.AC` before it, as `.LIN` does for `sp`. Spectre's `xf`
+  stands for `.tf` one way only: it names no source. Parameter sweeps (`.dc` of
   a parameter, `.step`, `.alter`, `.data`) are not in the vocabulary;
   temperature sweeps are.
 * Parameters of model cards are copied by name, with a warning: the simulators
