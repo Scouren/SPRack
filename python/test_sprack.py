@@ -140,11 +140,19 @@ def test_code():
         assert line + "\n" in sp, f"missing {line!r} in\n{sp}"
     ng = c.netlist(os.path.join(GRAMMARS, "ngspice.spgrammar"))
     assert ".tran 1n 1u\n" in ng and "rb a b 10\n" in ng
-    # A line the reader does not understand is an error of the netlist.
+    # A line the reader does not understand is kept as written for its own
+    # dialect, and is an error of the netlist for any other.
     c.code(".bogus 1 2\n")
-    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "no sprack rule understood this line", ".bogus 1 2")
+    assert ".bogus 1 2\n" in c.netlist("ngspice")
+    raises(sprack.Unsupported, lambda: c.netlist("spectre"), "no ngspice rule understood this line", ".bogus 1 2")
     assert any(e.code == "untranslated" for e in c.netlist("xyce", strict=False).report.errors)
     raises(ValueError, lambda: c.code(".op\n", "pspice"), "unknown dialect")
+    # A dialect's own options survive a code block written in it.
+    lt = sprack.Circuit("lt")
+    lt.R("1", "a", 0, "1k")
+    lt.code(".options plotwinsize=0 numdgt=15\n.op\n", "ltspice")
+    assert ".options plotwinsize=0 numdgt=15\n" in lt.netlist("ltspice")
+    raises(sprack.Unsupported, lambda: lt.netlist("ngspice"), "'plotwinsize=0' has no spelling in ngspice")
 
 
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")

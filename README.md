@@ -13,7 +13,7 @@ the same canonical statements, and every writer consumes them.
 
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 51 tests
+    zig build test                 # 52 tests
     pip wheel . -w dist            # sprack-<ver>-cp310-abi3-<platform>.whl (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
@@ -126,8 +126,11 @@ statements of the canonical vocabulary and the core writes them.
 * `c.code(text, dialect="ngspice")` (on a circuit or a subcircuit) reads
   `text` with that dialect's reader, with no title line, and adds the
   statements: `c.code(".tran 1n 1u\n.save v(out)")` is then written for any
-  target like `c.tran(...)` would be. What the reader cannot understand is
-  in `netlist()`'s report, so a strict `netlist()` raises on it.
+  target like `c.tran(...)` would be. Each statement remembers its dialect:
+  for a target of that dialect its own options (`.options plotwinsize=0`)
+  and lines no rule understands are written as they are; for any other
+  target they are errors in `netlist()`'s report, so a strict `netlist()`
+  raises.
 * Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
   may also be a path to a `.spgrammar` file.
 
@@ -175,7 +178,7 @@ Pass `manifest=` to use a PDK that has no manifest here.
 
 ## What was run
 
-* `zig build test`: 51 tests, among them the 64 translations of one circuit
+* `zig build test`: 52 tests, among them the 64 translations of one circuit
   between the eight dialects with a read-back comparison (into CDL, the
   sources and analyses are each an `unsupported` error and the rest reads
   back the same), 20,000 randomly

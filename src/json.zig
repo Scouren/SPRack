@@ -104,6 +104,10 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
             try w.writeAll(",\"tail\":");
             try str(w, s.tail);
         }
+        if (s.dialect.len > 0) {
+            try w.writeAll(",\"dialect\":");
+            try str(w, s.dialect);
+        }
         for (schema.info(s.kind).slots, 0..) |sl, k| {
             if (s.vals[k] == .none) continue;
             try w.writeByte(',');
@@ -327,6 +331,8 @@ const Parser = struct {
                     if (val == .bool and val.bool) st.raw = ir.blank_line;
                 } else if (std.mem.eql(u8, key, "tail")) {
                     if (val == .string) st.tail = val.string;
+                } else if (std.mem.eql(u8, key, "dialect")) {
+                    if (val == .string) st.dialect = val.string;
                 } else if (std.mem.eql(u8, key, "body")) {
                     st.body = try p.stmtList(val);
                 } else if (schema.slotIndex(kind, key)) |si| {

@@ -446,12 +446,22 @@ class _Scope:
 
         They are statements like any other and are written in whatever
         dialect the netlist is for: `c.code(".tran 1n 1u\\n.save v(out)")`
-        works for a Spectre target too. Returns the statements added. A line
-        no rule understands, and anything else the reader reports (file
-        `code`), is in `netlist()`'s report, so a strict `netlist()` raises.
+        works for a Spectre target too. Returns the statements added. For a
+        target of the same dialect, the block's own options and parameters,
+        and lines no rule understands, are written as they are; for any other
+        target such a line is an error in `netlist()`'s report, as is
+        anything the reader reports (file `code`).
         """
         out, rep = _core.read(_dialect(dialect), text, True)
-        stmts = json.loads(out)["stmts"]
+        data = json.loads(out)
+        stmts = data["stmts"]
+        # Each statement remembers its dialect, so a target of the same
+        # dialect writes its own options and parameters as they were.
+        def tag(sts: list[dict]) -> None:
+            for st in sts:
+                st["dialect"] = data["dialect"]
+                tag(st.get("body", []))
+        tag(stmts)
         self._report.extend(e._replace(file="code") for e in Report._from_json(rep))
         self.statements.extend(stmts)
         return stmts

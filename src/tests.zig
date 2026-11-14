@@ -827,6 +827,28 @@ test "a grammar loaded at run time writes and reads byte for byte as the built-i
     }
 }
 
+test "a dialect's own options round-trip, also as statements added from another dialect" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.options plotwinsize=0 numdgt=15\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    try testing.expectEqualStrings(src, try tr(a, "ltspice", "ltspice", src, &r1));
+    try testing.expectEqual(0, r1.items.items.len);
+
+    // The same statement in a netlist from elsewhere, marked as LTspice's.
+    const json =
+        \\{"title":"t","dialect":"sprack","stmts":[{"kind":"options","params":{"plotwinsize":"0","numdgt":"15"},"dialect":"ltspice"},{"kind":"op"}]}
+    ;
+    var r2: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, json, &r2);
+    try testing.expectEqualStrings(src, try writeAs(a, "ltspice", &nl, &r2));
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    _ = try writeAs(a, "ngspice", &nl, &r3);
+    try reported(&r3, .@"error", "options: 'plotwinsize=0' has no spelling in ngspice");
+}
+
 test "a broken grammar file is reported with its path and line" {
     const io = testing.io;
     var tmp = testing.tmpDir(.{});
