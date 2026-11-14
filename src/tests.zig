@@ -618,10 +618,10 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     _ = try tr(a, "ngspice", "vacask", src, &r4);
     try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'bsim4 n'. Defined by: espice, hspice, ltspice, ngspice, spectre, xyce");
 
-    // FinFET models: HSPICE level 72 is Xyce level 110, and ngspice has neither.
+    // FinFET models: HSPICE level 72 is Xyce level 111, and ngspice has neither.
     var r5: ir.Report = .init(a);
     const fin = "t\n.model nfet nmos level=72 version=107\nM1 d g 0 0 nfet nfin=2\n.end\n";
-    try has(try tr(a, "hspice", "xyce", fin, &r5), ".model nfet nmos level=110 version=107\n");
+    try has(try tr(a, "hspice", "xyce", fin, &r5), ".model nfet nmos level=111 version=107\n");
     try has(try tr(a, "hspice", "spectre", fin, &r5), "model nfet bsimcmg type=n version=107\n");
     try clean(&r5);
     _ = try tr(a, "hspice", "ngspice", fin, &r5);
@@ -1592,4 +1592,75 @@ test "translation memory stays a small multiple of the input" {
             return error.TooMuchMemory;
         }
     }
+}
+
+// docs/verification.md section 6: the nine findings that were wrong.
+
+test "verification: Xyce log is base 10 and ^ is exclusive-or" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", "t\n.param x=2 y={log(x) + x^3}\n.end\n", &r1);
+    try has(xy, ".param x=2 y={ln(x) + x**3}\n");
+    try clean(&r1);
+    // Xyce's own LOG is decimal, and its `^` has no ngspice spelling.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "xyce", "ngspice", "t\n.param x=2 y={log(x) + ln(x)}\n.end\n", &r2);
+    try has(ng, ".param x=2 y={log10(x) + ln(x)}\n");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "xyce", "ngspice", "t\n.param y={1 ^ 0}\n.end\n", &r3);
+    try reported(&r3, .@"error", "operator 'xor' has no spelling in ngspice");
+}
+
+test "verification: Xyce VBIC levels and switch model types" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce",
+        \\t
+        \\.model qv npn level=4
+        \\.model swm sw vt=0.5
+        \\.model cwm csw it=1m
+        \\.end
+    , &r1);
+    try has(xy, ".model qv npn level=11\n");
+    try has(xy, ".model swm vswitch vt=0.5\n");
+    try has(xy, ".model cwm iswitch it=1m\n");
+    // There is no level 10.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "xyce", "ngspice", "t\n.model qv npn level=10\n.end\n", &r2);
+    try reported(&r2, .@"error", "type 'npn' with these parameters is not in the xyce models table");
+}
+
+test "verification: an ngspice nhfet card without a level is not an HFET" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", "t\n.model h1 nhfet level=5\n.model h2 nhfet\n.end\n", &report);
+    try testing.expectEqualStrings("hfet", nl.stmts[0].get("family").atom);
+    const f2 = nl.stmts[1].get("family");
+    try testing.expect(f2 != .atom or !std.mem.eql(u8, f2.atom, "hfet"));
+    // A Z device points at that card; it cannot be dropped as boilerplate.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 hm\n.model hm nhfet level=6\n.end\n", &r2);
+    try reported(&r2, .@"error", "no spelling for model family 'hfet n'");
+}
+
+test "verification: Xyce S-parameters through .LIN and P ports" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const src = "t\nV1 in 0 dc 0 ac 1 portnum 1 z0 50\nR1 in 0 50\n.sp lin 3 1meg 3meg\n.end\n";
+    const xy = try tr(a, "ngspice", "xyce", src, &report);
+    try has(xy, "PV1 in 0 dc 0 port=1 z0=50 ac 1\n");
+    try has(xy, ".ac lin 3 1meg 3meg\n.lin\n");
+    try clean(&report);
+    const back = try readAs(a, "xyce", xy, &report);
+    try testing.expectEqual(1, countKind(back, .sp));
+    try testing.expectEqual(0, countKind(back, .ac));
 }

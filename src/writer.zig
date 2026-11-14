@@ -712,7 +712,9 @@ const Writer = struct {
         } else {
             if (st.get("params") == .none) {
                 if (schema.familyKind(fam.atom)) |k| {
-                    if (w.g.canWrite(k)) {
+                    // Only a kind whose instances name no model can do without
+                    // the card; a MESFET still points at its (HFET) model.
+                    if (w.g.canWrite(k) and schema.slotIndex(k, "master") == null) {
                         w.report.add(.info, .cosmetic, st.line, "model '{s}' only names a built-in {s}; {s} needs no such line", .{ st.get("name").atom, fam.atom, w.g.name });
                         return error.Skip;
                     }

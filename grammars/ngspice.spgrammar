@@ -182,8 +182,10 @@ models
   jfet p     = pjf
   mesfet n   = nmf
   mesfet p   = pmf
-  hfet n     = nhfet
-  hfet p     = phfet
+  # nmf/pmf/nhfet/phfet share one level switch: 0-1 MES, 2-4 MESA, 5 HFET1,
+  # 6 HFET2 (inpdomod.c:124-175). An nhfet card without a level is a MESFET.
+  hfet n     = nhfet level=5 | nhfet level=6
+  hfet p     = phfet level=5 | phfet level=6
   mos1 n     = nmos level=1 | nmos !level
   mos1 p     = pmos level=1 | pmos !level
   mos2 n     = nmos level=2

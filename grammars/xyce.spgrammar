@@ -83,11 +83,16 @@ rule  mesfet    = name~"Z" d g s master [area] {...params}
 rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
 rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
 rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
+# A port for .LIN: a voltage source in series with z0 (P_Device.tex).
+rule  vsource   = name~"P" pos neg [ ["dc"] dc ] { port=portnum! z0=z0 } [ "ac" acmag [acphase] ] [ <wave> ]
 rule  instance  = name~"X" nodes+ master [ "params:" {...params} ]
 
 rule  op        = ".op"
 rule  dc        = ".dc" var:"temp" start stop step
 rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+# S-parameters: .LIN extracts them at the frequencies of the .AC line, from
+# the P (port) devices (LIN_Command.tex, P_Device.tex).
+rule  sp        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lin" {...params}
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
 rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
@@ -99,6 +104,10 @@ enum options method : trap=trap gear=gear trap=7 gear=8
 enum dc var : temp=temp
 
 no cond_if : Xyce has no conditional blocks in a netlist
+no cond_elif : Xyce has no conditional blocks in a netlist
+no cond_else : Xyce has no conditional blocks in a netlist
+# No .PSS among the dot commands of src/IOInterfacePKG (docs/verification.md section 2).
+no pss    : Xyce has no periodic steady-state (shooting) analysis; its periodic analyses are .HB and .MPDE
 no tf     : Xyce has no .TF small-signal transfer function analysis
 no pz     : Xyce has no pole-zero analysis
 no disto  : Xyce has no .DISTO small-signal distortion analysis
@@ -128,9 +137,11 @@ end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
   same limit agauss gauss aunif unif v i
-  same nint atan2 asinh acosh atanh stp uramp
-  ln    = ln log
-  log10 = log10
+  same nint atan2 asinh acosh atanh stp uramp fmod db
+  # LOG is base 10 unless Xyce runs with -hspice-ext math
+  # (ExpressionParser.yxx:1424-1446; Expression_Arithmetic_Functions.tex:205).
+  ln    = ln
+  log10 = log10 log
   sign2 = sign
   if    = if
 end
@@ -141,8 +152,11 @@ variables
   hertz  = freq
 end
 
+# `^` is boolean XOR unless Xyce runs with -hspice-ext math
+# (ExpressionParser.yxx:1783-1792; Expression_Operator.tex:29,35).
 operators
-  pow "**" "^"
+  pow "**"
+  xor "^"
 end
 
 models
@@ -150,10 +164,12 @@ models
   capacitor  = c
   inductor   = l
   diode      = d
-  bjt npn    = npn
-  bjt pnp    = pnp
-  vbic npn   = npn level=10 | npn level=11 | npn level=12
-  vbic pnp   = pnp level=10 | pnp level=11 | pnp level=12
+  # Q levels: 1 Gummel-Poon, 11/12 VBIC, 23 FBH, 230/234 HICUM, 504/505 MEXTRAM (N_DEV_BJT.C:4705).
+  bjt npn    = npn !level | npn level=1
+  bjt pnp    = pnp !level | pnp level=1
+  # VBIC 1.3: 11 is 3-terminal, 12 is 4-terminal (deviceFeatureSupportTbl.tex:64-68).
+  vbic npn   = npn level=11 | npn level=12
+  vbic pnp   = pnp level=11 | pnp level=12
   hicum2 npn = npn level=234
   hicum2 pnp = pnp level=234
   jfet n     = njf
@@ -170,14 +186,16 @@ models
   bsim3 p    = pmos level=9 | pmos level=49
   bsim4 n    = nmos level=14 | nmos level=54
   bsim4 p    = pmos level=14 | pmos level=54
-  bsimsoi n  = nmos level=70 | nmos level=10
-  bsimsoi p  = pmos level=70 | pmos level=10
-  bsimcmg n  = nmos level=110 | nmos level=107
-  bsimcmg p  = pmos level=110 | pmos level=107
+  bsimsoi n  = nmos level=70 | nmos level=10 | nmos level=57
+  bsimsoi p  = pmos level=70 | pmos level=10 | pmos level=57
+  # 111 is BSIM-CMG 111.2.1; 110 "has been superceded" (M_Device.tex:865,891).
+  bsimcmg n  = nmos level=111 | nmos level=110 | nmos level=108 | nmos level=107
+  bsimcmg p  = pmos level=111 | pmos level=110 | pmos level=108 | pmos level=107
   bsimbulk n = nmos level=77
   bsimbulk p = pmos level=77
   psp103 n   = nmos level=103
   psp103 p   = pmos level=103
-  vswitch    = vswitch | sw
-  cswitch    = iswitch | csw
+  # N_DEV_SW.C:1089-1092 registers only switch, iswitch and vswitch; there is no sw or csw.
+  vswitch    = vswitch
+  cswitch    = iswitch
 end
