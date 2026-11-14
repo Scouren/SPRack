@@ -1,5 +1,46 @@
 {
   "nodes": {
+    "asap7": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721314045,
+        "narHash": "sha256-/U+NHOPT+qL1I2h2q4WudvLYNxQmCwxtJ9KANe9PPpw=",
+        "owner": "The-OpenROAD-Project",
+        "repo": "asap7_pdk_r1p7",
+        "rev": "58d72c9d291e186a77468586ab0c43d8a21eda6a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "The-OpenROAD-Project",
+        "repo": "asap7_pdk_r1p7",
+        "type": "github"
+      }
+    },
+    "conformance": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794243639,
+        "narHash": "sha256-DyZQ4Dl4Iv7JeYTgmwVpt0d2nwrSSQ7ikWz/EZU8XwE=",
+        "ref": "main",
+        "rev": "4d565dd4e7ca6e7304a3619031df6c17846ae1f1",
+        "revCount": 118,
+        "type": "git",
+        "url": "https://github.com/Scouren/Conformance-Suite"
+      },
+      "original": {
+        "ref": "main",
+        "rev": "4d565dd4e7ca6e7304a3619031df6c17846ae1f1",
+        "type": "git",
+        "url": "https://github.com/Scouren/Conformance-Suite"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -34,6 +75,38 @@
         "type": "github"
       }
     },
+    "freepdk45": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1608196087,
+        "narHash": "sha256-UMGO8bOnw6dXUGWnTlesdjpDS+yWGcN7kKdoZ/lEDBk=",
+        "owner": "baichen318",
+        "repo": "FreePDK45",
+        "rev": "a75cb116a3efd1d3ae05b695285452e6ffbc7ca5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "baichen318",
+        "repo": "FreePDK45",
+        "type": "github"
+      }
+    },
+    "ihp": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794327219,
+        "narHash": "sha256-iv1N3E7AyB2h5x2nK4a7KHIioi1M5Z0Z+nstfeYzl+8=",
+        "owner": "IHP-GmbH",
+        "repo": "IHP-Open-PDK",
+        "rev": "e73adb4045731ddec21634146d536380057f6a26",
+        "type": "github"
+      },
+      "original": {
+        "owner": "IHP-GmbH",
+        "repo": "IHP-Open-PDK",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1782948114,
@@ -52,10 +125,31 @@
     },
     "root": {
       "inputs": {
+        "asap7": "asap7",
+        "conformance": "conformance",
         "flake-utils": "flake-utils",
+        "freepdk45": "freepdk45",
+        "ihp": "ihp",
         "nixpkgs": "nixpkgs",
+        "sky130_fd_pr": "sky130_fd_pr",
         "zig-overlay": "zig-overlay",
         "zls": "zls"
+      }
+    },
+    "sky130_fd_pr": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1605038979,
+        "narHash": "sha256-bJMkhouLRdTc4JcH7WA4qCBYj53RE8RW56hSoHNguN8=",
+        "owner": "google",
+        "repo": "skywater-pdk-libs-sky130_fd_pr",
+        "rev": "f62031a1be9aefe902d6d54cddd6f59b57627436",
+        "type": "github"
+      },
+      "original": {
+        "owner": "google",
+        "repo": "skywater-pdk-libs-sky130_fd_pr",
+        "type": "github"
       }
     },
     "systems": {
