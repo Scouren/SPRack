@@ -123,8 +123,27 @@ statements of the canonical vocabulary and the core writes them.
   expression in the canonical spelling: `"2*wmin"`, `"ln(a)**2"`.
 * `sprack.translate(text, frm=..., to=...)` and `sprack.read(text, dialect)`
   work on existing netlists.
+* `c.code(text, dialect="ngspice")` (on a circuit or a subcircuit) reads
+  `text` with that dialect's reader, with no title line, and adds the
+  statements: `c.code(".tran 1n 1u\n.save v(out)")` is then written for any
+  target like `c.tran(...)` would be. What the reader cannot understand is
+  in `netlist()`'s report, so a strict `netlist()` raises on it.
 * Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
   may also be a path to a `.spgrammar` file.
+
+### Shipping it inside another program
+
+`zig build py` also writes the package as a self-contained directory:
+
+    zig-out/python/sprack/__init__.py
+    zig-out/python/sprack/_core.abi3.so     # statically linked; CPython 3.10+
+    zig-out/python/sprack/pdks/*.json       # the PDK manifests
+
+Copy `zig-out/python/` anywhere and put it on `PYTHONPATH`; nothing is
+installed and nothing else is needed. Build it with `-Doptimize=ReleaseSafe`
+(about 6 MB) for a release. The only file written outside it is the PDK
+translation cache, `~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=`
+says otherwise. `pip wheel .` packages the same files as a wheel.
 
 ### PDKs
 
@@ -162,7 +181,7 @@ Pass `manifest=` to use a PDK that has no manifest here.
   back the same), 20,000 randomly
   damaged netlists through every reader and writer, and a project with
   includes.
-* `python/test_sprack.py`: 9 tests, 4 of them against the four PDKs' real
+* `python/test_sprack.py`: 11 tests, 4 of them against the four PDKs' real
   model libraries.
 * The four PDKs, whole libraries translated:
 
