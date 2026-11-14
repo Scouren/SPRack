@@ -132,6 +132,8 @@ no verilog : Xyce has no netlist card that loads a digital Verilog design
 caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed the first time point differently
 caveat tran step : the first .TRAN number only sets the initial step in Xyce
 caveat noise out : Xyce reports noise as mean-square densities where HSPICE reports RMS
+caveat options gmin : Xyce adds GMIN differently from ngspice, which puts it across every junction; with a large GMIN the operating point differs (sim check: op/option_gmin_ngspice)
+caveat nodeset values : Xyce and ngspice apply nodesets with different algorithms; a circuit with several operating points may settle in another one (sim check: op/nodeset_latch)
 
 # How this dialect writes the things a simulator can record.
 signals

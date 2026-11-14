@@ -2107,3 +2107,13 @@ test "parse check: a model parameter given twice keeps the last, as SPICE does" 
     try has(out, ".model p1 pmos level=14 vsat=69000 toxref=1.3n\n");
     try reported(&r, .warning, "model 'p1': 'toxref' is given twice; the last value is kept");
 }
+
+test "sim check: Xyce gmin and nodeset differ from ngspice and say so" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.options gmin=1e-3\n.nodeset v(a)=1\nR1 a 0 1\n.op\n.end\n", &r);
+    try reported(&r, .warning, "options.gmin: Xyce adds GMIN differently from ngspice");
+    try reported(&r, .warning, "nodeset.values: Xyce and ngspice apply nodesets with different algorithms");
+}
