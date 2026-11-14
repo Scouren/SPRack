@@ -99,9 +99,9 @@ Work this list in the order Phase 1's failures point to.
 
 | Dialect | Missing | Depends on |
 |---|---|---|
-| Spectre | `cond_if/elif/else`, `func`, `tf`, `pz`, `sens`, `four`, `hb`, nested `dc` | 3.1 for `cond` and `func`; tool runs for the rest |
+| Spectre | done, each rule loaded in Spectre 25.10 | - |
 | VACASK | `mutual`, `vcvs`, `vccs`, `cccs`, `ccvs`, `tline`, `libsection`, `lib`, `cond_*`, `ic`, `nodeset`, `sens`, `sp`, `pss`, `stb`, PWL/exp sources, more model families | Phase 2.1 |
-| HSPICE | `pz` (needs an output/source schema form), `sp` (`.lin`), `pss` (`.sn`/`.hbosc`), lone `.noise` | 3.2 |
+| HSPICE | done, each rule loaded in HSPICE Y-2026.03 | - |
 | Xyce | `sp` (`.lin`), `pss`, `cond_elif/else`; decide on `.sens` | none |
 
 *Exit:* `sprack caps | grep -c ' - '` is 0.
@@ -133,8 +133,14 @@ supported simulator defines.
 
 ## Phase 6: commercial targets
 
-- [ ] **6.1 Tool runs:** every error-free Spectre and HSPICE translation loads in the tool; behaviour is described from decks we wrote, in our own words.
-
+- [x] **6.1 Tool runs.** `tools/licensed_check.py` translates every
+  error-free run, loads it in Spectre 25.10 / HSPICE Y-2026.03 on a host
+  given by arguments, and runs the source deck in its own simulator as a
+  control. Left (source loads, translation does not): zero-width sweeps in
+  Spectre (start = stop), a `.dc` of a resistor (`param=dc`), `rise=0`
+  pulses, `%` and braces inside `.meas` text, `agauss` inline in HSPICE
+  instance expressions, and decks whose values the commercial tools reject
+  at run time (zero step, 0 K, m <= 0, V/L loops).
 
 ## Phase 7: Python and PDKs (section 7)
 
