@@ -13,7 +13,7 @@ the same canonical statements, and every writer consumes them.
 
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 48 tests
+    zig build test                 # 51 tests
     pip wheel . -w dist            # sprack-<ver>-cp310-abi3-<platform>.whl (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
@@ -175,7 +175,7 @@ Pass `manifest=` to use a PDK that has no manifest here.
 
 ## What was run
 
-* `zig build test`: 48 tests, among them the 64 translations of one circuit
+* `zig build test`: 51 tests, among them the 64 translations of one circuit
   between the eight dialects with a read-back comparison (into CDL, the
   sources and analyses are each an `unsupported` error and the rest reads
   back the same), 20,000 randomly
