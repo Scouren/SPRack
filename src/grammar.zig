@@ -1,19 +1,23 @@
-//! Compiles a `.spgrammar` file into reader/writer tables, at compile time.
+//! Compiles a `.spgrammar` file into reader/writer tables.
 //!
-//! `compile` is only ever evaluated in a comptime context. A mistake in a
-//! grammar file (unknown kind, unknown slot, a list marker on a scalar slot,
-//! an unterminated group) is a compile error that names the file and line.
+//! The same `compile` runs at compile time (the built-in grammars, where a
+//! mistake is a compile error naming the file and line) and at run time (a
+//! grammar file given by path, where the mistake comes back as
+//! `error.BadGrammar` with `file:line: message` in the `Diag`). Each step
+//! that allocates branches on `@inComptime()`: `++` at compile time, the
+//! allocator at run time.
 
 const std = @import("std");
 const schema = @import("schema.zig");
 const Kind = schema.Kind;
+const Allocator = std.mem.Allocator;
 
 pub const Scale = struct { suffix: []const u8, exp10: i32 };
 /// A scale factor that is not a power of ten (`mil` = 25.4e-6), held as an
 /// integer times a power of ten so applying it stays exact.
 pub const OddScale = struct { suffix: []const u8, mant: u64, exp10: i32 };
 
-fn parseDecimal(comptime gname: []const u8, comptime line: u32, comptime text: []const u8) struct { u64, i32 } {
+fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct { u64, i32 } {
     var mant: u64 = 0;
     var exp: i32 = 0;
     var i: usize = 0;
@@ -23,14 +27,15 @@ fn parseDecimal(comptime gname: []const u8, comptime line: u32, comptime text: [
             seen_point = true;
             continue;
         }
-        mant = mant * 10 + (text[i] - '0');
+        mant = std.math.mul(u64, mant, 10) catch return c.fail(line, "bad multiplier '{s}'", .{text});
+        mant += text[i] - '0';
         if (seen_point) exp -= 1;
     }
     if (i < text.len) {
-        if (text[i] != 'e' and text[i] != 'E') fail(gname, line, "bad multiplier '" ++ text ++ "'");
-        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch fail(gname, line, "bad multiplier '" ++ text ++ "'");
+        if (text[i] != 'e' and text[i] != 'E') return c.fail(line, "bad multiplier '{s}'", .{text});
+        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch return c.fail(line, "bad multiplier '{s}'", .{text});
     }
-    if (mant == 0) fail(gname, line, "bad multiplier '" ++ text ++ "'");
+    if (mant == 0) return c.fail(line, "bad multiplier '{s}'", .{text});
     return .{ mant, exp };
 }
 
@@ -246,26 +251,75 @@ pub const Grammar = struct {
 
 // ---------------------------------------------------------------- compiler
 
-fn fail(comptime gname: []const u8, comptime line: u32, comptime msg: []const u8) noreturn {
-    @compileError(std.fmt.comptimePrint("{s}.spgrammar:{d}: {s}", .{ gname, line, msg }));
-}
+pub const Error = error{ BadGrammar, OutOfMemory };
 
-fn lower(comptime s: []const u8) []const u8 {
-    var buf: [s.len]u8 = undefined;
-    for (s, 0..) |c, i| buf[i] = std.ascii.toLower(c);
-    const final = buf;
-    return &final;
-}
+/// What a failed run-time `compile` says: `file:line: message`, allocated
+/// with the allocator given to `compile`.
+pub const Diag = struct { msg: []const u8 = "" };
+
+/// The compiler's context: where to allocate and where to report.
+const C = struct {
+    /// Unused at compile time.
+    gpa: Allocator,
+    diag: *Diag,
+    /// File named in messages; empty means `<dialect>.spgrammar`.
+    file: []const u8,
+    name: []const u8 = "?",
+
+    fn fail(c: *C, line: u32, comptime fmt: []const u8, a: anytype) Error {
+        if (@inComptime()) {
+            const f = if (c.file.len > 0) c.file else c.name ++ ".spgrammar";
+            @compileError(std.fmt.comptimePrint("{s}:{d}: ", .{ f, line }) ++ std.fmt.comptimePrint(fmt, a));
+        }
+        const where = if (c.file.len > 0)
+            try std.fmt.allocPrint(c.gpa, "{s}:{d}: ", .{ c.file, line })
+        else
+            try std.fmt.allocPrint(c.gpa, "{s}.spgrammar:{d}: ", .{ c.name, line });
+        c.diag.msg = try std.mem.concat(c.gpa, u8, &.{ where, try std.fmt.allocPrint(c.gpa, fmt, a) });
+        return error.BadGrammar;
+    }
+
+    /// `list` with `item` appended.
+    // ponytail: copies the list on every append at run time, O(n^2) in the
+    // longest list (a few hundred rules); grow geometrically if a grammar
+    // ever gets large enough to show in the compile time.
+    fn add(c: *C, comptime T: type, list: []const T, item: T) Error![]const T {
+        if (@inComptime()) return list ++ &[_]T{item};
+        const out = try c.gpa.alloc(T, list.len + 1);
+        @memcpy(out[0..list.len], list);
+        out[list.len] = item;
+        return out;
+    }
+
+    fn cat(c: *C, a: []const u8, b: []const u8) Error![]const u8 {
+        if (@inComptime()) return a ++ b;
+        return std.mem.concat(c.gpa, u8, &.{ a, b });
+    }
+
+    fn lower(c: *C, s: []const u8) Error![]const u8 {
+        if (@inComptime()) {
+            var buf: [s.len]u8 = undefined;
+            for (s, 0..) |ch, i| buf[i] = std.ascii.toLower(ch);
+            const final = buf;
+            return &final;
+        }
+        return std.ascii.allocLowerString(c.gpa, s);
+    }
+
+    fn foldIf(c: *C, fold: bool, s: []const u8) Error![]const u8 {
+        return if (fold) c.lower(s) else s;
+    }
+};
 
 /// Strip a `#` comment (only at line start or after a blank, outside quotes).
-fn stripComment(comptime line: []const u8) []const u8 {
+fn stripComment(line: []const u8) []const u8 {
     var quote: u8 = 0;
-    for (line, 0..) |c, i| {
+    for (line, 0..) |ch, i| {
         if (quote != 0) {
-            if (c == quote) quote = 0;
-        } else if (c == '"' or c == '\'') {
-            quote = c;
-        } else if (c == '#' and (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t')) {
+            if (ch == quote) quote = 0;
+        } else if (ch == '"' or ch == '\'') {
+            quote = ch;
+        } else if (ch == '#' and (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t')) {
             return line[0..i];
         }
     }
@@ -278,7 +332,7 @@ const Lines = struct {
     no: u32 = 0,
 
     /// Next non-blank line with comments removed, or null at end of file.
-    fn next(comptime l: *Lines) ?[]const u8 {
+    fn next(l: *Lines) ?[]const u8 {
         while (l.pos < l.src.len) {
             const eol = std.mem.indexOfScalarPos(u8, l.src, l.pos, '\n') orelse l.src.len;
             const raw = l.src[l.pos..eol];
@@ -292,34 +346,34 @@ const Lines = struct {
 };
 
 /// Split a directive line into words and quoted strings.
-fn args(comptime gname: []const u8, comptime line_no: u32, comptime line: []const u8) []const []const u8 {
+fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8 {
     var out: []const []const u8 = &.{};
     var i: usize = 0;
     while (i < line.len) {
-        const c = line[i];
-        if (c == ' ' or c == '\t') {
+        const ch = line[i];
+        if (ch == ' ' or ch == '\t') {
             i += 1;
-        } else if (c == '"' or c == '\'') {
-            const end = std.mem.indexOfScalarPos(u8, line, i + 1, c) orelse fail(gname, line_no, "unterminated string");
-            out = out ++ &[_][]const u8{line[i + 1 .. end]};
+        } else if (ch == '"' or ch == '\'') {
+            const end = std.mem.indexOfScalarPos(u8, line, i + 1, ch) orelse return c.fail(line_no, "unterminated string", .{});
+            out = try c.add([]const u8, out, line[i + 1 .. end]);
             i = end + 1;
         } else {
             var j = i;
             while (j < line.len and line[j] != ' ' and line[j] != '\t') j += 1;
-            out = out ++ &[_][]const u8{line[i..j]};
+            out = try c.add([]const u8, out, line[i..j]);
             i = j;
         }
     }
     return out;
 }
 
-fn splitHead(comptime line: []const u8) struct { []const u8, []const u8 } {
+fn splitHead(line: []const u8) struct { []const u8, []const u8 } {
     const sp = std.mem.indexOfAny(u8, line, " \t") orelse return .{ line, "" };
     return .{ line[0..sp], std.mem.trim(u8, line[sp..], " \t") };
 }
 
-fn kindOf(comptime gname: []const u8, comptime line: u32, comptime name: []const u8) Kind {
-    return schema.kindFromName(name) orelse fail(gname, line, "unknown kind '" ++ name ++ "'");
+fn kindOf(c: *C, line: u32, name: []const u8) Error!Kind {
+    return schema.kindFromName(name) orelse return c.fail(line, "unknown kind '{s}'", .{name});
 }
 
 /// `define name = pattern`: a named fragment, kept as text and parsed
@@ -331,101 +385,106 @@ const P = struct {
     i: usize = 0,
     kind: Kind,
     fold: bool,
-    gname: []const u8,
+    c: *C,
     line: u32,
     defs: []const Def = &.{},
     /// Inside a repeated group: list slots are taken one item at a time.
     in_rep: bool = false,
 
-    fn err(comptime p: *P, comptime msg: []const u8) noreturn {
-        fail(p.gname, p.line, msg ++ " in pattern `" ++ p.s ++ "`");
+    fn err(p: *P, comptime fmt: []const u8, a: anytype) Error {
+        if (@inComptime()) return p.c.fail(p.line, fmt ++ " in pattern `{s}`", a ++ .{p.s});
+        return p.c.fail(p.line, "{s} in pattern `{s}`", .{ try std.fmt.allocPrint(p.c.gpa, fmt, a), p.s });
     }
 
-    fn ws(comptime p: *P) void {
+    fn ws(p: *P) void {
         while (p.i < p.s.len and (p.s[p.i] == ' ' or p.s[p.i] == '\t')) p.i += 1;
     }
 
-    fn peek(comptime p: *P) u8 {
+    fn peek(p: *P) u8 {
         return if (p.i < p.s.len) p.s[p.i] else 0;
     }
 
-    fn startsWith(comptime p: *P, comptime what: []const u8) bool {
+    fn startsWith(p: *P, what: []const u8) bool {
         return std.mem.startsWith(u8, p.s[p.i..], what);
     }
 
-    fn string(comptime p: *P) []const u8 {
+    fn string(p: *P) Error![]const u8 {
         const q = p.s[p.i];
-        const end = std.mem.indexOfScalarPos(u8, p.s, p.i + 1, q) orelse p.err("unterminated string");
+        const end = std.mem.indexOfScalarPos(u8, p.s, p.i + 1, q) orelse return p.err("unterminated string", .{});
         const out = p.s[p.i + 1 .. end];
         p.i = end + 1;
         return out;
     }
 
-    fn ident(comptime p: *P) []const u8 {
+    fn ident(p: *P) Error![]const u8 {
         const start = p.i;
         while (p.i < p.s.len and (std.ascii.isAlphanumeric(p.s[p.i]) or p.s[p.i] == '_')) p.i += 1;
-        if (p.i == start) p.err("expected a name");
+        if (p.i == start) return p.err("expected a name", .{});
         return p.s[start..p.i];
     }
 
     /// Characters up to the next blank or closing bracket.
-    fn bare(comptime p: *P) []const u8 {
+    fn bare(p: *P) []const u8 {
         const start = p.i;
         while (p.i < p.s.len and std.mem.indexOfScalar(u8, " \t]})|", p.s[p.i]) == null) p.i += 1;
         return p.s[start..p.i];
     }
 
-    fn slotOf(comptime p: *P, comptime name: []const u8) u8 {
+    fn quoted(p: *P) bool {
+        return p.peek() == '"' or p.peek() == '\'';
+    }
+
+    fn slotOf(p: *P, name: []const u8) Error!u8 {
         if (std.mem.eql(u8, name, "_")) return wild_slot;
         return schema.slotIndex(p.kind, name) orelse {
             var known: []const u8 = "";
-            for (schema.info(p.kind).slots) |s| known = known ++ " " ++ s.name;
-            p.err("unknown slot '" ++ name ++ "' for kind '" ++ @tagName(p.kind) ++ "' (known:" ++ known ++ ")");
+            for (schema.info(p.kind).slots) |s| known = try p.c.cat(try p.c.cat(known, " "), s.name);
+            return p.err("unknown slot '{s}' for kind '{s}' (known:{s})", .{ name, @tagName(p.kind), known });
         };
     }
 
-    fn slotInfo(comptime p: *P, comptime slot: u8) schema.Slot {
+    fn slotInfo(p: *P, slot: u8) schema.Slot {
         return schema.info(p.kind).slots[slot];
     }
 
-    fn lit(comptime p: *P, comptime text: []const u8) []const u8 {
-        return if (p.fold) lower(text) else text;
+    fn lit(p: *P, text: []const u8) Error![]const u8 {
+        return p.c.foldIf(p.fold, text);
     }
 
-    fn seq(comptime p: *P) []const Node {
+    fn seq(p: *P) Error![]const Node {
         var out: []const Node = &.{};
         while (true) {
             p.ws();
-            const c = p.peek();
-            if (c == 0 or c == ']' or c == ')' or c == '|') break;
-            if (c == '<') {
-                out = out ++ p.use();
+            const ch = p.peek();
+            if (ch == 0 or ch == ']' or ch == ')' or ch == '|') break;
+            if (ch == '<') {
+                for (try p.use()) |n| out = try p.c.add(Node, out, n);
                 continue;
             }
-            out = out ++ &[_]Node{p.item()};
+            out = try p.c.add(Node, out, try p.item());
         }
         return out;
     }
 
     /// `<name>`: the nodes of a `define`, spliced in place.
-    fn use(comptime p: *P) []const Node {
+    fn use(p: *P) Error![]const Node {
         p.i += 1;
-        const name = p.ident();
-        if (p.peek() != '>') p.err("missing '>' after '<" ++ name ++ "'");
+        const name = try p.ident();
+        if (p.peek() != '>') return p.err("missing '>' after '<{s}'", .{name});
         p.i += 1;
         for (p.defs, 0..) |d, di| {
             if (!std.mem.eql(u8, d.name, name)) continue;
             // A define sees only the ones before it, so it cannot refer to itself.
-            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .gname = p.gname, .line = p.line, .defs = p.defs[0..di] };
-            const out = sub.seq();
-            if (sub.i < sub.s.len) sub.err("unexpected '" ++ sub.s[sub.i .. sub.i + 1] ++ "'");
+            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .c = p.c, .line = p.line, .defs = p.defs[0..di] };
+            const out = try sub.seq();
+            if (sub.i < sub.s.len) return sub.err("unexpected '{c}'", .{sub.s[sub.i]});
             return out;
         }
-        p.err("no `define " ++ name ++ "` before this rule");
+        return p.err("no `define {s}` before this rule", .{name});
     }
 
     /// Is the group opened just before `p.i` followed by `*` or `+`?
-    fn repeats(comptime p: *P) bool {
+    fn repeats(p: *P) bool {
         var depth: usize = 1;
         var j = p.i;
         while (j < p.s.len) : (j += 1) {
@@ -442,26 +501,25 @@ const P = struct {
         return false;
     }
 
-    fn item(comptime p: *P) Node {
-        const c = p.peek();
-        switch (c) {
-            '"', '\'' => return .{ .tag = .lit, .text = p.lit(p.string()) },
+    fn item(p: *P) Error!Node {
+        switch (p.peek()) {
+            '"', '\'' => return .{ .tag = .lit, .text = try p.lit(try p.string()) },
             '[' => {
                 p.i += 1;
-                const kids = p.seq();
-                if (p.peek() != ']') p.err("missing ']'");
+                const kids = try p.seq();
+                if (p.peek() != ']') return p.err("missing ']'", .{});
                 p.i += 1;
                 return .{ .tag = .opt, .kids = kids };
             },
             '(' => {
                 p.i += 1;
                 const rep = p.repeats();
-                if (rep and p.in_rep) p.err("a repeated group cannot hold another");
+                if (rep and p.in_rep) return p.err("a repeated group cannot hold another", .{});
                 const outer = p.in_rep;
                 p.in_rep = outer or rep;
                 var alts: []const Node = &.{};
                 while (true) {
-                    alts = alts ++ &[_]Node{.{ .tag = .seq, .kids = p.seq() }};
+                    alts = try p.c.add(Node, alts, .{ .tag = .seq, .kids = try p.seq() });
                     if (p.peek() == '|') {
                         p.i += 1;
                         continue;
@@ -469,25 +527,25 @@ const P = struct {
                     break;
                 }
                 p.in_rep = outer;
-                if (p.peek() != ')') p.err("missing ')'");
+                if (p.peek() != ')') return p.err("missing ')'", .{});
                 p.i += 1;
                 const group: Node = .{ .tag = .alt, .kids = alts };
                 if (!rep) return group;
                 // `( ... )*` or `( ... )+`, a separator glued on: `( ... )*","`.
-                var n: Node = .{ .tag = .rep, .plus = p.peek() == '+', .kids = &.{group} };
+                var n: Node = .{ .tag = .rep, .plus = p.peek() == '+', .kids = try p.c.add(Node, &.{}, group) };
                 p.i += 1;
-                if (p.peek() == '"' or p.peek() == '\'') {
-                    n.sep = &.{.{ .tag = .lit, .text = p.lit(p.string()) }};
+                if (p.quoted()) {
+                    n.sep = try p.c.add(Node, &.{}, .{ .tag = .lit, .text = try p.lit(try p.string()) });
                 } else if (p.peek() == '~') {
                     p.i += 1;
-                    if (p.peek() != '"' and p.peek() != '\'') p.err("expected a quoted separator after '~'");
-                    n.sep = &.{.{ .tag = .glue, .text = p.string() }};
+                    if (!p.quoted()) return p.err("expected a quoted separator after '~'", .{});
+                    n.sep = try p.c.add(Node, &.{}, .{ .tag = .glue, .text = try p.string() });
                 }
-                if (canBeEmpty(n.kids)) p.err("a repeated group must take at least one word each time");
+                if (canBeEmpty(n.kids)) return p.err("a repeated group must take at least one word each time", .{});
                 return n;
             },
             '{' => {
-                if (p.in_rep) p.err("a repeated group cannot hold '{ }'");
+                if (p.in_rep) return p.err("a repeated group cannot hold '{{ }}'", .{});
                 return p.bag();
             },
             '/' => {
@@ -496,54 +554,55 @@ const P = struct {
             },
             '-' => {
                 p.i += 1;
-                return .{ .tag = .drop, .slot = p.slotOf(p.ident()) };
+                return .{ .tag = .drop, .slot = try p.slotOf(try p.ident()) };
             },
             '~' => {
                 p.i += 1;
-                if (p.peek() != '"' and p.peek() != '\'') p.err("expected a quoted literal after '~'");
-                return .{ .tag = .glue, .text = p.string() };
+                if (!p.quoted()) return p.err("expected a quoted literal after '~'", .{});
+                return .{ .tag = .glue, .text = try p.string() };
             },
             '.' => if (p.startsWith("...")) {
-                if (p.in_rep) p.err("a repeated group cannot take the rest of the line");
+                if (p.in_rep) return p.err("a repeated group cannot take the rest of the line", .{});
                 p.i += 3;
                 return .{ .tag = .rest, .slot = wild_slot };
             },
             else => {},
         }
-        const name = p.ident();
-        if (p.in_rep and p.startsWith("...")) p.err("a repeated group cannot take the rest of the line");
+        const name = try p.ident();
+        if (p.in_rep and p.startsWith("...")) return p.err("a repeated group cannot take the rest of the line", .{});
         if (p.startsWith("...")) {
             p.i += 3;
-            const slot = p.slotOf(name);
+            const slot = try p.slotOf(name);
             const rt = p.slotInfo(slot).ty;
-            if (rt != .text and rt != .value) p.err("'" ++ name ++ "...' needs a text or a value slot");
+            if (rt != .text and rt != .value) return p.err("'{s}...' needs a text or a value slot", .{name});
             return .{ .tag = .rest, .slot = slot };
         }
         if (p.peek() == ':') {
             p.i += 1;
-            if (p.peek() != '"' and p.peek() != '\'') p.err("expected a quoted literal after ':'");
-            const text = p.string();
+            if (!p.quoted()) return p.err("expected a quoted literal after ':'", .{});
+            const text = try p.string();
             var atom: []const u8 = text;
             if (p.peek() == '=') {
                 p.i += 1;
-                atom = p.ident();
+                atom = try p.ident();
             }
-            const slot = p.slotOf(name);
-            if (p.slotInfo(slot).ty != .atom) p.err("tagged literal needs an atom slot, '" ++ name ++ "' is not one");
-            if (p.in_rep and !p.slotInfo(slot).list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
+            const slot = try p.slotOf(name);
+            if (p.slotInfo(slot).ty != .atom) return p.err("tagged literal needs an atom slot, '{s}' is not one", .{name});
+            if (p.in_rep and !p.slotInfo(slot).list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
             var soft = false;
             if (p.peek() == '?') {
                 p.i += 1;
                 soft = true;
             }
-            return .{ .tag = .taglit, .slot = slot, .text = p.lit(text), .atom = atom, .soft = soft };
+            return .{ .tag = .taglit, .slot = slot, .text = try p.lit(text), .atom = atom, .soft = soft };
         }
-        var n: Node = .{ .tag = .cap, .slot = p.slotOf(name) };
+        var n: Node = .{ .tag = .cap, .slot = try p.slotOf(name) };
         while (true) {
             switch (p.peek()) {
                 '~' => {
                     p.i += 1;
-                    n.prefix = p.lit(p.string());
+                    if (!p.quoted()) return p.err("expected a quoted prefix after '~'", .{});
+                    n.prefix = try p.lit(try p.string());
                 },
                 '*' => {
                     p.i += 1;
@@ -555,58 +614,58 @@ const P = struct {
                 },
                 '?' => {
                     p.i += 1;
-                    n.default = if (p.peek() == '"' or p.peek() == '\'') p.string() else p.bare();
+                    n.default = if (p.quoted()) try p.string() else p.bare();
                 },
                 else => break,
             }
         }
         if (n.slot != wild_slot) {
             const si = p.slotInfo(n.slot);
-            if ((n.star or n.plus) and !si.list) p.err("'" ++ name ++ "' is not a list slot");
+            if ((n.star or n.plus) and !si.list) return p.err("'{s}' is not a list slot", .{name});
             if (p.in_rep) {
-                if (!si.list) p.err("'" ++ name ++ "' is in a repeated group but is not a list slot");
-                if (n.star or n.plus) p.err("in a repeated group, '" ++ name ++ "' takes one item per pass; drop the '*' or '+'");
-            } else if (!(n.star or n.plus) and si.list) p.err("list slot '" ++ name ++ "' needs '*' or '+'");
-            if (si.ty == .params or si.ty == .text) p.err("slot '" ++ name ++ "' cannot be captured as a single token");
+                if (!si.list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
+                if (n.star or n.plus) return p.err("in a repeated group, '{s}' takes one item per pass; drop the '*' or '+'", .{name});
+            } else if (!(n.star or n.plus) and si.list) return p.err("list slot '{s}' needs '*' or '+'", .{name});
+            if (si.ty == .params or si.ty == .text) return p.err("slot '{s}' cannot be captured as a single token", .{name});
         }
         return n;
     }
 
-    fn bag(comptime p: *P) Node {
+    fn bag(p: *P) Error!Node {
         p.i += 1;
         var entries: []const BagEntry = &.{};
         while (true) {
             p.ws();
-            if (p.peek() == 0) p.err("missing '}'");
+            if (p.peek() == 0) return p.err("missing '}}'", .{});
             if (p.peek() == '}') {
                 p.i += 1;
                 break;
             }
             if (p.startsWith("...")) {
                 p.i += 3;
-                const slot = p.slotOf(p.ident());
-                if (p.slotInfo(slot).ty != .params) p.err("'...' in a bag needs a params slot");
+                const slot = try p.slotOf(try p.ident());
+                if (p.slotInfo(slot).ty != .params) return p.err("'...' in a bag needs a params slot", .{});
                 var flags = false;
                 if (p.peek() == '?') {
                     p.i += 1;
                     flags = true;
                 }
-                entries = entries ++ &[_]BagEntry{.{ .slot = slot, .form = .rest, .flags = flags }};
+                entries = try p.c.add(BagEntry, entries, .{ .slot = slot, .form = .rest, .flags = flags });
                 continue;
             }
             const kstart = p.i;
             while (p.i < p.s.len and std.mem.indexOfScalar(u8, " \t=}(", p.s[p.i]) == null) p.i += 1;
-            var e: BagEntry = .{ .key = p.lit(p.s[kstart..p.i]) };
+            var e: BagEntry = .{ .key = try p.lit(p.s[kstart..p.i]) };
             if (p.startsWith("(*)=")) {
                 // `v(*)=slot`: entries are written `v(key)=value`.
                 p.i += 4;
                 e.form = .call;
-                e.slot = p.slotOf(p.ident());
-                if (p.slotInfo(e.slot).ty != .params) p.err("'key(*)=' needs a params slot");
-                entries = entries ++ &[_]BagEntry{e};
+                e.slot = try p.slotOf(try p.ident());
+                if (p.slotInfo(e.slot).ty != .params) return p.err("'key(*)=' needs a params slot", .{});
+                entries = try p.c.add(BagEntry, entries, e);
                 continue;
             }
-            if (e.key.len == 0 or p.peek() != '=') p.err("expected key=slot inside '{ }'");
+            if (e.key.len == 0 or p.peek() != '=') return p.err("expected key=slot inside '{{ }}'", .{});
             p.i += 1;
             switch (p.peek()) {
                 '=' => {
@@ -616,17 +675,17 @@ const P = struct {
                 },
                 '"' => {
                     e.form = .quoted;
-                    e.slot = p.slotOf(p.string());
+                    e.slot = try p.slotOf(try p.string());
                 },
                 '[' => {
                     p.i += 1;
                     e.form = .vector;
-                    e.slot = p.slotOf(p.ident());
-                    if (p.peek() != ']') p.err("missing ']'");
+                    e.slot = try p.slotOf(try p.ident());
+                    if (p.peek() != ']') return p.err("missing ']'", .{});
                     p.i += 1;
-                    if (!p.slotInfo(e.slot).list) p.err("'[slot]' needs a list slot");
+                    if (!p.slotInfo(e.slot).list) return p.err("'[slot]' needs a list slot", .{});
                 },
-                else => e.slot = p.slotOf(p.ident()),
+                else => e.slot = try p.slotOf(try p.ident()),
             }
             if (p.peek() == '!') {
                 p.i += 1;
@@ -634,19 +693,19 @@ const P = struct {
             }
             if (p.peek() == '@') {
                 p.i += 1;
-                e.tag_slot = p.slotOf(p.ident());
-                if (p.peek() != ':') p.err("expected ':' after '@slot'");
+                e.tag_slot = try p.slotOf(try p.ident());
+                if (p.peek() != ':') return p.err("expected ':' after '@slot'", .{});
                 p.i += 1;
-                e.tag_atom = p.ident();
+                e.tag_atom = try p.ident();
             }
-            entries = entries ++ &[_]BagEntry{e};
+            entries = try p.c.add(BagEntry, entries, e);
         }
         return .{ .tag = .bag, .bag = entries };
     }
 };
 
 /// Can these nodes match no word at all?
-fn canBeEmpty(comptime items: []const Node) bool {
+fn canBeEmpty(items: []const Node) bool {
     for (items) |n| {
         switch (n.tag) {
             .lit, .taglit => return false,
@@ -664,26 +723,19 @@ fn canBeEmpty(comptime items: []const Node) bool {
     return true;
 }
 
-fn pattern(
-    comptime gname: []const u8,
-    comptime line: u32,
-    comptime kind: Kind,
-    comptime fold: bool,
-    comptime text: []const u8,
-    comptime defs: []const Def,
-) []const Node {
-    var p: P = .{ .s = text, .kind = kind, .fold = fold, .gname = gname, .line = line, .defs = defs };
-    const out = p.seq();
-    if (p.i < p.s.len) p.err("unexpected '" ++ p.s[p.i .. p.i + 1] ++ "'");
-    if (out.len == 0) p.err("empty pattern");
+fn pattern(c: *C, line: u32, kind: Kind, fold: bool, text: []const u8, defs: []const Def) Error![]const Node {
+    var p: P = .{ .s = text, .kind = kind, .fold = fold, .c = c, .line = line, .defs = defs };
+    const out = try p.seq();
+    if (p.i < p.s.len) return p.err("unexpected '{c}'", .{p.s[p.i]});
+    if (out.len == 0) return p.err("empty pattern", .{});
     return out;
 }
 
-fn parseLexer(comptime gname: []const u8, comptime lines: *Lines) LexCfg {
+fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
     var cfg: LexCfg = .{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return cfg;
-        const a = args(gname, lines.no, line);
+        const a = try args(c, lines.no, line);
         const key = a[0];
         const n = a.len - 1;
         if (std.mem.eql(u8, key, "case") and n == 1) {
@@ -693,18 +745,18 @@ fn parseLexer(comptime gname: []const u8, comptime lines: *Lines) LexCfg {
             if (n == 2) cfg.title_prefix = a[2];
         } else if (std.mem.eql(u8, key, "comment") and n >= 2) {
             if (std.mem.eql(u8, a[1], "line")) {
-                cfg.line_comments = cfg.line_comments ++ a[2..];
+                for (a[2..]) |x| cfg.line_comments = try c.add([]const u8, cfg.line_comments, x);
             } else if (std.mem.eql(u8, a[1], "tail")) {
-                cfg.tail_comments = cfg.tail_comments ++ a[2..];
+                for (a[2..]) |x| cfg.tail_comments = try c.add([]const u8, cfg.tail_comments, x);
             } else if (std.mem.eql(u8, a[1], "block") and n == 3) {
                 cfg.block_comment = .{ a[2], a[3] };
-            } else fail(gname, lines.no, "comment must be 'line', 'tail' or 'block \"open\" \"close\"'");
+            } else return c.fail(lines.no, "comment must be 'line', 'tail' or 'block \"open\" \"close\"'", .{});
         } else if (std.mem.eql(u8, key, "continue") and n == 2) {
             if (std.mem.eql(u8, a[1], "lead")) {
                 cfg.cont_lead = a[2];
             } else if (std.mem.eql(u8, a[1], "trail")) {
                 cfg.cont_trail = a[2];
-            } else fail(gname, lines.no, "continue must be 'lead' or 'trail'");
+            } else return c.fail(lines.no, "continue must be 'lead' or 'trail'", .{});
         } else if (std.mem.eql(u8, key, "parens") and n == 1) {
             cfg.parens_are_space = std.mem.eql(u8, a[1], "space");
         } else if (std.mem.eql(u8, key, "expr") and n == 1 and std.mem.eql(u8, a[1], "bare")) {
@@ -712,79 +764,72 @@ fn parseLexer(comptime gname: []const u8, comptime lines: *Lines) LexCfg {
         } else if (std.mem.eql(u8, key, "expr") and n == 1 and std.mem.eql(u8, a[1], "after-equals")) {
             cfg.bare_after_eq = true;
         } else if (std.mem.eql(u8, key, "expr") and n == 2) {
-            cfg.expr_delims = cfg.expr_delims ++ &[_][2][]const u8{.{ a[1], a[2] }};
+            cfg.expr_delims = try c.add([2][]const u8, cfg.expr_delims, .{ a[1], a[2] });
         } else if (std.mem.eql(u8, key, "values") and n == 1) {
             cfg.ident_values = std.mem.eql(u8, a[1], "idents");
         } else if (std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "readscale")) {
             for (a[1..]) |pair| {
-                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse fail(gname, lines.no, "scale entries are suffix=exponent");
-                const exp = std.fmt.parseInt(i32, pair[eq + 1 ..], 10) catch fail(gname, lines.no, "bad scale exponent in '" ++ pair ++ "'");
-                const suf = if (cfg.case_sensitive) pair[0..eq] else lower(pair[0..eq]);
-                const entry = [_]Scale{.{ .suffix = suf, .exp10 = exp }};
-                if (key[0] == 's') cfg.scales = cfg.scales ++ &entry else cfg.read_scales = cfg.read_scales ++ &entry;
+                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "scale entries are suffix=exponent", .{});
+                const exp = std.fmt.parseInt(i32, pair[eq + 1 ..], 10) catch return c.fail(lines.no, "bad scale exponent in '{s}'", .{pair});
+                const entry: Scale = .{ .suffix = try c.foldIf(!cfg.case_sensitive, pair[0..eq]), .exp10 = exp };
+                if (key[0] == 's') {
+                    cfg.scales = try c.add(Scale, cfg.scales, entry);
+                } else cfg.read_scales = try c.add(Scale, cfg.read_scales, entry);
             }
         } else if (std.mem.eql(u8, key, "oddscale")) {
             for (a[1..]) |pair| {
-                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse fail(gname, lines.no, "oddscale entries are suffix=multiplier");
-                const mant, const exp = parseDecimal(gname, lines.no, pair[eq + 1 ..]);
-                const suf = if (cfg.case_sensitive) pair[0..eq] else lower(pair[0..eq]);
-                cfg.odd_scales = cfg.odd_scales ++ &[_]OddScale{.{ .suffix = suf, .mant = mant, .exp10 = exp }};
+                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "oddscale entries are suffix=multiplier", .{});
+                const mant, const exp = try parseDecimal(c, lines.no, pair[eq + 1 ..]);
+                const suf = try c.foldIf(!cfg.case_sensitive, pair[0..eq]);
+                cfg.odd_scales = try c.add(OddScale, cfg.odd_scales, .{ .suffix = suf, .mant = mant, .exp10 = exp });
             }
         } else if (std.mem.eql(u8, key, "units") and n == 1) {
             cfg.units_ignored = std.mem.eql(u8, a[1], "ignore");
         } else if (std.mem.eql(u8, key, "end") and n == 1) {
-            cfg.end_marker = if (cfg.case_sensitive) a[1] else lower(a[1]);
-        } else fail(gname, lines.no, "unknown lexer setting `" ++ line ++ "`");
+            cfg.end_marker = try c.foldIf(!cfg.case_sensitive, a[1]);
+        } else return c.fail(lines.no, "unknown lexer setting `{s}`", .{line});
     }
-    fail(gname, lines.no, "lexer section is missing 'end'");
+    return c.fail(lines.no, "lexer section is missing 'end'", .{});
 }
 
-fn parseModels(comptime gname: []const u8, comptime lines: *Lines, comptime fold: bool) []const ModelEntry {
+fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
     var out: []const ModelEntry = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
-        const eq = std.mem.indexOf(u8, line, " = ") orelse fail(gname, lines.no, "model lines are `family [polarity] = spelling | spelling`");
-        const lhs = args(gname, lines.no, line[0..eq]);
-        if (lhs.len < 1 or lhs.len > 2) fail(gname, lines.no, "expected `family [polarity]` before '='");
-        if (schema.familyKind(lhs[0]) == null) fail(gname, lines.no, "unknown model family '" ++ lhs[0] ++ "'");
+        const eq = std.mem.indexOf(u8, line, " = ") orelse return c.fail(lines.no, "model lines are `family [polarity] = spelling | spelling`", .{});
+        const lhs = try args(c, lines.no, line[0..eq]);
+        if (lhs.len < 1 or lhs.len > 2) return c.fail(lines.no, "expected `family [polarity]` before '='", .{});
+        if (schema.familyKind(lhs[0]) == null) return c.fail(lines.no, "unknown model family '{s}'", .{lhs[0]});
         var spellings: []const ModelSpelling = &.{};
         var it = std.mem.splitScalar(u8, line[eq + 3 ..], '|');
         while (it.next()) |alt| {
-            const w = args(gname, lines.no, alt);
-            if (w.len == 0) fail(gname, lines.no, "empty model spelling");
+            const w = try args(c, lines.no, alt);
+            if (w.len == 0) return c.fail(lines.no, "empty model spelling", .{});
             var kv: []const ModelKv = &.{};
             for (w[1..]) |pair| {
                 if (pair[0] == '!') {
-                    const k = if (fold) lower(pair[1..]) else pair[1..];
-                    kv = kv ++ &[_]ModelKv{.{ .key = k, .val = "", .absent = true }};
+                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true });
                 } else {
-                    const pe = std.mem.indexOfScalar(u8, pair, '=') orelse fail(gname, lines.no, "expected key=value or !key in '" ++ pair ++ "'");
-                    const k = if (fold) lower(pair[0..pe]) else pair[0..pe];
-                    kv = kv ++ &[_]ModelKv{.{ .key = k, .val = pair[pe + 1 ..], .absent = false }};
+                    const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "expected key=value or !key in '{s}'", .{pair});
+                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..pe]), .val = pair[pe + 1 ..], .absent = false });
                 }
             }
-            spellings = spellings ++ &[_]ModelSpelling{.{ .type = if (fold) lower(w[0]) else w[0], .kv = kv }};
+            spellings = try c.add(ModelSpelling, spellings, .{ .type = try c.foldIf(fold, w[0]), .kv = kv });
         }
-        out = out ++ &[_]ModelEntry{.{
+        out = try c.add(ModelEntry, out, .{
             .family = lhs[0],
             .polarity = if (lhs.len == 2) lhs[1] else "",
             .spellings = spellings,
-        }};
+        });
     }
-    fail(gname, lines.no, "models section is missing 'end'");
+    return c.fail(lines.no, "models section is missing 'end'", .{});
 }
 
-fn parseSpellings(
-    comptime gname: []const u8,
-    comptime lines: *Lines,
-    comptime fold: bool,
-    comptime what: []const u8,
-    comptime known: []const []const u8,
-) []const Spellings {
+fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: []const []const u8) Error![]const Spellings {
     var out: []const Spellings = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
-        const a = args(gname, lines.no, line);
+        const a = try args(c, lines.no, line);
         var names: []const []const u8 = &.{};
         var spell: []const []const u8 = &.{};
         if (std.mem.eql(u8, a[0], "same")) {
@@ -792,7 +837,7 @@ fn parseSpellings(
         } else {
             names = a[0..1];
             const from: usize = if (a.len > 1 and std.mem.eql(u8, a[1], "=")) 2 else 1;
-            if (a.len <= from) fail(gname, lines.no, "expected `name = spelling ...` or `same name ...`");
+            if (a.len <= from) return c.fail(lines.no, "expected `name = spelling ...` or `same name ...`", .{});
             spell = a[from..];
         }
         for (names) |n| {
@@ -800,57 +845,64 @@ fn parseSpellings(
             for (known) |k| {
                 if (std.mem.eql(u8, k, n)) ok = true;
             }
-            if (!ok) fail(gname, lines.no, "unknown " ++ what ++ " '" ++ n ++ "'");
+            if (!ok) return c.fail(lines.no, "unknown {s} '{s}'", .{ what, n });
             var sp: []const []const u8 = &.{};
-            if (spell.len == 0) sp = &[_][]const u8{n};
-            for (spell) |x| sp = sp ++ &[_][]const u8{if (fold) lower(x) else x};
-            out = out ++ &[_]Spellings{.{ .canon = n, .spellings = sp }};
+            if (spell.len == 0) sp = try c.add([]const u8, sp, n);
+            for (spell) |x| sp = try c.add([]const u8, sp, try c.foldIf(fold, x));
+            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp });
         }
     }
-    fail(gname, lines.no, what ++ " section is missing 'end'");
+    return c.fail(lines.no, "{s} section is missing 'end'", .{what});
 }
 
-fn parseSignals(comptime gname: []const u8, comptime lines: *Lines, comptime fold: bool) []const SignalForm {
+fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm {
     var out: []const SignalForm = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
-        const a = args(gname, lines.no, line);
-        if (a.len != 3 or !std.mem.eql(u8, a[1], "=")) fail(gname, lines.no, "signal lines are `form = \"template\"`");
+        const a = try args(c, lines.no, line);
+        if (a.len != 3 or !std.mem.eql(u8, a[1], "=")) return c.fail(lines.no, "signal lines are `form = \"template\"`", .{});
         var ok = false;
         for (schema.signal_forms) |k| {
             if (std.mem.eql(u8, k, a[0])) ok = true;
         }
-        if (!ok) fail(gname, lines.no, "unknown signal form '" ++ a[0] ++ "'");
-        out = out ++ &[_]SignalForm{.{ .form = a[0], .template = if (fold) lower(a[2]) else a[2] }};
+        if (!ok) return c.fail(lines.no, "unknown signal form '{s}'", .{a[0]});
+        out = try c.add(SignalForm, out, .{ .form = a[0], .template = try c.foldIf(fold, a[2]) });
     }
-    fail(gname, lines.no, "signals section is missing 'end'");
+    return c.fail(lines.no, "signals section is missing 'end'", .{});
 }
 
-fn kindSlot(comptime gname: []const u8, comptime line: u32, comptime kind_name: []const u8, comptime slot_name: []const u8) struct { Kind, u8 } {
-    const kind = kindOf(gname, line, kind_name);
-    const slot = schema.slotIndex(kind, slot_name) orelse fail(gname, line, "unknown slot '" ++ slot_name ++ "' for kind '" ++ kind_name ++ "'");
+fn kindSlot(c: *C, line: u32, kind_name: []const u8, slot_name: []const u8) Error!struct { Kind, u8 } {
+    const kind = try kindOf(c, line, kind_name);
+    const slot = schema.slotIndex(kind, slot_name) orelse return c.fail(line, "unknown slot '{s}' for kind '{s}'", .{ slot_name, kind_name });
     return .{ kind, slot };
 }
 
-fn dotted(comptime gname: []const u8, comptime line: u32, comptime text: []const u8) struct { Kind, u8 } {
-    const dot = std.mem.indexOfScalar(u8, text, '.') orelse fail(gname, line, "expected kind.slot, found '" ++ text ++ "'");
-    return kindSlot(gname, line, text[0..dot], text[dot + 1 ..]);
+fn dotted(c: *C, line: u32, text: []const u8) Error!struct { Kind, u8 } {
+    const dot = std.mem.indexOfScalar(u8, text, '.') orelse return c.fail(line, "expected kind.slot, found '{s}'", .{text});
+    return kindSlot(c, line, text[0..dot], text[dot + 1 ..]);
 }
 
-fn literalLines(comptime gname: []const u8, comptime lines: *Lines) []const []const u8 {
+fn literalLines(c: *C, lines: *Lines) Error![]const []const u8 {
     var out: []const []const u8 = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
-        out = out ++ &[_][]const u8{line};
+        out = try c.add([]const u8, out, line);
     }
-    fail(gname, lines.no, "section is missing 'end'");
+    return c.fail(lines.no, "section is missing 'end'", .{});
 }
 
-/// Turn the text of a `.spgrammar` file into a `Grammar`. Comptime only.
-pub fn compile(comptime src: []const u8) Grammar {
+/// Turn the text of a `.spgrammar` file into a `Grammar`.
+///
+/// At compile time a mistake is a compile error and `gpa` is never used
+/// (pass `undefined`). At run time the grammar's tables are allocated from
+/// `gpa` and point into `src`, so both must outlive it: pass an arena. A
+/// mistake returns `error.BadGrammar` with `file:line: message` in `diag`;
+/// `file` names the grammar in messages (empty: `<dialect>.spgrammar`).
+pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) Error!Grammar {
     @setEvalBranchQuota(20_000_000);
+    var ctx: C = .{ .gpa = gpa, .diag = diag, .file = file };
+    const c = &ctx;
     var lines: Lines = .{ .src = src };
-    var name: []const u8 = "?";
     var lex: LexCfg = .{};
     var have_lexer = false;
     var preamble: []const []const u8 = &.{};
@@ -866,135 +918,135 @@ pub fn compile(comptime src: []const u8) Grammar {
     var enums: []const EnumMap = &.{};
     var moves: []const Move = &.{};
     var merges: []const Merge = &.{};
+    var defs: []const Def = &.{};
     var signals: []const SignalForm = &.{};
     var functions: []const Spellings = &.{};
     var variables: []const Spellings = &.{};
     var operators: []const Spellings = &.{};
     var absent: []const Absent = &.{};
-    var defs: []const Def = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
         const fold = !lex.case_sensitive;
+        const no = lines.no;
         if (std.mem.eql(u8, head, "dialect")) {
-            name = rest;
+            c.name = rest;
         } else if (std.mem.eql(u8, head, "lexer")) {
-            lex = parseLexer(name, &lines);
+            lex = try parseLexer(c, &lines);
             have_lexer = true;
         } else if (!have_lexer) {
-            fail(name, lines.no, "the lexer section must come before `" ++ head ++ "`");
+            return c.fail(no, "the lexer section must come before `{s}`", .{head});
         } else if (std.mem.eql(u8, head, "preamble")) {
-            preamble = literalLines(name, &lines);
+            preamble = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "header")) {
-            header = literalLines(name, &lines);
+            header = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "needs")) {
-            const kind = kindOf(name, lines.no, rest);
-            needs = needs ++ &[_]Needs{.{ .kind = kind, .lines = literalLines(name, &lines) }};
+            const kind = try kindOf(c, no, rest);
+            needs = try c.add(Needs, needs, .{ .kind = kind, .lines = try literalLines(c, &lines) });
         } else if (std.mem.eql(u8, head, "wrap")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "wrap is `wrap \"open\" \"close\" : kind ...`");
-            const lits = args(name, lines.no, rest[0..colon]);
-            if (lits.len != 2) fail(name, lines.no, "wrap needs an opening and a closing literal");
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "wrap is `wrap \"open\" \"close\" : kind ...`", .{});
+            const lits = try args(c, no, rest[0..colon]);
+            if (lits.len != 2) return c.fail(no, "wrap needs an opening and a closing literal", .{});
             var kinds: []const Kind = &.{};
-            for (args(name, lines.no, rest[colon + 3 ..])) |k| kinds = kinds ++ &[_]Kind{kindOf(name, lines.no, k)};
-            wraps = wraps ++ &[_]Wrap{.{
-                .open = if (fold) lower(lits[0]) else lits[0],
-                .close = if (fold) lower(lits[1]) else lits[1],
+            for (try args(c, no, rest[colon + 3 ..])) |k| kinds = try c.add(Kind, kinds, try kindOf(c, no, k));
+            wraps = try c.add(Wrap, wraps, .{
+                .open = try c.foldIf(fold, lits[0]),
+                .close = try c.foldIf(fold, lits[1]),
                 .kinds = kinds,
-            }};
+            });
         } else if (std.mem.eql(u8, head, "raw")) {
-            const lits = args(name, lines.no, rest);
-            if (lits.len != 2) fail(name, lines.no, "raw is `raw \"open\" \"close\"`");
-            raws = raws ++ &[_]RawBlock{.{
-                .open = if (fold) lower(lits[0]) else lits[0],
-                .close = if (fold) lower(lits[1]) else lits[1],
-            }};
+            const lits = try args(c, no, rest);
+            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\"`", .{});
+            raws = try c.add(RawBlock, raws, .{
+                .open = try c.foldIf(fold, lits[0]),
+                .close = try c.foldIf(fold, lits[1]),
+            });
         } else if (std.mem.eql(u8, head, "block")) {
-            const kind = kindOf(name, lines.no, rest);
+            const kind = try kindOf(c, no, rest);
             var open: []const Node = &.{};
             var close: []const Node = &.{};
             var inner: []const []const Node = &.{};
             while (true) {
-                const bl = lines.next() orelse fail(name, lines.no, "block is missing 'end'");
+                const bl = lines.next() orelse return c.fail(lines.no, "block is missing 'end'", .{});
                 if (std.mem.eql(u8, bl, "end")) break;
                 const bh, const br = splitHead(bl);
-                const pat = pattern(name, lines.no, kind, fold, br, defs);
+                const pat = try pattern(c, lines.no, kind, fold, br, defs);
                 if (std.mem.eql(u8, bh, "open")) {
                     open = pat;
                 } else if (std.mem.eql(u8, bh, "close")) {
                     close = pat;
                 } else if (std.mem.eql(u8, bh, "inner")) {
-                    inner = inner ++ &[_][]const Node{pat};
-                } else fail(name, lines.no, "expected open, inner, close or end");
+                    inner = try c.add([]const Node, inner, pat);
+                } else return c.fail(lines.no, "expected open, inner, close or end", .{});
             }
-            if (open.len == 0 or close.len == 0) fail(name, lines.no, "block needs both open and close");
-            blocks = blocks ++ &[_]Block{.{ .kind = kind, .open = open, .inner = inner, .close = close }};
+            if (open.len == 0 or close.len == 0) return c.fail(lines.no, "block needs both open and close", .{});
+            blocks = try c.add(Block, blocks, .{ .kind = kind, .open = open, .inner = inner, .close = close });
         } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or std.mem.eql(u8, head, "write")) {
-            const eq = std.mem.indexOf(u8, rest, " = ") orelse fail(name, lines.no, "expected `" ++ head ++ " kind = pattern`");
-            const kind = kindOf(name, lines.no, std.mem.trim(u8, rest[0..eq], " \t"));
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `{s} kind = pattern`", .{head});
+            const kind = try kindOf(c, no, std.mem.trim(u8, rest[0..eq], " \t"));
             const dir: Dir = if (head[0] == 'r' and head[1] == 'u') .both else if (head[0] == 'r') .read else .write;
-            rules = rules ++ &[_]Rule{.{
+            rules = try c.add(Rule, rules, .{
                 .kind = kind,
                 .dir = dir,
-                .pat = pattern(name, lines.no, kind, fold, rest[eq + 3 ..], defs),
-                .line = lines.no,
-            }};
+                .pat = try pattern(c, no, kind, fold, rest[eq + 3 ..], defs),
+                .line = no,
+            });
         } else if (std.mem.eql(u8, head, "define")) {
-            const eq = std.mem.indexOf(u8, rest, " = ") orelse fail(name, lines.no, "expected `define name = pattern`");
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `define name = pattern`", .{});
             const dname = std.mem.trim(u8, rest[0..eq], " \t");
-            for (defs) |d| if (std.mem.eql(u8, d.name, dname)) fail(name, lines.no, "`" ++ dname ++ "` is already defined");
-            defs = defs ++ &[_]Def{.{ .name = dname, .text = rest[eq + 3 ..] }};
+            for (defs) |d| if (std.mem.eql(u8, d.name, dname)) return c.fail(no, "`{s}` is already defined", .{dname});
+            defs = try c.add(Def, defs, .{ .name = dname, .text = rest[eq + 3 ..] });
         } else if (std.mem.eql(u8, head, "caveat")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "caveat is `caveat kind slot : text`");
-            const ks = args(name, lines.no, rest[0..colon]);
-            if (ks.len != 2) fail(name, lines.no, "caveat needs a kind and a slot");
-            const kind = kindOf(name, lines.no, ks[0]);
-            const slot = schema.slotIndex(kind, ks[1]) orelse fail(name, lines.no, "unknown slot '" ++ ks[1] ++ "'");
-            caveats = caveats ++ &[_]Caveat{.{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..] }};
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "caveat is `caveat kind slot : text`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
+            const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
+            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "models")) {
-            models = parseModels(name, &lines, fold);
+            models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
-            const a = args(name, lines.no, rest);
-            if (a.len != 4 or !std.mem.eql(u8, a[2], "=")) fail(name, lines.no, "implied is `implied kind slot = value`");
-            const kind, const slot = kindSlot(name, lines.no, a[0], a[1]);
-            implied = implied ++ &[_]Implied{.{ .kind = kind, .slot = slot, .text = a[3] }};
+            const a = try args(c, no, rest);
+            if (a.len != 4 or !std.mem.eql(u8, a[2], "=")) return c.fail(no, "implied is `implied kind slot = value`", .{});
+            const kind, const slot = try kindSlot(c, no, a[0], a[1]);
+            implied = try c.add(Implied, implied, .{ .kind = kind, .slot = slot, .text = a[3] });
         } else if (std.mem.eql(u8, head, "enum")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "enum is `enum kind slot : canonical=spelling ...`");
-            const ks = args(name, lines.no, rest[0..colon]);
-            if (ks.len != 2) fail(name, lines.no, "enum needs a kind and a slot");
-            const kind, const slot = kindSlot(name, lines.no, ks[0], ks[1]);
-            if (schema.info(kind).slots[slot].ty != .atom) fail(name, lines.no, "enum needs an atom slot");
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "enum is `enum kind slot : canonical=spelling ...`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len != 2) return c.fail(no, "enum needs a kind and a slot", .{});
+            const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
+            if (schema.info(kind).slots[slot].ty != .atom) return c.fail(no, "enum needs an atom slot", .{});
             var pairs: []const EnumPair = &.{};
-            for (args(name, lines.no, rest[colon + 3 ..])) |pair| {
-                const pe = std.mem.indexOfScalar(u8, pair, '=') orelse fail(name, lines.no, "expected canonical=spelling in '" ++ pair ++ "'");
-                pairs = pairs ++ &[_]EnumPair{.{ .canon = pair[0..pe], .spelling = if (fold) lower(pair[pe + 1 ..]) else pair[pe + 1 ..] }};
+            for (try args(c, no, rest[colon + 3 ..])) |pair| {
+                const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(no, "expected canonical=spelling in '{s}'", .{pair});
+                pairs = try c.add(EnumPair, pairs, .{ .canon = pair[0..pe], .spelling = try c.foldIf(fold, pair[pe + 1 ..]) });
             }
-            enums = enums ++ &[_]EnumMap{.{ .kind = kind, .slot = slot, .pairs = pairs }};
+            enums = try c.add(EnumMap, enums, .{ .kind = kind, .slot = slot, .pairs = pairs });
         } else if (std.mem.eql(u8, head, "move")) {
-            const a = args(name, lines.no, rest);
-            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) fail(name, lines.no, "move is `move kind.slot -> kind.slot`");
-            const fk, const fs = dotted(name, lines.no, a[0]);
-            const tk, const ts = dotted(name, lines.no, a[2]);
-            moves = moves ++ &[_]Move{.{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts }};
+            const a = try args(c, no, rest);
+            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "move is `move kind.slot -> kind.slot`", .{});
+            const fk, const fs = try dotted(c, no, a[0]);
+            const tk, const ts = try dotted(c, no, a[2]);
+            moves = try c.add(Move, moves, .{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts });
         } else if (std.mem.eql(u8, head, "merge")) {
-            const a = args(name, lines.no, rest);
-            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) fail(name, lines.no, "merge is `merge kind -> kind`");
-            merges = merges ++ &[_]Merge{.{ .from = kindOf(name, lines.no, a[0]), .into = kindOf(name, lines.no, a[2]) }};
+            const a = try args(c, no, rest);
+            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "merge is `merge kind -> kind`", .{});
+            merges = try c.add(Merge, merges, .{ .from = try kindOf(c, no, a[0]), .into = try kindOf(c, no, a[2]) });
         } else if (std.mem.eql(u8, head, "signals")) {
-            signals = parseSignals(name, &lines, fold);
+            signals = try parseSignals(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "functions")) {
-            functions = parseSpellings(name, &lines, fold, "function", &schema.functions);
+            functions = try parseSpellings(c, &lines, fold, "function", &schema.functions);
         } else if (std.mem.eql(u8, head, "variables")) {
-            variables = parseSpellings(name, &lines, fold, "variable", &schema.variables);
+            variables = try parseSpellings(c, &lines, fold, "variable", &schema.variables);
         } else if (std.mem.eql(u8, head, "operators")) {
-            operators = parseSpellings(name, &lines, false, "operator", &schema.operators);
+            operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
         } else if (std.mem.eql(u8, head, "no")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse fail(name, lines.no, "no is `no kind : reason`");
-            absent = absent ++ &[_]Absent{.{ .kind = kindOf(name, lines.no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] }};
-        } else fail(name, lines.no, "unknown directive `" ++ head ++ "`");
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind : reason`", .{});
+            absent = try c.add(Absent, absent, .{ .kind = try kindOf(c, no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] });
+        } else return c.fail(no, "unknown directive `{s}`", .{head});
     }
-    if (std.mem.eql(u8, name, "?")) fail(name, 1, "missing `dialect <name>`");
+    if (std.mem.eql(u8, c.name, "?")) return c.fail(1, "missing `dialect <name>`", .{});
     return .{
-        .name = name,
+        .name = c.name,
         .lex = lex,
         .preamble = preamble,
         .header = header,
@@ -1017,23 +1069,33 @@ pub fn compile(comptime src: []const u8) Grammar {
     };
 }
 
-test "compile a small grammar at comptime" {
-    const g = comptime compile(
-        \\dialect tiny
-        \\lexer
-        \\  case insensitive
-        \\  comment line "*"
-        \\  continue lead "+"
-        \\  scale MEG=6 K=3 M=-3
-        \\end
-        \\rule resistor = name~"R" pos neg r {...params}
-        \\rule tran = ".TRAN" step?'$stop/1000' stop [start?0 [maxstep]] [skip_dc:"UIC"=yes]
-        \\rule ac = ".ac" (sweep:"dec" | sweep:"lin") points fstart fstop
-        \\models
-        \\  bsim4 n = nmos level=14 | nmos level=54
-        \\  mos1 n = nmos level=1 | nmos !level
-        \\end
-    );
+/// `compile` for a built-in grammar, evaluated at compile time.
+pub fn compileBuiltin(comptime src: []const u8) Grammar {
+    const g = comptime blk: {
+        var diag: Diag = .{};
+        break :blk compile(undefined, src, "", &diag) catch unreachable;
+    };
+    return g;
+}
+
+const tiny =
+    \\dialect tiny
+    \\lexer
+    \\  case insensitive
+    \\  comment line "*"
+    \\  continue lead "+"
+    \\  scale MEG=6 K=3 M=-3
+    \\end
+    \\rule resistor = name~"R" pos neg r {...params}
+    \\rule tran = ".TRAN" step?'$stop/1000' stop [start?0 [maxstep]] [skip_dc:"UIC"=yes]
+    \\rule ac = ".ac" (sweep:"dec" | sweep:"lin") points fstart fstop
+    \\models
+    \\  bsim4 n = nmos level=14 | nmos level=54
+    \\  mos1 n = nmos level=1 | nmos !level
+    \\end
+;
+
+fn expectTiny(g: Grammar) !void {
     try std.testing.expectEqualStrings("tiny", g.name);
     try std.testing.expectEqual(3, g.rules.len);
     try std.testing.expectEqualStrings("meg", g.lex.scales[0].suffix);
@@ -1046,4 +1108,32 @@ test "compile a small grammar at comptime" {
     try std.testing.expectEqual(2, g.models.len);
     try std.testing.expect(g.models[1].spellings[1].kv[0].absent);
     try std.testing.expect(g.canWrite(.tran) and !g.canWrite(.noise));
+}
+
+test "compile a small grammar at comptime and at run time" {
+    try expectTiny(compileBuiltin(tiny));
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diag = .{};
+    try expectTiny(try compile(arena.allocator(), tiny, "tiny.spgrammar", &diag));
+}
+
+test "a broken grammar at run time names the file and line" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_]struct { src: []const u8, msg: []const u8 }{
+        .{ .src = "dialect x\nlexer\nend\nrule nonsense = \"a\"\n", .msg = "x/bad.spgrammar:4: unknown kind 'nonsense'" },
+        .{ .src = "dialect x\nlexer\nend\n\nrule tran = \".tran\" bogus\n", .msg = "x/bad.spgrammar:5: unknown slot 'bogus' for kind 'tran'" },
+        .{ .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n", .msg = "x/bad.spgrammar:4: missing ']' in pattern" },
+        .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
+        .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
+    };
+    for (cases) |cs| {
+        var diag: Diag = .{};
+        try std.testing.expectError(error.BadGrammar, compile(arena.allocator(), cs.src, "x/bad.spgrammar", &diag));
+        if (!std.mem.startsWith(u8, diag.msg, cs.msg)) {
+            std.debug.print("got: {s}\nwant prefix: {s}\n", .{ diag.msg, cs.msg });
+            return error.TestUnexpectedResult;
+        }
+    }
 }

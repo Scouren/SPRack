@@ -26,6 +26,7 @@ const usage =
     \\  sprack dialects | caps | info
     \\        The dialects built in; which can write what; the schema as JSON.
     \\
+    \\A <dialect> is a built-in name or a path ending in .spgrammar.
     \\Reads standard input when no file is given. Exit status is 1 when the
     \\report contains an error: something in the input has no form in the
     \\target, so the output does not say everything the input said.
@@ -65,10 +66,15 @@ const Args = struct {
 
 fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []const u8) *const sprack.Grammar {
     const n = name orelse die(io, "{s} is required\n{s}", .{ flag, usage });
-    return sprack.find(n) orelse {
-        var known: std.ArrayList(u8) = .empty;
-        for (&sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
-        die(io, "unknown dialect '{s}'. Built in:{s}\n", .{ n, known.items });
+    var diag: sprack.grammar.Diag = .{};
+    return sprack.resolve(arena, io, n, &diag) catch |e| switch (e) {
+        error.UnknownDialect => {
+            var known: std.ArrayList(u8) = .empty;
+            for (&sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
+            die(io, "unknown dialect '{s}'. Built in:{s}; or a path to a .spgrammar file\n", .{ n, known.items });
+        },
+        error.CannotRead, error.BadGrammar => die(io, "{s}\n", .{diag.msg}),
+        error.OutOfMemory => die(io, "out of memory\n", .{}),
     };
 }
 

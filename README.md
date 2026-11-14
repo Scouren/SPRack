@@ -51,6 +51,13 @@ that the report does not explain is a bug.
     sprack caps                                      # which dialect can write what
     sprack info                                      # the schema, as JSON
 
+Wherever a dialect is named (`--from`, `--to`), a path ending in
+`.spgrammar` may stand instead: that grammar is compiled when the command
+starts, by the same compiler that builds the built-in ones (a fraction of a
+millisecond). A mistake in it is reported as `path:line: message`. Error
+messages that list the "dialects that define" something name only the
+built-in ones.
+
 `project` follows every `.include` and `.lib` from the files it is given and
 writes a translated copy of the whole tree, with the include lines rewritten as
 relative paths. It reads the set twice: once to learn which models,
@@ -96,6 +103,8 @@ statements of the canonical vocabulary and the core writes them.
   expression in the canonical spelling: `"2*wmin"`, `"ln(a)**2"`.
 * `sprack.translate(text, frm=..., to=...)` and `sprack.read(text, dialect)`
   work on existing netlists.
+* Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
+  may also be a path to a `.spgrammar` file.
 
 ### PDKs
 
@@ -290,7 +299,7 @@ dialects that have it; so is one that nothing defines.
 
     grammars/*.spgrammar   the five dialects
     src/schema.zig         canonical kinds, slots, model families, functions
-    src/grammar.zig        the comptime compiler for .spgrammar
+    src/grammar.zig        the .spgrammar compiler (at compile time and at run time)
     src/lexer.zig          lines, tokens, exact numbers
     src/reader.zig         pattern matcher: text to statements
     src/writer.zig         patterns in reverse: statements to text

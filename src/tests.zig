@@ -730,6 +730,52 @@ test "a dialect chosen at compile time" {
     try has(aw.written(), "R1 (a 0) resistor r=1k\n");
 }
 
+test "a grammar loaded at run time writes and reads byte for byte as the built-in" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: sprack.grammar.Diag = .{};
+    const loaded = try sprack.resolve(a, testing.io, "grammars/ngspice.spgrammar", &diag);
+    const builtin = sprack.find("ngspice").?;
+    try testing.expect(loaded != builtin);
+    for (dialects) |d| {
+        var r1: ir.Report = .init(a);
+        var r2: ir.Report = .init(a);
+        const nl = try readAs(a, d, sample(d), &r1);
+        _ = try readAs(a, d, sample(d), &r2);
+        var w1: std.Io.Writer.Allocating = .init(a);
+        var w2: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, builtin, &w1.writer, &nl, &r1);
+        try sprack.write(a, loaded, &w2.writer, &nl, &r2);
+        try testing.expectEqualStrings(w1.written(), w2.written());
+        try testing.expectEqual(r1.items.items.len, r2.items.items.len);
+
+        // Read back with each: the same statements, as JSON.
+        var j1: std.Io.Writer.Allocating = .init(a);
+        var j2: std.Io.Writer.Allocating = .init(a);
+        try sprack.json.writeNetlist(&j1.writer, &try sprack.read(a, builtin, w1.written(), &r1));
+        try sprack.json.writeNetlist(&j2.writer, &try sprack.read(a, loaded, w1.written(), &r2));
+        try testing.expectEqualStrings(j1.written(), j2.written());
+    }
+}
+
+test "a broken grammar file is reported with its path and line" {
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    try tmp.dir.writeFile(io, .{ .sub_path = "bad.spgrammar", .data = "dialect bad\nlexer\nend\n\nrule tran = \".tran\" stop [ step\n" });
+    const path = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/bad.spgrammar", .{tmp.sub_path});
+    var diag: sprack.grammar.Diag = .{};
+    try testing.expectError(error.BadGrammar, sprack.resolve(a, io, path, &diag));
+    try has(diag.msg, try std.fmt.allocPrint(a, "{s}:5: missing ']' in pattern", .{path}));
+    try testing.expectError(error.CannotRead, sprack.resolve(a, io, "no/such.spgrammar", &diag));
+    try has(diag.msg, "cannot read no/such.spgrammar");
+    try testing.expectError(error.UnknownDialect, sprack.resolve(a, io, "nosuch", &diag));
+}
+
 test "options: one vocabulary, five ways of filing it" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -1181,7 +1227,7 @@ test "corpus: a VACASK deck the way upstream writes them" {
 }
 
 test "define: a named pattern compiles to the same nodes as writing it out" {
-    const g = comptime sprack.grammar.compile(
+    const g = sprack.grammar.compileBuiltin(
         \\dialect tiny
         \\lexer
         \\end
@@ -1228,7 +1274,7 @@ test "HSPICE .ac plus .noise is one noise analysis" {
 }
 
 test "repeated groups: list slots in lockstep, with a separator" {
-    const g = comptime sprack.grammar.compile(
+    const g = sprack.grammar.compileBuiltin(
         \\dialect tiny
         \\lexer
         \\  title yes

@@ -420,8 +420,8 @@ test "a small project: includes followed, declarations shared, tree copied" {
     });
 
     const reg = @import("registry");
-    const hspice = comptime grammar.compile(reg.sources[0]);
-    const spectre = comptime grammar.compile(reg.sources[2]);
+    const hspice = grammar.compileBuiltin(reg.sources[0]);
+    const spectre = grammar.compileBuiltin(reg.sources[2]);
     try std.testing.expectEqualStrings("hspice", hspice.name);
     try std.testing.expectEqualStrings("spectre", spectre.name);
 
