@@ -31,6 +31,7 @@
             packages = [
               zig
               pkgs.python3
+              pkgs.python3Packages.pip # pip wheel . (pyproject.toml)
             ];
             shellHook = ''export ZIG_GLOBAL_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/zig-${builtins.baseNameOf zig}"'';
           };

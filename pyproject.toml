@@ -1,0 +1,11 @@
+# The wheel is built by tools/wheel_backend.py: `zig build py` plus a zip.
+# Zig must be on PATH. Version comes from build.zig.zon.
+[build-system]
+requires = []
+build-backend = "wheel_backend"
+backend-path = ["tools"]
+
+[project]
+name = "sprack"
+requires-python = ">=3.10"
+dynamic = ["version"]
