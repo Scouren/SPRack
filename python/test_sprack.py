@@ -126,6 +126,27 @@ def test_grammar_file():
     raises(ValueError, lambda: c.netlist("/no/such.spgrammar"), "cannot read /no/such.spgrammar")
 
 
+def test_code():
+    c = sprack.Circuit("code blocks")
+    c.R("1", "in", "out", "1k")
+    c.C("1", "out", 0, "1p")
+    c.V("in", "in", 0, 1)
+    added = c.code(".tran 1n 1u\n.ac dec 10 1 1G $ sweep\n.save v(out)\n")
+    assert [s["kind"] for s in added] == ["tran", "ac", "save"]
+    with c.subckt("buf", "a", "b") as s:
+        s.code("rb (a b) resistor r=10\n", "spectre")
+    sp = c.netlist("spectre")
+    for line in ["tran1 tran step=1n stop=1u", "ac1 ac start=1 stop=1G dec=10 // sweep", "save out", "rb (a b) resistor r=10"]:
+        assert line + "\n" in sp, f"missing {line!r} in\n{sp}"
+    ng = c.netlist(os.path.join(GRAMMARS, "ngspice.spgrammar"))
+    assert ".tran 1n 1u\n" in ng and "rb a b 10\n" in ng
+    # A line the reader does not understand is an error of the netlist.
+    c.code(".bogus 1 2\n")
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "no sprack rule understood this line", ".bogus 1 2")
+    assert any(e.code == "untranslated" for e in c.netlist("xyce", strict=False).report.errors)
+    raises(ValueError, lambda: c.code(".op\n", "pspice"), "unknown dialect")
+
+
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
 
 

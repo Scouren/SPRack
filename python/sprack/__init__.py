@@ -251,6 +251,8 @@ class _Scope:
     def __init__(self, pdk: "PDK | None"):
         self.statements: list[dict] = []
         self._pdk = pdk
+        # What `code` could not read; shared by a circuit and its subcircuits.
+        self._report = Report()
 
     # -- the one way in ---------------------------------------------------
     def add(self, kind: str, *args: Any, **kw: Any) -> dict:
@@ -415,6 +417,7 @@ class _Scope:
     def subckt(self, name: str, *ports: Any, **params: Any) -> "Subckt":
         """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`."""
         sub = Subckt(name, ports, params, self._pdk)
+        sub._report = self._report
         self.statements.append(sub._stmt)
         return sub
 
@@ -436,6 +439,22 @@ class _Scope:
         st = {"kind": "nodeset", "values": _val({**(values or {}), **more})}
         self.statements.append(st)
         return st
+
+    def code(self, text: str, dialect: str = "ngspice") -> list[dict]:
+        """Add statements written as `dialect` text (a built-in name or a
+        `.spgrammar` path), read as `sprack.read` would but with no title line.
+
+        They are statements like any other and are written in whatever
+        dialect the netlist is for: `c.code(".tran 1n 1u\\n.save v(out)")`
+        works for a Spectre target too. Returns the statements added. A line
+        no rule understands, and anything else the reader reports (file
+        `code`), is in `netlist()`'s report, so a strict `netlist()` raises.
+        """
+        out, rep = _core.read(_dialect(dialect), text, True)
+        stmts = json.loads(out)["stmts"]
+        self._report.extend(e._replace(file="code") for e in Report._from_json(rep))
+        self.statements.extend(stmts)
+        return stmts
 
     def comment(self, text: str) -> dict:
         st = {"kind": "comment", "raw": text}
@@ -493,7 +512,7 @@ class Circuit(_Scope):
         """
         d = _dialect(dialect)
         text, rep = _core.write(d, self.to_json(d, strict=strict))
-        report = Report._from_json(rep)
+        report = Report(self._report + Report._from_json(rep))
         if strict and report.errors:
             raise Unsupported(d, report, text)
         if self.pdk is not None:
