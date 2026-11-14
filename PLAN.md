@@ -37,14 +37,14 @@ early whether a licensed run is available (see Phase 6).
 
 ## Phase 0: tooling (small, unblocks everything)
 
-- [ ] **0.1 Simulators in the flake.** Add a `verify` dev shell containing
+- [x] **0.1 Simulators in the flake.** Add a `verify` dev shell containing
   `ngspice`, `xyce` and the conformance flake's `vacask` and `openvaf-r`, the
   same way ESPice's `benchmarking` shell does.
-- [ ] **0.2 Conformance Suite as a flake input.** Pin the audited commit
+- [x] **0.2 Conformance Suite as a flake input.** Pin the audited commit
   (`4d565dd`) so the audit is reproducible from `nix develop .#verify`.
-- [ ] **0.3 PDK checkouts as flake inputs** (sparse paths per handoff §1), so
+- [x] **0.3 PDK checkouts as flake inputs** (sparse paths per handoff §1), so
   `SPRACK_TEST_PDKS` is set in the shell and the 4 skipped tests run in CI.
-- [ ] **0.4 Corpus audit in CI** (nightly, not per push: it is slow). Fail if
+- [x] **0.4 Corpus audit in CI** (nightly, not per push: it is slow). Fail if
   `SILENT` > 0 or if the error count rises against a committed baseline TSV.
 
 *Exit:* `nix develop .#verify -c zig build test` runs all 9 Python tests, and
@@ -88,13 +88,13 @@ Work this list in the order Phase 1's failures point to.
 
 ## Phase 3: engine features that block grammar work (5.2, 5.3, 5.7)
 
-- [ ] **3.1 Repeated groups `( ... )*` with separators (5.2).** Touches
+- [x] **3.1 Repeated groups `( ... )*` with separators (5.2).** Touches
   `P.item` in `src/grammar.zig`, `Matcher.m` in `src/reader.zig` and `Emit.one`
   in `src/writer.zig`. It unblocks Spectre `func` and conditionals, `.step`
   lists, HSPICE `.hb tones=`, and nested probes.
-- [ ] **3.2 One rule emitting several statements (5.3).** Use a reader
+- [x] **3.2 One rule emitting several statements (5.3).** Use a reader
   post-pass, as `undoMoves` does. It unblocks the lone HSPICE `.noise`.
-- [ ] **3.3 `define name = pattern` (5.7).** Do this before writing more
+- [x] **3.3 `define name = pattern` (5.7).** Do this before writing more
   rules: it collapses the twelve copies of the source-waveform line.
 
 *Exit:* each feature has tests, and the audit shows no new difference.
