@@ -182,6 +182,12 @@ pub const Convert = struct {
     arg_num: []const u8 = "",
 };
 
+/// `threshold family : on off = mid half`: this dialect gives a switch's
+/// thresholds as the levels where it is fully on and fully off, where SPICE
+/// gives a midpoint and a hysteresis half-width: on = mid + half,
+/// off = mid - half. The names are model parameters, as written.
+pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
+
 /// `invalid kind slot[=0] [slot=atom] : text`: a statement without that slot
 /// (or, with `=0`, with it zero) means something else here; an error
 /// whenever it crosses into or out of this dialect.
@@ -254,6 +260,7 @@ pub const Grammar = struct {
     converts: []const Convert = &.{},
     checks: []const Check = &.{},
     differs: []const Differs = &.{},
+    thresholds: []const Threshold = &.{},
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
         for (g.enums) |*e| if (e.kind == kind and e.slot == slot) return e;
@@ -1004,6 +1011,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var converts: []const Convert = &.{};
     var checks: []const Check = &.{};
     var differs: []const Differs = &.{};
+    var thresholds: []const Threshold = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1086,6 +1094,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
             const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
             caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "threshold")) {
+            const e = try args(c, no, rest);
+            if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))
+                return c.fail(no, "threshold is `threshold family : on off = mid half`", .{});
+            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            thresholds = try c.add(Threshold, thresholds, .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] });
         } else if (std.mem.eql(u8, head, "convert")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "convert is `convert kind [slot=atom] : a = b [op c]`", .{});
             const ks = try args(c, no, rest[0..colon]);
@@ -1199,6 +1213,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .converts = converts,
         .checks = checks,
         .differs = differs,
+        .thresholds = thresholds,
     };
 }
 

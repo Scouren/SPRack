@@ -211,3 +211,9 @@ models
   vswitch    = vswitch
   cswitch    = iswitch
 end
+
+# SPICE gives a switch threshold and hysteresis (VT VH, IT IH); Xyce gives
+# the levels where it is fully on and fully off (S_Device.tex: VON VOFF, ION
+# IOFF), and VT/VH are ignored with a warning. on = vt + vh, off = vt - vh.
+threshold vswitch : von voff = vt vh
+threshold cswitch : ion ioff = it ih

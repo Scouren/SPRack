@@ -322,6 +322,60 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
     } };
 }
 
+/// Half a value: exact for a decimal number, else an expression.
+fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value {
+    if (v == .num) if (decimal(v.num)) |x| {
+        const m = std.math.mul(i128, x[0], 5) catch return .{ .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}) };
+        return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), x[1] - 1) };
+    };
+    return .{ .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}) };
+}
+
+pub const Thresholds = struct { params: []const ir.Param, changed: bool = false, no_half: bool = false };
+
+/// Apply a grammar's `threshold` line for `family` to a model card's
+/// parameters. `forward` (writing) turns SPICE's midpoint and half-width into
+/// on and off levels; otherwise (reading) the levels go back. `no_half` says
+/// a midpoint came with no hysteresis, which gives equal levels.
+pub fn thresholds(arena: Allocator, g: *const Grammar, family: []const u8, params: []const ir.Param, forward: bool) Allocator.Error!Thresholds {
+    const th = for (g.thresholds) |*t| {
+        if (std.mem.eql(u8, t.family, family)) break t;
+    } else return .{ .params = params };
+    const a_key, const b_key = if (forward) .{ th.mid, th.half } else .{ th.on, th.off };
+    var a: ir.Value = .none;
+    var b: ir.Value = .none;
+    var rest: std.ArrayList(ir.Param) = .empty;
+    var at: usize = 0; // the pair goes where the first of the two was
+    for (params) |p| {
+        if (std.ascii.eqlIgnoreCase(p.key, a_key) or std.ascii.eqlIgnoreCase(p.key, b_key)) {
+            if (a == .none and b == .none) at = rest.items.len;
+        }
+        if (std.ascii.eqlIgnoreCase(p.key, a_key)) {
+            a = p.val;
+        } else if (std.ascii.eqlIgnoreCase(p.key, b_key)) {
+            b = p.val;
+        } else try rest.append(arena, p);
+    }
+    if (a == .none) return .{ .params = params };
+    if (forward) {
+        // on = mid + half, off = mid - half
+        const no_half = b == .none or (b == .num and decimal(b.num) != null and decimal(b.num).?[0] == 0);
+        const h: ir.Value = if (b == .none) .{ .num = .init("0", 0) } else b;
+        try rest.insertSlice(arena, at, &.{
+            .{ .key = th.on, .val = try arith(arena, .add, a, h) },
+            .{ .key = th.off, .val = try arith(arena, .sub, a, h) },
+        });
+        return .{ .params = rest.items, .changed = true, .no_half = no_half };
+    }
+    // mid = (on + off) / 2, half = (on - off) / 2
+    if (b == .none) return .{ .params = params };
+    try rest.insertSlice(arena, at, &.{
+        .{ .key = th.mid, .val = try halve(arena, try arith(arena, .add, a, b)) },
+        .{ .key = th.half, .val = try halve(arena, try arith(arena, .sub, a, b)) },
+    });
+    return .{ .params = rest.items, .changed = true };
+}
+
 /// Apply a grammar's `convert` lines in place: `forward` turns canonical
 /// values into the dialect's (writing), otherwise the dialect's into
 /// canonical ones (reading, in reverse order). Values are copied before

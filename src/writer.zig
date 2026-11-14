@@ -835,7 +835,14 @@ const Writer = struct {
                 };
             }
         }
-        try out.set(a, schema.slotIndex(.model, "params").?, if (ps.items.len > 0) .{ .params = ps.items } else .none);
+        const th = try expr.thresholds(a, w.g, fam.atom, ps.items, true);
+        if (th.changed and !th.no_half) w.report.add(.warning, .caveat, st.line, "model '{s}': the threshold and hysteresis are written as on and off levels; {s} moves smoothly between them where SPICE switches with hysteresis", .{ st.get("name").atom, w.g.name });
+        if (th.changed) for (th.params) |p| if (p.val == .expr and isLevel(w.g, p.key)) {
+            w.report.add(.info, .oneway, st.line, "model '{s}': levels computed from expressions read back as equal expressions of another shape", .{st.get("name").atom});
+            break;
+        };
+        if (th.no_half) w.report.add(.@"error", .loss, st.line, "model '{s}': a switch with no hysteresis has no {s} form; its on and off levels would be equal", .{ st.get("name").atom, w.g.name });
+        try out.set(a, schema.slotIndex(.model, "params").?, if (th.params.len > 0) .{ .params = th.params } else .none);
         if (!same and st.get("params") == .params) {
             w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
                 st.get("name").atom, fam.atom, w.sourceOf(st), w.g.name, w.g.name,
@@ -1113,6 +1120,12 @@ fn collectDeclared(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHas
         if ((s.kind == .model or s.kind == .subckt) and s.get("name") == .atom) try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
         try collectDeclared(arena, s.body, out);
     }
+}
+
+/// A switch on or off level named by one of the grammar's `threshold` lines.
+fn isLevel(g: *const Grammar, key: []const u8) bool {
+    for (g.thresholds) |t| if (std.ascii.eqlIgnoreCase(key, t.on) or std.ascii.eqlIgnoreCase(key, t.off)) return true;
+    return false;
 }
 
 fn markUsed(stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {

@@ -1123,7 +1123,7 @@ test "more devices: behavioural and controlled sources, coupling, switches, line
         \\H1 y 0 V1 50
         \\T1 a 0 b 0 z0=50 td=1n
         \\S1 p 0 in 0 swm on
-        \\.model swm sw vt=0.5 ron=1
+        \\.model swm sw vt=0.5 vh=0.1 ron=1
         \\.end
     ;
     var r1: ir.Report = .init(a);
@@ -1135,7 +1135,7 @@ test "more devices: behavioural and controlled sources, coupling, switches, line
     try has(sp, "T1 (a 0 b 0) tline z0=50 td=1n\n");
     // Spectre has the switch, as an instance of a vswitch model.
     try has(sp, "S1 (p 0 in 0) swm region=on\n");
-    try has(sp, "model swm vswitch vt=0.5 ron=1\n");
+    try has(sp, "model swm vswitch vt=0.5 vh=0.1 ron=1\n");
 
     var r2: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", src, &r2);
@@ -1144,7 +1144,7 @@ test "more devices: behavioural and controlled sources, coupling, switches, line
     try reported(&r2, .info, "renamed 'B1' to 'EB1'");
     var r3: ir.Report = .init(a);
     const xy = try tr(a, "ngspice", "xyce", src, &r3);
-    try has(xy, "S1 p 0 in 0 swm on\n.model swm vswitch vt=0.5 ron=1\n");
+    try has(xy, "S1 p 0 in 0 swm on\n.model swm vswitch von=600m voff=400m ron=1\n");
     try clean(&r3);
     // References are checked: a sweep over something that is not a device.
     var r4: ir.Report = .init(a);
@@ -1640,13 +1640,13 @@ test "verification: Xyce VBIC levels and switch model types" {
     const xy = try tr(a, "ngspice", "xyce",
         \\t
         \\.model qv npn level=4
-        \\.model swm sw vt=0.5
-        \\.model cwm csw it=1m
+        \\.model swm sw vt=0.5 vh=0.1
+        \\.model cwm csw it=1m ih=0.1m
         \\.end
     , &r1);
     try has(xy, ".model qv npn level=11\n");
-    try has(xy, ".model swm vswitch vt=0.5\n");
-    try has(xy, ".model cwm iswitch it=1m\n");
+    try has(xy, ".model swm vswitch von=600m voff=400m\n");
+    try has(xy, ".model cwm iswitch ion=1100u ioff=900u\n");
     // There is no level 10.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "xyce", "ngspice", "t\n.model qv npn level=10\n.end\n", &r2);
@@ -2116,4 +2116,25 @@ test "sim check: Xyce gmin and nodeset differ from ngspice and say so" {
     _ = try tr(a, "ngspice", "xyce", "t\n.options gmin=1e-3\n.nodeset v(a)=1\nR1 a 0 1\n.op\n.end\n", &r);
     try reported(&r, .warning, "options.gmin: Xyce adds GMIN differently from ngspice");
     try reported(&r, .warning, "nodeset.values: Xyce and ngspice apply nodesets with different algorithms");
+}
+
+test "sim check: a switch's threshold and hysteresis become Xyce's on and off levels" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Xyce ignores VT/VH (with a warning) and switched at its default levels.
+    var r: ir.Report = .init(a);
+    const src = "t\nS1 a 0 c 0 sw1\n.model sw1 sw(vt=2.5 vh=0.5 ron=1 roff=1meg)\n.model cw csw(it=1m ih=0.2m)\n.end\n";
+    const xy = try tr(a, "ngspice", "xyce", src, &r);
+    try has(xy, ".model sw1 vswitch von=3 voff=2 ron=1 roff=1meg\n");
+    try has(xy, ".model cw iswitch ion=1200u ioff=800u\n");
+    try reported(&r, .warning, "model 'sw1': the threshold and hysteresis are written as on and off levels");
+    try testing.expect(!r.hasErrors());
+    // Read back, the levels are SPICE's midpoint and half-width again.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", xy, &r2), ".model sw1 sw vt=2.5 vh=0.5 ron=1 roff=1meg\n");
+    // Without hysteresis the two levels would be equal, which Xyce cannot run.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.model s0 sw(vt=1)\n.end\n", &r3);
+    try reported(&r3, .@"error", "model 's0': a switch with no hysteresis has no xyce form");
 }

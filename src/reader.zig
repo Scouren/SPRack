@@ -753,7 +753,9 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
         kept[n] = p;
         n += 1;
     }
-    vals[pi] = if (n > 0) .{ .params = kept[0..n] } else .none;
+    // Switch levels back to SPICE's midpoint and hysteresis.
+    const th = try expr.thresholds(arena, g, hit.e.family, kept[0..n], false);
+    vals[pi] = if (th.params.len > 0) .{ .params = th.params } else .none;
     try st.store(arena, vals);
 }
 

@@ -338,6 +338,7 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # before it, and absorbs it if only comments
                                        # stand between them
     caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
+    threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
     differs pow : the exponent is cut to an integer  # a shared function or operator
                                                      # evaluated differently: a caveat
