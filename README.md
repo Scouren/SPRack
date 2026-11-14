@@ -1,8 +1,9 @@
 # SPRack: SPICE dialect translator
 
 SPRack reads a netlist in one SPICE dialect and writes it in another, and lets
-a Python program describe a circuit once and get it in any of them. Five
-dialects are built in: ngspice, HSPICE, Xyce, Spectre and VACASK.
+a Python program describe a circuit once and get it in any of them. Eight
+dialects are built in: ngspice, HSPICE, Xyce, Spectre, VACASK, ESPice,
+LTspice and CDL (see [Dialects](#dialects)).
 
 It translates; it does not simulate. Each dialect is described in one
 `grammars/<name>.spgrammar` file. The Zig compiler reads those files at compile
@@ -12,10 +13,29 @@ the same canonical statements, and every writer consumes them.
 
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 45 tests
+    zig build test                 # 53 tests
     pip wheel . -w dist            # sprack-<ver>-cp310-abi3-<platform>.whl (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
+
+## Dialects
+
+| name | what | `assumed` lines |
+|---|---|---|
+| `ngspice` | ngspice 45 | 0 |
+| `hspice` | HSPICE | 0 |
+| `xyce` | Xyce | 0 |
+| `spectre` | Spectre's own language | 1 |
+| `vacask` | VACASK, from its README, slides and upstream decks | 9 |
+| `espice` | ESPice, from its docs: ngspice's dialect with `.hdl` for Verilog-A source, `.pss f0 [points]`, `.hb TONES= NHARMS=`, `.stb probe ...`, and its model levels (BSIM-CMG 72, BSIM-BULK 77, PSP 103 at 1040) | 0 |
+| `ltspice` | LTspice, from knowledge of its syntax; no LTspice was available to check against | 13 |
+| `cdl` | CDL for LVS (Cadence netlister, Calibre): subcircuits, `X ... / name` instances, devices, `.PARAM`, `.GLOBAL`, `$` comments. No sources, analyses or controls: each is a `no` line | 4 |
+
+Each file's header says what it was written from. A line marked `assumed` is
+syntax that source does not settle.
+
+CDL's annotations (`$[model]`, `$X=`) and `*.PININFO` lines are comments to
+SPRack: carried over as written, not understood.
 
 ## What it guarantees
 
@@ -50,6 +70,13 @@ that the report does not explain is a bug.
     sprack write     --to vacask amp.json            # a netlist from that JSON
     sprack caps                                      # which dialect can write what
     sprack info                                      # the schema, as JSON
+
+Wherever a dialect is named (`--from`, `--to`), a path ending in
+`.spgrammar` may stand instead: that grammar is compiled when the command
+starts, by the same compiler that builds the built-in ones (a fraction of a
+millisecond). A mistake in it is reported as `path:line: message`. Error
+messages that list the "dialects that define" something name only the
+built-in ones.
 
 `project` follows every `.include` and `.lib` from the files it is given and
 writes a translated copy of the whole tree, with the include lines rewritten as
@@ -96,6 +123,30 @@ statements of the canonical vocabulary and the core writes them.
   expression in the canonical spelling: `"2*wmin"`, `"ln(a)**2"`.
 * `sprack.translate(text, frm=..., to=...)` and `sprack.read(text, dialect)`
   work on existing netlists.
+* `c.code(text, dialect="ngspice")` (on a circuit or a subcircuit) reads
+  `text` with that dialect's reader, with no title line, and adds the
+  statements: `c.code(".tran 1n 1u\n.save v(out)")` is then written for any
+  target like `c.tran(...)` would be. Each statement remembers its dialect:
+  for a target of that dialect its own options (`.options plotwinsize=0`)
+  and lines no rule understands are written as they are; for any other
+  target they are errors in `netlist()`'s report, so a strict `netlist()`
+  raises.
+* Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
+  may also be a path to a `.spgrammar` file.
+
+### Shipping it inside another program
+
+`zig build py` also writes the package as a self-contained directory:
+
+    zig-out/python/sprack/__init__.py
+    zig-out/python/sprack/_core.abi3.so     # statically linked; CPython 3.10+
+    zig-out/python/sprack/pdks/*.json       # the PDK manifests
+
+Copy `zig-out/python/` anywhere and put it on `PYTHONPATH`; nothing is
+installed and nothing else is needed. Build it with `-Doptimize=ReleaseSafe`
+(about 6 MB) for a release. The only file written outside it is the PDK
+translation cache, `~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=`
+says otherwise. `pip wheel .` packages the same files as a wheel.
 
 ### PDKs
 
@@ -127,11 +178,13 @@ Pass `manifest=` to use a PDK that has no manifest here.
 
 ## What was run
 
-* `zig build test`: 44 tests, among them the 25 translations of one circuit
-  between the five dialects with a read-back comparison, 20,000 randomly
+* `zig build test`: 53 tests, among them the 64 translations of one circuit
+  between the eight dialects with a read-back comparison (into CDL, the
+  sources and analyses are each an `unsupported` error and the rest reads
+  back the same), 20,000 randomly
   damaged netlists through every reader and writer, and a project with
   includes.
-* `python/test_sprack.py`: 9 tests, 4 of them against the four PDKs' real
+* `python/test_sprack.py`: 11 tests, 4 of them against the four PDKs' real
   model libraries.
 * The four PDKs, whole libraries translated:
 
@@ -228,6 +281,7 @@ no single rule holds everything, which is how `.options timeint ...` and
 | `~"("` | a literal glued to its neighbours when written (`v(out)`) |
 | `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
+| `path!` | a path written without quotes when it has no blank |
 | `slot?default` | written when the slot is empty; `$other` and `$#` expand |
 | `slot:"lit"=atom` | the literal stands for a value of an atom slot; a trailing `?` writes it even when the slot is unset |
 | `slot...` | the rest of the line as text, or as one expression for a value slot |
@@ -288,9 +342,9 @@ dialects that have it; so is one that nothing defines.
 
 ## Layout
 
-    grammars/*.spgrammar   the five dialects
+    grammars/*.spgrammar   the eight dialects
     src/schema.zig         canonical kinds, slots, model families, functions
-    src/grammar.zig        the comptime compiler for .spgrammar
+    src/grammar.zig        the .spgrammar compiler (at compile time and at run time)
     src/lexer.zig          lines, tokens, exact numbers
     src/reader.zig         pattern matcher: text to statements
     src/writer.zig         patterns in reverse: statements to text

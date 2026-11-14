@@ -107,6 +107,8 @@ no sens   : Xyce's .SENS takes an objective function and a parameter list, not a
 no save   : Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give
 no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist
 no device : Xyce instantiates a Verilog-A model through its compiled plugin's own device letter and level; there is no netlist form for an arbitrary module
+no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
+no verilog : Xyce has no netlist card that loads a digital Verilog design
 
 caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed the first time point differently
 caveat tran step : the first .TRAN number only sets the initial step in Xyce

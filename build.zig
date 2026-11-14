@@ -81,7 +81,19 @@ pub fn build(b: *std.Build) void {
     pyext.linker_allow_shlib_undefined = true;
     const ext_name = if (target.result.os.tag == .windows) "_core.pyd" else "_core.abi3.so";
     const install_py = b.addInstallFileWithDir(pyext.getEmittedBin(), .{ .custom = "../python/sprack" }, ext_name);
-    b.step("py", "Build the Python extension into python/sprack/").dependOn(&install_py.step);
+    // The same package as a self-contained directory to ship: zig-out/python
+    // goes on PYTHONPATH and `import sprack` works, PDK manifests included.
+    const bundle_pkg = b.addInstallDirectory(.{
+        .source_dir = b.path("python/sprack"),
+        .install_dir = .prefix,
+        .install_subdir = "python/sprack",
+        .include_extensions = &.{ ".py", ".json" },
+    });
+    const bundle_ext = b.addInstallFileWithDir(pyext.getEmittedBin(), .{ .custom = "python/sprack" }, ext_name);
+    const py_step = b.step("py", "Build the Python extension into python/sprack/, and the package to ship into zig-out/python/sprack/");
+    py_step.dependOn(&install_py.step);
+    py_step.dependOn(&bundle_pkg.step);
+    py_step.dependOn(&bundle_ext.step);
 
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());

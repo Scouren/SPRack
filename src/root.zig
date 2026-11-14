@@ -26,7 +26,7 @@ pub const dialect_count = registry.sources.len;
 /// stops the build here.
 pub const grammars: [dialect_count]Grammar = blk: {
     var out: [dialect_count]Grammar = undefined;
-    for (registry.sources, 0..) |src, i| out[i] = grammar.compile(src);
+    for (registry.sources, 0..) |src, i| out[i] = grammar.compileBuiltin(src);
     break :blk out;
 };
 
@@ -70,6 +70,29 @@ pub const caps: writer.Caps = blk: {
 pub fn find(name: []const u8) ?*const Grammar {
     for (&grammars) |*g| if (std.ascii.eqlIgnoreCase(g.name, name)) return g;
     return null;
+}
+
+/// Whether a dialect argument names a grammar file rather than a built-in.
+pub fn isGrammarPath(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".spgrammar");
+}
+
+pub const LoadError = error{ UnknownDialect, CannotRead, BadGrammar, OutOfMemory };
+
+/// A built-in dialect by name, or a `.spgrammar` file by path compiled now.
+/// A loaded grammar lives in `arena` with its source. On `CannotRead` and
+/// `BadGrammar`, `diag.msg` says why (`file:line: message` for the latter).
+/// `caps` knows only the built-ins, so an error naming "dialects that define
+/// it" never lists a loaded grammar.
+pub fn resolve(arena: Allocator, io: std.Io, name: []const u8, diag: *grammar.Diag) LoadError!*const Grammar {
+    if (!isGrammarPath(name)) return find(name) orelse error.UnknownDialect;
+    const src = std.Io.Dir.cwd().readFileAlloc(io, name, arena, .limited(16 << 20)) catch |e| {
+        diag.msg = try std.fmt.allocPrint(arena, "cannot read {s}: {s}", .{ name, @errorName(e) });
+        return error.CannotRead;
+    };
+    const g = try arena.create(Grammar);
+    g.* = try grammar.compile(arena, src, name, diag);
+    return g;
 }
 
 /// A dialect chosen at compile time. A misspelt name is a compile error.

@@ -24,7 +24,7 @@ def test_translate():
     assert "R1 (a 0) resistor r=1m\n" in out and "tran1 tran step=1n stop=1u\n" in out
     assert out.report == []
     e = raises(sprack.Unsupported, lambda: sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce"),
-               "Xyce has no pole-zero analysis", "Dialects that define it: ngspice")
+               "Xyce has no pole-zero analysis", "Dialects that define it: espice, ngspice")
     assert "not written: analysis 'pz'" in e.text and e.report.errors[0].code == "unsupported"
     lax = sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce", strict=False)
     assert len(lax.report.errors) == 1
@@ -73,7 +73,7 @@ def test_build_every_dialect():
     # Xyce records only what .print lists: a bare save is an error there, and says so.
     raises(sprack.Unsupported, lambda: c.netlist("xyce"), "Xyce records only what .PRINT lists")
     # VACASK has no BSIM4 card in its grammar and no initial conditions.
-    e = raises(sprack.Unsupported, lambda: c.netlist("vacask"), "model family 'bsim4 n'", "Defined by: hspice, ngspice, spectre, xyce")
+    e = raises(sprack.Unsupported, lambda: c.netlist("vacask"), "model family 'bsim4 n'", "Defined by: espice, hspice, ltspice, ngspice, spectre, xyce")
     assert "analysis tran1 tran step=10p stop=8n" in e.text
     # Reading any netlist back gives a circuit that can be written again.
     again = sprack.read(ng, "ngspice")
@@ -94,7 +94,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "espice", "ltspice", "cdl"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
@@ -102,6 +102,63 @@ def test_vocabulary_is_closed():
     out = c2.netlist("ngspice")
     assert "B1 out 0 v={v(inp)*2 + ln(k)}\n" in out and ".global vdd vss\n" in out and ".print tran v(out)\n" in out
     assert "B1 (out 0) bsource v=v(inp)*2 + log(k)\n".replace("v=v(inp)*2 + log(k)", "v=(v(inp)*2 + log(k))") in c2.netlist("spectre", strict=False)
+
+
+GRAMMARS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "grammars")
+
+
+def test_grammar_file():
+    path = os.path.join(GRAMMARS, "ngspice.spgrammar")
+    c = build()
+    ng = c.netlist("ngspice")
+    assert c.netlist(path) == ng
+    assert sprack.translate(ng, frm=path, to="spectre") == sprack.translate(ng, frm="ngspice", to="spectre")
+    assert sprack.translate(ng, frm="ngspice", to=path) == sprack.translate(ng, frm="ngspice", to="ngspice")
+    assert sprack.read(ng, path).statements == sprack.read(ng, "ngspice").statements
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, "tb.spice")
+        c.write(out, path)
+        assert open(out).read() == ng
+        bad = os.path.join(d, "bad.spgrammar")
+        with open(bad, "w") as f:
+            f.write('dialect bad\nlexer\nend\nrule op = ".op" zz\n')
+        raises(ValueError, lambda: c.netlist(bad), f"{bad}:4: unknown slot 'zz' for kind 'op'")
+    raises(ValueError, lambda: c.netlist("/no/such.spgrammar"), "cannot read /no/such.spgrammar")
+
+
+def test_code():
+    c = sprack.Circuit("code blocks")
+    c.R("1", "in", "out", "1k")
+    c.C("1", "out", 0, "1p")
+    c.V("in", "in", 0, 1)
+    added = c.code(".tran 1n 1u\n.ac dec 10 1 1G $ sweep\n.save v(out)\n")
+    assert [s["kind"] for s in added] == ["tran", "ac", "save"]
+    with c.subckt("buf", "a", "b") as s:
+        s.code("rb (a b) resistor r=10\n", "spectre")
+    sp = c.netlist("spectre")
+    for line in ["tran1 tran step=1n stop=1u", "ac1 ac start=1 stop=1G dec=10 // sweep", "save out", "rb (a b) resistor r=10"]:
+        assert line + "\n" in sp, f"missing {line!r} in\n{sp}"
+    ng = c.netlist(os.path.join(GRAMMARS, "ngspice.spgrammar"))
+    assert ".tran 1n 1u\n" in ng and "rb a b 10\n" in ng
+    # A line the reader does not understand is kept as written for its own
+    # dialect, and is an error of the netlist for any other.
+    c.code(".bogus 1 2\n")
+    assert ".bogus 1 2\n" in c.netlist("ngspice")
+    raises(sprack.Unsupported, lambda: c.netlist("spectre"), "no ngspice rule understood this line", ".bogus 1 2")
+    assert any(e.code == "untranslated" for e in c.netlist("xyce", strict=False).report.errors)
+    raises(ValueError, lambda: c.code(".op\n", "pspice"), "unknown dialect")
+    # An ngspice .control block in a code block is kept for ngspice only.
+    ctl = sprack.Circuit("ctl")
+    ctl.R("1", "a", 0, "1k")
+    ctl.code(".control\nrun\n.endc\n")
+    assert ".control\nrun\n.endc\n" in ctl.netlist("ngspice")
+    raises(sprack.Unsupported, lambda: ctl.netlist("xyce"), "no ngspice rule understood this line")
+    # A dialect's own options survive a code block written in it.
+    lt = sprack.Circuit("lt")
+    lt.R("1", "a", 0, "1k")
+    lt.code(".options plotwinsize=0 numdgt=15\n.op\n", "ltspice")
+    assert ".options plotwinsize=0 numdgt=15\n" in lt.netlist("ltspice")
+    raises(sprack.Unsupported, lambda: lt.netlist("ngspice"), "'plotwinsize=0' has no spelling in ngspice")
 
 
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
@@ -188,7 +245,7 @@ def test_pdk_asap7():
     xy = open(os.path.join(p.translate("xyce"), "7nm_FF.pm")).read()
     assert ".model nmos_rvt nmos level=110" in xy
     # ngspice has no built-in BSIM-CMG: an error that says who has.
-    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: hspice, spectre, xyce")
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: espice, hspice, spectre, xyce")
 
 
 def test_pdk_freepdk45():

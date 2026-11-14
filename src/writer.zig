@@ -396,6 +396,9 @@ const Emit = struct {
                     return true;
                 }
                 var text = (try e.slotText(n.slot, false)) orelse return false;
+                // `path!`: a path with no blank goes out without quotes.
+                const v = e.st.vals[n.slot];
+                if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null) text = v.str;
                 if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
                     const upper = text.len > 0 and std.ascii.isUpper(text[0]);
                     const renamed = if (upper)
@@ -653,6 +656,11 @@ const Writer = struct {
         w.last_blank = false;
     }
 
+    /// The dialect `st` was read in.
+    fn sourceOf(w: *const Writer, st: *const ir.Stmt) []const u8 {
+        return if (st.dialect.len > 0) st.dialect else w.source;
+    }
+
     fn supporters(w: *Writer, kind: Kind) []const u8 {
         const c = w.caps orelse return "";
         return c.kinds[@backingInt(kind)];
@@ -660,7 +668,7 @@ const Writer = struct {
 
     fn unmapModel(w: *Writer, a: Allocator, st: *const ir.Stmt) (Error || error{Skip})!?ir.Stmt {
         const fam = st.get("family");
-        const same = std.mem.eql(u8, w.source, w.g.name);
+        const same = std.mem.eql(u8, w.sourceOf(st), w.g.name);
         if (fam != .atom) {
             if (!same and st.get("type") == .atom) {
                 const ty = st.get("type").atom;
@@ -669,14 +677,14 @@ const Writer = struct {
                 // name of a Verilog-A module, which is the same everywhere.
                 var builtin = w.caps == null;
                 if (w.caps) |c| for (c.grammars) |*sg| {
-                    if (!std.mem.eql(u8, sg.name, w.source)) continue;
+                    if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
                     for (sg.models) |*m| for (m.spellings) |*sp| {
                         if (std.ascii.eqlIgnoreCase(sp.type, ty)) builtin = true;
                     };
                 };
                 if (builtin) {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}': type '{s}' with these parameters is not in the {s} models table, so its {s} name is unknown; written as it was", .{
-                        st.get("name").atom, ty, w.source, w.g.name,
+                        st.get("name").atom, ty, w.sourceOf(st), w.g.name,
                     });
                 } else if (w.g.absentReason(.device)) |why| {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s}", .{ st.get("name").atom, ty, why });
@@ -691,7 +699,7 @@ const Writer = struct {
             plain.vals = try a.dupe(Value, st.vals);
             plain.vals[schema.slotIndex(.model, "family").?] = .none;
             if (!same) w.report.add(.@"error", .unsupported, st.line, "model '{s}': '{s}' is a built-in {s} model type that the {s} models table does not list, so its {s} name is unknown; written as it was", .{
-                st.get("name").atom, st.get("type").atom, w.source, w.source, w.g.name,
+                st.get("name").atom, st.get("type").atom, w.sourceOf(st), w.sourceOf(st), w.g.name,
             });
             return plain;
         }
@@ -731,7 +739,7 @@ const Writer = struct {
         out.vals[schema.slotIndex(.model, "params").?] = if (ps.items.len > 0) .{ .params = ps.items } else .none;
         if (!same and st.get("params") == .params) {
             w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
-                st.get("name").atom, fam.atom, w.source, w.g.name, w.g.name,
+                st.get("name").atom, fam.atom, w.sourceOf(st), w.g.name, w.g.name,
             });
         }
         return out;
@@ -746,7 +754,7 @@ const Writer = struct {
             .funcs = &w.funcs,
             .caps = w.caps,
             .ordinal = w.ordinals[@backingInt(st.kind)],
-            .foreign = !std.mem.eql(u8, w.source, w.g.name),
+            .foreign = !std.mem.eql(u8, w.sourceOf(st), w.g.name),
         };
     }
 
@@ -800,11 +808,11 @@ const Writer = struct {
             return w.comment(st.raw);
         }
         if (st.kind == .@"opaque") {
-            if (std.mem.eql(u8, w.source, w.g.name)) return w.lineTail(st.raw, st.tail);
+            if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return w.lineTail(st.raw, st.tail);
             w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this line; it is in the output only as a comment: {s}", .{
-                w.source, std.mem.sliceTo(st.raw, '\n'),
+                w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'),
             });
-            return w.comment(try a.print("[sprack] untranslated {s}: {s}", .{ w.source, st.raw }));
+            return w.comment(try a.print("[sprack] untranslated {s}: {s}", .{ w.sourceOf(st), st.raw }));
         }
         const class = schema.info(st.kind).class;
         if (class == .control) {
@@ -909,7 +917,7 @@ const Writer = struct {
                 if (sl.ty != .ref or st.vals[i] != .atom) continue;
                 if (w.instances.contains(try std.ascii.allocLowerString(a, st.vals[i].atom))) continue;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a device in this netlist; if {s} means a parameter by it, {s} has to be told so in its own way", .{
-                    @tagName(st.kind), sl.name, st.vals[i].atom, w.source, w.g.name,
+                    @tagName(st.kind), sl.name, st.vals[i].atom, w.sourceOf(st), w.g.name,
                 });
             }
         }
@@ -918,12 +926,12 @@ const Writer = struct {
             const value = st.vals[3];
             if (master == .atom and value == .none and !w.declared.contains(try std.ascii.allocLowerString(a, master.atom))) {
                 w.report.add(.warning, .ambiguous, st.line, "'{s}' on {s} is a model name in {s}, but no model of that name is declared here; {s} will read it as a parameter", .{
-                    master.atom, st.get("name").atom, w.source, w.g.name,
+                    master.atom, st.get("name").atom, w.sourceOf(st), w.g.name,
                 });
             }
         }
         if (e.foreign and (st.kind == .include or st.kind == .lib or st.kind == .hdl)) {
-            w.report.add(.warning, .caveat, st.line, "{s} is still {s} syntax; translate that file too (`sprack project` follows includes)", .{ try e.describe(st.get("path")), w.source });
+            w.report.add(.warning, .caveat, st.line, "{s} is still {s} syntax; translate that file too (`sprack project` follows includes)", .{ try e.describe(st.get("path")), w.sourceOf(st) });
         }
     }
 
@@ -974,14 +982,21 @@ const CaseMaps = struct {
 
 /// Names that differ only by case collide in a dialect that ignores case.
 /// Nodes, instances and definitions are separate name spaces: a source
-/// `Vdd` on a node `vdd` is no collision.
+/// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
+/// instances are its own scope; definitions are shared by all scopes.
 fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8) Allocator.Error!void {
     for (stmts) |*s| {
+        const scoped = s.kind == .subckt;
+        var inner: CaseMaps = .{ .definitions = seen.definitions };
+        const maps = if (scoped) &inner else seen;
+        defer if (scoped) {
+            seen.definitions = inner.definitions;
+        };
         for (schema.info(s.kind).slots, 0..) |sl, i| {
             const map = switch (sl.ty) {
-                .node => &seen.nodes,
-                .name => if (schema.info(s.kind).class == .device) &seen.instances else &seen.definitions,
-                .ident => &seen.definitions,
+                .node => &maps.nodes,
+                .name => if (schema.info(s.kind).class == .device) &maps.instances else &maps.definitions,
+                .ident => &maps.definitions,
                 else => continue,
             };
             // A model's type word is a keyword of the dialect, not a name.
@@ -1005,7 +1020,7 @@ fn checkCase(arena: Allocator, stmts: []const ir.Stmt, seen: *CaseMaps, report: 
                 }
             }
         }
-        try checkCase(arena, s.body, seen, report, target);
+        try checkCase(arena, s.body, maps, report, target);
     }
 }
 

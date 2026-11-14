@@ -115,6 +115,8 @@ no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found wit
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no vswitch : Spectre's relay is a four-terminal switch with different parameters (vt1, vt2, ropen, rclosed); the SPICE switch model has no direct form
 no cswitch : Spectre has no current-controlled switch element
+no xspice : XSPICE code models are ngspice's; Spectre has no such element
+no verilog : Spectre's netlist has no card that loads a digital Verilog design; mixed-signal runs go through AMS Designer
 
 caveat tran skip_dc : skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
 caveat tran method : the integration methods are near equivalents, not the same algorithm

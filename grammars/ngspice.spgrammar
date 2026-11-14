@@ -58,7 +58,8 @@ read  include   = ".inc" path
 rule  lib       = ".lib" path section
 # Model cards may carry bare flags (vdmos pchan, ltra steplimit).
 rule  model     = ".model" name type {...params?}
-rule  hdl       = ".control" / "pre_osdi" path / ".endc"
+# pre_osdi is a .control command, written as ngspice's manual writes it: unquoted.
+rule  hdl       = ".control" / "pre_osdi" path! / ".endc"
 
 rule  options   = ".temp" temp
 rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
@@ -104,6 +105,8 @@ rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off"
 rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
 rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
 rule  device    = name~"N" nodes+ master {...params}
+# XSPICE code models: a vector port's brackets are items of `nodes`.
+rule  xspice    = name~"A" nodes+ master {...params}
 # ngspice accepts the PSpice-style params: keyword but does not need it.
 read  instance  = name~"X" nodes+ master "params:" {...params}
 rule  instance  = name~"X" nodes+ master {...params}
@@ -129,6 +132,7 @@ enum dc var : temp=temp
 no hb  : ngspice has no harmonic-balance analysis
 no pss : ngspice's .pss is an experimental oscillator analysis with a different meaning; there is no driven periodic steady state
 no stb : ngspice has no loop-stability analysis
+no verilog : ngspice runs digital Verilog through an XSPICE d_cosim model of a design compiled with Icarus Verilog (vvp); no card loads Verilog source
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit

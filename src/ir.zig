@@ -84,6 +84,11 @@ pub const Stmt = struct {
     line: u32 = 0,
     /// Trailing comment on the statement's line.
     tail: []const u8 = "",
+    /// The dialect this statement was read in, when it is not the
+    /// netlist's (a block of text added to a circuit built in Python).
+    /// Empty: the netlist's. A target of the same dialect writes the
+    /// statement's private values (options, analysis parameters) as they are.
+    dialect: []const u8 = "",
 
     pub fn get(s: *const Stmt, comptime slot: []const u8) Value {
         const i = schema.slotIndex(s.kind, slot) orelse return .none;

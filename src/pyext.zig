@@ -69,14 +69,22 @@ fn flag(args: ?*PyObject, i: isize) bool {
     return PyObject_IsTrue(o) == 1;
 }
 
-fn dialect(name: []const u8) Fail!*const sprack.Grammar {
-    return sprack.find(name) orelse {
-        var buf: [256]u8 = undefined;
-        var w: std.Io.Writer = .fixed(&buf);
-        w.print("unknown dialect '{s}'. Built in:", .{name[0..@min(name.len, 40)]}) catch {};
-        for (&sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
-        w.writeByte(0) catch {};
-        buf[buf.len - 1] = 0;
+/// A built-in dialect name or a path to a `.spgrammar` file.
+fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
+    var diag: sprack.grammar.Diag = .{};
+    return sprack.resolve(arena, threaded.io(), name, &diag) catch |e| {
+        var buf: [1024]u8 = undefined;
+        var w: std.Io.Writer = .fixed(buf[0 .. buf.len - 1]);
+        switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.UnknownDialect => {
+                w.print("unknown dialect '{s}'. Built in:", .{name[0..@min(name.len, 40)]}) catch {};
+                for (&sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
+                w.writeAll("; or a path to a .spgrammar file") catch {};
+            },
+            error.CannotRead, error.BadGrammar => w.writeAll(diag.msg) catch {},
+        }
+        buf[w.end] = 0;
         PyErr_SetString(PyExc_ValueError, @ptrCast(&buf));
         return error.Raised;
     };
@@ -116,8 +124,8 @@ fn infoBody(arena: Allocator, _: ?*PyObject) Fail!*PyObject {
 }
 
 fn translateBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
-    const gf = try dialect(try arg(args, 0));
-    const gt = try dialect(try arg(args, 1));
+    const gf = try dialect(arena, try arg(args, 0));
+    const gt = try dialect(arena, try arg(args, 1));
     var report: ir.Report = .init(arena);
     const nl = try sprack.read(arena, gf, try arg(args, 2), &report);
     var aw: std.Io.Writer.Allocating = .init(arena);
@@ -126,7 +134,7 @@ fn translateBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
 }
 
 fn readBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
-    const gf = try dialect(try arg(args, 0));
+    const gf = try dialect(arena, try arg(args, 0));
     var report: ir.Report = .init(arena);
     const nl = try sprack.reader.read(gf, arena, try arg(args, 1), &report, .{ .library = flag(args, 2) });
     var aw: std.Io.Writer.Allocating = .init(arena);
@@ -135,7 +143,7 @@ fn readBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
 }
 
 fn writeBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
-    const gt = try dialect(try arg(args, 0));
+    const gt = try dialect(arena, try arg(args, 0));
     var report: ir.Report = .init(arena);
     var nl = try sprack.json.parseNetlist(arena, try arg(args, 1), &report);
     nl.library = flag(args, 2);
@@ -167,9 +175,9 @@ var threaded: std.Io.Threaded = .init_single_threaded;
 /// project(from, to, tops, out_dir, vars, library) -> (summary_json, log)
 /// catalog: the same with to == "" and out_dir == "" -> (catalog_json, log)
 fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
-    const gf = try dialect(try arg(args, 0));
+    const gf = try dialect(arena, try arg(args, 0));
     const to = try arg(args, 1);
-    const gt: ?*const sprack.Grammar = if (to.len > 0) try dialect(to) else null;
+    const gt: ?*const sprack.Grammar = if (to.len > 0) try dialect(arena, to) else null;
     var log: std.Io.Writer.Allocating = .init(arena);
     var cat: std.Io.Writer.Allocating = .init(arena);
     const sum = sprack.project.run(threaded.io(), std.heap.page_allocator, .{

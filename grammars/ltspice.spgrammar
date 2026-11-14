@@ -1,0 +1,168 @@
+# LTspice
+#
+# Written from knowledge of LTspice's syntax (its help file's "LTspice
+# Simulator" chapter); no LTspice was available to check against. Lines
+# marked "assumed" are the ones that knowledge does not settle.
+#
+# Differences from ngspice captured here: `;` is the only trailing comment,
+# braces are the only expression delimiters, there is no atto suffix, sources
+# write their waveform before the AC spec (as LTspice's own netlister does)
+# and the sine is spelled SINE, `**` is power and `^` is exclusive-or, and
+# the simulator variables are `temp` and `freq`. There are no .if blocks, no
+# .print, no Verilog-A, and no pole-zero, sensitivity, distortion, harmonic
+# balance, periodic steady state, S-parameter or loop-stability analyses.
+
+dialect ltspice
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  comment   tail ";"
+  continue  lead "+"
+  parens    space
+  expr      "{" "}"
+  values    strict
+  scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15
+  oddscale  mil=25.4e-6
+  units     ignore
+  end       ".end"
+end
+
+block subckt
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} )
+  close  ".ends" [name]
+end
+
+block libsection                                 # assumed
+  open   ".lib" name
+  close  ".endl" [name]
+end
+
+rule  func      = ".func" name ~"(" args* ~")" expr
+rule  param     = ".param" {...params}
+rule  global    = ".global" nodes+
+rule  include   = ".include" path
+read  include   = ".inc" path
+rule  lib       = ".lib" path section            # assumed
+rule  model     = ".model" name type {...params?}
+
+rule  options   = ".temp" temp
+rule  options   = ".options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+read  options   = ".option" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+rule  save      = ".save" signals+
+rule  ic        = ".ic" { v(*)=values }
+rule  nodeset   = ".nodeset" { v(*)=values }
+rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+
+rule  resistor  = name~"R" pos neg r {...params}
+rule  capacitor = name~"C" pos neg c {...params}
+rule  inductor  = name~"L" pos neg l {...params}
+rule  mutual    = name~"K" l1 l2 k
+# The waveform of a V or I source; vsource and isource share these slots.
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+# The DC value next to a waveform is assumed to be accepted, as in SPICE3.
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
+rule  bsource   = name~"B" pos neg { v=v i=i ...params }
+read  bsource   = name~"E" pos neg { value=v! }      # assumed
+read  bsource   = name~"G" pos neg { value=i! }      # assumed
+rule  vcvs      = name~"E" pos neg cpos cneg gain
+rule  vccs      = name~"G" pos neg cpos cneg gm
+rule  cccs      = name~"F" pos neg vsrc gain
+rule  ccvs      = name~"H" pos neg vsrc gain
+rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+# Three-terminal power MOSFETs (VDMOS) have no bulk node.
+rule  mosfet    = name~"M" d g s master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  mesfet    = name~"Z" d g s master [area] {...params}
+rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
+rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
+rule  tline     = name~"T" p1 n1 p2 n2 { zo=z0 td=td ...params }     # assumed: Zo, not Z0
+read  instance  = name~"X" nodes+ master "params:" {...params}
+rule  instance  = name~"X" nodes+ master {...params}
+
+rule  op        = ".op"
+rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
+rule  dc        = ".dc" var:"temp" start stop step
+rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
+rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  four      = ".four" freq signals+
+
+implied noise ref = 0
+implied tf ref = 0
+enum options method : trap=trap gear=gear
+enum dc var : temp=temp
+
+no pz        : LTspice has no pole-zero analysis
+no sens      : LTspice has no .SENS sensitivity analysis
+no disto     : LTspice has no .DISTO small-signal distortion analysis
+no hb        : LTspice has no harmonic-balance analysis
+no pss       : LTspice has no periodic steady-state analysis; .tran's steady modifier only stops at steady state
+no sp        : LTspice has no .SP analysis; its .NET computes network parameters from an .AC analysis
+no stb       : LTspice has no loop-stability analysis
+no print     : LTspice has no .PRINT; every node is written to the .raw file   # assumed
+no hdl       : LTspice cannot load Verilog-A
+no device    : LTspice cannot instantiate a Verilog-A module
+no cond_if   : LTspice has no conditional netlist blocks; use if() in an expression
+no cond_elif : LTspice has no conditional netlist blocks; use if() in an expression
+no cond_else : LTspice has no conditional netlist blocks; use if() in an expression
+no xspice : XSPICE code models are ngspice's; LTspice's A devices are its own digital primitives with fixed pins
+no verilog : LTspice cannot load Verilog
+
+caveat tran skip_dc : UIC skips the DC solve and starts from .ic values; other simulators seed the first time point differently
+
+signals
+  vdiff = "v(%,%)"
+  v     = "v(%)"
+  i     = "i(%)"
+end
+
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  same limit atan2 hypot asinh acosh atanh uramp if v i
+  ln    = ln log
+  log10 = log10
+  stp   = u
+  nint  = round                                  # assumed
+end
+
+variables
+  temper = temp
+  same time
+  hertz = freq                                   # assumed
+end
+
+operators
+  pow "**"
+  xor "^"                                        # assumed
+end
+
+models
+  diode      = d
+  bjt npn    = npn
+  bjt pnp    = pnp
+  jfet n     = njf
+  jfet p     = pjf
+  mesfet n   = nmf
+  mesfet p   = pmf                               # assumed
+  mos1 n     = nmos level=1 | nmos !level
+  mos1 p     = pmos level=1 | pmos !level
+  mos2 n     = nmos level=2
+  mos2 p     = pmos level=2
+  mos3 n     = nmos level=3
+  mos3 p     = pmos level=3
+  bsim3 n    = nmos level=8 | nmos level=49
+  bsim3 p    = pmos level=8 | pmos level=49
+  bsim4 n    = nmos level=14 | nmos level=54     # assumed
+  bsim4 p    = pmos level=14 | pmos level=54     # assumed
+  vdmos      = vdmos
+  vswitch    = sw
+  cswitch    = csw
+end

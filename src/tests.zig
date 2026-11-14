@@ -1,4 +1,4 @@
-//! End-to-end tests for the five shipped grammars.
+//! End-to-end tests for the shipped grammars.
 
 const std = @import("std");
 const sprack = @import("root.zig");
@@ -6,7 +6,7 @@ const testing = std.testing;
 const ir = sprack.ir;
 const schema = sprack.schema;
 
-const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce" };
+const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "espice", "ltspice", "cdl" };
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -134,8 +134,50 @@ const core_vacask =
     \\endc
 ;
 
+// ESPice reads ngspice's dialect: core_ngspice is an ESPice deck as written.
+
+const core_ltspice =
+    \\Core test circuit
+    \\* comment line
+    \\.param rload=2k cval=10p
+    \\.subckt rcdiv in out vss r1=1k r2=1k
+    \\R1 in out {r1}
+    \\R2 out vss {r2}
+    \\C1 out vss 1.5p
+    \\.ends rcdiv
+    \\V1 in 0 DC 1 PULSE(0 1.8 1n 100p 100p 5n 10n) AC 1
+    \\I1 0 out DC 1M ; one milliamp
+    \\X1 in out 0 rcdiv params:
+    \\+ r1=1MEG r2={rload*2}
+    \\Cl out 0 {cval}
+    \\Ll out 0 10n
+    \\.op
+    \\.dc V1 0 1.8 0.1
+    \\.ac dec 10 1 1G
+    \\.tran 10p 20n
+    \\.noise V(out) V1 dec 10 1k 1MEG
+    \\.end
+;
+
+// CDL is connectivity only: the circuit without its sources and analyses.
+const core_cdl =
+    \\* Core test circuit
+    \\.PARAM rload=2k cval=10p
+    \\.SUBCKT rcdiv in out vss r1=1k r2=1k
+    \\R1 in out r1
+    \\R2 out vss r2 $ a bare identifier is a value
+    \\C1 out vss 1.5p
+    \\.ENDS rcdiv
+    \\X1 in out 0 / rcdiv r1=1MEG r2='rload*2'
+    \\Cl out 0 cval
+    \\Ll out 0 10n
+    \\.END
+;
+
 fn sample(name: []const u8) []const u8 {
-    if (std.mem.eql(u8, name, "ngspice")) return core_ngspice;
+    if (std.mem.eql(u8, name, "ngspice") or std.mem.eql(u8, name, "espice")) return core_ngspice;
+    if (std.mem.eql(u8, name, "ltspice")) return core_ltspice;
+    if (std.mem.eql(u8, name, "cdl")) return core_cdl;
     if (std.mem.eql(u8, name, "hspice")) return core_hspice;
     if (std.mem.eql(u8, name, "xyce")) return core_xyce;
     if (std.mem.eql(u8, name, "spectre")) return core_spectre;
@@ -209,8 +251,8 @@ fn countKind(nl: ir.Netlist, kind: schema.Kind) usize {
 
 const Arena = std.heap.ArenaAllocator;
 
-test "all five grammars compiled" {
-    try testing.expectEqual(5, sprack.dialect_count);
+test "all grammars compiled" {
+    try testing.expectEqual(dialects.len, sprack.dialect_count);
     for (dialects) |n| try testing.expect(sprack.find(n) != null);
 }
 
@@ -226,6 +268,7 @@ test "hand-written samples parse completely" {
         try testing.expectEqual(0, countKind(nl, .@"opaque"));
         try testing.expectEqual(0, report.items.items.len);
         try testing.expectEqual(1, countKind(nl, .subckt));
+        if (std.mem.eql(u8, d, "cdl")) continue;
         try testing.expectEqual(1, countKind(nl, .tran));
         try testing.expectEqual(1, countKind(nl, .dc));
     }
@@ -264,6 +307,20 @@ fn withoutNoise(arena: std.mem.Allocator, nl: ir.Netlist) !ir.Netlist {
     return .{ .title = nl.title, .dialect = nl.dialect, .stmts = out.items };
 }
 
+/// The statements `g` has a form for: what a netlist-only dialect (CDL)
+/// keeps of a simulation deck.
+fn writableIn(arena: std.mem.Allocator, nl: ir.Netlist, g: *const sprack.Grammar) !ir.Netlist {
+    var out: std.ArrayList(ir.Stmt) = .empty;
+    for (nl.stmts) |s| if (s.kind == .comment or g.canWrite(s.kind)) try out.append(arena, s);
+    return .{ .title = nl.title, .dialect = nl.dialect, .stmts = out.items };
+}
+
+fn droppedIn(nl: ir.Netlist, g: *const sprack.Grammar) usize {
+    var n: usize = 0;
+    for (nl.stmts) |s| n += @intFromBool(s.kind != .comment and !g.canWrite(s.kind));
+    return n;
+}
+
 test "the five readers agree on what the circuit is" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -271,8 +328,13 @@ test "the five readers agree on what the circuit is" {
     for (dialects) |d1| {
         for (dialects) |d2| {
             var report: ir.Report = .init(a);
-            var n1 = try withoutNoise(a, try readAs(a, d1, sample(d1), &report));
-            var n2 = try withoutNoise(a, try readAs(a, d2, sample(d2), &report));
+            const cdl = sprack.find("cdl").?;
+            var n1 = try writableIn(a, try withoutNoise(a, try readAs(a, d1, sample(d1), &report)), cdl);
+            var n2 = try writableIn(a, try withoutNoise(a, try readAs(a, d2, sample(d2), &report)), cdl);
+            if (!std.mem.eql(u8, d1, "cdl") and !std.mem.eql(u8, d2, "cdl")) {
+                n1 = try withoutNoise(a, try readAs(a, d1, sample(d1), &report));
+                n2 = try withoutNoise(a, try readAs(a, d2, sample(d2), &report));
+            }
             try lowerNames(a, n1.stmts);
             try lowerNames(a, n2.stmts);
             errdefer std.debug.print("{s} vs {s}\n", .{ d1, d2 });
@@ -281,20 +343,26 @@ test "the five readers agree on what the circuit is" {
     }
 }
 
-test "25 translations: write, read back, same circuit, no errors" {
+test "every pair of dialects: write, read back, same circuit, no errors" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     for (dialects) |from| {
         for (dialects) |to| {
             var report: ir.Report = .init(a);
-            const src_nl = try readAs(a, from, sample(from), &report);
-            const text = try writeAs(a, to, &src_nl, &report);
+            const read_nl = try readAs(a, from, sample(from), &report);
+            const text = try writeAs(a, to, &read_nl, &report);
             errdefer {
                 std.debug.print("{s} -> {s}\n{s}\n", .{ from, to, text });
                 dumpReport(&report);
             }
-            try testing.expectEqual(0, report.count(.@"error"));
+            // A netlist-only target has no form for the sources and
+            // analyses: one `unsupported` error each, and the rest intact.
+            const gt = sprack.find(to).?;
+            const dropped = droppedIn(read_nl, gt);
+            try testing.expectEqual(dropped, report.count(.@"error"));
+            try testing.expectEqual(dropped, report.countCode(.unsupported));
+            const src_nl = try writableIn(a, read_nl, gt);
 
             var report2: ir.Report = .init(a);
             const back = try readAs(a, to, text, &report2);
@@ -360,7 +428,7 @@ test "an analysis the target cannot express is an error naming who can, and why"
         \\.end
     , &report);
     try testing.expect(report.hasErrors());
-    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: ngspice");
+    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, ngspice");
     // The rest of the netlist is still produced.
     try has(out, "R1 in out 1k\n");
     try has(out, "* [sprack] not written: analysis 'pz'");
@@ -368,7 +436,7 @@ test "an analysis the target cannot express is an error naming who can, and why"
     // Where the grammar simply has no rule, it says that instead.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\n.tf v(out) V1\nV1 in 0 1\n.end\n", &r2);
-    try reported(&r2, .@"error", "analysis 'tf' cannot be written for spectre: spectre.spgrammar defines no rule for it. Dialects that define it: hspice, ngspice");
+    try reported(&r2, .@"error", "analysis 'tf' cannot be written for spectre: spectre.spgrammar defines no rule for it. Dialects that define it: espice, hspice, ltspice, ngspice");
 }
 
 test "nothing is dropped: a value with no place in the target is an error" {
@@ -548,7 +616,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     // VACASK has no BSIM4 module in its grammar: say so, and say who has.
     var r4: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "vacask", src, &r4);
-    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'bsim4 n'. Defined by: hspice, ngspice, spectre, xyce");
+    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'bsim4 n'. Defined by: espice, hspice, ltspice, ngspice, spectre, xyce");
 
     // FinFET models: HSPICE level 72 is Xyce level 110, and ngspice has neither.
     var r5: ir.Report = .init(a);
@@ -557,7 +625,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     try has(try tr(a, "hspice", "spectre", fin, &r5), "model nfet bsimcmg type=n version=107\n");
     try clean(&r5);
     _ = try tr(a, "hspice", "ngspice", fin, &r5);
-    try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: hspice, spectre, xyce");
+    try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: espice, hspice, spectre, xyce");
 }
 
 test "an unknown level is an error across dialects, not a guess" {
@@ -730,6 +798,155 @@ test "a dialect chosen at compile time" {
     try has(aw.written(), "R1 (a 0) resistor r=1k\n");
 }
 
+test "a grammar loaded at run time writes and reads byte for byte as the built-in" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: sprack.grammar.Diag = .{};
+    const loaded = try sprack.resolve(a, testing.io, "grammars/ngspice.spgrammar", &diag);
+    const builtin = sprack.find("ngspice").?;
+    try testing.expect(loaded != builtin);
+    for (dialects) |d| {
+        var r1: ir.Report = .init(a);
+        var r2: ir.Report = .init(a);
+        const nl = try readAs(a, d, sample(d), &r1);
+        _ = try readAs(a, d, sample(d), &r2);
+        var w1: std.Io.Writer.Allocating = .init(a);
+        var w2: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, builtin, &w1.writer, &nl, &r1);
+        try sprack.write(a, loaded, &w2.writer, &nl, &r2);
+        try testing.expectEqualStrings(w1.written(), w2.written());
+        try testing.expectEqual(r1.items.items.len, r2.items.items.len);
+
+        // Read back with each: the same statements, as JSON.
+        var j1: std.Io.Writer.Allocating = .init(a);
+        var j2: std.Io.Writer.Allocating = .init(a);
+        try sprack.json.writeNetlist(&j1.writer, &try sprack.read(a, builtin, w1.written(), &r1));
+        try sprack.json.writeNetlist(&j2.writer, &try sprack.read(a, loaded, w1.written(), &r2));
+        try testing.expectEqualStrings(j1.written(), j2.written());
+    }
+}
+
+test "a dialect's own options round-trip, also as statements added from another dialect" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.options plotwinsize=0 numdgt=15\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    try testing.expectEqualStrings(src, try tr(a, "ltspice", "ltspice", src, &r1));
+    try testing.expectEqual(0, r1.items.items.len);
+
+    // The same statement in a netlist from elsewhere, marked as LTspice's.
+    const json =
+        \\{"title":"t","dialect":"sprack","stmts":[{"kind":"options","params":{"plotwinsize":"0","numdgt":"15"},"dialect":"ltspice"},{"kind":"op"}]}
+    ;
+    var r2: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, json, &r2);
+    try testing.expectEqualStrings(src, try writeAs(a, "ltspice", &nl, &r2));
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    _ = try writeAs(a, "ngspice", &nl, &r3);
+    try reported(&r3, .@"error", "options: 'plotwinsize=0' has no spelling in ngspice");
+}
+
+/// `src` read as `from`, through the JSON the Python package uses, then
+/// written as `to`.
+fn viaJson(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
+    const nl = try readAs(a, from, src, report);
+    var j: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeNetlist(&j.writer, &nl);
+    const back = try sprack.json.parseNetlist(a, j.written(), report);
+    return writeAs(a, to, &back, report);
+}
+
+test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive the JSON trip" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    // Paths survive the JSON trip; pre_osdi, a .control command, stays bare.
+    const ng =
+        \\t
+        \\.lib "models.lib" tt
+        \\.include "extra.inc"
+        \\AU1 [ clk rst cmp ] [ d_7 eoc ] sar_m
+        \\AU2 [ A ] [ y ] dinv
+        \\.model dinv d_cosim simulation="dinv.vvp"
+        \\.control
+        \\pre_osdi amp.osdi
+        \\.endc
+        \\.control
+        \\run
+        \\.endc
+        \\.end
+        \\
+    ;
+    var r1: ir.Report = .init(a);
+    try testing.expectEqualStrings(ng, try viaJson(a, "ngspice", "ngspice", ng, &r1));
+    try clean(&r1);
+    // A bare relative file name is a path too.
+    var r0: ir.Report = .init(a);
+    try has(try viaJson(a, "ngspice", "xyce", "t\n.lib models.lib tt\n.include extra.inc\n.end\n", &r0), ".lib \"models.lib\" tt\n.include \"extra.inc\"\n");
+    try clean(&r0);
+    // XSPICE is ngspice's alone, and the reason says so.
+    var r2: ir.Report = .init(a);
+    _ = try viaJson(a, "ngspice", "espice", ng, &r2);
+    try reported(&r2, .@"error", "ESPice has no XSPICE code models");
+
+    // ESPice loads a digital design with .verilog.
+    const es = "t\n.verilog \"cnt.v\"\nNU1 clk q cnt vdd=1.8\n.model cnt cnt\n.end\n";
+    var r3: ir.Report = .init(a);
+    try testing.expectEqualStrings(es, try viaJson(a, "espice", "espice", es, &r3));
+    try clean(&r3);
+    var r4: ir.Report = .init(a);
+    _ = try viaJson(a, "espice", "ngspice", es, &r4);
+    try reported(&r4, .@"error", "ngspice runs digital Verilog through an XSPICE d_cosim model");
+
+    // Nets are local to a subcircuit: `IN` inside and `in` outside are
+    // different nets, not a case collision. In one scope they still are.
+    const sc =
+        \\t
+        \\.subckt inv IN OUT
+        \\R1 IN OUT 1k
+        \\.ends inv
+        \\.subckt buf a y
+        \\R1 a y 1k
+        \\.ends buf
+        \\X1 in out inv
+        \\.end
+        \\
+    ;
+    var r5: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a,
+        \\{"title":"t","dialect":"sprack","stmts":[
+        \\ {"kind":"subckt","name":"inv","ports":["IN","OUT"],"body":[{"kind":"resistor","name":"R1","pos":"IN","neg":"OUT","r":"1k"}]},
+        \\ {"kind":"subckt","name":"buf","ports":["a","y"],"body":[{"kind":"resistor","name":"R1","pos":"a","neg":"y","r":"1k"}]},
+        \\ {"kind":"instance","name":"X1","nodes":["in","out"],"master":"inv"}]}
+    , &r5);
+    try testing.expectEqualStrings(sc, try writeAs(a, "ngspice", &nl, &r5));
+    try clean(&r5);
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "ngspice", "// t\nr1 (in Out) resistor r=1k\nr2 (IN out) resistor r=1k\n", &r6);
+    try reported(&r6, .@"error", "'in' and 'IN' are different names in the source but the same name in ngspice");
+}
+
+test "a broken grammar file is reported with its path and line" {
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    try tmp.dir.writeFile(io, .{ .sub_path = "bad.spgrammar", .data = "dialect bad\nlexer\nend\n\nrule tran = \".tran\" stop [ step\n" });
+    const path = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/bad.spgrammar", .{tmp.sub_path});
+    var diag: sprack.grammar.Diag = .{};
+    try testing.expectError(error.BadGrammar, sprack.resolve(a, io, path, &diag));
+    try has(diag.msg, try std.fmt.allocPrint(a, "{s}:5: missing ']' in pattern", .{path}));
+    try testing.expectError(error.CannotRead, sprack.resolve(a, io, "no/such.spgrammar", &diag));
+    try has(diag.msg, "cannot read no/such.spgrammar");
+    try testing.expectError(error.UnknownDialect, sprack.resolve(a, io, "nosuch", &diag));
+}
+
 test "options: one vocabulary, five ways of filing it" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -793,10 +1010,10 @@ test "expressions: functions, operators and variables are mapped" {
     // Spectre's `^` has no ngspice spelling; a statistical function has no Spectre one.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "spectre", "ngspice", "// t\nparameters m=(3 ^ 5)\n", &r2);
-    try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: spectre");
+    try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: ltspice, spectre");
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
-    try reported(&r3, .@"error", "function 'agauss' has no spelling in spectre. Dialects that have it: hspice, ngspice, xyce");
+    try reported(&r3, .@"error", "function 'agauss' has no spelling in spectre. Dialects that have it: espice, hspice, ngspice, xyce");
     // A function nobody defines is not passed along on trust.
     var r4: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\n.param q={mystery(2)}\n.end\n", &r4);
@@ -902,7 +1119,7 @@ test "Verilog-A: loading a module and instantiating it" {
         \\model dmod mydiode is=1e-14
         \\d1 (a 0) dmod area=2
     , &r1);
-    try has(ng, ".control\npre_osdi \"mydiode.va\"\n.endc\n");
+    try has(ng, ".control\npre_osdi mydiode.va\n.endc\n");
     try has(ng, ".model dmod mydiode is=1e-14\n");
     // An instance of a model that is not a built-in family is an N device.
     try has(ng, "nd1 a 0 dmod area=2\n");
@@ -1181,7 +1398,7 @@ test "corpus: a VACASK deck the way upstream writes them" {
 }
 
 test "define: a named pattern compiles to the same nodes as writing it out" {
-    const g = comptime sprack.grammar.compile(
+    const g = sprack.grammar.compileBuiltin(
         \\dialect tiny
         \\lexer
         \\end
@@ -1228,7 +1445,7 @@ test "HSPICE .ac plus .noise is one noise analysis" {
 }
 
 test "repeated groups: list slots in lockstep, with a separator" {
-    const g = comptime sprack.grammar.compile(
+    const g = sprack.grammar.compileBuiltin(
         \\dialect tiny
         \\lexer
         \\  title yes

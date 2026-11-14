@@ -117,6 +117,8 @@ no cswitch : HSPICE has no W switch element
 no mesfet  : HSPICE models MESFETs as J elements with their own model levels
 no disto   : HSPICE has no .DISTO small-signal distortion analysis
 no stb     : HSPICE's loop stability analysis (.LSTB) probes a voltage source and has no counterpart of the probe-based form
+no xspice : XSPICE code models are ngspice's; HSPICE has no A element
+no verilog : HSPICE has no netlist card that loads a digital Verilog design
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
 caveat tran maxstep : HSPICE has no step ceiling on .TRAN; the first number is the print step and limits nothing

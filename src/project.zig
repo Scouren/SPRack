@@ -419,11 +419,8 @@ test "a small project: includes followed, declarations shared, tree copied" {
         \\
     });
 
-    const reg = @import("registry");
-    const hspice = comptime grammar.compile(reg.sources[0]);
-    const spectre = comptime grammar.compile(reg.sources[2]);
-    try std.testing.expectEqualStrings("hspice", hspice.name);
-    try std.testing.expectEqualStrings("spectre", spectre.name);
+    const hspice = @import("root.zig").find("hspice").?.*;
+    const spectre = @import("root.zig").find("spectre").?.*;
 
     var log: Writer.Allocating = .init(a);
     const sum = try run(io, std.testing.allocator, .{

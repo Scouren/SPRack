@@ -265,7 +265,7 @@ pub fn isPlainNumber(text: []const u8) bool {
 const testing = std.testing;
 
 test "expressions between two small tables" {
-    const spice = comptime grammar.compile(
+    const spice = grammar.compileBuiltin(
         \\dialect a
         \\lexer
         \\  case insensitive
@@ -282,7 +282,7 @@ test "expressions between two small tables" {
         \\  temper = temper
         \\end
     );
-    const spectre = comptime grammar.compile(
+    const spectre = grammar.compileBuiltin(
         \\dialect b
         \\lexer
         \\  case sensitive

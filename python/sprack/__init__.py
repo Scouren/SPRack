@@ -128,11 +128,27 @@ def dialects() -> tuple[str, ...]:
     return DIALECTS
 
 
-def _dialect(name: str) -> str:
-    low = str(name).lower()
+def _dialect(name: str | os.PathLike) -> str:
+    """A built-in dialect's name, or the absolute path of a `.spgrammar` file
+    (compiled by the core on each call; a mistake in it raises ValueError
+    with `path:line: message`)."""
+    name = os.fspath(name)
+    if name.endswith(".spgrammar"):
+        return os.path.abspath(name)
+    low = name.lower()
     if low not in DIALECTS:
-        raise ValueError(f"unknown dialect {name!r}; built in: {', '.join(DIALECTS)}")
+        raise ValueError(f"unknown dialect {name!r}; built in: {', '.join(DIALECTS)}; or a path to a .spgrammar file")
     return low
+
+
+def _dialect_tag(d: str) -> str:
+    """A directory-name-safe key for a resolved dialect: its name, or for a
+    grammar file its base name and a hash of its contents."""
+    if not d.endswith(".spgrammar"):
+        return d
+    with open(d, "rb") as f:
+        digest = hashlib.sha1(f.read()).hexdigest()[:8]
+    return f"{os.path.basename(d)[:-len('.spgrammar')]}-{digest}"
 
 
 def can_write(kind: str, dialect: str) -> bool:
@@ -235,6 +251,8 @@ class _Scope:
     def __init__(self, pdk: "PDK | None"):
         self.statements: list[dict] = []
         self._pdk = pdk
+        # What `code` could not read; shared by a circuit and its subcircuits.
+        self._report = Report()
 
     # -- the one way in ---------------------------------------------------
     def add(self, kind: str, *args: Any, **kw: Any) -> dict:
@@ -399,6 +417,7 @@ class _Scope:
     def subckt(self, name: str, *ports: Any, **params: Any) -> "Subckt":
         """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`."""
         sub = Subckt(name, ports, params, self._pdk)
+        sub._report = self._report
         self.statements.append(sub._stmt)
         return sub
 
@@ -420,6 +439,32 @@ class _Scope:
         st = {"kind": "nodeset", "values": _val({**(values or {}), **more})}
         self.statements.append(st)
         return st
+
+    def code(self, text: str, dialect: str = "ngspice") -> list[dict]:
+        """Add statements written as `dialect` text (a built-in name or a
+        `.spgrammar` path), read as `sprack.read` would but with no title line.
+
+        They are statements like any other and are written in whatever
+        dialect the netlist is for: `c.code(".tran 1n 1u\\n.save v(out)")`
+        works for a Spectre target too. Returns the statements added. For a
+        target of the same dialect, the block's own options and parameters,
+        and lines no rule understands, are written as they are; for any other
+        target such a line is an error in `netlist()`'s report, as is
+        anything the reader reports (file `code`).
+        """
+        out, rep = _core.read(_dialect(dialect), text, True)
+        data = json.loads(out)
+        stmts = data["stmts"]
+        # Each statement remembers its dialect, so a target of the same
+        # dialect writes its own options and parameters as they were.
+        def tag(sts: list[dict]) -> None:
+            for st in sts:
+                st["dialect"] = data["dialect"]
+                tag(st.get("body", []))
+        tag(stmts)
+        self._report.extend(e._replace(file="code") for e in Report._from_json(rep))
+        self.statements.extend(stmts)
+        return stmts
 
     def comment(self, text: str) -> dict:
         st = {"kind": "comment", "raw": text}
@@ -477,7 +522,7 @@ class Circuit(_Scope):
         """
         d = _dialect(dialect)
         text, rep = _core.write(d, self.to_json(d, strict=strict))
-        report = Report._from_json(rep)
+        report = Report(self._report + Report._from_json(rep))
         if strict and report.errors:
             raise Unsupported(d, report, text)
         if self.pdk is not None:
@@ -660,7 +705,7 @@ class PDK:
         accepts the copy as it is.
         """
         d = _dialect(dialect)
-        out = out or os.path.join(self.cache_dir, self.name, f"{d}-{self._stamp()}")
+        out = out or os.path.join(self.cache_dir, self.name, f"{_dialect_tag(d)}-{self._stamp()}")
         marker = os.path.join(out, "sprack.json")
         if os.path.isfile(marker):
             with open(marker) as f:
