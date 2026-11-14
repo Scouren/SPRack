@@ -192,11 +192,11 @@ fn normalize(arena: std.mem.Allocator, nl: ir.Netlist, drop_noise: bool) !ir.Net
     for (nl.stmts) |s| {
         if (drop_noise and s.kind == .noise) continue;
         var c = s;
-        c.vals = try arena.dupe(ir.Value, s.vals);
-        if (schema.info(s.kind).class == .analysis) c.vals[schema.slotIndex(s.kind, "name").?] = .none;
+        try c.own(arena);
+        if (schema.info(s.kind).class == .analysis) try c.set(arena, schema.slotIndex(s.kind, "name").?, .none);
         if (s.kind == .noise) {
             const ri = schema.slotIndex(.noise, "ref").?;
-            if (c.vals[ri] == .atom and std.mem.eql(u8, c.vals[ri].atom, "0")) c.vals[ri] = .none;
+            if (c.at(ri) == .atom and std.mem.eql(u8, c.at(ri).atom, "0")) try c.set(arena, ri, .none);
         }
         try out.append(arena, c);
     }
@@ -278,7 +278,7 @@ test "hand-written samples parse completely" {
 /// `r1` in Spectre). Spelling is preserved, so compare without it.
 fn lowerNames(arena: std.mem.Allocator, stmts: []ir.Stmt) !void {
     for (stmts) |*st| {
-        for (st.vals) |*v| v.* = try lowerValue(arena, v.*);
+        for (st.values()) |*v| v.* = try lowerValue(arena, v.*);
         try lowerNames(arena, st.body);
     }
 }

@@ -109,11 +109,11 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
             try str(w, s.dialect);
         }
         for (schema.info(s.kind).slots, 0..) |sl, k| {
-            if (s.vals[k] == .none) continue;
+            if (s.at(k) == .none) continue;
             try w.writeByte(',');
             try str(w, sl.name);
             try w.writeByte(':');
-            try value(w, s.vals[k]);
+            try value(w, s.at(k));
         }
         if (s.body.len > 0 or s.kind == .subckt or s.kind == .libsection) {
             try w.writeAll(",\"body\":");
@@ -339,7 +339,7 @@ const Parser = struct {
                 } else if (std.mem.eql(u8, key, "body")) {
                     st.body = try p.stmtList(val);
                 } else if (schema.slotIndex(kind, key)) |si| {
-                    st.vals[si] = try p.slotValue(schema.info(kind).slots[si], val, st.line);
+                    try st.set(p.arena, si, try p.slotValue(schema.info(kind).slots[si], val, st.line));
                 } else {
                     var known: std.ArrayList(u8) = .empty;
                     for (schema.info(kind).slots) |sl| try known.print(p.arena, " {s}", .{sl.name});

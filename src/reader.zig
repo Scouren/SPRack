@@ -503,17 +503,19 @@ const Matcher = struct {
     /// Fold the captures of the last match into a statement.
     fn applyTo(self: *const Matcher, st: *ir.Stmt) Allocator.Error!void {
         const slots = schema.info(st.kind).slots;
+        var buf: [schema.max_slots]Value = undefined;
+        const vals = st.unpack(&buf);
         for (slots, 0..) |sl, i| {
             if (sl.ty == .params) {
                 var ps: std.ArrayList(ir.Param) = .empty;
-                if (st.vals[i] == .params) try ps.appendSlice(self.arena, st.vals[i].params);
+                if (vals[i] == .params) try ps.appendSlice(self.arena, vals[i].params);
                 for (self.log.items) |c| {
                     if (c.slot == i and c.key.len > 0) try ps.append(self.arena, .{ .key = c.key, .val = c.val });
                 }
-                if (ps.items.len > 0) st.vals[i] = .{ .params = try ps.toOwnedSlice(self.arena) };
+                if (ps.items.len > 0) vals[i] = .{ .params = try ps.toOwnedSlice(self.arena) };
             } else if (sl.list) {
                 var vs: std.ArrayList(Value) = .empty;
-                if (st.vals[i] == .list) try vs.appendSlice(self.arena, st.vals[i].list);
+                if (vals[i] == .list) try vs.appendSlice(self.arena, vals[i].list);
                 var touched = false;
                 for (self.log.items) |c| {
                     if (c.slot == i) {
@@ -521,13 +523,14 @@ const Matcher = struct {
                         touched = true;
                     }
                 }
-                if (touched) st.vals[i] = .{ .list = try vs.toOwnedSlice(self.arena) };
+                if (touched) vals[i] = .{ .list = try vs.toOwnedSlice(self.arena) };
             } else {
                 for (self.log.items) |c| {
-                    if (c.slot == i) st.vals[i] = c.val;
+                    if (c.slot == i) vals[i] = c.val;
                 }
             }
         }
+        try st.store(self.arena, vals);
     }
 
     fn build(self: *const Matcher, line: u32) Allocator.Error!ir.Stmt {
@@ -624,9 +627,11 @@ pub fn signalParts(text: []const u8, args: *[3][]const u8) ?struct { []const u8,
 fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
     const ti = schema.slotIndex(.model, "type").?;
     const pi = schema.slotIndex(.model, "params").?;
-    if (st.vals[ti] != .atom) return;
-    const ty = st.vals[ti].atom;
-    const params: []const ir.Param = if (st.vals[pi] == .params) st.vals[pi].params else &.{};
+    var buf: [schema.max_slots]Value = undefined;
+    const vals = st.unpack(&buf);
+    if (vals[ti] != .atom) return;
+    const ty = vals[ti].atom;
+    const params: []const ir.Param = if (vals[pi] == .params) vals[pi].params else &.{};
 
     var best: ?struct { e: *const grammar.ModelEntry, s: *const grammar.ModelSpelling } = null;
     for (g.models) |*e| {
@@ -658,9 +663,9 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
         if (known_word) report.add(.warning, .unsupported, st.line, "model type '{s}' with these parameters is not in the {s} models table; kept as written", .{ ty, g.name });
         return;
     };
-    st.vals[schema.slotIndex(.model, "family").?] = .{ .atom = hit.e.family };
-    if (hit.e.polarity.len > 0) st.vals[schema.slotIndex(.model, "polarity").?] = .{ .atom = hit.e.polarity };
-    st.vals[ti] = .none;
+    vals[schema.slotIndex(.model, "family").?] = .{ .atom = hit.e.family };
+    if (hit.e.polarity.len > 0) vals[schema.slotIndex(.model, "polarity").?] = .{ .atom = hit.e.polarity };
+    vals[ti] = .none;
     // The statement was just built and owns its list: filter it in place.
     // A PDK's models carry most of its text in their parameters.
     const kept: []ir.Param = @constCast(params);
@@ -674,7 +679,8 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
         kept[n] = p;
         n += 1;
     }
-    st.vals[pi] = if (n > 0) .{ .params = kept[0..n] } else .none;
+    vals[pi] = if (n > 0) .{ .params = kept[0..n] } else .none;
+    try st.store(arena, vals);
 }
 
 /// In a dialect that ignores case, `Vdd`, `VDD` and `vdd` are one name. The
@@ -738,26 +744,28 @@ const Spelling = struct {
     fn statement(sp: *Spelling, arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
         const defines_params = st.kind == .param or st.kind == .subckt;
         const node_keys = st.kind == .ic or st.kind == .nodeset;
+        var buf: [schema.max_slots]Value = undefined;
+        const vals = st.unpack(&buf);
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             switch (sl.ty) {
                 .name => {
                     // Functions are called in any case; their one spelling is the lower-case one.
-                    if (st.kind == .func and st.vals[i] == .atom) {
-                        st.vals[i] = .{ .atom = try lowered(arena, st.vals[i].atom) };
-                    } else st.vals[i] = sp.atom(st.vals[i]);
+                    if (st.kind == .func and vals[i] == .atom) {
+                        vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
+                    } else vals[i] = sp.atom(vals[i]);
                 },
-                .node => st.vals[i] = sp.atom(st.vals[i]),
+                .node => vals[i] = sp.atom(vals[i]),
                 .ident => {
-                    if (st.vals[i] != .atom) continue;
+                    if (vals[i] != .atom) continue;
                     // A model's type word is a keyword, not a name.
                     if (st.kind == .model and std.mem.eql(u8, sl.name, "type")) {
-                        st.vals[i] = .{ .atom = try lowered(arena, st.vals[i].atom) };
-                    } else st.vals[i] = sp.atom(st.vals[i]);
+                        vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
+                    } else vals[i] = sp.atom(vals[i]);
                 },
                 .params => {
-                    if (st.vals[i] != .params) continue;
+                    if (vals[i] != .params) continue;
                     // The statement owns its parameter list: edit it in place.
-                    const out: []ir.Param = @constCast(st.vals[i].params);
+                    const out: []ir.Param = @constCast(vals[i].params);
                     for (out) |*p| {
                         if (defines_params) {
                             // A parameter is spelled the way its first definition spells it.
@@ -771,6 +779,7 @@ const Spelling = struct {
                 else => {},
             }
         }
+        try st.store(arena, vals);
     }
 
     fn identifier(sp: *const Spelling, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 {
@@ -968,9 +977,11 @@ const Reader = struct {
     /// Closed-set values to their canonical names, and the values this
     /// dialect leaves unsaid made explicit.
     fn canonStmt(self: *Reader, st: *ir.Stmt) Allocator.Error!void {
+        var buf: [schema.max_slots]Value = undefined;
+        const vals = st.unpack(&buf);
         for (self.g.enums) |*e| {
-            if (e.kind != st.kind or st.vals[e.slot] != .atom) continue;
-            const have = st.vals[e.slot].atom;
+            if (e.kind != st.kind or vals[e.slot] != .atom) continue;
+            const have = vals[e.slot].atom;
             const hit = for (e.pairs) |pr| {
                 if (std.mem.eql(u8, pr.spelling, have)) break pr.canon;
             } else {
@@ -979,15 +990,16 @@ const Reader = struct {
                 });
                 continue;
             };
-            st.vals[e.slot] = .{ .atom = hit };
+            vals[e.slot] = .{ .atom = hit };
         }
         for (self.g.implied) |im| {
-            if (im.kind != st.kind or st.vals[im.slot] != .none) continue;
-            st.vals[im.slot] = if (schema.info(st.kind).slots[im.slot].ty == .value)
+            if (im.kind != st.kind or vals[im.slot] != .none) continue;
+            vals[im.slot] = if (schema.info(st.kind).slots[im.slot].ty == .value)
                 (if (lexer.parseNumber(self.arena, &self.g.lex, im.text)) |n| Value{ .num = n } else Value{ .expr = im.text })
             else
                 Value{ .atom = im.text };
         }
+        try st.store(self.arena, vals);
     }
 
     fn finishValue(self: *Reader, v: Value, line: u32) Allocator.Error!Value {
@@ -1020,27 +1032,30 @@ const Reader = struct {
     fn finish(self: *Reader, stmts: []ir.Stmt) Allocator.Error!void {
         const fold_case = !self.g.lex.case_sensitive;
         for (stmts) |*st| {
+            var buf: [schema.max_slots]Value = undefined;
+            const vals = st.unpack(&buf);
             for (schema.info(st.kind).slots, 0..) |sl, i| {
-                if (sl.ty == .ref and st.vals[i] == .atom) {
-                    if (fold_case) st.vals[i] = .{ .atom = self.spell.spell(st.vals[i].atom) };
+                if (sl.ty == .ref and vals[i] == .atom) {
+                    if (fold_case) vals[i] = .{ .atom = self.spell.spell(vals[i].atom) };
                 } else if (sl.ty == .signal and fold_case) {
-                    switch (st.vals[i]) {
-                        .atom => |a| st.vals[i] = .{ .atom = try self.spell.signal(self.arena, a) },
+                    switch (vals[i]) {
+                        .atom => |a| vals[i] = .{ .atom = try self.spell.signal(self.arena, a) },
                         .list => |items| {
                             const out = try self.arena.alloc(Value, items.len);
                             for (items, 0..) |it, k| out[k] = if (it == .atom) Value{ .atom = try self.spell.signal(self.arena, it.atom) } else try self.finishValue(it, st.line);
-                            st.vals[i] = .{ .list = out };
+                            vals[i] = .{ .list = out };
                         },
                         else => {},
                     }
-                } else st.vals[i] = try self.finishValue(st.vals[i], st.line);
+                } else vals[i] = try self.finishValue(vals[i], st.line);
             }
+            try st.store(self.arena, vals);
             try self.finish(st.body);
         }
     }
 
     fn flagOddValues(self: *Reader, st: *const ir.Stmt) void {
-        for (st.vals) |v| {
+        for (st.values()) |v| {
             if (v != .params) continue;
             if (schema.info(st.kind).class == .control) continue;
             for (v.params) |p| {
@@ -1129,9 +1144,9 @@ fn rebindParams(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt) Allocator
         try rebindParams(g, arena, st.body);
         if (schema.info(st.kind).class != .device or st.kind == .instance) continue;
         const pi = schema.slotIndex(st.kind, "params") orelse continue;
-        if (st.vals[pi] != .params) continue;
+        if (st.at(pi) != .params) continue;
         var kept: std.ArrayList(ir.Param) = .empty;
-        for (st.vals[pi].params) |p| {
+        for (st.at(pi).params) |p| {
             const entry = for (g.rules) |*rule| {
                 if (rule.kind != st.kind) continue;
                 if (bagEntryFor(rule.pat, p.key)) |e| break e;
@@ -1140,18 +1155,18 @@ fn rebindParams(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt) Allocator
                 try kept.append(arena, p);
                 continue;
             };
-            if (st.vals[e.slot] != .none) {
+            if (st.at(e.slot) != .none) {
                 try kept.append(arena, p);
                 continue;
             }
             const want_atom = schema.info(st.kind).slots[e.slot].ty == .atom;
-            st.vals[e.slot] = switch (p.val) {
+            try st.set(arena, e.slot, switch (p.val) {
                 .expr => |x| if (want_atom) Value{ .atom = x } else p.val,
                 .str => |x| if (want_atom) Value{ .atom = x } else p.val,
                 else => p.val,
-            };
+            });
         }
-        st.vals[pi] = if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none;
+        try st.set(arena, pi, if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none);
     }
 }
 
@@ -1171,9 +1186,9 @@ fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
         var i: usize = 0;
         while (i < list.items.len) : (i += 1) {
             const st = &list.items[i];
-            if (st.kind != mv.to or !isBound(st.vals[mv.to_slot])) continue;
-            const v = st.vals[mv.to_slot];
-            st.vals[mv.to_slot] = .none;
+            if (st.kind != mv.to or !isBound(st.at(mv.to_slot))) continue;
+            const v = st.at(mv.to_slot);
+            try st.set(arena, mv.to_slot, .none);
             const home = for (list.items) |*h| {
                 if (h.kind == mv.from) break h;
             } else blk: {
@@ -1181,20 +1196,20 @@ fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
                 i += 1;
                 break :blk &list.items[i - 1];
             };
-            if (isBound(home.vals[mv.from_slot]) and !home.vals[mv.from_slot].eql(v)) {
+            if (isBound(home.at(mv.from_slot)) and !home.at(mv.from_slot).eql(v)) {
                 report.add(.warning, .caveat, list.items[i].line, "{s}.{s} is given more than once with different values; the first is kept", .{
                     @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name,
                 });
                 continue;
             }
-            home.vals[mv.from_slot] = v;
+            try home.set(arena, mv.from_slot, v);
         }
     }
 }
 
 /// A `merge a -> b` in the grammar: this dialect writes one statement as
 /// two (HSPICE noise is `.ac` plus `.noise`). Reading makes them one again.
-fn undoMerges(g: *const Grammar, list: *std.ArrayList(ir.Stmt)) void {
+fn undoMerges(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
     for (g.merges) |mg| {
         var i: usize = 0;
         while (i < list.items.len) : (i += 1) {
@@ -1207,9 +1222,9 @@ fn undoMerges(g: *const Grammar, list: *std.ArrayList(ir.Stmt)) void {
             const src = list.items[from];
             const dst = &list.items[i];
             for (schema.info(mg.into).slots, 0..) |sl, k| {
-                if (isBound(dst.vals[k])) continue;
+                if (isBound(dst.at(k))) continue;
                 const fk = schema.slotIndex(mg.from, sl.name) orelse continue;
-                dst.vals[k] = src.vals[fk];
+                try dst.set(arena, k, src.at(fk));
             }
             // Only comments between: the two lines were one statement.
             const adjacent = for (list.items[from + 1 .. i]) |st| {
@@ -1237,16 +1252,16 @@ fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error
         var j = i + 1;
         while (j < list.items.len) {
             const b = list.items[j];
-            if (b.kind != .options or !list.items[i].vals[package].eql(b.vals[package])) {
+            if (b.kind != .options or !list.items[i].at(package).eql(b.at(package))) {
                 j += 1;
                 continue;
             }
             const a = &list.items[i];
             for (schema.info(.options).slots, 0..) |sl, k| {
-                if (!isBound(b.vals[k])) continue;
-                if (sl.ty == .params and a.vals[k] == .params) {
-                    a.vals[k] = .{ .params = try std.mem.concat(arena, ir.Param, &.{ a.vals[k].params, b.vals[k].params }) };
-                } else a.vals[k] = b.vals[k]; // a later option overrides an earlier one
+                if (!isBound(b.at(k))) continue;
+                if (sl.ty == .params and a.at(k) == .params) {
+                    try a.set(arena, k, .{ .params = try std.mem.concat(arena, ir.Param, &.{ a.at(k).params, b.at(k).params }) });
+                } else try a.set(arena, k, b.at(k)); // a later option overrides an earlier one
             }
             if (a.tail.len == 0) a.tail = b.tail;
             _ = list.orderedRemove(j);
@@ -1262,7 +1277,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
         if (st.body.len > 0) st.body = try normalizeLists(g, arena, st.body, report);
     }
     try undoMoves(g, arena, &list, report);
-    undoMerges(g, &list);
+    try undoMerges(g, arena, &list);
     try mergeOptions(arena, &list);
     return list.toOwnedSlice(arena);
 }

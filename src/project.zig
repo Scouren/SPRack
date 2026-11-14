@@ -199,7 +199,7 @@ const Run = struct {
         for (stmts) |*st| {
             if (pathOf(st)) |p| {
                 const target = try resolve(scratch, dir, try r.expand(scratch, p));
-                st.vals[schema.slotIndex(st.kind, "path").?] = .{ .str = try relative(scratch, dir, target) };
+                try st.set(scratch, schema.slotIndex(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
             }
             try r.rewriteIncludes(dir, st.body, scratch);
         }

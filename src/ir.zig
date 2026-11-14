@@ -74,10 +74,19 @@ pub const Value = union(enum) {
     }
 };
 
+comptime {
+    std.debug.assert(schema.max_slots <= 64);
+}
+
+var no_values: [0]Value = .{};
+
 pub const Stmt = struct {
     kind: Kind,
-    /// One entry per slot of `kind`, in schema order.
-    vals: []Value = &.{},
+    /// Values are stored sparsely: bit `i` is set when slot `i` of `kind`
+    /// has an entry in `bound`, in slot order. A device gives a few of its
+    /// slots (a source has 33), and a large netlist is mostly devices.
+    mask: u64 = 0,
+    bound: [*]Value = &no_values,
     body: []Stmt = &.{},
     /// Source text of a statement no rule matched.
     raw: []const u8 = "",
@@ -90,15 +99,84 @@ pub const Stmt = struct {
     /// statement's private values (options, analysis parameters) as they are.
     dialect: []const u8 = "",
 
+    fn bit(i: usize) u64 {
+        return @as(u64, 1) << @intCast(i);
+    }
+
+    /// The value in slot `i`, `.none` if the slot was not given.
+    pub fn at(s: *const Stmt, i: usize) Value {
+        if (s.mask & bit(i) == 0) return .none;
+        return s.bound[@popCount(s.mask & (bit(i) - 1))];
+    }
+
     pub fn get(s: *const Stmt, comptime slot: []const u8) Value {
         const i = schema.slotIndex(s.kind, slot) orelse return .none;
-        return s.vals[i];
+        return s.at(i);
+    }
+
+    /// The values given, in slot order, without their slot numbers.
+    pub fn values(s: *const Stmt) []Value {
+        return s.bound[0..@popCount(s.mask)];
+    }
+
+    /// Writes in place when slot `i` is given, so a copy of the statement
+    /// that shares `bound` sees it: call `own` on the copy first.
+    pub fn set(s: *Stmt, arena: Allocator, i: usize, v: Value) Allocator.Error!void {
+        const k = @popCount(s.mask & (bit(i) - 1));
+        if (s.mask & bit(i) != 0) {
+            s.bound[k] = v;
+            return;
+        }
+        if (v == .none) return;
+        const old = s.values();
+        const out = try arena.alloc(Value, old.len + 1);
+        @memcpy(out[0..k], old[0..k]);
+        out[k] = v;
+        @memcpy(out[k + 1 ..], old[k..]);
+        s.bound = out.ptr;
+        s.mask |= bit(i);
+    }
+
+    /// Store one value per slot of `kind`, `.none` for a slot not given.
+    pub fn pack(s: *Stmt, arena: Allocator, dense: []const Value) Allocator.Error!void {
+        var mask: u64 = 0;
+        for (dense, 0..) |v, i| {
+            if (v != .none) mask |= bit(i);
+        }
+        const out = try arena.alloc(Value, @popCount(mask));
+        var k: usize = 0;
+        for (dense) |v| {
+            if (v == .none) continue;
+            out[k] = v;
+            k += 1;
+        }
+        s.mask = mask;
+        s.bound = out.ptr;
+    }
+
+    /// One value per slot of `kind`, written into `buf`.
+    pub fn unpack(s: *const Stmt, buf: *[schema.max_slots]Value) []Value {
+        const n = schema.info(s.kind).slots.len;
+        for (buf[0..n], 0..) |*v, i| v.* = s.at(i);
+        return buf[0..n];
+    }
+
+    /// Write back what `unpack` gave, after editing it. Slots already given
+    /// are written in place; only a newly given one costs a new array.
+    pub fn store(s: *Stmt, arena: Allocator, dense: []const Value) Allocator.Error!void {
+        if (s.mask == 0) return s.pack(arena, dense);
+        for (dense, 0..) |v, i| try s.set(arena, i, v);
+    }
+
+    /// Give this statement its own copy of its values.
+    pub fn own(s: *Stmt, arena: Allocator) Allocator.Error!void {
+        s.bound = (try arena.dupe(Value, s.values())).ptr;
     }
 
     pub fn eql(a: *const Stmt, b: *const Stmt) bool {
-        if (a.kind != b.kind or a.vals.len != b.vals.len or a.body.len != b.body.len) return false;
+        if (a.kind != b.kind or a.body.len != b.body.len) return false;
         if (a.kind == .@"opaque" and !std.mem.eql(u8, a.raw, b.raw)) return false;
-        for (a.vals, b.vals) |x, y| if (!x.eql(y)) return false;
+        for (0..schema.info(a.kind).slots.len) |i| if (!a.at(i).eql(b.at(i))) return false;
         for (a.body, b.body) |*x, *y| if (!x.eql(y)) return false;
         return true;
     }
@@ -190,7 +268,7 @@ pub const Netlist = struct {
 fn looseVal(s: *const Stmt, i: usize) Value {
     const sl = schema.info(s.kind).slots[i];
     if (schema.info(s.kind).class == .analysis and sl.ty == .name) return .none;
-    return s.vals[i];
+    return s.at(i);
 }
 
 /// A long line may be re-wrapped on the way out; blanks are not content.
@@ -212,9 +290,9 @@ fn looseKind(k: Kind) Kind {
 }
 
 fn looseStmtEql(a: *const Stmt, b: *const Stmt) bool {
-    if (looseKind(a.kind) != looseKind(b.kind) or a.vals.len != b.vals.len) return false;
+    if (looseKind(a.kind) != looseKind(b.kind)) return false;
     if (a.kind == .@"opaque" and !sameWords(a.raw, b.raw)) return false;
-    for (0..a.vals.len) |i| if (!looseVal(a, i).eql(looseVal(b, i))) return false;
+    for (0..schema.info(a.kind).slots.len) |i| if (!looseVal(a, i).eql(looseVal(b, i))) return false;
     return looseListEql(a.body, b.body);
 }
 
@@ -243,14 +321,14 @@ fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
             var pa: usize = 0;
             var pb: usize = 0;
             while (true) {
-                while (ia < a.len and (a[ia].kind != .options or a[ia].vals[i] != .params or pa >= a[ia].vals[i].params.len)) : (pa = 0) ia += 1;
-                while (ib < b.len and (b[ib].kind != .options or b[ib].vals[i] != .params or pb >= b[ib].vals[i].params.len)) : (pb = 0) ib += 1;
+                while (ia < a.len and (a[ia].kind != .options or a[ia].at(i) != .params or pa >= a[ia].at(i).params.len)) : (pa = 0) ia += 1;
+                while (ib < b.len and (b[ib].kind != .options or b[ib].at(i) != .params or pb >= b[ib].at(i).params.len)) : (pb = 0) ib += 1;
                 if (ia == a.len or ib == b.len) {
                     if (ia != a.len or ib != b.len) return false;
                     break;
                 }
-                const x = a[ia].vals[i].params[pa];
-                const y = b[ib].vals[i].params[pb];
+                const x = a[ia].at(i).params[pa];
+                const y = b[ib].at(i).params[pb];
                 if (!std.mem.eql(u8, x.key, y.key) or !x.val.eql(y.val)) return false;
                 pa += 1;
                 pb += 1;
@@ -259,11 +337,11 @@ fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
         }
         var va: Value = .none;
         var vb: Value = .none;
-        for (a) |*s| if (s.kind == .options and s.vals[i] != .none) {
-            va = s.vals[i];
+        for (a) |*s| if (s.kind == .options and s.at(i) != .none) {
+            va = s.at(i);
         };
-        for (b) |*s| if (s.kind == .options and s.vals[i] != .none) {
-            vb = s.vals[i];
+        for (b) |*s| if (s.kind == .options and s.at(i) != .none) {
+            vb = s.at(i);
         };
         if (!va.eql(vb)) return false;
     }
@@ -309,9 +387,8 @@ pub fn countStmts(stmts: []const Stmt, kind: ?Kind) usize {
 }
 
 pub fn newStmt(arena: Allocator, kind: Kind, line: u32) Allocator.Error!Stmt {
-    const vals = try arena.alloc(Value, schema.info(kind).slots.len);
-    @memset(vals, .none);
-    return .{ .kind = kind, .vals = vals, .line = line };
+    _ = arena;
+    return .{ .kind = kind, .line = line };
 }
 
 pub const Severity = enum { info, warning, @"error" };
@@ -449,21 +526,21 @@ fn collectUnlisted(arena: Allocator, stmts: []Stmt, out: *std.StringHashMapUnman
     }
 }
 
-fn markUsers(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(*Stmt)) void {
+fn markUsers(arena: Allocator, stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(*Stmt)) Allocator.Error!void {
     for (stmts) |*s| {
-        markUsers(s.body, models);
+        try markUsers(arena, s.body, models);
         if (schema.info(s.kind).class != .device or s.kind == .instance or s.kind == .device) continue;
         const master = s.get("master");
         if (master != .atom) continue;
         const m = models.get(master.atom) orelse continue;
-        m.vals[schema.slotIndex(.model, "family").?] = .{ .atom = unlisted_builtin };
+        try m.set(arena, schema.slotIndex(.model, "family").?, .{ .atom = unlisted_builtin });
     }
 }
 
 pub fn markUnlistedBuiltins(arena: Allocator, nl: *Netlist) Allocator.Error!void {
     var models: std.StringHashMapUnmanaged(*Stmt) = .empty;
     try collectUnlisted(arena, nl.stmts, &models);
-    if (models.count() > 0) markUsers(nl.stmts, &models);
+    if (models.count() > 0) try markUsers(arena, nl.stmts, &models);
 }
 
 pub fn resolveInstances(arena: Allocator, nl: *Netlist, env: ?*const Env) Allocator.Error!void {
@@ -516,32 +593,35 @@ fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmana
         if (!ok) continue;
         var out = try newStmt(arena, target, s.line);
         out.tail = s.tail;
+        var buf: [schema.max_slots]Value = @splat(.none);
+        const vals = buf[0..slots.len];
         var n: usize = 0;
         for (slots, 0..) |sl, i| {
             if (sl.ty == .node and !sl.list) {
-                if (n < nodes.list.len) out.vals[i] = nodes.list[n];
+                if (n < nodes.list.len) vals[i] = nodes.list[n];
                 n += 1;
             } else if (std.mem.eql(u8, sl.name, "name")) {
-                out.vals[i] = s.get("name");
+                vals[i] = s.get("name");
             } else if (std.mem.eql(u8, sl.name, "master")) {
-                out.vals[i] = master;
+                vals[i] = master;
             } else if (sl.ty == .params) {
-                out.vals[i] = s.get("params");
+                vals[i] = s.get("params");
             }
         }
         // What a SPICE line says positionally (`D1 a k dmod 2`) an instance
         // line says by name (`area=2`): put it where the device kind keeps it.
         const pi = schema.slotIndex(target, "params");
-        if (pi != null and out.vals[pi.?] == .params) {
+        if (pi != null and vals[pi.?] == .params) {
             var kept: std.ArrayList(Param) = .empty;
-            for (out.vals[pi.?].params) |p| {
+            for (vals[pi.?].params) |p| {
                 const si = schema.slotIndex(target, p.key);
-                if (si != null and slots[si.?].ty == .value and !slots[si.?].list and out.vals[si.?] == .none and p.val != .none) {
-                    out.vals[si.?] = p.val;
+                if (si != null and slots[si.?].ty == .value and !slots[si.?].list and vals[si.?] == .none and p.val != .none) {
+                    vals[si.?] = p.val;
                 } else try kept.append(arena, p);
             }
-            out.vals[pi.?] = if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none;
+            vals[pi.?] = if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none;
         }
+        try out.pack(arena, vals);
         s.* = out;
     }
 }
@@ -559,18 +639,20 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
     }
     var out = try newStmt(arena, .instance, s.line);
     out.tail = s.tail;
+    var buf: [schema.max_slots]Value = @splat(.none);
+    const vals = buf[0..schema.info(.instance).slots.len];
     var nodes: std.ArrayList(Value) = .empty;
     var params: std.ArrayList(Param) = .empty;
     var extra: usize = 0;
     for (schema.info(s.kind).slots, 0..) |sl, i| {
-        const v = s.vals[i];
+        const v = s.at(i);
         if (v == .none) continue;
         if (sl.ty == .node) {
             try nodes.append(arena, v);
         } else if (std.mem.eql(u8, sl.name, "name")) {
-            out.vals[schema.slotIndex(.instance, "name").?] = v;
+            vals[schema.slotIndex(.instance, "name").?] = v;
         } else if (std.mem.eql(u8, sl.name, "master")) {
-            out.vals[schema.slotIndex(.instance, "master").?] = v;
+            vals[schema.slotIndex(.instance, "master").?] = v;
         } else if (sl.ty == .params) {
             if (v == .params) try params.appendSlice(arena, v.params);
         } else if (sl.ty == .value) {
@@ -579,9 +661,10 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
             extra += 1;
         } else return null;
     }
-    if (out.get("master") == .none) return null;
-    out.vals[schema.slotIndex(.instance, "nodes").?] = .{ .list = try nodes.toOwnedSlice(arena) };
-    if (params.items.len > 0) out.vals[schema.slotIndex(.instance, "params").?] = .{ .params = try params.toOwnedSlice(arena) };
+    if (vals[schema.slotIndex(.instance, "master").?] == .none) return null;
+    vals[schema.slotIndex(.instance, "nodes").?] = .{ .list = try nodes.toOwnedSlice(arena) };
+    if (params.items.len > 0) vals[schema.slotIndex(.instance, "params").?] = .{ .params = try params.toOwnedSlice(arena) };
+    try out.pack(arena, vals);
     return out;
 }
 

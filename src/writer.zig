@@ -101,7 +101,7 @@ const Emit = struct {
     }
 
     fn bound(e: *const Emit, idx: u8) bool {
-        if (idx >= e.st.vals.len) return false;
+        if (idx >= schema.info(e.st.kind).slots.len) return false;
         if (idx < 64 and e.hide & (@as(u64, 1) << @intCast(idx)) != 0) return false;
         if (e.foreign and e.private(idx)) return false;
         if (e.isImplied(idx)) return false;
@@ -112,7 +112,7 @@ const Emit = struct {
     /// said, so there is no need to say it.
     fn isImplied(e: *const Emit, idx: u8) bool {
         const text = e.g.impliedOf(e.st.kind, idx) orelse return false;
-        return switch (e.st.vals[idx]) {
+        return switch (e.st.at(idx)) {
             .atom => |a| std.mem.eql(u8, a, text),
             .num => |n| n.exp10 == 0 and std.mem.eql(u8, n.digits(), text),
             else => false,
@@ -121,7 +121,7 @@ const Emit = struct {
 
     /// The value of a slot; in a repeated group, this pass's item of a list.
     fn val(e: *const Emit, idx: u8) Value {
-        const v = e.st.vals[idx];
+        const v = e.st.at(idx);
         const i = e.pass orelse return v;
         if (v != .list) return v;
         return if (i < v.list.len) v.list[i] else .none;
@@ -286,7 +286,7 @@ const Emit = struct {
             while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_')) j += 1;
             if (schema.slotIndex(e.st.kind, text[i + 1 .. j])) |si| {
                 // Inside a delimited expression the value goes in raw.
-                const v = e.st.vals[si];
+                const v = e.st.at(si);
                 const raw: []const u8 = switch (v) {
                     .none => "0",
                     .expr => |s| s,
@@ -317,8 +317,8 @@ const Emit = struct {
     fn passCount(e: *const Emit, items: []const Node, out: *usize) void {
         for (items) |n| {
             switch (n.tag) {
-                .cap, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot) and e.st.vals[n.slot] == .list) {
-                    out.* = @max(out.*, e.st.vals[n.slot].list.len);
+                .cap, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot) and e.st.at(n.slot) == .list) {
+                    out.* = @max(out.*, e.st.at(n.slot).list.len);
                 },
                 else => e.passCount(n.kids, out),
             }
@@ -397,7 +397,7 @@ const Emit = struct {
                 }
                 var text = (try e.slotText(n.slot, false)) orelse return false;
                 // `path!`: a path with no blank goes out without quotes.
-                const v = e.st.vals[n.slot];
+                const v = e.st.at(n.slot);
                 if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null) text = v.str;
                 if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
                     const upper = text.len > 0 and std.ascii.isUpper(text[0]);
@@ -414,7 +414,7 @@ const Emit = struct {
             },
             .rest => {
                 if (!e.bound(n.slot)) return true;
-                switch (e.st.vals[n.slot]) {
+                switch (e.st.at(n.slot)) {
                     .atom => |text| try e.tok(text),
                     // An expression taken from the rest of a line is written
                     // in plain parentheses, as it was read.
@@ -467,7 +467,7 @@ const Emit = struct {
                         .fixed => try e.tok(try e.arena.print("{s}={s}", .{ b.key, b.fixed })),
                         .rest, .call => {
                             if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
-                            for (e.st.vals[b.slot].params) |p| {
+                            for (e.st.at(b.slot).params) |p| {
                                 if (p.val == .none) {
                                     // A bare flag, where the rule takes flags.
                                     if (b.flags) try e.tok(p.key) else e.lost_flags += 1;
@@ -490,7 +490,7 @@ const Emit = struct {
                             }
                             if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
                             if (b.tag_slot != grammar.no_slot) {
-                                const tv = e.st.vals[b.tag_slot];
+                                const tv = e.st.at(b.tag_slot);
                                 if (tv != .atom or !std.mem.eql(u8, tv.atom, b.tag_atom)) continue;
                                 e.mark(b.tag_slot);
                             }
@@ -521,7 +521,7 @@ const Emit = struct {
 
     fn lossCount(e: *Emit) Allocator.Error!usize {
         var n: usize = e.lost_flags;
-        for (e.st.vals, 0..) |_, i| n += @intFromBool(try e.lost(@intCast(i)));
+        for (0..schema.info(e.st.kind).slots.len) |i| n += @intFromBool(try e.lost(@intCast(i)));
         return n;
     }
 
@@ -532,14 +532,15 @@ const Emit = struct {
             }
         }
         if (e.lost_flags > 0) {
-            for (e.st.vals) |v| {
+            for (e.st.values()) |v| {
                 if (v != .params) continue;
                 for (v.params) |p| {
                     if (p.val == .none) e.report.add(.@"error", .loss, e.st.line, "{s}: the flag '{s}' has no spelling in {s}", .{ @tagName(e.st.kind), p.key, e.g.name });
                 }
             }
         }
-        for (e.st.vals, 0..) |v, i| {
+        for (0..schema.info(e.st.kind).slots.len) |i| {
+            const v = e.st.at(i);
             const idx: u8 = @intCast(i);
             if (!try e.lost(idx)) continue;
             const label = schema.info(e.st.kind).class == .analysis and e.slot(idx).ty == .name;
@@ -696,8 +697,8 @@ const Writer = struct {
         }
         if (std.mem.eql(u8, fam.atom, ir.unlisted_builtin)) {
             var plain = st.*;
-            plain.vals = try a.dupe(Value, st.vals);
-            plain.vals[schema.slotIndex(.model, "family").?] = .none;
+            try plain.own(a);
+            try plain.set(a, schema.slotIndex(.model, "family").?, .none);
             if (!same) w.report.add(.@"error", .unsupported, st.line, "model '{s}': '{s}' is a built-in {s} model type that the {s} models table does not list, so its {s} name is unknown; written as it was", .{
                 st.get("name").atom, st.get("type").atom, w.sourceOf(st), w.sourceOf(st), w.g.name,
             });
@@ -725,10 +726,12 @@ const Writer = struct {
         const sp = entry.spellings[0];
         var out = try ir.newStmt(a, .model, st.line);
         out.tail = st.tail;
-        @memcpy(out.vals, st.vals);
-        out.vals[schema.slotIndex(.model, "type").?] = .{ .atom = sp.type };
-        out.vals[schema.slotIndex(.model, "family").?] = .none;
-        out.vals[schema.slotIndex(.model, "polarity").?] = .none;
+        out.mask = st.mask;
+        out.bound = st.bound;
+        try out.own(a);
+        try out.set(a, schema.slotIndex(.model, "type").?, .{ .atom = sp.type });
+        try out.set(a, schema.slotIndex(.model, "family").?, .none);
+        try out.set(a, schema.slotIndex(.model, "polarity").?, .none);
         var ps: std.ArrayList(ir.Param) = .empty;
         for (sp.kv) |kv| {
             if (kv.absent) continue;
@@ -736,7 +739,7 @@ const Writer = struct {
             try ps.append(a, .{ .key = kv.key, .val = v });
         }
         if (st.get("params") == .params) try ps.appendSlice(a, st.get("params").params);
-        out.vals[schema.slotIndex(.model, "params").?] = if (ps.items.len > 0) .{ .params = ps.items } else .none;
+        try out.set(a, schema.slotIndex(.model, "params").?, if (ps.items.len > 0) .{ .params = ps.items } else .none);
         if (!same and st.get("params") == .params) {
             w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
                 st.get("name").atom, fam.atom, w.sourceOf(st), w.g.name, w.g.name,
@@ -820,7 +823,7 @@ const Writer = struct {
             var any = false;
             for (schema.info(st.kind).slots, 0..) |sl, i| {
                 if (std.mem.eql(u8, sl.name, "package")) continue;
-                switch (st.vals[i]) {
+                switch (st.at(i)) {
                     .none => {},
                     .list => |l| any = any or l.len > 0,
                     .params => |ps| any = any or ps.len > 0,
@@ -914,16 +917,16 @@ const Writer = struct {
             // `.dc X ...` sweeps a source in one dialect and a parameter or
             // the temperature in another, under the same spelling.
             for (schema.info(st.kind).slots, 0..) |sl, i| {
-                if (sl.ty != .ref or st.vals[i] != .atom) continue;
-                if (w.instances.contains(st.vals[i].atom)) continue;
+                if (sl.ty != .ref or st.at(i) != .atom) continue;
+                if (w.instances.contains(st.at(i).atom)) continue;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a device in this netlist; if {s} means a parameter by it, {s} has to be told so in its own way", .{
-                    @tagName(st.kind), sl.name, st.vals[i].atom, w.sourceOf(st), w.g.name,
+                    @tagName(st.kind), sl.name, st.at(i).atom, w.sourceOf(st), w.g.name,
                 });
             }
         }
         if (e.foreign and w.g.lex.ident_values and (st.kind == .resistor or st.kind == .capacitor)) {
             const master = st.get("master");
-            const value = st.vals[3];
+            const value = st.at(3);
             if (master == .atom and value == .none and !w.declared.contains(try std.ascii.allocLowerString(a, master.atom))) {
                 w.report.add(.warning, .ambiguous, st.line, "'{s}' on {s} is a model name in {s}, but no model of that name is declared here; {s} will read it as a parameter", .{
                     master.atom, st.get("name").atom, w.sourceOf(st), w.g.name,
@@ -941,8 +944,8 @@ const Writer = struct {
             var from = false;
             var to = false;
             for (stmts) |*s| {
-                from = from or (s.kind == mv.from and s.vals[mv.from_slot] != .none);
-                to = to or (s.kind == mv.to and s.vals[mv.to_slot] == .none);
+                from = from or (s.kind == mv.from and s.at(mv.from_slot) != .none);
+                to = to or (s.kind == mv.to and s.at(mv.to_slot) == .none);
             }
             if (from and to) return true;
         }
@@ -956,17 +959,17 @@ const Writer = struct {
         const list = try w.arena.dupe(ir.Stmt, stmts);
         for (w.g.moves) |mv| {
             for (list) |*src| {
-                if (src.kind != mv.from or src.vals[mv.from_slot] == .none) continue;
+                if (src.kind != mv.from or src.at(mv.from_slot) == .none) continue;
                 var moved = false;
                 for (list) |*dst| {
-                    if (dst.kind != mv.to or dst.vals[mv.to_slot] != .none) continue;
-                    dst.vals = try w.arena.dupe(Value, dst.vals);
-                    dst.vals[mv.to_slot] = src.vals[mv.from_slot];
+                    if (dst.kind != mv.to or dst.at(mv.to_slot) != .none) continue;
+                    try dst.own(w.arena);
+                    try dst.set(w.arena, mv.to_slot, src.at(mv.from_slot));
                     moved = true;
                 }
                 if (!moved) continue;
-                src.vals = try w.arena.dupe(Value, src.vals);
-                src.vals[mv.from_slot] = .none;
+                try src.own(w.arena);
+                try src.set(w.arena, mv.from_slot, .none);
             }
         }
         return list;
@@ -1027,8 +1030,9 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
             };
             // A model's type word is a keyword of the dialect, not a name.
             if (s.kind == .model and std.mem.eql(u8, sl.name, "type")) continue;
-            const items: []const Value = switch (s.vals[i]) {
-                .atom => s.vals[i .. i + 1],
+            const one = [1]Value{s.at(i)};
+            const items: []const Value = switch (one[0]) {
+                .atom => &one,
                 .list => |l| l,
                 else => &.{},
             };
