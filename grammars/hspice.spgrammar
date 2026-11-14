@@ -1,0 +1,184 @@
+# HSPICE
+#
+# Differences from ngspice captured here: `$` is the only trailing comment,
+# single quotes are the only expression delimiters (braces are not), X is a
+# second spelling of Meg, a bare identifier may be a value, .TRAN takes
+# START= instead of a third number and has no step ceiling, user functions
+# are .PARAM f(x)='...', behavioural sources are E and G elements with VOL=
+# and CUR=, Verilog-A is loaded with .HDL and instantiated as X.
+#
+# .NOISE rides on the .AC statement before it and has no sweep of its own.
+# A noise analysis is therefore written as the two lines together; reading a
+# lone .NOISE line is not attempted, because the .AC it belongs to is an
+# analysis in its own right.
+
+dialect hspice
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  comment   tail "$"
+  continue  lead "+"
+  continue  trail "\\"
+  parens    space
+  expr      "'" "'"
+  values    idents
+  scale     meg=6 x=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  oddscale  mil=25.4e-6
+  units     ignore
+  end       ".end"
+end
+
+block subckt
+  open   ".subckt" name ports* {...params}
+  close  ".ends" [name]
+end
+
+block libsection
+  open   ".lib" name
+  close  ".endl" [name]
+end
+
+block cond_if
+  open   ".if" cond...
+  close  ".endif"
+end
+
+rule  func      = ".param" name ~"(" args* ~")" "=" expr
+rule  param     = ".param" {...params}
+rule  cond_elif = ".elseif" cond...
+rule  cond_else = ".else"
+rule  global    = ".global" nodes+
+rule  include   = ".include" path
+read  include   = ".inc" path
+rule  lib       = ".lib" path section
+rule  model     = ".model" name type {...params}
+rule  hdl       = ".hdl" path
+
+rule  options   = ".temp" temp
+rule  options   = ".option" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+read  options   = ".options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
+# HSPICE's own .SAVE stores an operating point; recording signals is .PROBE.
+write save      = ".probe" signals+
+rule  ic        = ".ic" { v(*)=values }
+rule  nodeset   = ".nodeset" { v(*)=values }
+rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+
+rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
+rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
+rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+rule  mutual    = name~"K" l1 l2 k
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] {...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  bsource   = name~"E" pos neg { vol=v! }
+rule  bsource   = name~"G" pos neg { cur=i! }
+rule  vcvs      = name~"E" pos neg cpos cneg gain
+rule  vccs      = name~"G" pos neg cpos cneg gm
+rule  cccs      = name~"F" pos neg vsrc gain
+rule  ccvs      = name~"H" pos neg vsrc gain
+rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+# With a substrate node and a thermal node (self-heating models).
+rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
+rule  instance  = name~"X" nodes+ master {...params}
+
+rule  op        = ".op"
+rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
+rule  dc        = ".dc" var:"temp" start stop step
+rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
+write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src
+rule  sens      = ".sens" out
+rule  four      = ".four" freq signals+
+rule  hb        = ".hb" { tones=freqs! nharms=harms ...params }
+
+implied tf ref = 0
+enum options method : trap=trap gear=gear
+enum dc var : temp=temp
+
+no vswitch : HSPICE has no S switch element; a voltage-controlled resistor (G element, VCR) is the closest form
+no cswitch : HSPICE has no W switch element
+no mesfet  : HSPICE models MESFETs as J elements with their own model levels
+no disto   : HSPICE has no .DISTO small-signal distortion analysis
+no stb     : HSPICE's loop stability analysis (.LSTB) probes a voltage source and has no counterpart of the probe-based form
+
+caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
+caveat tran maxstep : HSPICE has no step ceiling on .TRAN; the first number is the print step and limits nothing
+caveat noise src : HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well
+caveat hdl path : .HDL expects Verilog-A source, not a compiled OSDI file
+caveat save signals : HSPICE's own .SAVE stores an operating point; the signals are recorded with .PROBE
+
+# How this dialect writes the things a simulator can record.
+signals
+  vdiff = "v(%,%)"
+  v     = "v(%)"
+  i     = "i(%)"
+  vdb   = "vdb(%)"
+  vm    = "vm(%)"
+  vp    = "vp(%)"
+  vr    = "vr(%)"
+  vi    = "vi(%)"
+end
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  same limit agauss gauss aunif unif v i
+  same nint db
+  ln    = log
+  log10 = log10
+  sign2 = sign
+end
+
+variables
+  same temper time hertz
+end
+
+operators
+  pow "**" "^"
+end
+
+models
+  resistor   = r
+  capacitor  = c
+  inductor   = l
+  diode      = d
+  bjt npn    = npn
+  bjt pnp    = pnp
+  vbic npn   = npn level=4
+  vbic pnp   = pnp level=4
+  hicum2 npn = npn level=8
+  hicum2 pnp = pnp level=8
+  jfet n     = njf
+  jfet p     = pjf
+  mos1 n     = nmos level=1 | nmos !level
+  mos1 p     = pmos level=1 | pmos !level
+  mos2 n     = nmos level=2
+  mos2 p     = pmos level=2
+  mos3 n     = nmos level=3
+  mos3 p     = pmos level=3
+  bsim3 n    = nmos level=49 | nmos level=53
+  bsim3 p    = pmos level=49 | pmos level=53
+  bsim4 n    = nmos level=54
+  bsim4 p    = pmos level=54
+  bsimsoi n  = nmos level=70 | nmos level=57
+  bsimsoi p  = pmos level=70 | pmos level=57
+  bsimcmg n  = nmos level=72
+  bsimcmg p  = pmos level=72
+  bsimbulk n = nmos level=77
+  bsimbulk p = pmos level=77
+  psp103 n   = nmos level=69
+  psp103 p   = pmos level=69
+  hisim2 n   = nmos level=68
+  hisim2 p   = pmos level=68
+  hisimhv n  = nmos level=73
+  hisimhv p  = pmos level=73
+end

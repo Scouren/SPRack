@@ -1,0 +1,200 @@
+# ngspice
+#
+# Lexical rules follow chapter 2 of the ngspice manual: title line, `*`
+# comment lines, `$` `;` `//` trailing comments, `+` continuation, the scale
+# factor table (M is milli, Meg is mega), and letters after a number ignored.
+#
+# N devices are instances of Verilog-A models compiled to OSDI, loaded with
+# `pre_osdi` inside a .control block. Everything else in .control is the
+# Nutmeg scripting language, which is not a netlist and is kept verbatim.
+
+dialect ngspice
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  comment   tail "$" ";" "//"
+  continue  lead "+"
+  continue  trail "\\"
+  parens    space
+  expr      "{" "}"
+  expr      "'" "'"
+  expr      after-equals
+  values    strict
+  scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  oddscale  mil=25.4e-6
+  units     ignore
+  end       ".end"
+end
+
+raw ".control" ".endc"
+
+block subckt
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} )
+  close  ".ends" [name]
+end
+
+block libsection
+  open   ".lib" name
+  close  ".endl" [name]
+end
+
+block cond_if
+  open   ".if" cond...
+  close  ".endif"
+end
+
+rule  func      = ".func" name ~"(" args* ~")" expr
+read  func      = ".func" name args* "=" expr
+read  func      = ".param" name args+ "=" expr
+rule  param     = ".param" {...params}
+read  param     = ".params" {...params}
+rule  cond_elif = ".elseif" cond...
+rule  cond_else = ".else"
+rule  global    = ".global" nodes+
+rule  include   = ".include" path
+read  include   = ".inc" path
+rule  lib       = ".lib" path section
+# Model cards may carry bare flags (vdmos pchan, ltra steplimit).
+rule  model     = ".model" name type {...params?}
+rule  hdl       = ".control" / "pre_osdi" path / ".endc"
+
+rule  options   = ".temp" temp
+rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+rule  save      = ".save" signals+
+rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
+rule  ic        = ".ic" { v(*)=values }
+rule  nodeset   = ".nodeset" { v(*)=values }
+rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+
+rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
+rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
+rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+rule  mutual    = name~"K" l1 l2 k
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" ) ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+rule  bsource   = name~"B" pos neg { v=v i=i ...params }
+# The HSPICE and PSpice spellings of a behavioural source, which ngspice also reads.
+rule  bsource   = name~"E" pos neg { vol=v! }
+rule  bsource   = name~"G" pos neg { cur=i! }
+read  bsource   = name~"E" pos neg { value=v! }
+read  bsource   = name~"G" pos neg { value=i! }
+rule  vcvs      = name~"E" pos neg cpos cneg gain
+rule  vccs      = name~"G" pos neg cpos cneg gm
+rule  cccs      = name~"F" pos neg vsrc gain
+rule  ccvs      = name~"H" pos neg vsrc gain
+rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+# With a substrate node and a thermal node (self-heating models).
+rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+# Three-terminal power MOSFETs (VDMOS) have no bulk node.
+rule  mosfet    = name~"M" d g s master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  mesfet    = name~"Z" d g s master [area] {...params}
+rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
+rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
+rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
+rule  device    = name~"N" nodes+ master {...params}
+# ngspice accepts the PSpice-style params: keyword but does not need it.
+read  instance  = name~"X" nodes+ master "params:" {...params}
+rule  instance  = name~"X" nodes+ master {...params}
+
+rule  op        = ".op"
+rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
+rule  dc        = ".dc" var:"temp" start stop step
+rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
+rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  pz        = ".pz" in_pos in_neg out_pos out_neg ( transfer:"cur" | transfer:"vol" ) ( find:"pol" | find:"zer" | find:"pz" )
+rule  sens      = ".sens" out
+rule  disto     = ".disto" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [f2overf1]
+rule  four      = ".four" freq signals+
+rule  sp        = ".sp" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+
+implied noise ref = 0
+implied tf ref = 0
+enum options method : trap=trap gear=gear
+enum dc var : temp=temp
+
+no hb  : ngspice has no harmonic-balance analysis
+no pss : ngspice's .pss is an experimental oscillator analysis with a different meaning; there is no driven periodic steady state
+no stb : ngspice has no loop-stability analysis
+
+caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
+caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit
+caveat hdl path : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
+
+# How this dialect writes the things a simulator can record.
+signals
+  vdiff = "v(%,%)"
+  v     = "v(%)"
+  i     = "i(%)"
+  vdb   = "vdb(%)"
+  vm    = "vm(%)"
+  vp    = "vp(%)"
+  vr    = "vr(%)"
+  vi    = "vi(%)"
+  all   = "all"
+end
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  same limit agauss gauss aunif unif v i
+  same nint sqr asinh acosh atanh
+  ln    = ln log
+  log10 = log10
+  if    = ternary_fcn
+end
+
+variables
+  same temper time hertz
+end
+
+operators
+  pow "**" "^"
+end
+
+models
+  resistor   = r
+  capacitor  = c
+  inductor   = l
+  diode      = d
+  bjt npn    = npn
+  bjt pnp    = pnp
+  vbic npn   = npn level=4 | npn level=9
+  vbic pnp   = pnp level=4 | pnp level=9
+  hicum2 npn = npn level=8
+  hicum2 pnp = pnp level=8
+  jfet n     = njf
+  jfet p     = pjf
+  mesfet n   = nmf
+  mesfet p   = pmf
+  hfet n     = nhfet
+  hfet p     = phfet
+  mos1 n     = nmos level=1 | nmos !level
+  mos1 p     = pmos level=1 | pmos !level
+  mos2 n     = nmos level=2
+  mos2 p     = pmos level=2
+  mos3 n     = nmos level=3
+  mos3 p     = pmos level=3
+  bsim3 n    = nmos level=8 | nmos level=49
+  bsim3 p    = pmos level=8 | pmos level=49
+  bsim4 n    = nmos level=14 | nmos level=54
+  bsim4 p    = pmos level=14 | pmos level=54
+  bsimsoi n  = nmos level=10 | nmos level=58
+  bsimsoi p  = pmos level=10 | pmos level=58
+  hisim2 n   = nmos level=68
+  hisim2 p   = pmos level=68
+  hisimhv n  = nmos level=73
+  hisimhv p  = pmos level=73
+  vdmos      = vdmos
+  vswitch    = sw
+  cswitch    = csw
+end

@@ -1,0 +1,150 @@
+# VACASK
+#
+# Written from the project README and conference slides, then checked against
+# the four upstream benchmark decks in the VAMS Conformance Suite
+# (tests/netlist/stress/vacask_*). Those decks confirm: the title line, `//`
+# and `/* */` comments, `load`, `model name module ( params )`, instance
+# lines, `subckt` with `parameters`, pulse sources with val0/val1, sine
+# sources with sinedc/ampl/freq, `control ... endc` with `analysis` lines,
+# `options tran_method="gear2"`, and the psp103va module with type=1/-1.
+# Lines marked "assumed" are not covered by those decks; the VACASK manual
+# could not be consulted when this file was written.
+#
+# VACASK has no built-in device letters. Every instance names a model, every
+# model names a Verilog-A module, and the module must be loaded first. The
+# `needs` sections below write that boilerplate when a device kind is used
+# and hide it again when reading.
+#
+# Analyses and options live inside control ... endc. A DC sweep is a `sweep`
+# line in front of an `op` analysis.
+
+dialect vacask
+
+lexer
+  case       sensitive
+  title      yes
+  comment    line "//"
+  comment    tail "//"
+  comment    block "/*" "*/"
+  continue   trail "\"
+  parens     token
+  expr       bare
+  values     idents
+  scale      M=6 T=12 G=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  units      after-scale
+end
+
+preamble
+  ground 0
+end
+
+# The SPICE-compatible modules, so a translated R or C keeps SPICE semantics.
+needs resistor
+  load "spice/resistor.osdi"
+  model resistor sp_resistor
+end
+needs capacitor
+  load "spice/capacitor.osdi"
+  model capacitor sp_capacitor
+end
+needs inductor
+  load "spice/inductor.osdi"          # assumed, by analogy with the two above
+  model inductor sp_inductor
+end
+needs diode
+  load "spice/diode.osdi"             # assumed; the benchmark decks load spice/sn/diode.osdi
+end
+needs vsource
+  model vsource vsource
+end
+needs isource
+  model isource isource
+end
+
+wrap "control" "endc" : options save op dc ac tran noise hb
+
+# A file carried inside the netlist (a Python post-processing script, say).
+raw "embed" ">>>FILE"
+
+block subckt
+  open   "subckt" name ["("] ports* [")"]
+  inner  "parameters" {...params}
+  close  "ends"
+end
+
+rule  param     = "parameters" {...params}
+rule  global    = "global" nodes+
+rule  include   = "include" path
+rule  model     = "model" name type ["("] {...params} [")"]
+rule  hdl       = "load" path
+# Option names other than tran_method are assumed to follow SPICE.
+rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin temp=temp tnom=tnom scale=scale tran_method="method" tran_maxord=maxord ...params }
+rule  save      = "save" signals+                 # assumed
+read  opaque    = ( "ground" | "elaborate" | "postprocess" | "save" | "print" | "abort" ) ...
+
+rule  op        = "analysis" name?op$# "op"
+# Nested sweep: the line written first is the outer loop.
+rule  dc        = [ "sweep" _?outer$# { instance="src2"! parameter=="dc" from=start2 to=stop2 step=step2 } / ] "sweep" _?sweep$# { instance="src" parameter=="dc" from=start to=stop step=step } / "analysis" name?dc$# "op"
+rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points ...params }
+rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep ...params }
+rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points ...params }
+rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=harms ...params }      # assumed
+
+# With a model of its own the device keeps it; these forms are write-only
+# because any two-terminal instance would match them when reading.
+write resistor  = name "(" pos neg ")" master { r=r ...params }
+write capacitor = name "(" pos neg ")" master { c=c ...params }
+rule  resistor  = name "(" pos neg ")" "resistor" { r=r ...params }
+rule  capacitor = name "(" pos neg ")" "capacitor" { c=c ...params }
+rule  inductor  = name "(" pos neg ")" "inductor" { l=l ...params }
+# mag and phase are assumed. The slides show both val0/val1 and v0/v1 for the
+# pulse levels; both are read, val0/val1 are written.
+rule  vsource   = name "(" pos neg ")" "vsource" { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 v0=val0 v1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq ...params }
+rule  isource   = name "(" pos neg ")" "isource" { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 v0=val0 v1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq ...params }
+rule  instance  = name "(" nodes* ")" master {...params}
+
+enum options method : trap=trap gear=gear2 euler=euler
+enum vsource wave : pulse=pulse sine=sine
+enum isource wave : pulse=pulse sine=sine
+implied noise ref = 0
+
+no bsource : VACASK has no behavioural source; the expression has to be written as a Verilog-A module
+no func    : VACASK netlists have no user-defined functions
+no measure : VACASK has no measure statement; results are post-processed in Python
+no print   : VACASK has no print statement; results are written to raw files
+no tf      : VACASK has no SPICE .TF analysis; its dcxf analysis is the closest and needs different inputs
+no pz      : VACASK has no pole-zero analysis
+no disto   : VACASK has no .DISTO analysis; use hb
+no four    : VACASK has no .FOUR statement; use hb or post-process the transient result
+no vswitch : VACASK has no built-in switch
+no cswitch : VACASK has no built-in switch
+
+caveat hdl path : VACASK loads compiled OSDI files; compile Verilog-A source with OpenVAF first
+
+signals                               # assumed
+  v = "v(%)"
+  i = "i(%)"
+end
+
+functions                             # assumed
+  same abs min max sqrt exp pow floor ceil sin cos tan asin acos atan atan2 sinh cosh tanh hypot
+  ln    = ln
+  log10 = log10
+end
+
+operators
+  pow "**"
+end
+
+# A netlist may give a module any model name (`model r sp_resistor`);
+# instances of that model are still resistors.
+models
+  resistor   = sp_resistor | resistor
+  capacitor  = sp_capacitor | capacitor
+  inductor   = sp_inductor | inductor
+  diode      = sp_diode
+  vsource    = vsource
+  isource    = isource
+  psp103 n   = psp103va type=1
+  psp103 p   = psp103va type=-1
+end

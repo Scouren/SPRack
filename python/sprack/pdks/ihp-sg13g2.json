@@ -1,0 +1,21 @@
+{
+  "name": "ihp-sg13g2",
+  "aliases": ["ihp", "sg13g2", "ihp_sg13g2", "ihp-open-pdk"],
+  "about": "IHP SG13G2 130 nm BiCMOS open PDK (IHP-Open-PDK)",
+  "dialect": "ngspice",
+  "env": ["PDK_ROOT"],
+  "layouts": [
+    {"probe": "ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "ihp-sg13g2/libs.tech/ngspice/models", "osdi": "ihp-sg13g2/libs.tech/ngspice/osdi"}},
+    {"probe": "libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "libs.tech/ngspice/models", "osdi": "libs.tech/ngspice/osdi"}}
+  ],
+  "corners": {
+    "tt": [["{m}/cornerMOSlv.lib", "mos_tt"], ["{m}/cornerMOShv.lib", "mos_tt"], ["{m}/cornerHBT.lib", "hbt_typ"], ["{m}/cornerRES.lib", "res_typ"], ["{m}/cornerCAP.lib", "cap_typ"], ["{m}/cornerDIO.lib", "dio_tt"]],
+    "ss": [["{m}/cornerMOSlv.lib", "mos_ss"], ["{m}/cornerMOShv.lib", "mos_ss"], ["{m}/cornerHBT.lib", "hbt_wcs"], ["{m}/cornerRES.lib", "res_wcs"], ["{m}/cornerCAP.lib", "cap_wcs"], ["{m}/cornerDIO.lib", "dio_ss"]],
+    "ff": [["{m}/cornerMOSlv.lib", "mos_ff"], ["{m}/cornerMOShv.lib", "mos_ff"], ["{m}/cornerHBT.lib", "hbt_bcs"], ["{m}/cornerRES.lib", "res_bcs"], ["{m}/cornerCAP.lib", "cap_bcs"], ["{m}/cornerDIO.lib", "dio_ff"]],
+    "sf": [["{m}/cornerMOSlv.lib", "mos_sf"], ["{m}/cornerMOShv.lib", "mos_sf"], ["{m}/cornerHBT.lib", "hbt_typ"], ["{m}/cornerRES.lib", "res_typ"], ["{m}/cornerCAP.lib", "cap_typ"], ["{m}/cornerDIO.lib", "dio_tt"]],
+    "fs": [["{m}/cornerMOSlv.lib", "mos_fs"], ["{m}/cornerMOShv.lib", "mos_fs"], ["{m}/cornerHBT.lib", "hbt_typ"], ["{m}/cornerRES.lib", "res_typ"], ["{m}/cornerCAP.lib", "cap_typ"], ["{m}/cornerDIO.lib", "dio_tt"]]
+  },
+  "default_corner": "tt",
+  "prefix": "",
+  "load": ["{osdi}/psp103_nqs.osdi", "{osdi}/r3_cmc.osdi", "{osdi}/mosvar.osdi"]
+}

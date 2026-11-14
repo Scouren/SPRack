@@ -1,31 +1,5 @@
-# Build artifacts
-/target/
-
-# Python
+zig-out/
+.zig-cache/
+zig-pkg/
 __pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-python/spicerack/_native*.so
-dist/
-build/
-.venv/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*~
-
-# OS
-.DS_Store
-
-# Test/cache
-.pytest_cache/
-.tox/
-
-# Nix build output
-target_nix/
-result
-result-*
-site/
+*.so

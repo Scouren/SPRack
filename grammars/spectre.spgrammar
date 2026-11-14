@@ -1,0 +1,179 @@
+# Spectre (simulator lang=spectre)
+#
+# Case sensitive. SI scale factors, so M is mega and m is milli. `//` and a
+# leading `*` are comments, `\` at the end of a line continues it.
+# Expressions need no delimiters; `^` is exclusive-or and `**` is power. A
+# device's type comes from its master, not from the first letter of its
+# name, so transistors are read as generic instances and resolved against
+# the models declared in the netlist (or in the rest of the project).
+#
+# The integration method is a parameter of the tran analysis here, not a
+# global option; the `move` line carries it over in both directions.
+#
+# Not expressible in this grammar: `simulator lang=spice` sections, inline
+# subckt, user functions (`real f(real x) { return ...; }`), statistics
+# blocks and the RF analyses in the last opaque list. Such lines are kept
+# verbatim for Spectre output and reported as errors for any other target.
+
+dialect spectre
+
+lexer
+  case       sensitive
+  title      yes "// "
+  comment    line "//" "*"
+  comment    tail "//"
+  continue   trail "\"
+  parens     token
+  expr       bare
+  values     idents
+  scale      M=6 T=12 G=9 k=3 K=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  readscale  _=0 %=-2 c=-2
+  units      after-scale
+end
+
+# In every file, included ones too.
+header
+  simulator lang=spectre
+end
+
+# In the top netlist only.
+preamble
+  global 0
+end
+
+block subckt
+  open   "subckt" name ["("] ports* [")"]
+  inner  "parameters" {...params}
+  close  "ends" [name]
+end
+
+block libsection
+  open   "section" name
+  close  "endsection" [name]
+end
+
+rule  param     = "parameters" {...params}
+rule  global    = "global" nodes+
+rule  include   = "include" path
+rule  lib       = "include" path { section=section }
+rule  model     = "model" name type {...params}
+rule  hdl       = "ahdl_include" path
+
+rule  options   = _?sprackOptions$# "options" { reltol=reltol iabstol=abstol vabstol=vntol gmin=gmin temp=temp tnom=tnom scale=scale ...params }
+rule  save      = "save" signals+
+# No print statement: what a SPICE deck prints is saved instead.
+write print     = "save" -style -analysis signals+
+rule  ic        = "ic" { ...values }
+rule  nodeset   = "nodeset" { ...values }
+
+# Statements this grammar recognises but cannot express. Listing them keeps
+# the generic instance rule at the bottom from misreading them.
+read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "statistics" | "library" | "endlibrary" | "real" ) ...
+read  opaque    = _ ( "options" | "info" | "alter" | "altergroup" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
+
+# A dc analysis that sweeps something is a DC sweep; any other is an operating point.
+rule  dc        = name?dc$# "dc" { dev=src! param==dc start=start stop=stop step=step ...params }
+rule  dc        = name?dc$# "dc" { param=var! start=start stop=stop step=step ...params }
+rule  op        = name?op$# "dc" {...params}
+rule  ac        = name?ac$# "ac" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  tran      = name?tran$# "tran" { step=step stop=stop start=start maxstep=maxstep skipdc=skip_dc method=method ...params }
+rule  noise     = name?noise$# "(" out ref?0 ")" "noise" { iprobe=src start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  stb       = name?stb$# "stb" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin probe=probe! ...params }
+rule  pss       = name?pss$# "pss" { fund=fund! harms=harms tstab=tstab ...params }
+rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "montecarlo" | "sweep" | "envlp" | "qpss" ) ...
+
+# With a model of its own the device keeps it; these forms are write-only
+# because any two-terminal instance would match them when reading.
+write resistor  = name "(" pos neg ")" master { r=r ...params }
+write capacitor = name "(" pos neg ")" master { c=c ...params }
+rule  resistor  = name ["("] pos neg [")"] "resistor" { r=r ...params }
+rule  capacitor = name ["("] pos neg [")"] "capacitor" { c=c ...params }
+rule  inductor  = name ["("] pos neg [")"] "inductor" { l=l ...params }
+rule  mutual    = name "mutual_inductor" { coupling=k ind1=l1 ind2=l2 }
+# type=dc is the default and says nothing; read it and move on.
+read  vsource   = name ["("] pos neg [")"] "vsource" { type==dc dc=dc mag=acmag phase=acphase ...params }
+read  isource   = name ["("] pos neg [")"] "isource" { type==dc dc=dc mag=acmag phase=acphase ...params }
+rule  vsource   = name ["("] pos neg [")"] "vsource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
+rule  isource   = name ["("] pos neg [")"] "isource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
+rule  bsource   = name ["("] pos neg [")"] "bsource" { v=v i=i ...params }
+rule  vcvs      = name ["("] pos neg cpos cneg [")"] "vcvs" { gain=gain }
+rule  vccs      = name ["("] pos neg cpos cneg [")"] "vccs" { gm=gm }
+rule  cccs      = name ["("] pos neg [")"] "cccs" { probe=vsrc gain=gain }
+rule  ccvs      = name ["("] pos neg [")"] "ccvs" { probe=vsrc rm=gain }
+rule  tline     = name ["("] p1 n1 p2 n2 [")"] "tline" { z0=z0 td=td f=f nl=nl ...params }
+rule  instance  = name ["("] nodes+ [")"] master {...params}
+
+move options.method -> tran.method
+enum tran method : trap=trap gear=gear2 euler=euler
+enum dc var : temp=temp
+enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl
+enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl
+implied noise ref = 0
+
+no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
+no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
+no vswitch : Spectre's relay is a four-terminal switch with different parameters (vt1, vt2, ropen, rclosed); the SPICE switch model has no direct form
+no cswitch : Spectre has no current-controlled switch element
+
+caveat tran skip_dc : skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
+caveat tran method : the integration methods are near equivalents, not the same algorithm
+caveat print signals : Spectre has no print statement; the signals are saved instead
+caveat hdl path : ahdl_include expects Verilog-A source, not a compiled OSDI file
+
+signals
+  i = "%:p"
+  v = "%"
+end
+
+functions
+  same abs min max sqrt exp pow floor ceil int sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot fmod v i
+  ln    = log
+  log10 = log10
+end
+
+variables
+  temper = temp
+end
+
+operators
+  pow "**"
+  xor "^"
+end
+
+models
+  resistor   = resistor
+  capacitor  = capacitor
+  inductor   = inductor
+  diode      = diode
+  bjt npn    = bjt type=npn
+  bjt pnp    = bjt type=pnp
+  vbic npn   = vbic type=npn
+  vbic pnp   = vbic type=pnp
+  jfet n     = jfet type=n
+  jfet p     = jfet type=p
+  mesfet n   = gaas type=n
+  mesfet p   = gaas type=p
+  mos1 n     = mos1 type=n
+  mos1 p     = mos1 type=p
+  mos2 n     = mos2 type=n
+  mos2 p     = mos2 type=p
+  mos3 n     = mos3 type=n
+  mos3 p     = mos3 type=p
+  bsim3 n    = bsim3v3 type=n
+  bsim3 p    = bsim3v3 type=p
+  bsim4 n    = bsim4 type=n
+  bsim4 p    = bsim4 type=p
+  bsimsoi n  = bsimsoi type=n
+  bsimsoi p  = bsimsoi type=p
+  bsimcmg n  = bsimcmg type=n
+  bsimcmg p  = bsimcmg type=p
+  bsimbulk n = bsimbulk type=n       # assumed; older releases call it bsim6
+  bsimbulk p = bsimbulk type=p
+  psp103 n   = psp103 type=n
+  psp103 p   = psp103 type=p
+  hisim2 n   = hisim2 type=n
+  hisim2 p   = hisim2 type=p
+  hisimhv n  = hisim_hv type=n
+  hisimhv p  = hisim_hv type=p
+end

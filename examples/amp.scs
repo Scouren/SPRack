@@ -1,0 +1,21 @@
+// Generated for: spectre
+simulator lang=spectre
+global 0 vdd!
+parameters vbias=0.6 rl=10k
+include "models/tt.scs" section=tt
+model nch bsim4 type=n version=4.8 vth0=0.4
+subckt cs_amp (in out)
+parameters w=2u l=180n
+    M0 (out in 0 0) nch w=w l=l m=2
+    RL (vdd! out) resistor r=rl
+ends cs_amp
+I0 (in out) cs_amp w=4u
+V0 (vdd! 0) vsource dc=1.8 type=dc
+V1 (in 0) vsource dc=vbias mag=1 type=sine ampl=1m freq=1M
+C0 (out 0) capacitor c=100f
+simulatorOptions options reltol=1e-3 vabstol=1e-6 iabstol=1e-12 temp=27 tnom=27 gmin=1e-12
+dcOp dc write="spectre.dc"
+ac ac start=1k stop=1G dec=20
+tran tran stop=5u errpreset=moderate
+stb1 stb start=1 stop=1G probe=IPRB0
+save out in

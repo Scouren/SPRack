@@ -1,0 +1,19 @@
+{
+  "name": "sky130A",
+  "aliases": ["sky130", "sky130a", "skywater130"],
+  "about": "SkyWater SKY130, as installed by open_pdks or as the skywater-pdk-libs-sky130_fd_pr repository",
+  "dialect": "ngspice",
+  "env": ["PDK_ROOT"],
+  "layouts": [
+    {"probe": "sky130A/libs.tech/ngspice/sky130.lib.spice", "vars": {"lib": "sky130A/libs.tech/ngspice/sky130.lib.spice"}},
+    {"probe": "libs.tech/ngspice/sky130.lib.spice", "vars": {"lib": "libs.tech/ngspice/sky130.lib.spice"}},
+    {"probe": "models/sky130.lib.spice", "vars": {"lib": "models/sky130.lib.spice"}}
+  ],
+  "corners": {
+    "tt": [["{lib}", "tt"]], "ff": [["{lib}", "ff"]], "ss": [["{lib}", "ss"]],
+    "sf": [["{lib}", "sf"]], "fs": [["{lib}", "fs"]],
+    "ll": [["{lib}", "ll"]], "hh": [["{lib}", "hh"]], "hl": [["{lib}", "hl"]], "lh": [["{lib}", "lh"]]
+  },
+  "default_corner": "tt",
+  "prefix": "sky130_fd_pr__"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "FreePDK45",
+  "aliases": ["freepdk45", "freepdk-45", "ncsu45"],
+  "about": "NCSU FreePDK45 45 nm predictive PDK (BSIM4 models, HSPICE level 54)",
+  "dialect": "hspice",
+  "env": ["PDK_DIR", "FREEPDK45_ROOT", "PDK_ROOT"],
+  "layouts": [
+    {"probe": "ncsu_basekit/models/hspice/hspice_nom.include", "vars": {"m": "ncsu_basekit/models/hspice", "top": "."}},
+    {"probe": "FreePDK45/ncsu_basekit/models/hspice/hspice_nom.include", "vars": {"m": "FreePDK45/ncsu_basekit/models/hspice", "top": "FreePDK45"}}
+  ],
+  "corners": {
+    "nom": [["{m}/hspice_nom.include", null]],
+    "tt": [["{m}/hspice_nom.include", null]],
+    "ff": [["{m}/hspice_ff.include", null]],
+    "ss": [["{m}/hspice_ss.include", null]]
+  },
+  "default_corner": "nom",
+  "prefix": "",
+  "define": {"PDK_DIR": "{root}/{top}"}
+}

@@ -1,0 +1,179 @@
+# Xyce
+#
+# From the Xyce Reference Guide and Sandia report SAND2018-14272 (HSPICE to
+# Xyce translation). `;` is the trailing comment, braces delimit
+# expressions, there is no `a` (atto) scale factor, subcircuit parameters
+# follow PARAMS:, options are filed under a package name, and results exist
+# only for what .PRINT lists. BSIM3 is level 9 or 49, BSIM4 14 or 54,
+# BSIM-CMG 110, PSP 103.
+
+dialect xyce
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  comment   tail ";"
+  continue  lead "+"
+  parens    space
+  expr      "{" "}"
+  values    strict
+  scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15
+  oddscale  mil=25.4e-6
+  units     ignore
+  end       ".end"
+end
+
+block subckt
+  open   ".subckt" name ports* [ "params:" {...params} ]
+  close  ".ends" [name]
+end
+
+block libsection
+  open   ".lib" name
+  close  ".endl" [name]
+end
+
+rule  param     = ".param" {...params}
+read  param     = ".global_param" {...params}
+rule  func      = ".func" name ~"(" args* ~")" expr
+rule  global    = ".global" nodes+
+rule  include   = ".include" path
+read  include   = ".inc" path
+rule  lib       = ".lib" path section
+rule  model     = ".model" name type {...params}
+
+# One heading per statement. A heading in the source is kept; options that
+# come from another dialect are filed where Xyce wants them.
+rule  options   = ".options" package:"timeint"? { reltol=reltol abstol=abstol method=method maxord=maxord ...params }
+rule  options   = ".options" package:"device"? { gmin=gmin temp=temp tnom=tnom ...params }
+rule  options   = ".options" package:"parser"? { scale=scale ...params }
+rule  options   = ".options" package {...params}
+rule  print     = style:".print"=print analysis {...params} signals+
+rule  ic        = ".ic" { v(*)=values }
+rule  nodeset   = ".nodeset" { v(*)=values }
+rule  measure   = ( ".measure" | ".meas" ) analysis name spec...
+
+rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
+rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
+rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+rule  mutual    = name~"K" l1 l2 k
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] {...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" ) ] [ "ac" acmag [acphase] ] {...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  bsource   = name~"B" pos neg { v=v i=i ...params }
+rule  bsource   = name~"E" pos neg { value=v! }
+rule  bsource   = name~"G" pos neg { value=i! }
+rule  vcvs      = name~"E" pos neg cpos cneg gain
+rule  vccs      = name~"G" pos neg cpos cneg gm
+rule  cccs      = name~"F" pos neg vsrc gain
+rule  ccvs      = name~"H" pos neg vsrc gain
+rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+# With a substrate node and a thermal node (self-heating models).
+rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  mesfet    = name~"Z" d g s master [area] {...params}
+rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
+rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
+rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
+rule  instance  = name~"X" nodes+ master [ "params:" {...params} ]
+
+rule  op        = ".op"
+rule  dc        = ".dc" var:"temp" start stop step
+rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
+rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  four      = ".four" freq signals+
+rule  hb        = ".hb" freqs+
+
+implied noise ref = 0
+enum options method : trap=trap gear=gear trap=7 gear=8
+enum dc var : temp=temp
+
+no cond_if : Xyce has no conditional blocks in a netlist
+no tf     : Xyce has no .TF small-signal transfer function analysis
+no pz     : Xyce has no pole-zero analysis
+no disto  : Xyce has no .DISTO small-signal distortion analysis
+no stb    : Xyce has no loop-stability analysis
+no sens   : Xyce's .SENS takes an objective function and a parameter list, not an output variable
+no save   : Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give
+no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist
+no device : Xyce instantiates a Verilog-A model through its compiled plugin's own device letter and level; there is no netlist form for an arbitrary module
+
+caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed the first time point differently
+caveat tran step : the first .TRAN number only sets the initial step in Xyce
+caveat noise out : Xyce reports noise as mean-square densities where HSPICE reports RMS
+
+# How this dialect writes the things a simulator can record.
+signals
+  vdiff = "v(%,%)"
+  v     = "v(%)"
+  i     = "i(%)"
+  vdb   = "vdb(%)"
+  vm    = "vm(%)"
+  vp    = "vp(%)"
+  vr    = "vr(%)"
+  vi    = "vi(%)"
+end
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  same limit agauss gauss aunif unif v i
+  same nint atan2 asinh acosh atanh stp uramp
+  ln    = ln log
+  log10 = log10
+  sign2 = sign
+  if    = if
+end
+
+variables
+  temper = temp
+  time   = time
+  hertz  = freq
+end
+
+operators
+  pow "**" "^"
+end
+
+models
+  resistor   = r
+  capacitor  = c
+  inductor   = l
+  diode      = d
+  bjt npn    = npn
+  bjt pnp    = pnp
+  vbic npn   = npn level=10 | npn level=11 | npn level=12
+  vbic pnp   = pnp level=10 | pnp level=11 | pnp level=12
+  hicum2 npn = npn level=234
+  hicum2 pnp = pnp level=234
+  jfet n     = njf
+  jfet p     = pjf
+  mesfet n   = nmf
+  mesfet p   = pmf
+  mos1 n     = nmos level=1 | nmos !level
+  mos1 p     = pmos level=1 | pmos !level
+  mos2 n     = nmos level=2
+  mos2 p     = pmos level=2
+  mos3 n     = nmos level=3
+  mos3 p     = pmos level=3
+  bsim3 n    = nmos level=9 | nmos level=49
+  bsim3 p    = pmos level=9 | pmos level=49
+  bsim4 n    = nmos level=14 | nmos level=54
+  bsim4 p    = pmos level=14 | pmos level=54
+  bsimsoi n  = nmos level=70 | nmos level=10
+  bsimsoi p  = pmos level=70 | pmos level=10
+  bsimcmg n  = nmos level=110 | nmos level=107
+  bsimcmg p  = pmos level=110 | pmos level=107
+  bsimbulk n = nmos level=77
+  bsimbulk p = pmos level=77
+  psp103 n   = nmos level=103
+  psp103 p   = pmos level=103
+  vswitch    = vswitch | sw
+  cswitch    = iswitch | csw
+end

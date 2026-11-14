@@ -1,0 +1,19 @@
+{
+  "name": "ASAP7",
+  "aliases": ["asap7", "asap7pdk"],
+  "about": "ASAP7 7 nm predictive PDK (BSIM-CMG models, HSPICE level 72)",
+  "dialect": "hspice",
+  "env": ["ASAP7_ROOT", "PDK_ROOT"],
+  "layouts": [
+    {"probe": "models/hspice/7nm_TT.pm", "vars": {"m": "models/hspice"}},
+    {"probe": "asap7PDK_r1p7/models/hspice/7nm_TT.pm", "vars": {"m": "asap7PDK_r1p7/models/hspice"}},
+    {"probe": "asap7/models/hspice/7nm_TT.pm", "vars": {"m": "asap7/models/hspice"}}
+  ],
+  "corners": {
+    "tt": [["{m}/7nm_TT.pm", null]],
+    "ff": [["{m}/7nm_FF.pm", null]],
+    "ss": [["{m}/7nm_SS.pm", null]]
+  },
+  "default_corner": "tt",
+  "prefix": ""
+}

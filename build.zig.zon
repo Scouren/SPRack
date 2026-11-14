@@ -1,0 +1,8 @@
+.{
+    .name = .sprack,
+    .version = "0.1.0",
+    .fingerprint = 0xd93577b739fdc7af,
+    .minimum_zig_version = "0.17.1",
+    .dependencies = .{},
+    .paths = .{ "build.zig", "build.zig.zon", "src", "grammars", "python", "README.md" },
+}
