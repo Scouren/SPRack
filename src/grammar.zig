@@ -138,6 +138,8 @@ pub const Node = struct {
     soft: bool = false,
     /// `path!`: written without quotes when it has no blank.
     bare: bool = false,
+    /// `signals#1`: a list slot that this form holds exactly one item of.
+    one: bool = false,
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
     /// Separator of a repeated group: none, or one `lit` or `glue` node.
@@ -209,6 +211,9 @@ pub const SignalForm = struct { form: []const u8, template: []const u8 };
 /// One canonical function, variable or operator and its spellings here.
 /// The first spelling is the one written.
 pub const Spellings = struct { canon: []const u8, spellings: []const []const u8 };
+/// A function or operator this dialect spells like the others but
+/// evaluates differently (HSPICE `pow` truncates its exponent).
+pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// A kind the simulator itself lacks, and why.
 pub const Absent = struct { kind: Kind, reason: []const u8 };
 
@@ -245,6 +250,7 @@ pub const Grammar = struct {
     absent: []const Absent = &.{},
     converts: []const Convert = &.{},
     checks: []const Check = &.{},
+    differs: []const Differs = &.{},
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
         for (g.enums) |*e| if (e.kind == kind and e.slot == slot) return e;
@@ -665,6 +671,13 @@ const P = struct {
                     if (n.slot == wild_slot or p.slotInfo(n.slot).ty != .path) return p.err("'{s}!' needs a path slot", .{name});
                     n.bare = true;
                 },
+                '#' => {
+                    p.i += 1;
+                    if (p.peek() != '1') return p.err("expected '#1' after '{s}'", .{name});
+                    p.i += 1;
+                    if (n.slot == wild_slot or !p.slotInfo(n.slot).list) return p.err("'{s}#1' needs a list slot", .{name});
+                    n.one = true;
+                },
                 else => break,
             }
         }
@@ -674,7 +687,7 @@ const P = struct {
             if (p.in_rep) {
                 if (!si.list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
                 if (n.star or n.plus) return p.err("in a repeated group, '{s}' takes one item per pass; drop the '*' or '+'", .{name});
-            } else if (!(n.star or n.plus) and si.list) return p.err("list slot '{s}' needs '*' or '+'", .{name});
+            } else if (!(n.star or n.plus or n.one) and si.list) return p.err("list slot '{s}' needs '*' or '+'", .{name});
             if (si.ty == .params or si.ty == .text) return p.err("slot '{s}' cannot be captured as a single token", .{name});
         }
         return n;
@@ -985,6 +998,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var absent: []const Absent = &.{};
     var converts: []const Convert = &.{};
     var checks: []const Check = &.{};
+    var differs: []const Differs = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1142,6 +1156,14 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             variables = try parseSpellings(c, &lines, fold, "variable", &schema.variables);
         } else if (std.mem.eql(u8, head, "operators")) {
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
+        } else if (std.mem.eql(u8, head, "differs")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "differs is `differs function-or-operator : reason`", .{});
+            const canon = std.mem.trim(u8, rest[0..colon], " \t");
+            var known = false;
+            for (schema.functions) |k| known = known or std.mem.eql(u8, k, canon);
+            for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
+            if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
+            differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "no")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind : reason`", .{});
             absent = try c.add(Absent, absent, .{ .kind = try kindOf(c, no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] });
@@ -1171,6 +1193,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .absent = absent,
         .converts = converts,
         .checks = checks,
+        .differs = differs,
     };
 }
 

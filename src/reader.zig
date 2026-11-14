@@ -341,7 +341,18 @@ const Matcher = struct {
                     self.log.shrinkRetainingCapacity(mark);
                     return false;
                 }
-                const v = (try self.capOne(node, t)) orelse return false;
+                const v = (try self.capOne(node, t)) orelse {
+                    // `if (a > 1)`: where a dialect lexes parentheses as
+                    // tokens and the pattern closes one right after a value,
+                    // everything up to that `)` is the expression.
+                    const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(u8, rest[0].text, ")");
+                    if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value) return false;
+                    const j = self.parenRun(ti) orelse return false;
+                    try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } });
+                    if (try self.m(rest, j, k)) return true;
+                    self.log.shrinkRetainingCapacity(mark);
+                    return false;
+                };
                 if (followLit(rest, t)) return false;
                 if (node.slot != grammar.wild_slot) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
                 if (try self.m(rest, ti + 1, k)) return true;
@@ -477,6 +488,45 @@ const Matcher = struct {
                 return false;
             },
         }
+    }
+
+    /// The end of a run of tokens, balanced in parentheses, that stops at an
+    /// unmatched `)`. Null if the line ends first or the run is empty.
+    fn parenRun(self: *const Matcher, ti: usize) ?usize {
+        var depth: usize = 0;
+        var j = ti;
+        while (j < self.toks().len) : (j += 1) {
+            switch (self.toks()[j].tag) {
+                .nl => return null,
+                .lparen => depth += 1,
+                .rparen => {
+                    if (depth == 0) return if (j > ti) j else null;
+                    depth -= 1;
+                },
+                else => {},
+            }
+        }
+        return null;
+    }
+
+    fn joinRaw(self: *const Matcher, from: usize, to: usize) Allocator.Error![]const u8 {
+        // `((a > 1))` is `(a > 1)`: drop parentheses around the whole run.
+        var a = from;
+        var b = to;
+        while (b - a >= 2 and self.toks()[a].tag == .lparen and self.parenRun(a + 1) == b - 1) {
+            a += 1;
+            b -= 1;
+        }
+        return self.joinTokens(a, b);
+    }
+
+    fn joinTokens(self: *const Matcher, from: usize, to: usize) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (self.toks()[from..to], 0..) |t, i| {
+            if (i > 0 and t.tag != .rparen and self.toks()[from + i - 1].tag != .lparen) try out.append(self.arena, ' ');
+            try out.appendSlice(self.arena, t.raw);
+        }
+        return out.toOwnedSlice(self.arena);
     }
 
     fn capOne(self: *const Matcher, node: Node, t: Tok) Allocator.Error!?Value {

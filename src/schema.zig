@@ -176,9 +176,12 @@ const defs = [_]Def{
         "src2:ref start2:value stop2:value step2:value params:params" ++ ns },
     .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
     .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns },
-    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " params:params" ++ ns },
+    // `interval`: a noise summary every this many frequency points.
+    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " interval:value params:params" ++ ns },
     .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns },
-    .{ .pz, .analysis, "name in_pos:node in_neg:node out_pos:node out_neg:node transfer:atom find:atom params:params" },
+    // Either the input and output ports by node (SPICE), or an output
+    // signal and the input source (HSPICE, Spectre).
+    .{ .pz, .analysis, "name in_pos:node in_neg:node out_pos:node out_neg:node transfer:atom find:atom out:signal src:ref params:params" },
     .{ .sens, .analysis, "name out:signal params:params" },
     .{ .disto, .analysis, "name " ++ sweep_spec ++ " f2overf1:value params:params" },
     .{ .four, .analysis, "name freq:value signals:signal* params:params" },

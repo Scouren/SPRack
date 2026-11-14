@@ -364,6 +364,19 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
     }
 }
 
+/// Does a canonical expression call function `name`, or (for `pow`) use
+/// the power operator?
+pub fn uses(text: []const u8, name: []const u8) bool {
+    if (std.mem.eql(u8, name, "pow") and std.mem.indexOf(u8, text, canon_pow) != null) return true;
+    if (std.mem.eql(u8, name, "xor") and std.mem.indexOf(u8, text, canon_xor) != null) return true;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
+        const end = at + name.len;
+        if ((at == 0 or !isWordChar(text[at - 1])) and (end == text.len or !isWordChar(text[end])) and nextIsCall(text, end)) return true;
+    }
+    return false;
+}
+
 /// Every function name an expression calls that is not a canonical one.
 pub fn isPlainNumber(text: []const u8) bool {
     if (text.len == 0) return false;

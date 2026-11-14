@@ -593,9 +593,25 @@ fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapU
     }
 }
 
+fn sameSlots(a: Kind, b: Kind) bool {
+    const x = schema.info(a).slots;
+    const y = schema.info(b).slots;
+    if (x.len != y.len) return false;
+    for (x, y) |p, q| if (!std.mem.eql(u8, p.name, q.name) or p.ty != q.ty or p.list != q.list) return false;
+    return true;
+}
+
 fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind)) Allocator.Error!void {
     for (stmts) |*s| {
         try retag(arena, s.body, models);
+        // One element letter, two device kinds told apart by the model
+        // (HSPICE writes a MESFET as a J element with a MESFET level).
+        if (s.kind != .instance and schema.info(s.kind).class == .device) {
+            const m = s.get("master");
+            const want = if (m == .atom) models.get(m.atom) orelse continue else continue;
+            if (want != s.kind and want != .device and sameSlots(s.kind, want)) s.kind = want;
+            continue;
+        }
         if (s.kind != .instance) continue;
         const master = s.get("master");
         if (master != .atom) continue;

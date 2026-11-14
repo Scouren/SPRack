@@ -70,6 +70,8 @@ const Emit = struct {
     quiet: bool = false,
     /// The statement was read from a different dialect.
     foreign: bool = false,
+    /// The dialect the statement was read in.
+    source: []const u8 = "",
     /// The next token goes directly after the previous one.
     tight: bool = false,
     /// Inside a repeated group: the pass being written, whose item of
@@ -166,6 +168,7 @@ const Emit = struct {
             .expr => |canon| {
                 var problems: std.ArrayList(expr.Problem) = .empty;
                 const s = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
+                e.semantics(canon);
                 if (!e.quiet) for (problems.items) |pb| {
                     const who = if (e.caps) |c| c.word(pb.text) else "";
                     e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
@@ -187,6 +190,11 @@ const Emit = struct {
             },
             .params => |ps| for (ps, 0..) |p, i| {
                 if (i > 0) w.writeByte(' ') catch return error.OutOfMemory;
+                // `version=3.3.0`: one simulator's lenient reading of a
+                // malformed number is no other's.
+                if (e.foreign and !e.quiet and p.val == .atom and p.val.atom.len > 0 and std.ascii.isDigit(p.val.atom[0])) {
+                    e.report.add(.@"error", .invalid, e.st.line, "{s}={s} is not a number; {s} does not read it", .{ p.key, p.val.atom, e.g.name });
+                }
                 if (p.val == .none) {
                     w.writeAll(p.key) catch return error.OutOfMemory;
                 } else w.print("{s}={s}", .{ p.key, try e.valueText(p.val, false) }) catch return error.OutOfMemory;
@@ -203,6 +211,21 @@ const Emit = struct {
             try out.appendSlice(e.arena, try e.valueText(it, false));
         }
         return out.items;
+    }
+
+    /// A function or operator that one side of a translation evaluates
+    /// differently (`differs` in either grammar): a caveat, never silence.
+    fn semantics(e: *Emit, canon: []const u8) void {
+        if (e.quiet or !e.foreign) return;
+        const src: ?*const Grammar = if (e.caps) |c| for (c.grammars) |*g| {
+            if (std.mem.eql(u8, g.name, e.source)) break g;
+        } else null else null;
+        for ([_]?*const Grammar{ e.g, src }) |og| {
+            const g = og orelse continue;
+            for (g.differs) |d| {
+                if (expr.uses(canon, d.canon)) e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
+            }
+        }
     }
 
     /// A value as shown in messages: no dialect delimiters around it.
@@ -407,6 +430,10 @@ const Emit = struct {
                     }
                     return true;
                 }
+                if (n.one and (e.st.at(n.slot) != .list or e.st.at(n.slot).list.len != 1)) {
+                    if (e.why.len == 0) e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
+                    return false;
+                }
                 var text = (try e.slotText(n.slot, false)) orelse return false;
                 // `path!`: a path with no blank goes out without quotes.
                 const v = e.st.at(n.slot);
@@ -433,6 +460,7 @@ const Emit = struct {
                     .expr => |canon| {
                         var problems: std.ArrayList(expr.Problem) = .empty;
                         const text = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
+                        e.semantics(canon);
                         if (!e.quiet) for (problems.items) |pb| {
                             e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}", .{ canon, @tagName(pb.kind), pb.text, e.g.name });
                         };
@@ -790,6 +818,7 @@ const Writer = struct {
             .caps = w.caps,
             .ordinal = w.ordinals[@backingInt(st.kind)],
             .foreign = !std.mem.eql(u8, w.sourceOf(st), w.g.name),
+            .source = w.sourceOf(st),
         };
     }
 
