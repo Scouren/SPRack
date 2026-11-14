@@ -64,6 +64,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/python" -m pip install dist/*.whl
           cp python/test_sprack.py "$RUNNER_TEMP/"
+          export SPRACK_GRAMMARS="$PWD/grammars"
           cd "$RUNNER_TEMP"
           venv/bin/python -c 'import sprack; print(sprack.__file__)'
           venv/bin/python test_sprack.py

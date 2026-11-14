@@ -104,7 +104,8 @@ def test_vocabulary_is_closed():
     assert "B1 (out 0) bsource v=v(inp)*2 + log(k)\n".replace("v=v(inp)*2 + log(k)", "v=(v(inp)*2 + log(k))") in c2.netlist("spectre", strict=False)
 
 
-GRAMMARS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "grammars")
+# SPRACK_GRAMMARS: for a copy of this file run outside the checkout (the wheel test).
+GRAMMARS = os.environ.get("SPRACK_GRAMMARS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "grammars")
 
 
 def test_grammar_file():
