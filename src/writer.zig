@@ -728,6 +728,9 @@ const Writer = struct {
     /// Model name to its family, for rules that depend on it (`bjt[hicum2]`).
     // ponytail: models of this file only; one declared in another file of a project leaves its instances on the plain rules.
     families: std.StringHashMapUnmanaged([]const u8) = .empty,
+    /// Model cards whose parameters were copied by name: one caveat per
+    /// file, naming the first, not one per card (sky130 has thousands).
+    copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 = "", source: []const u8 = "", line: u32 = 0 } = .{},
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -913,9 +916,8 @@ const Writer = struct {
         if (th.no_half) w.report.add(.@"error", .loss, st.line, "model '{s}': a switch with no hysteresis has no {s} form; its on and off levels would be equal", .{ st.get("name").atom, w.g.name });
         try out.set(a, schema.slotIndex(.model, "params").?, if (th.params.len > 0) .{ .params = th.params } else .none);
         if (!same and st.get("params") == .params) {
-            w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
-                st.get("name").atom, fam.atom, w.sourceOf(st), w.g.name, w.g.name,
-            });
+            if (w.copied.n == 0) w.copied = .{ .name = st.get("name").atom, .family = fam.atom, .source = w.sourceOf(st), .line = st.line };
+            w.copied.n += 1;
         }
         return out;
     }
@@ -1421,4 +1423,14 @@ pub fn write(
         if (any) try w.line(wr.close);
     }
     if (g.lex.end_marker.len > 0 and !nl.library) try w.line(g.lex.end_marker);
+    const cp = w.copied;
+    if (cp.n == 1) {
+        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
+            cp.name, cp.family, cp.source, g.name, g.name,
+        });
+    } else if (cp.n > 1) {
+        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: {s} and {s} ship different implementations and versions of these models; parameters were copied as written, check them against {s}", .{
+            cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
+        });
+    }
 }

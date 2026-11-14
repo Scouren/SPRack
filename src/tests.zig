@@ -606,7 +606,9 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     var report: ir.Report = .init(a);
     const xy = try tr(a, "ngspice", "xyce", src, &report);
     try has(xy, ".model nch nmos level=14 version=4.5 vth0=0.4\n");
-    try reported(&report, .warning, "model 'nch' (bsim4): ngspice and xyce ship different implementations and versions");
+    // Three cards, one caveat: it names the first and counts the rest.
+    try reported(&report, .warning, "model 'nch' (bsim4) and 2 more model cards: ngspice and xyce ship different implementations and versions");
+    try testing.expectEqual(1, report.countCode(.caveat));
 
     var r2: ir.Report = .init(a);
     const sp = try tr(a, "ngspice", "spectre", src, &r2);
