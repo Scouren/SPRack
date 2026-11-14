@@ -18,11 +18,7 @@ SPRack is done when all of these hold:
 5. **The Python package installs as a wheel** and finds an installed PDK tree.
 6. **CI runs the tests and the corpus audit** with `SILENT` = 0.
 
-**Hard limit: Spectre and HSPICE are commercial.** Criteria 3 and 4 can only be
-met for ngspice, Xyce and VACASK unless someone with a license runs the check.
-Without a license, Spectre and HSPICE stay unchecked and
-are marked as such in the grammar header. That is the honest ceiling. Decide
-early whether a licensed run is available (see Phase 6).
+**Spectre and HSPICE** are checked by running the tools on decks we write (Phase 6).
 
 ## State on 14 November
 
@@ -78,9 +74,9 @@ Work this list in the order Phase 1's failures point to.
 - [ ] **2.1 VACASK (6.1).** Read the VACASK manual and source, then resolve all
   9 `assumed` lines. VACASK is free, so each fix is checked by 1.1.
 - [ ] **2.2 Model level tables (6.2)** for ngspice and Xyce, against their
-  reference manuals. HSPICE and Spectre are checked by running the tools.
+  reference manuals. HSPICE and Spectre are checked by running the tools (Phase 6).
 - [ ] **2.3 Function and operator tables (6.3)**, starting with `log`.
-- [ ] **2.4 All 31 `no` lines (6.4).** Each gets a manual citation in a comment,
+- [ ] **2.4 All 31 `no` lines (6.4).** Each gets a source citation (open-source simulators) or an observed tool run (HSPICE, Spectre),
   or is turned into a rule.
 - [ ] **2.5 Enum spellings (6.5)** and the Spectre device forms (6.6).
 
@@ -137,11 +133,8 @@ supported simulator defines.
 
 ## Phase 6: commercial targets
 
-- [ ] **6.1 Find a licensed run** for Spectre and HSPICE. Ship
-  `tools/parse_check.py` with `--target spectre|hspice`, so whoever has the
-  license runs one command and sends back the TSV.
-- [ ] **6.2 Fallback:** if no license is available, mark the grammar headers
-  "not tool-checked" and say so in the README.
+- [ ] **6.1 Tool runs:** every error-free Spectre and HSPICE translation loads in the tool; behaviour is described from decks we wrote, in our own words.
+
 
 ## Phase 7: Python and PDKs (section 7)
 
