@@ -1356,6 +1356,25 @@ test "fuzz: mutated grammars are refused with a diagnostic" {
     }
 }
 
+test "fuzz: a model or device without a name is reported, not written" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A mutated grammar whose model rule lost its name, and the same
+    // statement from JSON, crashed every writer.
+    var diag: sprack.grammar.Diag = .{};
+    const g = try sprack.grammar.compile(a, "dialect x\nlexer\nend\nrule model = \".model\" type {...params?}\n", "f.spgrammar", &diag);
+    var report: ir.Report = .init(a);
+    const nl = try sprack.read(a, &g, "t\n.model nmos level=1\n", &report);
+    const from_json = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"dialect\":\"ngspice\",\"stmts\":[{\"kind\":\"model\",\"type\":\"nmos\"},{\"kind\":\"mosfet\",\"master\":\"m\"}]}", &report);
+    for (dialects) |to| {
+        _ = try writeAs(a, to, &nl, &report);
+        _ = try writeAs(a, to, &from_json, &report);
+    }
+    try reported(&report, .@"error", "model: a statement without a name cannot be written");
+    try reported(&report, .@"error", "mosfet: a statement without a name cannot be written");
+}
+
 test "fuzz: long grammar lists compile in linear memory" {
     // A pattern of 3000 words, and 2000 function names on 100 lines, once
     // took O(n^2) memory: about 600 MB and 60 MB here.

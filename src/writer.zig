@@ -1042,6 +1042,12 @@ const Writer = struct {
             }
             if (!any) return;
         }
+        // A grammar loaded at run time, or JSON, can give a model or a
+        // device no name; everything below names it in its messages.
+        if ((class == .device or st.kind == .model) and st.get("name") != .atom) {
+            w.report.add(.@"error", .invalid, st.line, "{s}: a statement without a name cannot be written", .{@tagName(st.kind)});
+            return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
+        }
         w.ordinals[@backingInt(st.kind)] += 1;
 
         var mapped: ir.Stmt = undefined;
