@@ -53,8 +53,10 @@ header folded
   simulator lang=spectre insensitive=yes
 end
 
-# In the top netlist only.
-preamble
+# In the top netlist only, and not when it has a global statement: that is
+# written `global 0 ...`, and `global 0` before it says nothing more
+# (measured in 25.10: one line and two give the same currents).
+preamble unless global
   global 0
 end
 
@@ -292,11 +294,16 @@ variables
 end
 
 # Measured in Spectre: a unary ! loads (1k*(!0) is 1k); 10%3 is refused.
+# In 25.10 a `!` right after a name belongs to the name, so `a!=b`,
+# `a!=1` and `a!= b` are refused while `a !=b`, `(a)!=b` and `2!=b` load:
+# `!=` is written with blanks. Every other operator loads unspaced, unary
+# ones after another operator too (`a<=b`, `a&&!b`, `a*-b`, `a**-1`).
 operators
   pow "**"
   xor "^"
   ternary "?"
   not "!"
+  ne " != "
 end
 
 models

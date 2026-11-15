@@ -659,6 +659,42 @@ to ngspice and to ESPice and run there: i(vdd) -1.66667e-4, i(v2)
 -1.25e-4, i(v3) -1e-3, i(v4) -2.5e-4, its `.expected.json` in both.
 Before, `t2` was written as the string `"a^3"`, which ngspice refuses.
 
+### 4.10 Blanks around Spectre operators (g1)
+
+Spectre 25.10, one deck per expression: `parameters a=2 b=3`, then
+`parameters t=<expr>` driving a 1 V-per-unit source, the node voltage read
+back.
+
+| written unspaced | Spectre 25.10 |
+|---|---|
+| `a<=b` `a>=b` `(a<=b)` `(a>=b)` | 1, 0, 1, 0 |
+| `a==b` `a<b` `a>b` | 0, 1, 0 |
+| `a&&b` `a\|\|b` `(a<b)&&(b>a)` `(a<b)\|\|0` | 1, 1, 1, 1 |
+| `a**b` `a**-1` | 8, 0.5 |
+| `a*-b` `a+-b` `a/-b` `-a` | -6, -1, -0.667, -2 |
+| `a==-b` `a<=-b` `a>=-b` | 0, 0, 1 |
+| `a&&!b` `a\|\|!b` `a==!b` `a-!b` `!a` `!(a == b)` | 0, 1, 0, 2, 0, 1 |
+| `a!=b` `a!= b` `a!=-b` `a!=(b)` `a!=1` `!(a!=b)` | all refused |
+| `a !=b` `a != b` `(a)!=b` `2!=b` | 1 each |
+
+So only `!=` needs a blank, and only before it after a name: there the `!`
+is taken as part of the name (`a!`), as in a global node `vdd!`. The
+grammar spells it `ne " != "`; a blank at the end of an operator spelling
+is written unless the text has one there already. SPRack itself reads
+`a!=b` as `a`, `!=`, `b` in every dialect.
+
+`global`: `global 0` followed by `global 0 vdd`, and `global 0 vdd`
+alone, give the same current (1.5 mA, a subcircuit resistor to the global
+`vdd`); with no global line at all 0 is still ground but `vdd` is local
+(0.5 mA); `global 0` then `global vdd` is refused, as the first node of a
+global line is the ground. `preamble unless global` now leaves out the
+`global 0` line when the netlist writes a global statement.
+
+`hspice/hspice_expressions.sp` (Conformance Suite 9830a79c), translated
+to Spectre and run in 25.10: i(vdd) -1.666667e-4, i(v2) -1.25e-4, i(v3)
+-1e-3, i(v4) -2.5e-4, its `.expected.json`. Before, the deck was refused
+at `a!=b`.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

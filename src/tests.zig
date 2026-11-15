@@ -4139,3 +4139,24 @@ test "d3: a double-quoted HSPICE value is an expression; a path or label stays a
     var r3: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "ngspice", "t\n.param t=\"a*3\"\n.end\n", &r3), ".param t=\"a*3\"\n");
 }
+
+test "g1: Spectre's != is written with blanks; one global line" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Spectre 25.10 reads the `!` of `a!=b` as part of the name `a!`.
+    const src = "t\n.global vdd\n.param a=2 b=3\n.param t1='(a<b) && (a!=b) || 0' t2='a != b' t3='(a)!=-b' t4='a&&!b'\n.end\n";
+    var r: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre", src, &r);
+    try has(sp, "parameters t1=((a<b) && (a != b) || 0) t2=(a != b) t3=((a) != -b) t4=a&&!b\n");
+    // `global 0 vdd` says what the preamble's `global 0` does: once only.
+    try has(sp, "\nglobal 0 vdd\n");
+    try testing.expect(std.mem.indexOf(u8, sp, "global 0\n") == null);
+    // Read back from Spectre, either spacing is `!=`.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spectre\nparameters a=2 b=3 t=a!=b u=(a != b)\n", &r2);
+    try has(ng, ".param a=2 b=3 t={a!=b} u={a != b}\n");
+    // Without a global statement the preamble stays.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", "t\nr1 a 0 1k\n.end\n", &r3), "insensitive=yes\nglobal 0\n");
+}

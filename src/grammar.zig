@@ -321,6 +321,9 @@ pub const Grammar = struct {
     name: []const u8,
     lex: LexCfg,
     preamble: []const []const u8,
+    /// `preamble unless global`: the preamble is left out when the netlist
+    /// has a statement of this kind, which says the same (`global 0 vdd`).
+    preamble_unless: ?Kind = null,
     /// Like the preamble, but written at the top of every file, included
     /// files too (`simulator lang=spectre`).
     header: []const []const u8 = &.{},
@@ -1233,6 +1236,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var lex: LexCfg = .{};
     var have_lexer = false;
     var preamble: []const []const u8 = &.{};
+    var preamble_unless: ?Kind = null;
     var header: []const []const u8 = &.{};
     var header_folded: []const []const u8 = &.{};
     var needs: []const Needs = &.{};
@@ -1280,6 +1284,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (!have_lexer) {
             return c.fail(no, "the lexer section must come before `{s}`", .{head});
         } else if (std.mem.eql(u8, head, "preamble")) {
+            if (std.mem.startsWith(u8, rest, "unless ")) preamble_unless = try kindOf(c, no, rest["unless ".len..]);
             preamble = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "header")) {
             if (std.mem.eql(u8, rest, "folded")) {
@@ -1559,6 +1564,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .name = c.name,
         .lex = lex,
         .preamble = preamble,
+        .preamble_unless = preamble_unless,
         .header = header,
         .header_folded = header_folded,
         .needs = needs,

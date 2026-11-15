@@ -2125,9 +2125,10 @@ pub fn write(
     }
     for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
     if (!nl.library) {
-        for (g.preamble) |l| try w.line(l);
         var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
         markUsed(nl.stmts, &used);
+        const said = if (g.preamble_unless) |k| used[@backingInt(k)] else false;
+        if (!said) for (g.preamble) |l| try w.line(l);
         var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
         ir.markFamilies(nl.stmts, &fams);
         for (g.needs) |n| {

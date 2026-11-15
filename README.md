@@ -324,6 +324,7 @@ compile error with the file and line.
     header   ... end                   # lines at the top of every file
     header folded ... end              # instead, when the source folds case
     preamble ... end                   # lines at the top of the top netlist only
+    preamble unless global ... end     # unless a statement of that kind says it
     needs resistor ... end             # lines written once if the kind is used
     wrap "control" "endc" : op dc tran # these kinds are collected into one block
     raw ".control" ".endc"             # kept verbatim, never translated
@@ -447,8 +448,8 @@ written. A kind without a table is not checked, and neither is what a table
 ending in `same ...` leaves out: such a table only renames.
 
 Expressions are translated token by token: numbers, function names, simulator
-variables and the two operators that differ (`**`/`^` for power, `^` for
-exclusive-or in Spectre). Spacing, parentheses and operand order stay as
+variables and the operators that differ (`**`/`^` for power, `^` for
+exclusive-or in Spectre, `!=` there with blanks: `ne " != "`). Spacing, parentheses and operand order stay as
 written. A function with no spelling in the target is an error naming the
 dialects that have it; so is one that nothing defines. The one
 restructuring is a choice: `c ? a : b` is written `if(c, a, b)` for a

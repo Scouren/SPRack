@@ -39,9 +39,28 @@ pub const Resolver = struct {
 
 pub const canon_pow = "**";
 pub const canon_xor = "^^";
+pub const canon_ne = "!=";
 
 fn isWordChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$' or c == '#' or c == '!';
+}
+
+/// The end of a name from `j` on. A `!` may be part of a name, but not the
+/// one of `!=`: `a!=b` is `a`, `!=`, `b`.
+fn wordEnd(text: []const u8, from: usize) usize {
+    var j = from;
+    while (j < text.len and isWordChar(text[j]) and !std.mem.startsWith(u8, text[j..], canon_ne)) j += 1;
+    return j;
+}
+
+/// An operator's spelling. A blank at either end of it is one the target
+/// needs there (Spectre's ` != `), written unless the text has one already.
+fn writeOp(aw: *std.Io.Writer.Allocating, spelling: []const u8, rest: []const u8) Allocator.Error!void {
+    const done = aw.written();
+    const lead = spelling[0] == ' ' and done.len > 0 and done[done.len - 1] != ' ';
+    const trail = spelling[spelling.len - 1] == ' ' and rest.len > 0 and rest[0] != ' ';
+    const op = std.mem.trim(u8, spelling, " ");
+    aw.writer.print("{s}{s}{s}", .{ if (lead) " " else "", op, if (trail) " " else "" }) catch return error.OutOfMemory;
 }
 
 fn canonOf(list: []const grammar.Spellings, word: []const u8) ?[]const u8 {
@@ -116,8 +135,7 @@ pub fn read(
             continue;
         }
         if ((std.ascii.isAlphabetic(c) or c == '_' or c == '$') and !prev_word) {
-            var j = i;
-            while (j < src.len and isWordChar(src[j])) j += 1;
+            const j = wordEnd(src, i);
             const word = src[i..j];
             const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
             const is_call = nextIsCall(src, j);
@@ -129,7 +147,8 @@ pub fn read(
         // Operators that differ between dialects; the longest spelling wins.
         var best: ?struct { canon: []const u8, len: usize } = null;
         for (g.operators) |op| {
-            for (op.spellings) |s| {
+            for (op.spellings) |spelled| {
+                const s = std.mem.trim(u8, spelled, " ");
                 if (std.mem.startsWith(u8, src[i..], s) and (best == null or s.len > best.?.len)) best = .{ .canon = op.canon, .len = s.len };
             }
         }
@@ -215,7 +234,7 @@ pub fn write(
                     j = k;
                 }
             }
-            while (j < text.len and isWordChar(text[j])) j += 1;
+            j = wordEnd(text, j);
             // A scale suffix only where it is exact: inside an expression
             // the digits stay as written, so it reads back the same.
             const exact = if (canonNumber(text[i..j])) |n| blk: {
@@ -233,8 +252,7 @@ pub fn write(
             continue;
         }
         if ((std.ascii.isAlphabetic(c) or c == '_' or c == '$') and !prev_word) {
-            var j = i;
-            while (j < text.len and isWordChar(text[j])) j += 1;
+            const j = wordEnd(text, i);
             const word = text[i..j];
             i = j;
             if (nextIsCall(text, j)) {
@@ -262,11 +280,16 @@ pub fn write(
         if (std.mem.startsWith(u8, text[i..], canon_pow) or std.mem.startsWith(u8, text[i..], canon_xor)) {
             const is_pow = c == '*';
             if (spellingOf(g.operators, if (is_pow) "pow" else "xor")) |s| {
-                w.writeAll(s) catch return error.OutOfMemory;
+                try writeOp(&aw, s, text[i + 2 ..]);
             } else {
                 try problems.append(arena, .{ .kind = .operator, .text = if (is_pow) "pow" else "xor" });
                 w.writeAll(text[i .. i + 2]) catch return error.OutOfMemory;
             }
+            i += 2;
+            continue;
+        }
+        if (std.mem.startsWith(u8, text[i..], canon_ne)) {
+            try writeOp(&aw, spellingOf(g.operators, "ne") orelse canon_ne, text[i + 2 ..]);
             i += 2;
             continue;
         }
