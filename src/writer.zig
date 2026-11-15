@@ -667,7 +667,10 @@ const Emit = struct {
                             if (!e.bound(b.slot) and b.default.len > 0 and e.foreign) {
                                 // What the source's simulator assumes and this one does not.
                                 const raw = try e.expandDefault(b.default);
-                                const text = try e.valueText(if (lexer.parseNumber(e.arena, &e.g.lex, raw)) |num| .{ .num = num } else .{ .expr = raw }, false);
+                                const made: Value = if (lexer.parseNumber(e.arena, &e.g.lex, raw)) |num| .{ .num = num } else .{ .expr = raw };
+                                // Not a ceiling that would be dropped had the source given it.
+                                if (idleCeiling(e.st, b.slot, made)) continue;
+                                const text = try e.valueText(made, false);
                                 try e.tok(try e.arena.print("{s}={s}", .{ b.key, text }));
                                 if (!e.quiet) e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' to behave as {s} does without it; wrote {s}", .{
                                     @tagName(e.st.kind), e.g.name, e.slot(b.slot).name, e.source, text,
@@ -2103,14 +2106,20 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
     return list orelse stmts;
 }
 
+/// `v` in `slot` of `st` is a `.tran` step ceiling at or above the stop
+/// time, which limits nothing.
+fn idleCeiling(st: *const ir.Stmt, slot: usize, v: Value) bool {
+    if (st.kind != .tran or slot != schema.slotIndex(.tran, "maxstep").?) return false;
+    return v == .num and st.get("stop") == .num and !(v.num.toFloat() < st.get("stop").num.toFloat());
+}
+
 /// A `.tran` step ceiling at or above the stop time limits nothing, and in
 /// HSPICE a fourth number above the stop is a second segment: not written.
 fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
     const mi = schema.slotIndex(.tran, "maxstep").?;
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
-        if (st.kind != .tran or st.at(mi) != .num or st.get("stop") != .num) continue;
-        if (st.at(mi).num.toFloat() < st.get("stop").num.toFloat()) continue;
+        if (!idleCeiling(st, mi, st.at(mi))) continue;
         const l = list orelse blk: {
             list = try arena.dupe(ir.Stmt, stmts);
             break :blk list.?;

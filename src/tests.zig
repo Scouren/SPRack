@@ -3989,6 +3989,16 @@ test "VACASK tran: SPICE's step cap is written as maxstep" {
     const same = try tr(a, "vacask", "vacask", "t\nmodel v vsource\nv1 (a 0) v dc=1\ncontrol\nanalysis tran1 tran step=1u stop=1m\nendc\n", &r2);
     try has(same, "analysis tran1 tran step=1u stop=1m\n");
     try clean(&r2);
+    // A step at or above the stop time is a ceiling that limits nothing:
+    // one given is not written, so none is made up.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 101 20n\n.end\n", &r3), "analysis tran1 tran step=101 stop=20n\n");
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 20n 20n\n.end\n", &r3), "analysis tran1 tran step=20n stop=20n\n");
+    try testing.expectEqual(0, r3.items.items.len);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 101 20n 0 101\n.end\n", &r4), "analysis tran1 tran step=101 stop=20n\n");
+    try reported(&r4, .info, "tran.maxstep at or above the stop time limits nothing and is not written");
+    try testing.expectEqual(0, r4.countCode(.synthesized));
 }
 
 test "VACASK nodeset: a caveat, since it holds for one Newton iteration only" {
