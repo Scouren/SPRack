@@ -488,6 +488,8 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
             // Past the blanks the expression goes on only after or before an operator.
             if (j < text.len and text[j] == '=' and spaced) return null;
             if (j == text.len or !(last_op or isOperator(text[j]))) break;
+            // `100p -60p`: a sign, the start of the next value of a list.
+            if (!last_op and (text[j] == '-' or text[j] == '+') and j + 1 < text.len and text[j + 1] != ' ' and text[j + 1] != '\t') break;
             try out.append(arena, ' ');
             spaced = true;
             i = j;

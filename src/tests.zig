@@ -4004,6 +4004,8 @@ test "c6: a delimited expression joined to more by an operator is one expression
     const ng3 = try tr(a, "ngspice", "ngspice", "t\n.param p = 0.0 + mc*agauss(0,1.0,1)\n.param q = 1 r=-2 s = -3\n.end\n", &r3);
     try has(ng3, ".param p={0.0 + mc*agauss(0,1.0,1)}\n");
     try has(ng3, ".param q=1 r=-2 s=-3\n");
+    // A list of values (CPL matrices) is no subtraction.
+    try has(try tr(a, "ngspice", "ngspice", "t\n.model cm cpl c = 100p -60p 100p\n.end\n", &r3), "c=100p -60p 100p");
     // A stray `+` between two parameters joins nothing.
     try has(try tr(a, "ngspice", "ngspice", "t\n.param x = '-1*y' + z = '0 - 2.5'\n.end\n", &r3), ".param x={-1*y} z={0 - 2.5}\n");
     try testing.expectEqual(0, r3.count(.@"error"));

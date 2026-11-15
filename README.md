@@ -227,25 +227,32 @@ Pass `manifest=` to use a PDK that has no manifest here.
   back the same), 20,000 randomly
   damaged netlists through every reader and writer, and a project with
   includes.
-* `python/test_sprack.py`: 16 tests, 8 of them against the five PDKs' real
+* `python/test_sprack.py`: 17 tests, 9 of them against the five PDKs' real
   model libraries: the repositories, and sky130A and IHP as installed
-  (open_pdks' build of sky130A as ciel ships it; IHP with its OSDI models
-  built by openvaf-r). The GF180MCU, installed sky130A and IHP inverters are
-  simulated in ngspice, IHP in all five corners.
+  (open_pdks' build of sky130A as ciel ships it, with its combined layout;
+  IHP with its OSDI models built by openvaf-r). The GF180MCU, installed
+  sky130A and IHP inverters are simulated in ngspice, IHP in all five
+  corners; an nfet_01v8 through sky130's combined layout gives the same
+  operating point from its ngspice translation as from the original.
 * The five PDKs, whole libraries translated:
 
   | PDK, all corners | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
   |---|---|---|---|---|---|---|
-  | sky130 (ngspice) | 280 | 0 errors | 2 | 3 | 2 | 8 |
-  | IHP SG13G2 (ngspice) | 37 | 0 | 0 | 59 | 8 | 8 |
+  | sky130 (ngspice) | 280 | 0 errors | 2 | 3 | 7 | 4120 |
+  | sky130A installed, combined layout (ngspice) | 194 | 0 | 4 | 4 | 4 | 480 |
+  | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 55 | 2 | 14 |
   | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
   | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
-  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
+  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 200 |
 
   Every error names a file and a line. They are: two lines in the sky130
-  repository that are not ngspice syntax; a sky130 parameter named `vt`,
-  which Xyce refuses; flags on IHP instances that Spectre has no spelling
-  for; conditional blocks, which Xyce does not have;
+  repository that are not ngspice syntax, and one in the installed cells;
+  a sky130 parameter named `vt`, which Xyce refuses; HSPICE's `dev/gauss`
+  repeated on one sky130 card, which Spectre takes as one parameter defined
+  five times; `.options parser`
+  in the combined layout, which no other dialect has; flags on IHP
+  instances that Spectre has no spelling for; conditional blocks, which
+  Xyce does not have;
   Verilog-A models in Xyce;
   BSIM-CMG, which ngspice has only as a Verilog-A model; and, for VACASK,
   library sections and the BSIM model families, which its grammar does not
@@ -377,9 +384,12 @@ no single rule holds everything, which is how `.options timeint ...` and
     default vsource rise=0 wave=pulse : tran.step  # left out (or 0) by a dialect
                                        # that means its default by that: written
                                        # out from the netlist's first .tran
-    unique param : ...                 # a parameter defined twice in one scope,
-    unique master : ...                # or a name both a model and a subcircuit
-                                       # define, is refused here: an error
+    unique param : ...                 # a parameter defined twice in one scope is
+                                       # refused here: an error
+    unique master : ...                # a name both a model and a subcircuit define
+                                       # (in any file of a project): the model and
+                                       # the devices that use it by their SPICE
+                                       # letter are renamed (nch__m), an info
     reserved vt temp : ...             # parameter names the simulator refuses
     requires dc-path error : ...       # a topology the simulator cannot solve, and
                                        # whether it is an error or a warning here:
