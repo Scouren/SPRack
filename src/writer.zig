@@ -672,6 +672,14 @@ const Emit = struct {
     fn reportLosses(e: *Emit) Allocator.Error!void {
         for (e.g.caveats) |c| {
             if (e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
+                if (c.suffix.len > 0) {
+                    const v = e.st.at(c.slot);
+                    const t: []const u8 = switch (v) {
+                        .str, .atom, .expr => |x| x,
+                        else => "",
+                    };
+                    if (!std.ascii.endsWithIgnoreCase(t, c.suffix)) continue;
+                }
                 // Text carried verbatim may read differently on the other side.
                 e.report.add(.warning, if (e.slot(c.slot).ty == .text) .ambiguous else .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
             }

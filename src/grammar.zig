@@ -227,7 +227,8 @@ pub const Fill = struct {
 
 /// Something a reader of the translated netlist should know when a slot
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
-pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8 };
+/// `caveat hdl path=*.osdi : ...` holds only where the value ends so.
+pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 = "" };
 
 /// A value the dialect assumes when the statement does not say it.
 pub const Implied = struct { kind: Kind, slot: u8, text: []const u8 };
@@ -1234,8 +1235,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "caveat is `caveat kind slot : text`", .{});
             const ks = try args(c, no, rest[0..colon]);
             if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
-            const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
-            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..] });
+            const star = std.mem.indexOf(u8, ks[1], "=*");
+            const kind, const slot = try kindSlot(c, no, ks[0], if (star) |k| ks[1][0..k] else ks[1]);
+            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k| ks[1][k + 2 ..] else "" });
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))

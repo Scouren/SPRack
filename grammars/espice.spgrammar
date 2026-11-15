@@ -176,7 +176,7 @@ no qpss     : ESPice's own .qpss card is outside this grammar (ESPice-only synta
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values, and ESPice uses .ic only under UIC; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ESPice, as for ngspice, not a hard limit
-caveat hdl path : ESPice compiles Verilog-A source named by .hdl and never loads a compiled OSDI file
+caveat hdl path=*.osdi : ESPice compiles Verilog-A source named by .hdl and never loads a compiled OSDI file
 
 # How this dialect writes the things a simulator can record.
 signals

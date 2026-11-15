@@ -923,13 +923,18 @@ class PDK:
     def translate(self, dialect: str, out: str | None = None, *, strict: bool = True) -> str:
         """Translate the PDK's model libraries to `dialect`; returns the directory.
 
-        Done once per PDK and dialect and kept in the cache. Raises
+        Done once per PDK, dialect and corner and kept in the cache. Only the
+        library sections of this corner are followed (where the corner is
+        made of sections); `sprack.log` says which were not. Raises
         `Unsupported` if anything in the libraries has no form in the target
         (the full list is in `sprack.log` in that directory); `strict=False`
         accepts the copy as it is.
         """
         d = _dialect(dialect)
-        out = out or os.path.join(self.cache_dir, self.name, f"{_dialect_tag(d)}-{self._stamp()}")
+        pairs = self.entries()
+        sections = [sec for _, sec in pairs if sec] if all(sec for _, sec in pairs) else []
+        tag = f"{_dialect_tag(d)}-{self.corner}" if sections else _dialect_tag(d)
+        out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
         marker = os.path.join(out, "sprack.json")
         if os.path.isfile(marker):
             with open(marker) as f:
@@ -938,7 +943,7 @@ class PDK:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
-            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, self._defines(), True)
+            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, self._defines(), True, "\n".join(sections))
             summary = json.loads(text)
             with open(os.path.join(out, "sprack.log"), "w") as f:
                 f.write(log)

@@ -2458,7 +2458,6 @@ test "gap: a project keeps Verilog-A sources and section spellings" {
     // translated tree, but the .va file is not copied there (nor the path
     // pointed back at the source), so Spectre cannot open it. Also the
     // caveat about compiled OSDI files is attached to a .va source.
-    if (true) return error.SkipZigTest;
     const io = testing.io;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

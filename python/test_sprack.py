@@ -413,7 +413,11 @@ def test_pdk_gf180mcu():
     xy = unwrap(c.netlist("xyce"))
     assert f'.lib "{p.translate("xyce")}/sm141064.spice" typical\n' in xy
     errs = p.library_errors("spectre")
-    assert len(errs) == 133 and all("agauss" in e.message for e in errs), str(errs)
+    agauss = [e for e in errs if "agauss" in e.message]
+    # The mismatch wrappers (subckt nfet_03v3 around model nfet_03v3.N):
+    # Spectre resolves the transistor's model to the subcircuit itself.
+    clash = [e for e in errs if "names both a model and a subcircuit" in e.message]
+    assert len(agauss) == 133 and clash and len(agauss) + len(clash) == len(errs), str(errs)
 
 
 INSTALLED = os.environ.get("SPRACK_TEST_PDKS_INSTALLED", "")

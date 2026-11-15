@@ -176,7 +176,7 @@ no verilog : this grammar has no form that loads a digital Verilog design
 caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
 caveat tran maxstep : HSPICE has no step ceiling on .TRAN; the first number is the print step and limits nothing
 caveat noise src : HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well
-caveat hdl path : .HDL expects Verilog-A source, not a compiled OSDI file
+caveat hdl path=*.osdi : .HDL expects Verilog-A source, not a compiled OSDI file
 caveat save signals : HSPICE's own .SAVE stores an operating point; the signals are recorded with .PROBE
 
 # How this dialect writes the things a simulator can record.

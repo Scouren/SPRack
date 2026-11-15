@@ -154,7 +154,7 @@ no qpss       : ngspice has no quasi-periodic steady-state analysis
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit
-caveat hdl path : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
+caveat hdl path=*.va : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
 
 # How this dialect writes the things a simulator can record.
 signals

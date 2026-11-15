@@ -57,6 +57,10 @@ pub const Options = struct {
     /// `$NAME` and `${NAME}` in include paths are replaced from here: the
     /// environment, or what a PDK manifest defines.
     vars: []const [2][]const u8 = &.{},
+    /// Library sections to follow (`tt`): a section of a top file, or of a
+    /// file reached by `.lib file name`, is followed only if it is named
+    /// here or by a `.lib` line in what is followed. Empty: every one.
+    sections: []const []const u8 = &.{},
 };
 
 // ------------------------------------------------------------------- paths
@@ -138,6 +142,18 @@ const Run = struct {
     sum: Summary = .{},
     first_device: bool = true,
     cwd: []const u8 = ".",
+    /// How each file spells its sections, by `path NUL lower-case name`:
+    /// a reference spelled `typ` to a section `Typ` is written `Typ`.
+    spellings: std.StringHashMapUnmanaged([]const u8) = .empty,
+    /// Verilog-A sources named by `.hdl`, copied into the translated tree.
+    hdls: std.ArrayList([]const u8) = .empty,
+    /// The sections to follow; null: all of them.
+    wanted: ?ir.CaselessSet = null,
+    skipped: std.ArrayList(Skipped) = .empty,
+
+    /// A section not followed (yet): what following it would reach.
+    const Skipped = struct { path: []const u8, name: []const u8, refs: []const Ref, released: bool = false };
+    const Ref = struct { path: []const u8, section: []const u8 };
 
     fn logLine(r: *Run, full: []const u8, d: ir.Diag) void {
         if (d.sev == .@"error") r.sum.errors += 1;
@@ -188,18 +204,85 @@ const Run = struct {
         return out.items;
     }
 
-    fn findIncludes(r: *Run, dir: []const u8, stmts: []const ir.Stmt, scratch: Allocator) Allocator.Error!void {
+    fn sectionOf(st: *const ir.Stmt) []const u8 {
+        const v = st.get("section");
+        return if (v == .atom) v.atom else "";
+    }
+
+    fn spellingKey(a: Allocator, path: []const u8, name: []const u8) Allocator.Error![]const u8 {
+        const k = try std.fmt.allocPrint(a, "{s}\x00{s}", .{ path, name });
+        _ = std.ascii.lowerString(k[path.len + 1 ..], name);
+        return k;
+    }
+
+    fn findIncludes(r: *Run, file: []const u8, stmts: []const ir.Stmt, scratch: Allocator) Allocator.Error!void {
+        const dir = dirOf(file);
         for (stmts) |*st| {
-            if (pathOf(st)) |p| try r.enqueue(try resolve(scratch, dir, try r.expand(scratch, p)));
-            try r.findIncludes(dir, st.body, scratch);
+            if (st.kind == .libsection and st.get("name") == .atom) {
+                const name = st.get("name").atom;
+                const key = try spellingKey(r.arena, file, name);
+                if (!r.spellings.contains(key)) try r.spellings.put(r.arena, key, try r.arena.dupe(u8, name));
+                if (r.wanted) |*w| if (!w.contains(name)) {
+                    var refs: std.ArrayList(Ref) = .empty;
+                    try r.collectRefs(dir, st.body, scratch, &refs);
+                    try r.skipped.append(r.arena, .{ .path = file, .name = try r.arena.dupe(u8, name), .refs = refs.items });
+                    continue;
+                };
+            }
+            if (pathOf(st)) |p| {
+                try r.enqueue(try resolve(scratch, dir, try r.expand(scratch, p)));
+                if (st.kind == .lib) try r.want(sectionOf(st));
+            }
+            if (st.kind == .hdl and st.get("path") == .str) {
+                const target = try resolve(scratch, dir, try r.expand(scratch, st.get("path").str));
+                for (r.hdls.items) |h| {
+                    if (std.mem.eql(u8, h, target)) break;
+                } else try r.hdls.append(r.arena, try r.arena.dupe(u8, target));
+            }
+            try r.findIncludes(file, st.body, scratch);
+        }
+    }
+
+    /// What a skipped section would reach, to follow if it is named later.
+    fn collectRefs(r: *Run, dir: []const u8, stmts: []const ir.Stmt, scratch: Allocator, out: *std.ArrayList(Ref)) Allocator.Error!void {
+        for (stmts) |*st| {
+            if (pathOf(st)) |p| try out.append(r.arena, .{
+                .path = try r.arena.dupe(u8, try resolve(scratch, dir, try r.expand(scratch, p))),
+                .section = try r.arena.dupe(u8, if (st.kind == .lib) sectionOf(st) else ""),
+            });
+            try r.collectRefs(dir, st.body, scratch, out);
+        }
+    }
+
+    /// A section named by a followed `.lib` line is followed wherever it is.
+    fn want(r: *Run, name: []const u8) Allocator.Error!void {
+        const w = if (r.wanted) |*w| w else return;
+        if (name.len == 0 or w.contains(name)) return;
+        try w.put(r.arena, try r.arena.dupe(u8, name), {});
+        for (r.skipped.items) |*sk| {
+            if (sk.released or !std.ascii.eqlIgnoreCase(sk.name, name)) continue;
+            sk.released = true;
+            for (sk.refs) |ref| {
+                try r.enqueue(ref.path);
+                try r.want(ref.section);
+            }
         }
     }
 
     fn rewriteIncludes(r: *Run, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator) Allocator.Error!void {
         for (stmts) |*st| {
-            if (pathOf(st)) |p| {
-                const target = try resolve(scratch, dir, try r.expand(scratch, p));
+            const p = pathOf(st) orelse if (st.kind == .hdl and st.get("path") == .str) st.get("path").str else null;
+            if (p) |path| {
+                const target = try resolve(scratch, dir, try r.expand(scratch, path));
+                try st.own(scratch);
                 try st.set(scratch, schema.slotIndex(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
+                // The section as the file that defines it spells it.
+                const sec = sectionOf(st);
+                if (st.kind == .lib and sec.len > 0) {
+                    if (r.spellings.get(try spellingKey(scratch, target, sec))) |sp| {
+                        try st.set(scratch, schema.slotIndex(.lib, "section").?, .{ .atom = sp });
+                    }
+                }
             }
             try r.rewriteIncludes(dir, st.body, scratch);
         }
@@ -301,7 +384,13 @@ const Run = struct {
             var report: ir.Report = .init(scratch);
             const nl = try reader.read(r.opts.from, scratch, text, &report, .{ .library = r.opts.library or i >= r.opts.tops.len });
             try r.env.absorb(r.arena, nl.stmts);
-            try r.findIncludes(dirOf(path), nl.stmts, scratch);
+            try r.findIncludes(path, nl.stmts, scratch);
+        }
+        for (r.skipped.items) |sk| {
+            if (sk.released) continue;
+            var buf: [200]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "section '{s}' not followed: it is not among the sections asked for, so the files it includes are not translated", .{sk.name[0..@min(sk.name.len, 60)]}) catch "a section not followed";
+            r.logLine(sk.path, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
         }
     }
 
@@ -309,7 +398,25 @@ const Run = struct {
     fn process(r: *Run) (Allocator.Error || Writer.Error)!void {
         var present: std.ArrayList([]const u8) = .empty;
         for (r.files.items) |p| if (p.len > 0) try present.append(r.arena, p);
-        const root_dir = try commonDir(r.arena, present.items);
+        // Verilog-A sources go into the copy too, at the same relative place.
+        var sources: std.ArrayList([2][]const u8) = .empty;
+        for (r.hdls.items) |h| {
+            if (r.known.contains(h)) continue;
+            const data = r.readFile(h, r.arena) orelse continue;
+            try sources.append(r.arena, .{ h, data });
+        }
+        var rooted: std.ArrayList([]const u8) = .empty;
+        try rooted.appendSlice(r.arena, present.items);
+        if (r.opts.to != null) for (sources.items) |sv| try rooted.append(r.arena, sv[0]);
+        const root_dir = try commonDir(r.arena, rooted.items);
+        if (r.opts.to != null) for (sources.items) |sv| {
+            const out_path = try std.fmt.allocPrint(r.arena, "{s}/{s}", .{ r.opts.out_dir, try relative(r.arena, root_dir, sv[0]) });
+            const cwd = std.Io.Dir.cwd();
+            cwd.createDirPath(r.io, dirOf(out_path)) catch {};
+            cwd.writeFile(r.io, .{ .sub_path = out_path, .data = sv[1] }) catch {
+                r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+            };
+        };
         r.sum.root_len = @min(root_dir.len, r.sum.root_buf.len);
         @memcpy(r.sum.root_buf[0..r.sum.root_len], root_dir[0..r.sum.root_len]);
         if (r.opts.catalog) |w| try w.writeAll("{\"devices\":[\n");
@@ -365,6 +472,10 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
     if (std.Io.Dir.cwd().realPath(io, &buf)) |n| {
         r.cwd = try r.arena.dupe(u8, buf[0..n]);
     } else |_| {}
+    if (opts.sections.len > 0) {
+        r.wanted = .empty;
+        for (opts.sections) |sec| try r.wanted.?.put(r.arena, sec, {});
+    }
     for (opts.tops) |t| try r.enqueue(try resolve(r.arena, r.cwd, t));
     try r.discover();
     try r.process();
@@ -410,6 +521,9 @@ test "a small project: includes followed, declarations shared, tree copied" {
         \\.lib tt
         \\.include "nch.mod"
         \\.endl tt
+        \\.lib ff
+        \\.include "ff.mod"
+        \\.endl ff
         \\
     });
     try tmp.dir.writeFile(io, .{ .sub_path = "in/models/nch.mod", .data =
@@ -430,10 +544,13 @@ test "a small project: includes followed, declarations shared, tree copied" {
         .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
         .vars = &.{.{ "MODELS", "models" }},
         .log = &log.writer,
+        // Only the corner asked for: ff.mod (which does not exist) is not reached.
+        .sections = &.{"tt"},
     });
     try std.testing.expectEqual(3, sum.files);
     try std.testing.expectEqual(1, sum.missing);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "missing.mod: error[invalid]: cannot open this file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed") != null);
 
     const top = try tmp.dir.readFileAlloc(io, "out/top.sp", a, .unlimited);
     try std.testing.expect(std.mem.indexOf(u8, top, "// Top netlist\nsimulator lang=spectre\nglobal 0\n") != null);

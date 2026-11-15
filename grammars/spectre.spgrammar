@@ -189,7 +189,7 @@ caveat tran method : the integration methods are near equivalents, not the same 
 caveat print signals : Spectre has no print statement; the signals are saved instead
 caveat pac fstart : Spectre drives pac from each source's pacmag, not from the ac mag; a deck whose sources have no pacmag stops with an error
 caveat tf src : xf gives the transfer function from every source, the named one among them; the input and output resistances are not reported
-caveat hdl path : ahdl_include expects Verilog-A source, not a compiled OSDI file
+caveat hdl path=*.osdi : ahdl_include expects Verilog-A source, not a compiled OSDI file
 
 # Observed on decks written for it: a parameter given twice in one scope
 # stops the run (SPICE keeps the last); an instance of a name that both a

@@ -195,6 +195,8 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
         .out_dir = try arg(args, 3),
         .vars = try vars(arena, try arg(args, 4)),
         .library = flag(args, 5),
+        // Optional: the library sections to follow, one per line.
+        .sections = if (args != null and PyTuple_Size(args.?) > 6) try lines(arena, try arg(args, 6)) else &.{},
         .log = &log.writer,
         .catalog = if (gt == null) &cat.writer else null,
         .caps = &sprack.caps,
@@ -227,7 +229,7 @@ var methods = [_]PyMethodDef{
     .{ .name = "translate", .meth = pyTranslate, .flags = METH_VARARGS, .doc = "translate(from, to, source) -> (netlist, report JSON)" },
     .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library]) -> (IR JSON, report JSON)" },
     .{ .name = "write", .meth = pyWrite, .flags = METH_VARARGS, .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)" },
-    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library) -> (summary or catalogue JSON, log)" },
+    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections]) -> (summary or catalogue JSON, log)" },
     .{ .name = null, .meth = null, .flags = 0, .doc = null },
 };
 
