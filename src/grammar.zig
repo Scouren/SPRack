@@ -329,7 +329,6 @@ pub const Grammar = struct {
         return null;
     }
 
-
     pub fn isSpread(g: *const Grammar, kind: Kind) bool {
         return std.mem.indexOfScalar(Kind, g.spreads, kind) != null;
     }
