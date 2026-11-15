@@ -409,7 +409,10 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
                 }
                 if (whole) run = run[1 .. run.len - 1];
             }
-            if (parseNumber(arena, cfg, try fold(arena, cfg, run)) != null or isIdent(run)) {
+            // Braces that are not this dialect's delimiters (`w={wn}` in
+            // HSPICE) make no expression: kept as a word, flagged later.
+            const braces = std.mem.indexOfAny(u8, run, "{}") != null;
+            if (braces or parseNumber(arena, cfg, try fold(arena, cfg, run)) != null or isIdent(run)) {
                 try pushTok(list_gpa, toks, .word, try fold(arena, cfg, run), run, lno);
             } else {
                 try pushTok(list_gpa, toks, .expr, run, run, lno);

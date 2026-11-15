@@ -1180,6 +1180,7 @@ const Reader = struct {
                 try out.append(self.arena, st);
                 continue :outer;
             }
+            if (try self.splitAt(ti, line.no, out)) continue :outer;
             if (first.tag == .word) {
                 for (self.g.raws) |rb| {
                     if (!std.mem.eql(u8, first.text, rb.open)) continue;
@@ -1204,6 +1205,73 @@ const Reader = struct {
         }
         if (block) |b| self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
         return out.toOwnedSlice(self.arena);
+    }
+
+    /// A line whose keyword starts rules of two kinds may hold statements
+    /// of both, one after another: HSPICE's `.param f(x)='x*2' k=1`. Each
+    /// shortest run that some rule reads is a statement, and the keyword is
+    /// put back in front of what is left.
+    fn splitAt(self: *Reader, ti: usize, line_no: u32, out: anytype) Allocator.Error!bool {
+        const head = self.toks()[ti];
+        if (head.tag != .word) return false;
+        var first_kind: ?Kind = null;
+        const shared = for (self.g.rules) |*rule| {
+            if (rule.dir == .write or rule.pat.len == 0 or rule.pat[0].tag != .lit) continue;
+            if (!std.mem.eql(u8, rule.pat[0].text, head.text)) continue;
+            if (first_kind) |k| {
+                if (k != rule.kind) break true;
+            } else first_kind = rule.kind;
+        } else false;
+        if (!shared) return false;
+        var end = ti;
+        while (self.toks()[end].tag != .nl) end += 1;
+        const items = self.m.win.toks.items;
+        // Every token changed, to put back whatever happens.
+        var saved: std.ArrayList(struct { usize, Tok }) = .empty;
+        defer for (saved.items) |s| {
+            items[s[0]] = s[1];
+        };
+        var found: std.ArrayList(ir.Stmt) = .empty;
+        var from = ti;
+        outer: while (true) {
+            if (try self.ruleAt(from, line_no)) |st| {
+                try found.append(self.arena, st);
+                break;
+            }
+            var j = from + 2;
+            while (j < end) : (j += 1) {
+                try saved.append(self.arena, .{ j, items[j] });
+                items[j] = items[end];
+                items[j].text = "";
+                const st = try self.ruleAt(from, line_no);
+                items[j] = saved.pop().?[1];
+                const s = st orelse continue;
+                try found.append(self.arena, s);
+                try saved.append(self.arena, .{ j - 1, items[j - 1] });
+                items[j - 1] = head;
+                from = j - 1;
+                continue :outer;
+            }
+            return false;
+        }
+        for (found.items) |st| try out.append(self.arena, st);
+        self.ti = end + 1;
+        return true;
+    }
+
+    /// The statement a rule reads from `ti` to the end of its line.
+    fn ruleAt(self: *Reader, ti: usize, line_no: u32) Allocator.Error!?ir.Stmt {
+        for (self.g.rules) |*rule| {
+            if (rule.dir == .write) continue;
+            if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
+            if (rule.kind == .@"opaque") return null;
+            var st = try self.m.build(line_no);
+            if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
+            try self.canonStmt(&st);
+            self.flagOddValues(&st);
+            return st;
+        }
+        return null;
     }
 
     /// `spread`: an analysis line that ends with the rule of a block kind
