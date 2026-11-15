@@ -1579,47 +1579,113 @@ fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) A
     }
 }
 
-/// `unique master`: a name that both a model (or its bins, `nch.1`) and a
-/// subcircuit define, used by an instance.
-fn uniqueMasters(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+/// A map from names, ignoring case.
+const CaselessMap = std.HashMapUnmanaged([]const u8, []const u8, ir.Caseless, std.hash_map.default_max_load_percentage);
+
+/// `unique master`: names both a model (or its bins, `nch.1`) and a
+/// subcircuit define, here or in another file of the project, each to the
+/// name its model is written under: `nch__m`, or `nch__m2` and so on when
+/// that is taken. Every file of a project gets the same map.
+pub fn masterRenames(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env) Allocator.Error!CaselessMap {
     var models: ir.CaselessSet = .empty;
-    defer models.deinit(ir.big);
     var subckts: ir.CaselessSet = .empty;
-    defer subckts.deinit(ir.big);
-    var told: ir.CaselessSet = .empty;
-    defer told.deinit(ir.big);
-    try collectMasters(stmts, &models, &subckts);
-    try clashes(stmts, &models, &subckts, &told, report, g);
+    try collectMasters(arena, stmts, &models, &subckts);
+    var taken: ir.CaselessSet = .empty;
+    if (env) |e| {
+        var it = e.models.keyIterator();
+        while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
+        var si = e.subckts.keyIterator();
+        while (si.next()) |k| try subckts.put(arena, k.*, {});
+        var di = e.declared.keyIterator();
+        while (di.next()) |k| try taken.put(arena, k.*, {});
+    }
+    var out: CaselessMap = .empty;
+    var it = models.keyIterator();
+    while (it.next()) |k| {
+        try taken.put(arena, k.*, {});
+        if (!subckts.contains(k.*)) continue;
+        var name = try std.fmt.allocPrint(arena, "{s}__m", .{k.*});
+        var n: usize = 2;
+        while (taken.contains(name) or subckts.contains(name) or models.contains(name)) : (n += 1) {
+            name = try std.fmt.allocPrint(arena, "{s}__m{d}", .{ k.*, n });
+        }
+        try out.put(arena, k.*, name);
+    }
+    return out;
 }
 
-fn collectMasters(stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet) Allocator.Error!void {
+fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
         const n = s.get("name");
         if (n == .atom) {
-            if (s.kind == .subckt) try subckts.put(ir.big, n.atom, {});
-            if (s.kind == .model) {
-                // `nch.1`, `nch.2`: bins of the model `nch`.
-                var name = n.atom;
-                if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
-                    const tail = name[dot + 1 ..];
-                    if (tail.len > 0 and for (tail) |c| {
-                        if (!std.ascii.isDigit(c)) break false;
-                    } else true) name = name[0..dot];
-                }
-                try models.put(ir.big, name, {});
-            }
+            if (s.kind == .subckt) try subckts.put(arena, n.atom, {});
+            // `nch.1`, `nch.2`: bins of the model `nch`.
+            if (s.kind == .model) try models.put(arena, ir.binBase(n.atom) orelse n.atom, {});
         }
-        try collectMasters(s.body, models, subckts);
+        try collectMasters(arena, s.body, models, subckts);
     }
 }
 
-fn clashes(stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, told: *ir.CaselessSet, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+/// The model cards `renames` names, and the devices that use them as a
+/// model (by their SPICE letter), under their new names; subcircuit
+/// instances keep theirs. Each name is reported once.
+fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told: *ir.CaselessSet) Allocator.Error![]ir.Stmt {
+    var list: ?[]ir.Stmt = null;
+    for (stmts, 0..) |*st, i| {
+        var cur = st.*;
+        var changed = false;
+        if (st.body.len > 0) {
+            const b = try renameMasters(w, st.body, renames, told);
+            if (b.ptr != st.body.ptr) {
+                cur.body = b;
+                changed = true;
+            }
+        }
+        const class = schema.info(st.kind).class;
+        const slot: ?u8 = if (st.kind == .model) schema.slotIndex(.model, "name") else if (class == .device and st.kind != .instance) schema.slotIndex(st.kind, "master") else null;
+        if (slot) |si| if (cur.at(si) == .atom) {
+            const old = cur.at(si).atom;
+            const base = if (st.kind == .model) ir.binBase(old) orelse old else old;
+            if (renames.get(base)) |new| {
+                try cur.own(w.arena);
+                try cur.set(w.arena, si, .{ .atom = try std.mem.concat(w.arena, u8, &.{ new, old[base.len..] }) });
+                changed = true;
+                if (!(try told.getOrPut(w.arena, base)).found_existing) {
+                    w.report.add(.info, .rename, st.line, "'{s}' names both a model and a subcircuit: the model is written as '{s}', and so is every device that uses it as a model; {s}", .{ base, new, w.g.unique_master });
+                }
+            }
+        };
+        if (changed) {
+            if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
+            list.?[i] = cur;
+        }
+    }
+    return list orelse stmts;
+}
+
+/// A device still using a name both a model and a subcircuit define after
+/// `renameMasters` (one it could not reach): an error.
+fn uniqueMasters(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+    var models: ir.CaselessSet = .empty;
+    var subckts: ir.CaselessSet = .empty;
+    var told: ir.CaselessSet = .empty;
+    try collectMasters(arena, stmts, &models, &subckts);
+    if (env) |e| {
+        var it = e.models.keyIterator();
+        while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
+        var si = e.subckts.keyIterator();
+        while (si.next()) |k| try subckts.put(arena, k.*, {});
+    }
+    try clashes(arena, stmts, &models, &subckts, &told, report, g);
+}
+
+fn clashes(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, told: *ir.CaselessSet, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
     for (stmts) |*s| {
-        try clashes(s.body, models, subckts, told, report, g);
-        if (schema.info(s.kind).class != .device) continue;
+        try clashes(arena, s.body, models, subckts, told, report, g);
+        if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
         const m = s.get("master");
         if (m != .atom or !models.contains(m.atom) or !subckts.contains(m.atom)) continue;
-        if ((try told.getOrPut(ir.big, m.atom)).found_existing) continue;
+        if ((try told.getOrPut(arena, m.atom)).found_existing) continue;
         report.add(.@"error", .invalid, s.line, "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}", .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master });
     }
 }
@@ -1994,7 +2060,7 @@ pub fn write(
     g: *const Grammar,
     arena: Allocator,
     out: *std.Io.Writer,
-    nl: *const ir.Netlist,
+    nl_in: *const ir.Netlist,
     report: *ir.Report,
     caps: ?*const Caps,
     env: ?*const ir.Env,
@@ -2005,10 +2071,12 @@ pub fn write(
         .out = out,
         .report = report,
         .caps = caps,
-        .source = nl.dialect,
+        .source = nl_in.dialect,
         .scratch = .init(ir.big),
     };
     defer w.scratch.deinit();
+    var nl_own = nl_in.*;
+    const nl = &nl_own;
 
     try collectDeclared(arena, nl.stmts, &w.declared);
     try ir.collectFamilies(arena, nl.stmts, &w.families);
@@ -2054,7 +2122,14 @@ pub fn write(
     }
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
         if (g.unique_param.len > 0) try uniqueParams(nl.stmts, report, g);
-        if (g.unique_master.len > 0) try uniqueMasters(nl.stmts, report, g);
+        if (g.unique_master.len > 0) {
+            var renames = try masterRenames(arena, nl.stmts, env);
+            if (renames.count() > 0) {
+                var told: ir.CaselessSet = .empty;
+                nl_own.stmts = try renameMasters(&w, nl.stmts, &renames, &told);
+            }
+            try uniqueMasters(arena, nl.stmts, env, report, g);
+        }
         try topology.check(ir.big, arena, nl, g, report);
     }
     const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;

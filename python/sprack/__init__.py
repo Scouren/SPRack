@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -549,7 +550,9 @@ class Circuit(_Scope):
         """
         d = _dialect(dialect)
         data = json.loads(self.to_json(d, strict=strict))
-        lib_report = _translate_libraries(data["stmts"], data["dialect"], d)
+        renames: dict[str, str] = dict(self.pdk._roots[d][3]) if d in getattr(self.pdk, "_roots", {}) else {}
+        lib_report = _translate_libraries(data["stmts"], data["dialect"], d, renames)
+        _rename_masters(data["stmts"], renames)
         text, rep = _core.write(d, json.dumps(data))
         report = Report(self._report + lib_report + Report._from_json(rep))
         if strict and report.errors:
@@ -618,6 +621,30 @@ def _errors(log: str) -> Report:
     return Report(e for e in Report._from_log(log) if e.severity == "error")
 
 
+_RENAMED = re.compile(r"^'(.+?)' names both a model and a subcircuit: the model is written as '(.+?)'")
+
+
+def _renames(log: str) -> dict[str, str]:
+    """The models a translated library renamed (Spectre: a subcircuit has
+    the name too), lower-cased old name to new."""
+    out = {}
+    for e in Report._from_log(log):
+        m = e.code == "rename" and _RENAMED.match(e.message)
+        if m:
+            out[m.group(1).lower()] = m.group(2)
+    return out
+
+
+def _rename_masters(stmts: list[dict], renames: dict[str, str]) -> None:
+    """Devices that use a renamed model by their SPICE letter follow it;
+    subcircuit instances keep the subcircuit."""
+    for st in stmts:
+        _rename_masters(st.get("body", []), renames)
+        m = st.get("master")
+        if isinstance(m, str) and st.get("kind") != "instance" and m.lower() in renames:
+            st["master"] = renames[m.lower()]
+
+
 def _rmtree(path: str, tries: int = 3) -> bool:
     """Remove a directory tree, retrying a few times (a file can be busy
     for a moment under load). False if it is still there: the next sweep
@@ -684,9 +711,9 @@ def _cached(final: str) -> dict | None:
         return None
 
 
-def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
+def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     """`src` and every file it includes, translated from `frm` to `to` into
-    the cache; returns the translated `src` and what could not be said.
+    the cache; returns the translated `src` and the translation's log.
 
     Keyed by the source path, the target grammar and the core; valid while
     every file read is unchanged. A copy is built in a temporary directory
@@ -701,7 +728,7 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
     _sweep(base, name)
     meta = _cached(final)
     if meta is not None:
-        return os.path.join(final, "tree", meta["top"]), _errors(meta["log"])
+        return os.path.join(final, "tree", meta["top"]), meta["log"]
     os.makedirs(base, exist_ok=True)
     tmp: str | None = tempfile.mkdtemp(prefix=f".{name}-{os.getpid()}-", dir=base)
     try:
@@ -742,17 +769,19 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
     finally:
         if tmp is not None:
             _rmtree(tmp)
-    return os.path.join(final, "tree", meta["top"]), _errors(log)
+    return os.path.join(final, "tree", meta["top"]), log
 
 
-def _translate_libraries(stmts: list[dict], default: str, target: str) -> Report:
+def _translate_libraries(stmts: list[dict], default: str, target: str, renames: dict[str, str] | None = None) -> Report:
     """Point every `lib` and `include` written in another dialect than
     `target` at a translated copy of the file tree it reaches (see
-    `_library_copy`); returns what the libraries could not say."""
+    `_library_copy`); returns what the libraries could not say, and adds
+    the models they renamed to `renames`."""
     report = Report()
+    renames = {} if renames is None else renames
     name = _grammar_name(target)
     for st in stmts:
-        report.extend(_translate_libraries(st.get("body", []), st.get("dialect", default), target))
+        report.extend(_translate_libraries(st.get("body", []), st.get("dialect", default), target, renames))
         frm = st.get("dialect", default)
         if st.get("kind") not in ("lib", "include") or frm == name or frm not in DIALECTS:
             continue
@@ -764,8 +793,9 @@ def _translate_libraries(stmts: list[dict], default: str, target: str) -> Report
         if not os.path.isfile(src):
             report.append(Entry("error", "invalid", st.get("line", 0), f"{st['kind']}: cannot open {src}"))
             continue
-        copy, errors = _library_copy(src, frm, target)
-        report.extend(errors)
+        copy, log = _library_copy(src, frm, target)
+        report.extend(_errors(log))
+        renames.update(_renames(log))
         st["path"] = {"str": copy}
         st["dialect"] = name
     return report
@@ -955,7 +985,7 @@ class PDK:
             with open(marker, "w") as f:
                 json.dump(summary, f)
         self._roots = getattr(self, "_roots", {})
-        self._roots[d] = (out, summary["root"], Report(e for e in Report._from_log(log) if e.severity == "error"))
+        self._roots[d] = (out, summary["root"], Report(e for e in Report._from_log(log) if e.severity == "error"), _renames(log))
         if strict and summary["errors"]:
             raise Unsupported(d, Report._from_log(log), "")
         return out

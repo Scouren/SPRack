@@ -435,12 +435,16 @@ def test_pdk_gf180mcu():
     # Xyce has agauss(); into Spectre it becomes statistics variations.
     xy = unwrap(c.netlist("xyce"))
     assert f'.lib "{p.translate("xyce")}/sm141064.spice" typical\n' in xy
-    errs = p.library_errors("spectre")
-    agauss = [e for e in errs if "agauss" in e.message]
+    assert not p.library_errors("spectre")
     # The mismatch wrappers (subckt nfet_03v3 around model nfet_03v3.N):
-    # Spectre resolves the transistor's model to the subcircuit itself.
-    clash = [e for e in errs if "names both a model and a subcircuit" in e.message]
-    assert not agauss and clash and len(clash) == len(errs), str(errs)
+    # Spectre would resolve the transistor's model to the subcircuit itself,
+    # so the model is renamed, and the circuit's own M line follows it.
+    tree = p.translate("spectre")
+    lib = open(os.path.join(tree, "sm141064.spice")).read()
+    assert "model nfet_03v3__m bsim4 {" in lib and "m0 (d g s b) nfet_03v3__m " in lib and "subckt nfet_03v3 (d g s b)\n" in lib
+    assert "q0 (c b e) pnp_10p00x10p00__m " in lib
+    sp = c.netlist("spectre")
+    assert "Mn (out in 0 0) nfet_03v3__m w=1u l=0.28u\n" in sp and "Mp (out in vdd vdd) pfet_03v3__m " in sp
 
 
 def test_pdk_inverters_solvable():
@@ -503,6 +507,33 @@ def test_pdk_installed_sky130():
     c.nfet_01v8("Mn", "out", "in", 0, 0, w=0.5, l=0.15)
     c.op()
     assert 0.1 < ngspice_op(c.netlist("ngspice")) < 1.7
+
+
+def test_pdk_installed_sky130_combined():
+    """open_pdks' combined layout, whose parameters read `{a} + b*agauss(...)`:
+    one expression in ngspice, the braces dropped."""
+    lib = os.path.join(INSTALLED, "sky130", "sky130A", "libs.tech", "combined", "sky130.lib.spice")
+
+    def nfet(path):
+        c = sprack.Circuit("sky130 combined nfet")
+        c.code(f'.lib "{path}" tt\n')
+        c.V("dd", "vdd", 0, 1.8)
+        c.V("g", "g", 0, 0.9)
+        c.R("l", "vdd", "out", "10k")
+        c.code("Xmn out g 0 0 sky130_fd_pr__nfet_01v8 w=1 l=0.15\n")
+        c.op()
+        return c
+
+    def body(cache):
+        for d in ("spectre", "xyce", "hspice"):
+            errs = nfet(lib).netlist(d, strict=False).report.errors
+            bad = [e for e in errs if e.code in ("untranslated", "unsupported") and "/parameters_" in e.file]
+            assert not bad, "\n".join(map(str, bad))
+        native = ngspice_op(nfet(lib).netlist("ngspice"))
+        copy, _ = sprack._library_copy(lib, "ngspice", "ngspice")
+        assert copy.startswith(cache) and 0.1 < native < 1.7
+        assert ngspice_op(nfet(copy).netlist("ngspice")) == native
+    _with_cache(body)
 
 
 def test_pdk_installed_ihp():

@@ -63,22 +63,23 @@
 
         # The layout SPRACK_TEST_PDKS_INSTALLED expects: PDKs as their
         # installers leave them. sky130A is open_pdks' own build as ciel
-        # (volare's successor) ships it: the ngspice models and the cells they
-        # include. IHP's install is its checkout plus libs.tech/ngspice/osdi,
-        # built as ihp-sg13g2/libs.tech/verilog-a/openvaf-compile-va.sh does,
-        # so this needs openvaf-r, which only x86_64-linux has.
+        # (volare's successor) ships it: the ngspice models, the combined
+        # layout (libs.tech/combined) and the cells they include. IHP's
+        # install is its checkout plus libs.tech/ngspice/osdi, built as
+        # ihp-sg13g2/libs.tech/verilog-a/openvaf-compile-va.sh does, so this
+        # needs openvaf-r, which only x86_64-linux has.
         ciel =
           asset: hash:
           pkgs.fetchurl {
-            url = "https://github.com/fossi-foundation/ciel-releases/releases/download/sky130-e7a6777d157a9d94c7ac757457b9e4309e9e9000/${asset}.tar.zst";
+            url = "https://github.com/fossi-foundation/ciel-releases/releases/download/sky130-8afc8346a57fe1ab7934ba5a6056ea8b43078e71/${asset}.tar.zst";
             inherit hash;
           };
         testPdksInstalled =
           pkgs.runCommandCC "sprack-test-pdks-installed" { nativeBuildInputs = [ pkgs.zstd refPkgs.openvaf-r ]; }
             ''
               mkdir -p $out/sky130 $out/ihp/ihp-sg13g2/libs.tech/ngspice/osdi
-              tar --zstd -xf ${ciel "common" "sha256-AGM+pQrNtskgRL90Z6OpBIs9aFzZSJ5F6ljNgvjZmo0="} -C $out/sky130 sky130A/libs.tech/ngspice
-              tar --zstd -xf ${ciel "sky130_fd_pr" "sha256-GgumMkn9oWozdQil4xJr+lmMTn/auEMHg1PbPyYQhq8="} -C $out/sky130 sky130A/libs.ref/sky130_fd_pr/spice
+              tar --zstd -xf ${ciel "common" "sha256-vopUg0H9kXevnkYa17T92Jr74D26aNxC0VUyH9w/hr8="} -C $out/sky130 sky130A/libs.tech/ngspice sky130A/libs.tech/combined
+              tar --zstd -xf ${ciel "sky130_fd_pr" "sha256-DOTQNwGnUO4NaX0DU2yy4+yJyMf0yjfRp3NtVGh0+uY="} -C $out/sky130 sky130A/libs.ref/sky130_fd_pr/spice
               ln -s ${inputs.ihp}/ihp-sg13g2/libs.tech/ngspice/models $out/ihp/ihp-sg13g2/libs.tech/ngspice/
               cd ${inputs.ihp}/ihp-sg13g2/libs.tech/verilog-a
               for va in psp103/psp103 psp103/psp103_nqs r3_cmc/r3_cmc mosvar/mosvar cap_cmomi/cap_cmomi cap_cmomf/cap_cmomf; do

@@ -2467,11 +2467,10 @@ test "gap: binned HSPICE models become one Spectre model group" {
     try has(sp, "1: type=n lmin=50n lmax=200n vth0=0.4\n");
 }
 
-test "gap: a subcircuit named like the model its transistor uses" {
-    // gap: spectre writer. HSPICE resolves `m0 ... nch` to the model inside
-    // subckt nch; Spectre resolves it to the subcircuit and stops on a
-    // recursive call. The fix may rename the model or report the clash; this
-    // asks for at least a report entry that names it.
+test "a subcircuit named like the model its transistor uses" {
+    // HSPICE resolves `m0 ... nch` to the model inside subckt nch; Spectre
+    // resolves it to the subcircuit and stops on a recursive call. The
+    // model is renamed, and the transistor with it.
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2485,8 +2484,11 @@ test "gap: a subcircuit named like the model its transistor uses" {
         \\.model nch.2 nmos level=54 lmin=200n lmax=10u
         \\.end
     , &report);
-    const renamed = std.mem.indexOf(u8, sp, "m0 (d g s b) nch ") == null;
-    try testing.expect(renamed or anyMsgHasAll(&report, &.{ "nch", "subcircuit" }));
+    try has(sp, "subckt nch (d g s b)\n");
+    try has(sp, "m0 (d g s b) nch__m l=l w=w\n");
+    try has(sp, "model nch__m bsim4 {\n");
+    try reported(&report, .info, "'nch' names both a model and a subcircuit: the model is written as 'nch__m'");
+    try testing.expectEqual(0, report.count(.@"error"));
 }
 
 test "gap: a parameter defined twice" {
@@ -3980,4 +3982,54 @@ test "d2: ngspice .pz node pairs as HSPICE and Spectre output and source" {
     var r9: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\ni1 in 0 1m\ni2 0 in 1m\nr1 in 0 1k\n.pz in 0 in 0 cur pz\n.end\n", &r9);
     try reported(&r9, .@"error", "several current sources connect nodes in and 0");
+}
+
+test "c6: a delimited expression joined to more by an operator is one expression" {
+    // ngspice 45 takes `.param a = {1+1}*3 + 0*gauss(0,1,1)` as 4: the
+    // braces dropped, the rest of the line kept (measured).
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const src = "t\n.param sw = {0.0+cf*0.0} + pm*mc*agauss(0,1.5e-09,1)\n.param b = {2}*{cf} c = 1 + {cf} d={1+1}*3 e={cf}\n.end\n";
+    const ng = try tr(a, "ngspice", "ngspice", src, &r);
+    try has(ng, ".param sw={0.0+cf*0.0 + pm*mc*agauss(0,1.5n,1)}\n");
+    try has(ng, ".param b={2*cf} c={1 + cf} d={1+1*3} e={cf}\n");
+    try testing.expectEqual(0, r.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", src, &r2), ".param b='2*cf' c='1 + cf' d='1+1*3' e='cf'\n");
+    try testing.expectEqual(0, r2.countCode(.untranslated));
+}
+
+test "c6: a model renamed for Spectre across the files of a project" {
+    // The model in one file, the subcircuit of its name in another, the
+    // transistor that uses the model in a third: each file gets the rename.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const g = sprack.find("ngspice").?;
+    const files = [_][]const u8{
+        ".model nch.1 nmos level=14 lmin=0 lmax=1\n",
+        ".subckt nch d g s b\nm0 d g s b nch\n.ends nch\n",
+        "M1 d g 0 0 nch\nX1 d g 0 0 nch\n",
+    };
+    var env: ir.Env = .{};
+    for (files) |f| {
+        var r: ir.Report = .init(a);
+        const nl = try sprack.reader.read(g, a, f, &r, .{ .library = true });
+        try env.absorb(a, nl.stmts);
+    }
+    var out: [3][]const u8 = undefined;
+    var r: ir.Report = .init(a);
+    for (files, 0..) |f, i| {
+        const nl = try sprack.reader.read(g, a, f, &r, .{ .env = &env, .library = true });
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.writeIn(a, sprack.find("spectre").?, &aw.writer, &nl, &r, &env);
+        out[i] = aw.written();
+    }
+    try has(out[0], "model nch__m bsim4 {\n");
+    try has(out[1], "m0 (d g s b) nch__m\n");
+    try has(out[2], "M1 (d g 0 0) nch__m\n");
+    try has(out[2], "X1 (d g 0 0) nch\n");
+    try testing.expectEqual(0, r.count(.@"error"));
 }

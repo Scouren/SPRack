@@ -235,6 +235,8 @@ pub const Env = struct {
     declared: std.StringHashMapUnmanaged(void) = .empty,
     /// Model name to the device kind its family belongs to.
     models: std.StringHashMapUnmanaged(Kind) = .empty,
+    /// Names of subcircuits.
+    subckts: CaselessSet = .empty,
     /// Lower-cased names of user-defined functions.
     funcs: std.StringHashMapUnmanaged(void) = .empty,
     /// Statement kinds used anywhere in the project. The top netlist writes
@@ -253,6 +255,7 @@ pub const Env = struct {
                 const own = try arena.dupe(u8, name.atom);
                 try env.declared.put(arena, own, {});
                 try env.declared.put(arena, try std.ascii.allocLowerString(arena, own), {});
+                if (s.kind == .subckt) try env.subckts.put(arena, own, {});
                 if (s.kind == .model) {
                     const fam = s.get("family");
                     const kind: ?Kind = if (fam == .atom) schema.familyKind(fam.atom) else if (s.get("type") == .atom) .device else null;
@@ -512,7 +515,8 @@ pub fn checkModelKinds(arena: Allocator, nl: *const Netlist, report: *Report, en
         while (it.next()) |kv| try models.put(arena, kv.key_ptr.*, kv.value_ptr.*);
     }
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
-    try collectModels(arena, nl.stmts, &models);
+    var subckts: CaselessSet = .empty;
+    try collectModels(arena, nl.stmts, &models, &subckts);
     try collectFamilies(arena, nl.stmts, &names);
     if (models.count() == 0) return;
     try checkKinds(nl.stmts, &models, &names, report);
@@ -578,13 +582,16 @@ pub fn markUnlistedBuiltins(arena: Allocator, nl: *Netlist) Allocator.Error!void
 
 pub fn resolveInstances(arena: Allocator, nl: *Netlist, env: ?*const Env) Allocator.Error!void {
     var models: std.StringHashMapUnmanaged(Kind) = .empty;
+    var subckts: CaselessSet = .empty;
     if (env) |e| {
         var it = e.models.iterator();
         while (it.next()) |kv| try models.put(arena, kv.key_ptr.*, kv.value_ptr.*);
+        var si = e.subckts.keyIterator();
+        while (si.next()) |k| try subckts.put(arena, k.*, {});
     }
-    try collectModels(arena, nl.stmts, &models);
+    try collectModels(arena, nl.stmts, &models, &subckts);
     if (models.count() == 0) return;
-    try retag(arena, nl.stmts, &models);
+    try retag(arena, nl.stmts, &models, &subckts);
 }
 
 /// `nch` of the model name `nch.12`: SPICE bins a model by numbered
@@ -596,8 +603,9 @@ pub fn binBase(name: []const u8) ?[]const u8 {
     return name[0..dot];
 }
 
-fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind)) Allocator.Error!void {
+fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind), subckts: *CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
+        if (s.kind == .subckt and s.get("name") == .atom) try subckts.put(arena, s.get("name").atom, {});
         if (s.kind == .model) {
             const fam = s.get("family");
             const name = s.get("name");
@@ -613,7 +621,7 @@ fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapU
                 if (binBase(name.atom)) |base| try out.put(arena, base, k);
             }
         }
-        try collectModels(arena, s.body, out);
+        try collectModels(arena, s.body, out, subckts);
     }
 }
 
@@ -625,9 +633,9 @@ fn sameSlots(a: Kind, b: Kind) bool {
     return true;
 }
 
-fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind)) Allocator.Error!void {
+fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind), subckts: *const CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
-        try retag(arena, s.body, models);
+        try retag(arena, s.body, models, subckts);
         // One element letter, two device kinds told apart by the model
         // (HSPICE writes a MESFET as a J element with a MESFET level).
         if (s.kind != .instance and schema.info(s.kind).class == .device) {
@@ -638,7 +646,8 @@ fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmana
         }
         if (s.kind != .instance) continue;
         const master = s.get("master");
-        if (master != .atom) continue;
+        // A subcircuit of the name wins over a model of it.
+        if (master != .atom or subckts.contains(master.atom)) continue;
         const target = models.get(master.atom) orelse continue;
         if (target == .device) {
             s.kind = .device;

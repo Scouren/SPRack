@@ -2104,7 +2104,7 @@ fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.R
     if (opts.library) cfg.title = false;
     var lx = try lexer.lex(arena, &cfg, src);
     defer lx.deinit();
-    var win: lexer.Window = .init(&cfg, lx.lines);
+    var win: lexer.Window = .init(&cfg, lx.lines, arena);
     defer win.deinit();
     var declared: Declared = .empty;
     if (env) |e| {

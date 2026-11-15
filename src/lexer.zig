@@ -313,8 +313,9 @@ fn pushTok(list_gpa: Allocator, toks: *std.ArrayList(Tok), tag: TokTag, text: []
     try toks.append(list_gpa, .{ .tag = tag, .text = text, .raw = raw, .lno = lno });
 }
 
-/// `arena` owns token text; `list_gpa` owns the token list itself.
-fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text: []const u8, lno: u32, toks: *std.ArrayList(Tok)) Allocator.Error!void {
+/// `arena` owns token text; `keep`, text that must outlive the window;
+/// `list_gpa` owns the token list itself.
+fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text: []const u8, lno: u32, toks: *std.ArrayList(Tok)) Allocator.Error!void {
     var i: usize = 0;
     var after_eq = false;
     const line_start = toks.items.len;
@@ -348,22 +349,14 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
             i = @min(end + 1, text.len);
             continue;
         }
+        if (value_ctx) if (try joinedExpr(keep, cfg, text, i)) |jx| {
+            try pushTok(list_gpa, toks, .expr, jx.text, text[i..jx.end], lno);
+            i = jx.end;
+            continue;
+        };
         for (cfg.expr_delims) |d| {
             if (!std.mem.startsWith(u8, text[i..], d[0])) continue;
-            // Nested braces count; quote-style delimiters cannot nest.
-            var depth: usize = 1;
-            var j = i + d[0].len;
-            const same = std.mem.eql(u8, d[0], d[1]);
-            while (j < text.len) {
-                if (std.mem.startsWith(u8, text[j..], d[1])) {
-                    depth -= 1;
-                    if (depth == 0) break;
-                    j += d[1].len;
-                } else if (!same and std.mem.startsWith(u8, text[j..], d[0])) {
-                    depth += 1;
-                    j += d[0].len;
-                } else j += 1;
-            }
+            const j = delimClose(text, i, d);
             const inner = text[i + d[0].len .. @min(j, text.len)];
             const end = @min(j + d[1].len, text.len);
             try pushTok(list_gpa, toks, .expr, std.mem.trim(u8, inner, " \t"), text[i..end], lno);
@@ -433,6 +426,76 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
     }
 }
 
+/// Where the delimited expression opening at `i` closes (`text.len` when
+/// it does not). Nested braces count; quote-style delimiters cannot nest.
+fn delimClose(text: []const u8, i: usize, d: [2][]const u8) usize {
+    var depth: usize = 1;
+    var j = i + d[0].len;
+    const same = std.mem.eql(u8, d[0], d[1]);
+    while (j < text.len) {
+        if (std.mem.startsWith(u8, text[j..], d[1])) {
+            depth -= 1;
+            if (depth == 0) break;
+            j += d[1].len;
+        } else if (!same and std.mem.startsWith(u8, text[j..], d[0])) {
+            depth += 1;
+            j += d[0].len;
+        } else j += 1;
+    }
+    return j;
+}
+
+fn isOperator(c: u8) bool {
+    return c == '+' or c == '-' or c == '*' or c == '/' or c == '^';
+}
+
+/// `{a} + b`, `{a}*{b}`, `a + {b}`: a delimited expression joined to more
+/// by an operator outside the delimiters, as one expression. ngspice 45
+/// takes such a line (when it takes it at all) as the delimiters dropped
+/// and the rest kept: `{1+1}*3` is 4, not 6. Null when the value is not
+/// such a join.
+fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usize) Allocator.Error!?struct { text: []const u8, end: usize } {
+    var out: std.ArrayList(u8) = .empty;
+    var i = start;
+    var depth: usize = 0;
+    var delimited = false;
+    var op_outside = false;
+    var last_op = false;
+    scan: while (i < text.len) {
+        for (cfg.expr_delims) |d| {
+            if (!std.mem.startsWith(u8, text[i..], d[0])) continue;
+            const j = delimClose(text, i, d);
+            try out.appendSlice(arena, std.mem.trim(u8, text[i + d[0].len .. @min(j, text.len)], " \t"));
+            i = @min(j + d[1].len, text.len);
+            delimited = true;
+            last_op = false;
+            continue :scan;
+        }
+        const c = text[i];
+        if (depth == 0 and (c == ' ' or c == '\t')) {
+            var j = i;
+            while (j < text.len and (text[j] == ' ' or text[j] == '\t')) j += 1;
+            // Past the blanks the expression goes on only after or before an operator.
+            if (j == text.len or !(last_op or isOperator(text[j]))) break;
+            try out.append(arena, ' ');
+            i = j;
+            continue;
+        }
+        if (depth == 0 and (c == ',' or c == '=')) break;
+        if (c == '(') depth += 1;
+        if (c == ')') {
+            if (depth == 0) break;
+            depth -= 1;
+        }
+        last_op = isOperator(c);
+        op_outside = op_outside or last_op;
+        try out.append(arena, c);
+        i += 1;
+    }
+    if (!delimited or !op_outside) return null;
+    return .{ .text = std.mem.trim(u8, out.items, " "), .end = i };
+}
+
 fn topComma(run: []const u8) bool {
     var depth: usize = 0;
     for (run) |ch| switch (ch) {
@@ -451,7 +514,7 @@ pub fn lex(arena: Allocator, cfg: *const LexCfg, src: []const u8) Allocator.Erro
     const lines = try joinLines(arena, cfg, src, &title);
     var lx: Lexed = .{ .title = title, .lines = lines, .all_lines = lines };
     if (cfg.end_marker.len == 0) return lx;
-    var w: Window = .init(cfg, lines);
+    var w: Window = .init(cfg, lines, arena);
     defer w.deinit();
     for (lines, 0..) |ln, idx| {
         // Only a line that starts like the marker can be it.
@@ -478,12 +541,15 @@ pub const Window = struct {
     /// Case-folded copies of words, freed whenever the window empties. A
     /// value that keeps a folded `text` must copy it.
     scratch: std.heap.ArenaAllocator,
+    /// Text a token makes that is in no line (a joined expression) and
+    /// outlives the window.
+    keep: Allocator,
     toks: std.ArrayList(Tok) = .empty,
     /// The next line to lex.
     next: u32 = 0,
 
-    pub fn init(cfg: *const LexCfg, lines: []const Line) Window {
-        return .{ .cfg = cfg, .lines = lines, .scratch = .init(ir.big) };
+    pub fn init(cfg: *const LexCfg, lines: []const Line, keep: Allocator) Window {
+        return .{ .cfg = cfg, .lines = lines, .scratch = .init(ir.big), .keep = keep };
     }
 
     pub fn deinit(w: *Window) void {
@@ -532,7 +598,7 @@ pub const Window = struct {
             try w.toks.append(ir.big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
             return;
         }
-        try tokenizeLine(w.scratch.allocator(), ir.big, cfg, ln.text, lno, &w.toks);
+        try tokenizeLine(w.scratch.allocator(), w.keep, ir.big, cfg, ln.text, lno, &w.toks);
         try w.toks.append(ir.big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
     }
 };
@@ -773,7 +839,7 @@ test "lines, comments, continuation" {
         \\R9 never seen 1
     );
     defer lx.deinit();
-    var w: Window = .init(&spice_cfg, lx.lines);
+    var w: Window = .init(&spice_cfg, lx.lines, a);
     defer w.deinit();
     while (try w.has(w.toks.items.len)) {}
     const toks = w.toks.items;
@@ -807,7 +873,7 @@ test "spectre tokens" {
         \\    wave=[0 0 1n 1]
     );
     defer lx.deinit();
-    var w: Window = .init(&cfg, lx.lines);
+    var w: Window = .init(&cfg, lx.lines, a);
     defer w.deinit();
     while (try w.has(w.toks.items.len)) {}
     const toks = w.toks.items;
