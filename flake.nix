@@ -229,6 +229,33 @@
             SPRACK_SUITE = conformance;
             inherit (ci) shellHook;
           };
+        }
+        # LTspice (unfree) runs under wine, which nixpkgs packages for
+        # x86_64-linux only: `nix develop .#ltspice -c tools/ltspice-batch.sh
+        # deck.net` leaves deck.log and deck.raw beside the deck. The first
+        # run unpacks LTspice's library into $LTSPICE_STATE (about a minute).
+        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          ltspice =
+            let
+              unfree = import nixpkgs {
+                inherit system;
+                config.allowUnfreePredicate = p: nixpkgs.lib.getName p == "ltspice";
+              };
+            in
+            pkgs.mkShell {
+              inputsFrom = [ ci ];
+              # wine64 is the wine the ltspice package itself runs on.
+              packages = [
+                pkgs.wine64
+                pkgs.xvfb-run
+              ];
+              # The program itself, not the package's launcher: that one
+              # returns at once and puts -ini first, which turns -b off.
+              LTSPICE_EXE = "${unfree.ltspice}/libexec/ltspice/LTspice.exe";
+              shellHook = ci.shellHook + ''
+                export LTSPICE_STATE="''${XDG_CACHE_HOME:-$HOME/.cache}/sprack-ltspice"
+              '';
+            };
         };
       }
     );
