@@ -384,7 +384,13 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   depends on its model (behavioural sources, Verilog-A, transmission lines,
   cells defined in other files) is taken to join all its terminals, and the
   branches of a conditional all count, so it errs towards no alarm.
-* The whole netlist is held in memory, at about 4 to 7 times its size.
+* Memory: `sprack translate` surveys the netlist, then reads and writes one
+  top-level statement at a time. Measured peak: 1.5 times the input on a
+  111 MiB RC mesh and 1.6 times on 45 MiB of sky130 cells (2.1 times into
+  Spectre, whose report alone is a third of the input). A netlist with a
+  sweep, an alter, a pole-zero analysis, a model of an unlisted type, a
+  statistics block to fold or a change of language is still read whole, at
+  7 times its size or more; so are `read`, `write` and the Python package.
 
 ## License
 
