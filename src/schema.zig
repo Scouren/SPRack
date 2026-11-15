@@ -107,6 +107,11 @@ pub const Kind = enum(u8) {
     phasenoise,
     envelope,
     qpss,
+    // b4: devices, sources, outputs
+    lossyline,
+    ctlsrc,
+    relay,
+    simctl,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -118,7 +123,11 @@ const source_spec = "name pos:node neg:node dc:value acmag:value acphase:value w
     "sinedc:value ampl:value freq:value damp:value sphase:value " ++
     "td1:value tau1:value td2:value tau2:value mdi:value fsig:value pwl:value* " ++
     // Small-signal distortion inputs and the RF port a source may stand for.
-    "distof1:value distof1ph:value distof2:value distof2ph:value portnum:value z0:value params:params";
+    "distof1:value distof1ph:value distof2:value distof2ph:value portnum:value z0:value " ++
+    // b4: a pulse train's count, the arguments of the noise and random
+    // sources (trnoise, trrandom), a pattern's bit strings (PAT), and the
+    // modulation phase of AM (the carrier's is sphase).
+    "count:value wargs:value* bits:atom* mphase:value params:params";
 
 const sweep_spec = "sweep:atom points:value fstart:value fstop:value";
 
@@ -179,7 +188,15 @@ const defs = [_]Def{
     .{ .print, .control, "style:atom analysis:atom signals:signal* params:params" },
     .{ .ic, .control, "values:params" },
     .{ .nodeset, .control, "values:params" },
-    .{ .measure, .control, "analysis:atom name spec:text" },
+    // `op` is trig (from trig to targ), find (out at `at` or when `when`
+    // crosses whenval), when, avg/rms/max/min/pp/integ (of out, from..to),
+    // deriv (of out, at or when) or param (expr). An edge is rise, fall or
+    // cross; its count says which crossing. `spec` is the text of a
+    // measurement none of these forms reads.
+    .{ .measure, .control, "analysis:atom name op:atom out:signal at:value from:value to:value " ++
+        "trig:signal trigval:value trigtd:value trigedge:atom trign:value " ++
+        "targ:signal targval:value targtd:value targedge:atom targn:value " ++
+        "when:signal whenval:value whentd:value whenedge:atom whenn:value expr:value spec:text params:params" },
     .{ .op, .analysis, "name params:params" ++ ns },
     // src2 is the outer loop of a nested sweep; src is swept for each of its values.
     // `var` is set instead of `src` when the sweep is over temperature.
@@ -224,6 +241,25 @@ const defs = [_]Def{
     .{ .envelope, .analysis, "name clock:atom stop:value params:params" },
     // Quasi-periodic steady state by shooting, the tones named by fundamental.
     .{ .qpss, .analysis, "name funds:atom* harms:value* params:params" },
+    // b4: devices, sources, outputs
+    // A lossy or coupled transmission line. With n conductors the nodes are
+    // the n inputs and their reference, then the n outputs and theirs. The
+    // model's family is the line model (ltra, txl, cpl, rlgc).
+    .{ .lossyline, .device, "name nodes:node* master:ident params:params" },
+    // A controlled source in a special form; the element letter of the name
+    // says what it drives (E, G, F, H). `form` is poly (dim inputs,
+    // coefficients), table (expr, xs to ys), laplace (coeffs over den, in
+    // ascending powers of s), pole (gain and zeros zr+j*zi over gain2 and
+    // poles pr+j*pi), vcr (a resistance of gain ohms per volt) or vccap (a
+    // capacitance of gain farads per volt).
+    .{ .ctlsrc, .device, "name pos:node neg:node form:atom dim:value cpos:node* cneg:node* vsrcs:ref* " ++
+        "expr:value coeffs:value* den:value* xs:value* ys:value* gain:value zr:value* zi:value* gain2:value pr:value* pi:value* params:params" },
+    // A switch whose contacts open and close on a control voltage
+    // (Spectre's relay).
+    .{ .relay, .device, "name pos:node neg:node cpos:node cneg:node params:params" },
+    // A command of a simulator's own control language that is not a netlist
+    // statement (VACASK print, postprocess, abort, elaborate).
+    .{ .simctl, .control, "cmd:atom args:text" },
 };
 
 pub const kind_count = defs.len;
@@ -297,6 +333,11 @@ pub const families = [_]Family{
     .{ .name = "vdmos", .kind = .mosfet },
     .{ .name = "vswitch", .kind = .vswitch },
     .{ .name = "cswitch", .kind = .cswitch },
+    // b4: devices, sources, outputs
+    .{ .name = "ltra", .kind = .lossyline },
+    .{ .name = "txl", .kind = .lossyline },
+    .{ .name = "cpl", .kind = .lossyline },
+    .{ .name = "rlgc", .kind = .lossyline },
 };
 
 /// Functions an expression may call, by canonical name. A grammar's
@@ -316,7 +357,13 @@ pub const variables = [_][]const u8{ "temper", "time", "hertz" };
 pub const operators = [_][]const u8{ "pow", "xor", "ternary" };
 
 /// Signal forms a `signals` section may spell.
-pub const signal_forms = [_][]const u8{ "v", "vdiff", "i", "vdb", "vm", "vp", "vr", "vi", "all" };
+pub const signal_forms = [_][]const u8{
+    "v",   "vdiff", "i",  "vdb", "vm", "vp", "vr",   "vi", "all",
+    // b4: devices, sources, outputs. A branch current in dB, magnitude,
+    // phase, real and imaginary part; a terminal current (`M1:d`, two
+    // names); `expr` writes an expression recorded as a signal (`-i(vc)`).
+    "idb", "im",    "ip", "ir",  "ii", "ix", "expr",
+};
 
 fn inList(comptime list: []const []const u8, name: []const u8) bool {
     inline for (list) |f| if (std.mem.eql(u8, f, name)) return true;

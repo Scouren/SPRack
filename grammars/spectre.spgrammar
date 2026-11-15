@@ -147,6 +147,16 @@ rule  tline     = name ["("] p1 n1 p2 n2 [")"] "tline" { z0=z0 td=td f=f nl=nl .
 rule  vswitch   = name ["("] pos neg cpos cneg [")"] master { region=state! }
 write vswitch   = name "(" pos neg cpos cneg ")" master
 rule  cswitch   = name ["("] pos neg [")"] master { probe=vsrc! region=state }
+# devices and outputs (b4)
+# Each form below was loaded in Spectre 25.10.
+rule  relay     = name ["("] pos neg cpos cneg [")"] "relay" {...params}
+# A port is a source with a series resistance and a port number.
+rule  vsource   = name ["("] pos neg [")"] "port" { num=portnum! r=z0 dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
+# A one-input polynomial is pvcvs or pvccs with the coefficients as a list.
+# The master says which; a SPICE source says it by its letter, so these
+# forms are written only.
+write ctlsrc    = name~"E" "(" pos neg cpos#1 cneg#1 ")" form:"pvcvs"=poly -dim { coeffs=[coeffs]! }
+write ctlsrc    = name~"G" "(" pos neg cpos#1 cneg#1 ")" form:"pvccs"=poly -dim { coeffs=[coeffs]! }
 rule  instance  = name ["("] nodes+ [")"] master {...params}
 
 move options.method -> tran.method
@@ -156,6 +166,8 @@ enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 implied noise ref = 0
 
+no lossyline : this grammar has no form for Spectre's lossy lines; their models are not SPICE LTRA, TXL, CPL or RLGC cards
+no simctl  : Spectre has no control commands of this kind; its analyses and options are netlist statements
 no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
@@ -178,6 +190,8 @@ caveat hdl path : ahdl_include expects Verilog-A source, not a compiled OSDI fil
 
 signals
   i = "%:p"
+  # b4: a terminal current, M1:d.
+  ix = "%:%"
   v = "%"
 end
 

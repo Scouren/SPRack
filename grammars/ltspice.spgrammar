@@ -84,6 +84,16 @@ rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off"
 rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
 rule  tline     = name~"T" p1 n1 p2 n2 { zo=z0 td=td ...params }     # assumed: Zo, not Z0
 read  instance  = name~"X" nodes+ master "params:" {...params}
+# devices and outputs (b4)
+# assumed: O with an LTRA model, as in SPICE 3
+rule  lossyline[ltra] = name~"O" nodes+ master {...params}
+# assumed: POLY as in PSpice
+rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"H" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+no relay  : LTspice has no relay element; a voltage-controlled switch (S) is the closest form
+no simctl : LTspice has no control language besides its dot commands
 rule  instance  = name~"X" nodes+ master {...params}
 
 rule  op        = ".op"
@@ -176,4 +186,6 @@ models
   vdmos      = vdmos
   vswitch    = sw
   cswitch    = csw
+  # b4 (assumed)
+  ltra       = ltra
 end

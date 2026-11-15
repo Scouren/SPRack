@@ -1085,7 +1085,7 @@ test "outputs, initial conditions and measurements" {
     const xy = try tr(a, "ngspice", "xyce", src, &r1);
     try has(xy, ".ic v(out)=0.5 v(in)=1\n");
     try has(xy, ".print tran v(out) v(in,out)\n");
-    try has(xy, ".measure tran trise trig v(out) val=0.2 rise=1 targ v(out) val=0.8 rise=1\n");
+    try has(xy, ".measure tran trise trig v(out)=0.2 rise=1 targ v(out)=0.8 rise=1\n");
     try has(xy, ".four 1k v(out)\n");
     try reported(&r1, .@"error", "statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists");
     try testing.expectEqual(1, r1.count(.@"error"));
@@ -1260,7 +1260,7 @@ test "VACASK control block and sweep" {
     try has(xy, "v1 1 0 pulse(0 5 1m 1u)\n");
     try has(xy, ".dc v1 0.5 0.9 0.05\n");
     try has(xy, ".tran 1u 10m\n");
-    try has(xy, "* [sprack] untranslated vacask: postprocess(PYTHON, \"runme.py\")\n");
+    try has(xy, "* [sprack] not written: statement 'simctl' has no xyce form\n");
     // A VACASK pulse without fall or width is not the SPICE pulse of the same words.
     try testing.expectEqual(3, report.count(.@"error"));
     try reported(&report, .@"error", "vsource.fall is not given: a VACASK pulse without a fall time never falls");
@@ -2455,4 +2455,200 @@ test "a rule that depends on the model's family: Xyce HICUM's thermal node" {
     // Without the card in the file the plain forms are used.
     var r2: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "xyce", "t\nq1 c b 0 0 hm\n.end\n", &r2), "q1 c b 0 0 hm\n");
+}
+
+test "b4: lossy and coupled lines take their letter from the model" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\o1 a 0 b 0 lline
+        \\.model lline ltra r=1 l=250n g=0 c=100p len=2
+        \\y1 a 0 c 0 ymod
+        \\.model ymod txl r=1u l=250n g=0 c=100p length=1
+        \\P1 a1 a2 0 b1 b2 0 pline
+        \\.model pline cpl r=0.2 0 0.2 l=9.13n 3.3n 9.13n length=10
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r1);
+    try testing.expectEqual(3, countKind(nl, .lossyline));
+    try clean(&r1);
+    // The same dialect: each letter back, the CPL matrix as numbers after its key.
+    const same = try tr(a, "ngspice", "ngspice", src, &r1);
+    try has(same, "o1 a 0 b 0 lline\n");
+    try has(same, "y1 a 0 c 0 ymod\n");
+    try has(same, "P1 a1 a2 0 b1 b2 0 pline\n");
+    try has(same, ".model pline cpl r=0.2 0 0.2 l=9.13n 3.3n 9.13n length=10\n");
+    try clean(&r1);
+    // Xyce has the LTRA line only.
+    var r2: ir.Report = .init(a);
+    const x = try tr(a, "ngspice", "xyce", src, &r2);
+    try has(x, "o1 a 0 b 0 lline\n");
+    try reported(&r2, .@"error", "no xyce form of this statement can say a model of family 'txl'");
+    try reported(&r2, .@"error", "no spelling for model family 'cpl'. Defined by: espice, ngspice");
+    // HSPICE's W element with an RLGC model, read and written.
+    const w = "t\nW1 a1 a2 0 b1 b2 0 RLGCmodel=pline N=2 l=10\n.model pline W modeltype=RLGC N=2 Lo=9.13n 3.3n 9.13n\n.end\n";
+    var r3: ir.Report = .init(a);
+    const hs = try tr(a, "hspice", "hspice", w, &r3);
+    try has(hs, "W1 a1 a2 0 b1 b2 0 rlgcmodel=pline n=2 l=10\n");
+    try has(hs, ".model pline w modeltype=rlgc n=2 lo=9.13n 3.3n 9.13n\n");
+    try clean(&r3);
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", w, &r4);
+    try reported(&r4, .@"error", "no ngspice form of this statement can say a model of family 'rlgc'");
+}
+
+test "b4: controlled sources in POLY, TABLE, LAPLACE, POLE, VCR and VCCAP form" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\e1 o1 0 poly(2) a 0 b 0 0 1 1
+        \\g2 0 o2 poly(1) a 0 0 1m
+        \\f3 0 o3 poly(1) vs 0 2
+        \\h4 o4 0 poly(1) vs 0 1k
+        \\e5 o5 0 table {v(a)} = (0,0) (1,2) (2,2)
+        \\vs s 0 0
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r1);
+    try testing.expectEqual(5, countKind(nl, .ctlsrc));
+    for ([_][]const u8{ "xyce", "hspice" }) |to| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, "ngspice", to, src, &r);
+        try has(out, "e1 o1 0 poly(2) a 0 b 0 0 1 1\n");
+        try has(out, "f3 0 o3 poly(1) vs 0 2\n");
+    }
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", src, &r2), "e5 o5 0 table {v(a)} =(0,0)(1,2)(2,2)\n");
+    try clean(&r2);
+    // A one-input polynomial is Spectre's pvccs; a two-input one is not.
+    var r3: ir.Report = .init(a);
+    const sx = try tr(a, "ngspice", "spectre", src, &r3);
+    try has(sx, "g2 (0 o2 a 0) pvccs coeffs=[0 1m]\n");
+    try reported(&r3, .@"error", "more than one 'cpos'");
+    const h =
+        \\t
+        \\e1 b 0 laplace a 0 1 / 1 1e-3
+        \\e2 b 0 pole a 0 1e4 1e3,0 / 1 1e2,0 1e4,0
+        \\g8 o8 0 vcr c 0 2
+        \\g9 o9 0 vccap c 0 1u
+        \\.end
+    ;
+    var r4: ir.Report = .init(a);
+    const hs = try tr(a, "hspice", "hspice", h, &r4);
+    try has(hs, "e1 b 0 laplace a 0 1 / 1 1m\n");
+    try has(hs, "e2 b 0 pole a 0 1e4 1k,0 / 1 100,0 1e4,0\n");
+    try has(hs, "g8 o8 0 vcr c 0 2\n");
+    try clean(&r4);
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", h, &r5);
+    try reported(&r5, .@"error", "no ngspice form of this statement can say form = laplace");
+}
+
+test "b4: source forms" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\v1 a 0 pulse(0 1 0 1n 1n 5n 10n 2)
+        \\v2 b 0 dc 0 trnoise(0.1 1n 0 0)
+        \\v3 c 0 am(0 0.5 1 100k 1meg 1u 30 45)
+        \\v4 d 0 am(0 0.5 1 100k 1meg)
+        \\i1 e 0 ac
+        \\v5 f 0 dc=0 sin 0 50 100k
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const same = try tr(a, "ngspice", "ngspice", src, &r1);
+    try clean(&r1);
+    try has(same, "v1 a 0 pulse(0 1 0 1n 1n 5n 10n 2)\n");
+    try has(same, "v2 b 0 dc 0 trnoise(0.1 1n 0 0)\n");
+    try has(same, "v3 c 0 am(0 0.5 1 100k 1meg 1u 30 45)\n");
+    try has(same, "i1 e 0 ac 1\n");
+    try has(same, "v5 f 0 dc 0 sin(0 50 100k)\n");
+    // HSPICE's AM has no offset and gives the modulation offset relative
+    // to the amplitude; it has no pulse count and no trnoise.
+    var r2: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", src, &r2);
+    try has(hs, "v4 d 0 am(1 500m 100k 1meg)\n");
+    try reported(&r2, .@"error", "vsource.count = 2 has no spelling in hspice");
+    try reported(&r2, .@"error", "vsource.wave = trnoise has no spelling in hspice");
+    try reported(&r2, .@"error", "vsource.sinedc = 0 has no spelling in hspice");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nv4 d 0 am(2 0.5 100k 1meg)\nv5 e 0 pat (1 0 0 1n 1n 5n b1011)\n.end\n", &r3), "v4 d 0 am(0 1 2 100k 1meg)\n");
+    try reported(&r3, .@"error", "vsource.wave = pat has no spelling in ngspice");
+}
+
+test "b4: output forms and measurements" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\.print ac db(i(vm)) ph(i(vm))
+        \\.print dc -i(vc) vids#branch
+        \\.meas tran tb trig v(b) val=0.2 rise=1 targ v(b) val=0.4 rise=1
+        \\.meas tran fw find v(o4) when v(c)=0.5 rise=1
+        \\.meas tran vb find v(b) at=30n
+        \\.meas tran av avg v(o5) from=0 to=50n
+        \\.meas tran ii integ v(o5) from=0 to=50n
+        \\.meas tran q1 param='tb*2'
+        \\.meas tran z1 max v(b) from=1n rise=last
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const same = try tr(a, "ngspice", "ngspice", src, &r1);
+    try clean(&r1);
+    try has(same, ".print ac db(i(vm)) ph(i(vm))\n");
+    try has(same, ".print dc -i(vc) i(vids)\n");
+    try has(same, ".meas tran fw find v(o4) when v(c)=0.5 rise=1\n");
+    var r2: ir.Report = .init(a);
+    const x = try tr(a, "ngspice", "xyce", src, &r2);
+    try has(x, ".print ac idb(vm) ip(vm)\n");
+    try has(x, ".print dc {-i(vc)} i(vids)\n");
+    try has(x, ".measure tran tb trig v(b)=0.2 rise=1 targ v(b)=0.4 rise=1\n");
+    try has(x, ".measure tran q1 param={tb*2}\n");
+    try reported(&r2, .warning, "measure.spec: carried as text");
+    var r3: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", src, &r3);
+    try has(hs, ".print dc par('-i(vc)') i(vids)\n");
+    try has(hs, ".meas tran q1 param='tb*2'\n");
+    // A terminal current in Spectre is a device and a terminal.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", "t\n.print dc id(m1)\n.end\n", &r4), ".print dc @m1[id]\n");
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spectre\nsave m1:d\n", &r5), ".save @m1[id]\n");
+}
+
+test "b4: Spectre relay and port, VACASK control commands" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const s = "// t\nsimulator lang=spectre\nk1 (a b c 0) relay vt1=1 vt2=0.5\np1 (b 0) port r=50 num=1\n";
+    var r1: ir.Report = .init(a);
+    const nl = try readAs(a, "spectre", s, &r1);
+    try testing.expectEqual(1, countKind(nl, .relay));
+    try testing.expectEqual(1, countKind(nl, .vsource));
+    var r2: ir.Report = .init(a);
+    const x = try tr(a, "spectre", "xyce", s, &r2);
+    try has(x, "p1 b 0 port=1 z0=50\n");
+    try reported(&r2, .@"error", "Xyce has no relay element");
+    const v = "t\ncontrol\n  print stats\n  postprocess(PYTHON, \"runme.py\")\nendc\nembed \"runme.py\" <<<FILE\nprint(1)\n>>>FILE\n";
+    var r3: ir.Report = .init(a);
+    const vn = try readAs(a, "vacask", v, &r3);
+    try testing.expectEqual(2, countKind(vn, .simctl));
+    var r4: ir.Report = .init(a);
+    const same = try tr(a, "vacask", "vacask", v, &r4);
+    try has(same, "control\nprint stats\npostprocess (PYTHON, \"runme.py\")\nendc\n");
+    try clean(&r4);
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "vacask", "ngspice", v, &r5);
+    try reported(&r5, .@"error", "statement 'simctl' cannot be written for ngspice");
+    try reported(&r5, .@"error", "VACASK embeds a file");
 }

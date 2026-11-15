@@ -69,7 +69,6 @@ rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=p
 write save      = ".probe" signals+
 rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
-rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 
 # The model comes before the value; `R1 a b 1k rmod` does not load.
 rule  resistor  = name~"R" pos neg [r] { r=r ...params }
@@ -79,13 +78,16 @@ rule  capacitor = name~"C" pos neg master [c] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl val0 fsig freq [delay] ~")" | wave:"pat" ~"(" val1 val0 delay rise fall width bits+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
+# b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
+read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
+read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  bsource   = name~"E" pos neg { vol=v! }
 rule  bsource   = name~"G" pos neg { cur=i! }
 rule  vcvs      = name~"E" pos neg cpos cneg gain
@@ -176,6 +178,13 @@ signals
   vp    = "vp(%)"
   vr    = "vr(%)"
   vi    = "vi(%)"
+  # b4
+  idb   = "idb(%)"
+  ip    = "ip(%)"
+  im    = "im(%)"
+  ir    = "ir(%)"
+  ii    = "ii(%)"
+  expr  = "par('%')"
 end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
@@ -234,4 +243,40 @@ models
   hisimhv p  = pmos level=73
   mesfet n   = njf level=3
   mesfet p   = pjf level=3
+  # b4
+  rlgc       = w modeltype=rlgc
 end
+
+# devices and outputs (b4)
+# Each form below was loaded in HSPICE Y-2026.03.
+# The lossy and coupled line is the W element with an RLGC model; there is
+# no O (LTRA), Y (TXL) or P (CPL) line.
+rule  lossyline[rlgc] = name~"W" nodes+ { rlgcmodel=master! ...params }
+# A port for .LIN: a source in series with z0.
+rule  vsource   = name~"P" pos neg { port=portnum! z0=z0 dc=dc ac=acmag ...params } [ <wave> ]
+rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"H" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"E" pos neg form:"laplace" cpos#1 cneg#1 coeffs+ "/" den+
+rule  ctlsrc    = name~"G" pos neg form:"laplace" cpos#1 cneg#1 coeffs+ "/" den+
+rule  ctlsrc    = name~"E" pos neg form:"pole" cpos#1 cneg#1 gain ( zr ~"," zi )* "/" gain2 ( pr ~"," pi )*
+rule  ctlsrc    = name~"G" pos neg form:"pole" cpos#1 cneg#1 gain ( zr ~"," zi )* "/" gain2 ( pr ~"," pi )*
+rule  ctlsrc    = name~"G" pos neg form:"vcr" cpos#1 cneg#1 gain
+rule  ctlsrc    = name~"G" pos neg form:"vccap" cpos#1 cneg#1 gain
+# Measurements in their common forms, so that the probes and numbers in
+# them are translated; anything else is carried as text.
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"find"=find | op:"deriv"=deriv ) out { at=at! }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"when"=when | op:"deriv"=deriv out "when" ) when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ | op:"integral"=integ ) out { from=from to=to }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" expr
+rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
+# HSPICE's AM is sa*(oc + sin(2 pi fm t)) sin(2 pi fc t): no offset, and
+# oc is the modulation offset over the modulation amplitude.
+convert vsource wave=am : val0 = val0 / ampl
+convert isource wave=am : val0 = val0 / ampl
+no relay  : HSPICE has no relay element; a voltage-controlled resistor (G element, VCR) is the closest form
+no simctl : HSPICE has no control language besides its dot commands

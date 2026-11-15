@@ -104,6 +104,11 @@ no trannoise  : CDL is a netlist, not a simulation deck; it has no analyses
 no phasenoise : CDL is a netlist, not a simulation deck; it has no analyses
 no envelope   : CDL is a netlist, not a simulation deck; it has no analyses
 no qpss       : CDL is a netlist, not a simulation deck; it has no analyses
+# devices and outputs (b4)
+no lossyline : CDL has no transmission lines
+no ctlsrc  : CDL describes connectivity for LVS; it has no sources
+no relay   : CDL has no switches
+no simctl  : CDL is a netlist, not a simulation deck; it has no commands
 
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh

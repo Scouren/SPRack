@@ -222,14 +222,17 @@ _POSITIONAL = {
     "xf": ["out", "sweep", "points", "fstart", "fstop"], "dcmatch": ["out"], "trannoise": ["out"],
     "phasenoise": ["out", "sweep", "points", "fstart", "fstop"], "envelope": ["clock", "stop"],
     "qpss": ["funds", "harms"],
+    # b4: devices, sources, outputs
+    "lossyline": "*", "ctlsrc": ["pos", "neg", "form"], "relay": ["pos", "neg", "cpos", "cneg"], "simctl": ["cmd", "args"],
 }
 
 _WAVES = {
-    "pulse": ["val0", "val1", "delay", "rise", "fall", "width", "period"],
+    "pulse": ["val0", "val1", "delay", "rise", "fall", "width", "period", "count"],
     "sin": ["sinedc", "ampl", "freq", "delay", "damp", "sphase"],
     "exp": ["val0", "val1", "td1", "tau1", "td2", "tau2"],
     "sffm": ["sinedc", "ampl", "freq", "mdi", "fsig"],
-    "am": ["ampl", "sinedc", "fsig", "freq", "delay"],
+    # offset, modulation offset and amplitude, modulating and carrier frequency
+    "am": ["sinedc", "val0", "ampl", "fsig", "freq", "delay", "mphase", "sphase"],
 }
 _ALIASES = {"model": "master", "uic": "skip_dc", "label": "name"}
 

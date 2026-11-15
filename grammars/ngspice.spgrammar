@@ -69,20 +69,22 @@ rule  save      = ".save" signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
-rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 
 rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
 rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl sinedc [fsig [freq [delay]]] ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+# b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
+read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 # The HSPICE and PSpice spellings of a behavioural source, which ngspice also reads.
 rule  bsource   = name~"E" pos neg { vol=v! }
@@ -165,6 +167,17 @@ signals
   vr    = "vr(%)"
   vi    = "vi(%)"
   all   = "all"
+  # b4: currents in dB, phase, magnitude, real and imaginary part are
+  # functions of i() (there is no idb()); vm#branch is i(vm); a terminal
+  # current is a device's @-parameter; an expression goes in as written.
+  idb   = "db(i(%))"
+  ip    = "ph(i(%))"
+  im    = "mag(i(%))"
+  ir    = "real(i(%))"
+  ii    = "imag(i(%))"
+  i     = "%#branch"
+  ix    = "@%1[i%2]"
+  expr  = "%"
 end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
@@ -222,4 +235,35 @@ models
   vdmos      = vdmos
   vswitch    = sw
   cswitch    = csw
+  # b4
+  ltra       = ltra
+  txl        = txl
+  cpl        = cpl
 end
+
+# devices and outputs (b4)
+# Lossy and coupled lines. The element letter goes with the model: O for
+# LTRA, Y for TXL, P for CPL (n inputs and their reference, then n outputs
+# and theirs).
+rule  lossyline[ltra] = name~"O" nodes+ master {...params}
+rule  lossyline[txl]  = name~"Y" nodes+ master {...params}
+rule  lossyline[cpl]  = name~"P" nodes+ master {...params}
+# Controlled sources in POLY and TABLE form; checked to load in ngspice 45.
+rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"H" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"E" pos neg form:"table" expr "=" ( ~"(" xs ~"," ys ~")" )+
+rule  ctlsrc    = name~"G" pos neg form:"table" expr "=" ( ~"(" xs ~"," ys ~")" )+
+# Measurements in their common forms, so that the probes and numbers in
+# them are translated; anything else is carried as text.
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"find"=find | op:"deriv"=deriv ) out { at=at! }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"when"=when | op:"deriv"=deriv out "when" ) when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ ) out { from=from to=to }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" expr
+rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
+no relay  : ngspice has no relay element; a voltage-controlled switch (S) with a sw model is the closest form
+no simctl : ngspice's own commands live in its .control block, which is kept as it is; there is no netlist statement for them

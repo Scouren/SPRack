@@ -53,7 +53,6 @@ rule  options   = ".options" package {...params}
 rule  print     = style:".print"=print analysis {...params} signals+
 rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
-rule  measure   = ( ".measure" | ".meas" ) analysis name spec...
 
 rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
 rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
@@ -160,6 +159,13 @@ signals
   vp    = "vp(%)"
   vr    = "vr(%)"
   vi    = "vi(%)"
+  # b4
+  idb   = "idb(%)"
+  ip    = "ip(%)"
+  im    = "im(%)"
+  ir    = "ir(%)"
+  ii    = "ii(%)"
+  ix    = "i%2(%1)"
 end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
@@ -225,6 +231,8 @@ models
   # N_DEV_SW.C:1089-1092 registers only switch, iswitch and vswitch; there is no sw or csw.
   vswitch    = vswitch
   cswitch    = iswitch
+  # b4
+  ltra       = ltra
 end
 
 # SPICE gives a switch threshold and hysteresis (VT VH, IT IH); Xyce gives
@@ -232,3 +240,28 @@ end
 # IOFF), and VT/VH are ignored with a warning. on = vt + vh, off = vt - vh.
 threshold vswitch : von voff = vt vh
 threshold cswitch : ion ioff = it ih
+# devices and outputs (b4)
+# The lossy line is an O element with an LTRA model; Xyce has no TXL, CPL
+# or RLGC line model (no such device in its parser).
+rule  lossyline[ltra] = name~"O" nodes+ master {...params}
+# POLY and TABLE controlled sources; checked to load in Xyce 7.10.
+rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
+rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"H" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
+rule  ctlsrc    = name~"E" pos neg form:"table" expr "=" ( ~"(" xs ~"," ys ~")" )+
+rule  ctlsrc    = name~"G" pos neg form:"table" expr "=" ( ~"(" xs ~"," ys ~")" )+
+# Measurements in their common forms, so that the probes and numbers in
+# them are translated; anything else is carried as text.
+# Xyce gives the threshold after the signal (trig v(b)=0.2), not as val= (checked in Xyce 7.10).
+rule  measure   = ( ".measure" | ".meas" ) analysis name op:"trig"=trig trig ~"=" trigval { td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ ~"=" targval { td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+read  measure   = ( ".measure" | ".meas" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+rule  measure   = ( ".measure" | ".meas" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".measure" | ".meas" ) analysis name ( op:"find"=find | op:"deriv"=deriv ) out { at=at! }
+rule  measure   = ( ".measure" | ".meas" ) analysis name ( op:"when"=when | op:"deriv"=deriv out "when" ) when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".measure" | ".meas" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ ) out { from=from to=to }
+rule  measure   = ( ".measure" | ".meas" ) analysis name op:"param"=param ~"=" expr
+rule  measure   = ( ".measure" | ".meas" ) analysis name spec...
+caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
+no relay  : Xyce has no relay element; a voltage-controlled switch (S) with a vswitch model is the closest form
+no simctl : Xyce has no control language besides its dot commands
