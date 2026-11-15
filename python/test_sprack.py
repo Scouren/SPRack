@@ -222,7 +222,21 @@ def test_library_translated_on_the_fly():
             import concurrent.futures as cf, multiprocessing as mp
             with cf.ProcessPoolExecutor(4, mp_context=mp.get_context("fork")) as pool:
                 outs = list(pool.map(_netlist_xyce, [c.statements] * 8))
-            assert len(set(outs)) == 1 and os.listdir(libs) == [key], (set(outs), os.listdir(libs))
+            assert len(set(outs)) == 1 and outs[0] == _netlist_xyce(c.statements), set(outs)
+            # The entry is whole and valid, and the call just made swept what
+            # the parallel writers (now gone) left: no .old-* and no temp dirs.
+            assert os.listdir(libs) == [key], os.listdir(libs)
+            assert sprack._cached(os.path.join(libs, key)) is not None
+            # Leftovers of a dead writer, and old ones whose pid is alive
+            # again, are swept; a live writer's recent temp dir is kept.
+            dead = 2 ** 22 + 12345  # above pid_max's default, so never alive
+            for n in (f"{key}.old-{dead}-ab", f".{key}-{dead}-cd", f".{key}-{os.getpid()}-ef", f".{key}-{os.getpid()}-old"):
+                os.makedirs(os.path.join(libs, n, "tree"))
+            hour_ago = time.time() - 2 * sprack._STALE_AGE
+            os.utime(os.path.join(libs, f".{key}-{os.getpid()}-old"), (hour_ago, hour_ago))
+            _netlist_xyce(c.statements)
+            assert sorted(os.listdir(libs)) == sorted([key, f".{key}-{os.getpid()}-ef"]), os.listdir(libs)
+            shutil.rmtree(os.path.join(libs, f".{key}-{os.getpid()}-ef"))
             # A library that is not there is an error naming it.
             c.code(".include nowhere.inc\n")
             raises(sprack.Unsupported, lambda: c.netlist("xyce"), "cannot open", "nowhere.inc")

@@ -29,6 +29,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from typing import Any, Iterable, NamedTuple
 
 from . import _core
@@ -593,27 +594,92 @@ def _errors(log: str) -> Report:
     return Report(e for e in Report._from_log(log) if e.severity == "error")
 
 
+def _rmtree(path: str, tries: int = 3) -> bool:
+    """Remove a directory tree, retrying a few times (a file can be busy
+    for a moment under load). False if it is still there: the next sweep
+    tries again."""
+    for i in range(tries):
+        shutil.rmtree(path, ignore_errors=True)
+        if not os.path.lexists(path):
+            return True
+        time.sleep(0.05 * (i + 1))
+    return False
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # exists, owned by someone else
+    return True
+
+
+#: A leftover older than this is removed even if its pid is alive again:
+#: pids are reused, and a translation takes seconds, not an hour.
+_STALE_AGE = 3600.0
+
+
+def _sweep(base: str, name: str) -> None:
+    """Remove what earlier writers of cache entry `name` left behind: the
+    copies they replaced (`name.old-<pid>-*`) and their unfinished temporary
+    directories (`.name-<pid>-*`). A leftover is removed when the process
+    that made it is gone, or when it is older than `_STALE_AGE`.
+    """
+    # ponytail: pid liveness is checked on this host only; a cache shared
+    # over NFS by several hosts relies on the age threshold alone.
+    try:
+        entries = os.listdir(base)
+    except OSError:
+        return
+    for n in entries:
+        if n.startswith(f"{name}.old-"):
+            tag = n[len(name) + 5:]
+        elif n.startswith(f".{name}-"):
+            tag = n[len(name) + 2:]
+        else:
+            continue
+        path = os.path.join(base, n)
+        try:
+            age = time.time() - os.lstat(path).st_mtime
+            pid = int(tag.split("-", 1)[0])
+        except (OSError, ValueError):
+            continue
+        if age > _STALE_AGE or not _pid_alive(pid):
+            _rmtree(path)
+
+
+def _cached(final: str) -> dict | None:
+    """The metadata of a cache entry that is complete and still valid."""
+    try:
+        with open(os.path.join(final, "sprack.json")) as f:
+            meta = json.load(f)
+        return meta if _fresh(meta["files"]) else None
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
     """`src` and every file it includes, translated from `frm` to `to` into
     the cache; returns the translated `src` and what could not be said.
 
     Keyed by the source path, the target grammar and the core; valid while
     every file read is unchanged. A copy is built in a temporary directory
-    and renamed into place, so parallel writers never see half of one.
+    and renamed into place, so parallel writers never see half of one; a
+    stale copy is renamed aside before it is replaced, and what a writer
+    leaves behind is swept by the next one (`_sweep`).
     """
     key = hashlib.sha1(f"{src}\0{frm}\0{_dialect_tag(to)}\0{_core.info()}".encode()).hexdigest()[:16]
     base = os.path.join(_cache_root(), "libs")
-    final = os.path.join(base, f"{os.path.basename(src)}-{key}")
-    marker = os.path.join(final, "sprack.json")
-    try:
-        with open(marker) as f:
-            meta = json.load(f)
-        if _fresh(meta["files"]):
-            return os.path.join(final, "tree", meta["top"]), _errors(meta["log"])
-    except (OSError, ValueError, KeyError):
-        pass
+    name = f"{os.path.basename(src)}-{key}"
+    final = os.path.join(base, name)
+    _sweep(base, name)
+    meta = _cached(final)
+    if meta is not None:
+        return os.path.join(final, "tree", meta["top"]), _errors(meta["log"])
     os.makedirs(base, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix=f".{os.path.basename(final)}-", dir=base)
+    tmp: str | None = tempfile.mkdtemp(prefix=f".{name}-{os.getpid()}-", dir=base)
     try:
         tree = os.path.join(tmp, "tree")
         defines = "\n".join(f"{k}={v}" for k, v in os.environ.items() if "\n" not in v)
@@ -632,18 +698,26 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, Report]:
             json.dump(meta, f)
         try:
             os.rename(tmp, final)
+            tmp = None
         except OSError:
-            # A stale copy, or another writer got there first: replace the
-            # stale one; a fresh one from the other writer is as good as ours.
-            old = f"{final}.old-{os.getpid()}"
-            try:
-                os.rename(final, old)
-                os.rename(tmp, final)
-                shutil.rmtree(old, ignore_errors=True)
-            except OSError:
-                pass
+            # The entry exists. Another writer's valid copy is as good as
+            # ours; a stale one is renamed aside and replaced.
+            if _cached(final) is None:
+                old = os.path.join(base, f"{name}.old-{os.getpid()}-{os.urandom(4).hex()}")
+                try:
+                    os.rename(final, old)
+                except OSError:
+                    old = None  # gone already: another writer is replacing it
+                try:
+                    os.rename(tmp, final)
+                    tmp = None
+                except OSError:
+                    pass  # another writer got in between; theirs is as good
+                if old is not None:
+                    _rmtree(old)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        if tmp is not None:
+            _rmtree(tmp)
     return os.path.join(final, "tree", meta["top"]), _errors(log)
 
 
