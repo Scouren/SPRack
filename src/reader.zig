@@ -27,7 +27,7 @@ const Matcher = struct {
     g: *const Grammar,
     arena: Allocator,
     win: *lexer.Window,
-    lines: []const lexer.Line,
+    lines: *lexer.Lines,
     declared: *const Declared,
     kind: Kind = .@"opaque",
     /// The capture in progress is followed by a literal `=`, so a word in
@@ -479,7 +479,7 @@ const Matcher = struct {
                 return !node.plus and try self.m(rest, ti, k);
             },
             .rest => {
-                const line = self.lines[t.lno].text;
+                const line = self.lines.get(t.lno).text;
                 var text: []const u8 = "";
                 if (t.tag != .nl) {
                     // From the end of the token before, so that an opening
@@ -939,6 +939,15 @@ const Spelling = struct {
     /// Built-in parameter names (`w`, `l`, `tc1`) are not in it and are
     /// written in lower case, which is what a case-sensitive target expects.
     params: Map = .empty,
+    /// Where names that outlive the line they were read from are copied,
+    /// unless they are in `src`, the netlist's own text.
+    perm: Allocator,
+    src: []const u8,
+
+    /// `s` as long as the table lives.
+    fn keep(sp: *const Spelling, s: []const u8) Allocator.Error![]const u8 {
+        return ir.keepText(sp.perm, sp.src, s);
+    }
 
     fn lowered(arena: Allocator, s: []const u8) Allocator.Error![]const u8 {
         for (s) |c| if (std.ascii.isUpper(c)) return std.ascii.allocLowerString(arena, s);
@@ -952,7 +961,7 @@ const Spelling = struct {
     /// values of its name, node, model and reference slots, the nodes of
     /// its signals and of `.ic` keys. Keywords and parameter keys are not
     /// names, so `DC` on a source does not respell a node `dc`.
-    fn names(sp: *Spelling, arena: Allocator, st: *const ir.Stmt) Allocator.Error!void {
+    fn names(sp: *Spelling, st: *const ir.Stmt) Allocator.Error!void {
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             const v = st.at(i);
             const one = [1]Value{v};
@@ -960,12 +969,12 @@ const Spelling = struct {
                 .atom => &one,
                 .list => |l| l,
                 .params => |ps| {
-                    if (st.kind == .ic or st.kind == .nodeset or st.kind == .instance) for (ps) |p| try sp.learn(p.key, arena);
-                    for (ps) |p| try sp.exprNames(arena, p.val);
+                    if (st.kind == .ic or st.kind == .nodeset or st.kind == .instance) for (ps) |p| try sp.learn(p.key);
+                    for (ps) |p| try sp.exprNames(p.val);
                     continue;
                 },
                 .expr => {
-                    try sp.exprNames(arena, v);
+                    try sp.exprNames(v);
                     continue;
                 },
                 else => continue,
@@ -979,12 +988,12 @@ const Spelling = struct {
             for (items) |it| {
                 if (it != .atom) continue;
                 if (sl.ty != .signal) {
-                    try sp.learn(it.atom, null);
+                    try sp.learn(it.atom);
                     continue;
                 }
                 var args: [3][]const u8 = undefined;
                 _, const n = signalParts(it.atom, &args) orelse continue;
-                for (args[0..n]) |a| try sp.learn(a, arena);
+                for (args[0..n]) |a| try sp.learn(a);
             }
         }
     }
@@ -992,7 +1001,7 @@ const Spelling = struct {
     /// The names an expression refers to (`{VCM}`, `rload*2`): a parameter
     /// defined in another file, or in another block of a Python deck, keeps
     /// the spelling it is written with here. Calls are functions, not names.
-    fn exprNames(sp: *Spelling, arena: Allocator, v: Value) Allocator.Error!void {
+    fn exprNames(sp: *Spelling, v: Value) Allocator.Error!void {
         const items: []const Value = switch (v) {
             .expr => &.{v},
             .list => |l| l,
@@ -1019,21 +1028,19 @@ const Spelling = struct {
                 while (k < text.len and (text[k] == ' ' or text[k] == '\t')) k += 1;
                 const call = k < text.len and text[k] == '(';
                 // A number (`1.5k`, `2e-3`) starts with a digit or a point.
-                if (!call and (std.ascii.isAlphabetic(c) or c == '_')) try sp.learn(text[i..j], arena);
+                if (!call and (std.ascii.isAlphabetic(c) or c == '_')) try sp.learn(text[i..j]);
                 i = j;
             }
         }
     }
 
-    /// `copy`: the name was built for this statement, not sliced from the
-    /// source text (which outlives the table), so the table keeps a copy.
-    fn learn(sp: *Spelling, name: []const u8, copy: ?Allocator) Allocator.Error!void {
+    /// A name built for its statement, or read from a line that goes away,
+    /// is copied: the table outlives both.
+    fn learn(sp: *Spelling, name: []const u8) Allocator.Error!void {
         for (name) |c| {
             if (!std.ascii.isUpper(c)) continue;
             const gop = try sp.mixed.getOrPut(ir.big, name);
-            if (!gop.found_existing) if (copy) |a| {
-                gop.key_ptr.* = try a.dupe(u8, name);
-            };
+            if (!gop.found_existing) gop.key_ptr.* = try sp.keep(name);
             return;
         }
     }
@@ -1090,8 +1097,11 @@ const Spelling = struct {
                     for (out) |*p| {
                         if (defines_params) {
                             // A parameter is spelled the way its first definition spells it.
-                            const gop = try sp.params.getOrPut(arena, try lowered(arena, p.key));
-                            if (gop.found_existing) p.key = gop.value_ptr.* else gop.value_ptr.* = p.key;
+                            const gop = try sp.params.getOrPut(sp.perm, try lowered(arena, p.key));
+                            if (gop.found_existing) p.key = gop.value_ptr.* else {
+                                gop.key_ptr.* = try sp.keep(gop.key_ptr.*);
+                                gop.value_ptr.* = try sp.keep(p.key);
+                            }
                         } else if (node_keys) {
                             p.key = sp.spell(p.key);
                         } else if (st.kind == .instance) {
@@ -1137,8 +1147,8 @@ fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8, is_ca
 const Reader = struct {
     g: *const Grammar,
     arena: Allocator,
-    spell: Spelling = .{},
-    lines: []const lexer.Line,
+    spell: Spelling,
+    lines: *lexer.Lines,
     report: *ir.Report,
     m: Matcher,
     /// Index into the matcher's window.
@@ -1182,7 +1192,7 @@ const Reader = struct {
     /// as the netlist from `Grow` would double it for a moment.
     fn top(self: *Reader) Allocator.Error![]ir.Stmt {
         var list: Grow = .{ .gpa = self.arena };
-        try list.items.ensureTotalCapacityPrecise(self.arena, self.lines.len);
+        try list.items.ensureTotalCapacityPrecise(self.arena, std.mem.count(u8, self.lines.src, "\n") + 1);
         return self.bodyInto(null, null, &list);
     }
 
@@ -1200,17 +1210,31 @@ const Reader = struct {
         }
     };
 
-    fn bodyInto(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt, out: *Grow) Allocator.Error![]ir.Stmt {
-        outer: while (true) {
+    fn bodyInto(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt, out: anytype) Allocator.Error![]ir.Stmt {
+        while (true) switch (try self.step(block, owner, out)) {
+            .more => {},
+            .closed => return out.toOwnedSlice(self.arena),
+            .eof => break,
+        };
+        if (block) |b| self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
+        return out.toOwnedSlice(self.arena);
+    }
+
+    const Step = enum { more, closed, eof };
+
+    /// Read what starts at the next line: a statement (a block with its
+    /// whole body), the comments in front of it, or the end of `block`.
+    fn step(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt, out: anytype) Allocator.Error!Step {
+        {
             self.m.win.drop(self.ti);
             self.ti = 0;
-            if (!try self.m.win.has(0)) break;
+            if (!try self.m.win.has(0)) return .eof;
             const ti = self.ti;
             const first = self.toks()[ti];
-            const line = self.lines[first.lno];
+            const line = self.lines.get(first.lno);
             if (first.tag == .nl) {
                 self.ti += 1;
-                continue;
+                return .more;
             }
             if (first.tag == .comment or first.tag == .blank) {
                 try out.append(self.arena, .{
@@ -1219,18 +1243,18 @@ const Reader = struct {
                     .line = line.no,
                 });
                 self.ti += 2;
-                continue;
+                return .more;
             }
             if (try self.isBoilerplate(line.text)) {
                 self.skipLine();
-                continue;
+                return .more;
             }
             if (first.tag == .word) {
                 if (self.toks()[ti + 1].tag == .nl) {
                     for (self.g.wraps) |w| {
                         if (std.mem.eql(u8, first.text, w.open) or std.mem.eql(u8, first.text, w.close)) {
                             self.skipLine();
-                            continue :outer;
+                            return .more;
                         }
                     }
                 }
@@ -1240,14 +1264,14 @@ const Reader = struct {
                     const tail = self.toks()[self.m.end].text;
                     if (tail.len > 0) try out.append(self.arena, .{ .kind = .comment, .raw = tail, .line = line.no });
                     self.ti = self.m.end + 1;
-                    return out.toOwnedSlice(self.arena);
+                    return .closed;
                 }
                 for (b.inner) |pat| {
                     if (try self.m.run(b.kind, pat, ti)) {
                         try self.m.applyTo(owner.?);
                         if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, owner.?);
                         self.ti = self.m.end + 1;
-                        continue :outer;
+                        return .more;
                     }
                 }
             }
@@ -1261,7 +1285,7 @@ const Reader = struct {
                 self.ti = self.m.end + 1;
                 st.body = try self.body(b, &st);
                 try out.append(self.arena, st);
-                continue :outer;
+                return .more;
             }
             for (self.g.rules) |*rule| {
                 if (rule.dir == .write or self.g.isEnding(rule)) continue;
@@ -1282,17 +1306,17 @@ const Reader = struct {
                 self.flagOddValues(&st);
                 // Comment lines met inside a multi-line statement go before it.
                 for (self.toks()[ti..self.m.end]) |ct| {
-                    if (ct.tag == .comment) try out.append(self.arena, .{ .kind = .comment, .raw = ct.text, .line = self.lines[ct.lno].no });
+                    if (ct.tag == .comment) try out.append(self.arena, .{ .kind = .comment, .raw = ct.text, .line = self.lines.get(ct.lno).no });
                 }
                 self.ti = self.m.end + 1;
                 try out.append(self.arena, st);
-                continue :outer;
+                return .more;
             }
             if (try self.spreadAt(ti, line.no)) |st| {
                 try out.append(self.arena, st);
-                continue :outer;
+                return .more;
             }
-            if (try self.splitAt(ti, line.no, out)) continue :outer;
+            if (try self.splitAt(ti, line.no, out)) return .more;
             if (first.tag == .word) {
                 for (self.g.raws) |rb| {
                     if (!std.mem.eql(u8, first.text, rb.open)) continue;
@@ -1300,7 +1324,7 @@ const Reader = struct {
                     while (try self.m.win.has(self.ti)) {
                         const t = self.toks()[self.ti];
                         if (raw.items.len > 0) try raw.append(self.arena, '\n');
-                        const rl = self.lines[t.lno];
+                        const rl = self.lines.get(t.lno);
                         try raw.appendSlice(self.arena, rl.text);
                         if (rl.tail.len > 0 and self.g.lex.tail_comments.len > 0) {
                             try raw.print(self.arena, " {s} {s}", .{ self.g.lex.tail_comments[0], rl.tail });
@@ -1309,14 +1333,13 @@ const Reader = struct {
                         if (t.tag == .word and std.mem.eql(u8, t.text, rb.close)) break;
                     }
                     try out.append(self.arena, .{ .kind = .@"opaque", .raw = try raw.toOwnedSlice(self.arena), .line = line.no });
-                    continue :outer;
+                    return .more;
                 }
             }
             try out.append(self.arena, .{ .kind = .@"opaque", .raw = line.text, .line = line.no, .tail = line.tail });
             self.skipLine();
+            return .more;
         }
-        if (block) |b| self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
-        return out.toOwnedSlice(self.arena);
     }
 
     /// A line whose keyword starts rules of two kinds may hold statements
@@ -1570,19 +1593,22 @@ const Reader = struct {
                 }
             }
             if (found) |*st| {
-                if (caps) try self.spell.names(self.arena, st);
+                if (caps) try self.spell.names(st);
                 if (st.kind == .model or st.kind == .param or st.kind == .subckt) {
-                    if (fold_case) try self.spell.statement(self.arena, st);
+                    if (fold_case) try self.spell.statement(scratch.allocator(), st);
                     const n = st.get("name");
                     if (st.kind != .param and n == .atom) {
-                        try declared.put(self.arena, if (fold_case) try Spelling.lowered(self.arena, n.atom) else n.atom, {});
+                        const name = if (fold_case) try Spelling.lowered(scratch.allocator(), n.atom) else n.atom;
+                        const gop = try declared.getOrPut(self.spell.perm, name);
+                        if (!gop.found_existing) gop.key_ptr.* = try self.spell.keep(name);
                     }
                 }
             }
             while (self.toks()[ti].tag != .nl) ti += 1;
             ti += 1;
+            // Every name kept from the lines before is a copy.
+            self.lines.recycle();
         }
-        win.rewind();
     }
 };
 
@@ -2118,41 +2144,84 @@ pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Re
     return readPlain(g, arena, src, report, opts);
 }
 
+/// A netlist being read: its lines, what the first pass learnt, and the
+/// reader for the passes after it. Made in place, as the reader points
+/// into it.
+pub const Source = struct {
+    cfg: grammar.LexCfg,
+    lines: lexer.Lines,
+    win: lexer.Window,
+    declared: Declared = .empty,
+    r: Reader,
+    title: []const u8 = "",
+
+    /// Pass one: what the netlist declares and how it spells its names.
+    /// Tables go to `perm`; nothing the pass reads is kept unless copied.
+    pub fn open(g: *const Grammar, perm: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!*Source {
+        const s = try perm.create(Source);
+        s.cfg = g.lex;
+        if (opts.library) s.cfg.title = false;
+        s.lines = .init(&s.cfg, src, null);
+        s.win = .init(&s.cfg, &s.lines);
+        s.declared = .empty;
+        if (opts.env) |e| {
+            var it = e.declared.keyIterator();
+            while (it.next()) |k| try s.declared.put(perm, k.*, {});
+        }
+        var boiler: std.ArrayList([]const u8) = .empty;
+        for (g.preamble) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
+        for (g.header) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
+        for (g.needs) |n| {
+            for (n.lines) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
+        }
+        var folded: std.ArrayList([]const u8) = .empty;
+        for (g.header_folded) |l| try folded.append(perm, try normalize(perm, g.lex.case_sensitive, l));
+        s.r = .{
+            .g = g,
+            .arena = perm,
+            .spell = .{ .perm = perm, .src = src },
+            .lines = &s.lines,
+            .report = report,
+            .boiler = boiler.items,
+            .folded_boiler = folded.items,
+            .m = .{ .g = g, .arena = perm, .win = &s.win, .lines = &s.lines, .declared = &s.declared },
+        };
+        // The spelling table is filled in the first pass: nothing that pass
+        // decides depends on it.
+        try s.r.collectDeclared(&s.declared);
+        s.title = s.lines.title;
+        return s;
+    }
+
+    pub fn deinit(s: *Source) void {
+        s.r.spell.deinit();
+        s.win.deinit();
+        s.lines.deinit();
+    }
+
+    /// Back to the first line for another pass, making statements in
+    /// `arena`. `keep`: as for `lexer.Lines`.
+    pub fn rewind(s: *Source, arena: Allocator, keep: ?Allocator) void {
+        s.win.rewind(keep);
+        s.r.ti = 0;
+        s.r.folded = false;
+        s.useArena(arena);
+    }
+
+    pub fn useArena(s: *Source, arena: Allocator) void {
+        s.r.arena = arena;
+        s.r.m.arena = arena;
+        s.r.m.log = .empty;
+    }
+};
+
 fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!ir.Netlist {
     const env = opts.env;
-    var cfg = g.lex;
-    if (opts.library) cfg.title = false;
-    var lx = try lexer.lex(arena, &cfg, src);
-    defer lx.deinit();
-    var win: lexer.Window = .init(&cfg, lx.lines, arena);
-    defer win.deinit();
-    var declared: Declared = .empty;
-    if (env) |e| {
-        var it = e.declared.keyIterator();
-        while (it.next()) |k| try declared.put(arena, k.*, {});
-    }
-    var boiler: std.ArrayList([]const u8) = .empty;
-    for (g.preamble) |l| try boiler.append(arena, try normalize(arena, g.lex.case_sensitive, l));
-    for (g.header) |l| try boiler.append(arena, try normalize(arena, g.lex.case_sensitive, l));
-    for (g.needs) |n| {
-        for (n.lines) |l| try boiler.append(arena, try normalize(arena, g.lex.case_sensitive, l));
-    }
-    var folded: std.ArrayList([]const u8) = .empty;
-    for (g.header_folded) |l| try folded.append(arena, try normalize(arena, g.lex.case_sensitive, l));
-    var r: Reader = .{
-        .g = g,
-        .arena = arena,
-        .lines = lx.lines,
-        .report = report,
-        .boiler = boiler.items,
-        .folded_boiler = folded.items,
-        .m = .{ .g = g, .arena = arena, .win = &win, .lines = lx.lines, .declared = &declared },
-    };
-    defer r.spell.deinit();
-    // The spelling table is filled in the first pass: nothing that pass
-    // decides depends on it.
-    try r.collectDeclared(&declared);
-    var nl: ir.Netlist = .{ .title = lx.title, .dialect = g.name, .library = opts.library, .stmts = try r.top() };
+    const s = try Source.open(g, arena, src, report, opts);
+    defer s.deinit();
+    s.rewind(arena, arena);
+    const r = &s.r;
+    var nl: ir.Netlist = .{ .title = s.title, .dialect = g.name, .library = opts.library, .stmts = try r.top() };
     nl.folds_case = r.folded;
     try r.finish(nl.stmts);
     nl.stmts = try normalizeLists(g, arena, nl.stmts, report);

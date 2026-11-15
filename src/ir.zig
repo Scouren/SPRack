@@ -189,6 +189,15 @@ pub const Stmt = struct {
 /// what they take.
 pub var big: Allocator = std.heap.page_allocator;
 
+/// `s` copied into `perm`, unless it is part of `src`, which outlives it.
+/// A name read from a line that goes away is kept so.
+pub fn keepText(perm: Allocator, src: []const u8, s: []const u8) Allocator.Error![]const u8 {
+    const p = @intFromPtr(s.ptr);
+    const lo = @intFromPtr(src.ptr);
+    if (s.len == 0 or (p >= lo and p + s.len <= lo + src.len)) return s;
+    return perm.dupe(u8, s);
+}
+
 /// Hashes and compares names as an ASCII case-folding dialect reads them.
 pub const Caseless = struct {
     pub fn hash(_: Caseless, s: []const u8) u64 {
@@ -485,13 +494,19 @@ pub const Code = enum {
     ambiguous,
 };
 
-pub const Diag = struct { sev: Severity, code: Code, line: u32, msg: []const u8 };
+/// `phase`: the pass that made the entry (`Report.phase`).
+pub const Diag = struct { sev: Severity, code: Code, line: u32, msg: []const u8, phase: u8 = 0 };
 
 /// Everything a translation did that was not exact. Nothing is dropped
 /// without an entry here.
 pub const Report = struct {
     arena: Allocator,
     items: std.ArrayList(Diag) = .empty,
+    /// The pass adding entries now. A netlist read and written whole runs
+    /// each pass over every statement in turn, so its entries come out in
+    /// pass order; a stream runs every pass on one statement at a time and
+    /// sorts by this at the end (`sortPhases`) to give the same order.
+    phase: u8 = 0,
 
     pub fn init(arena: Allocator) Report {
         return .{ .arena = arena };
@@ -499,7 +514,16 @@ pub const Report = struct {
 
     pub fn add(r: *Report, sev: Severity, code: Code, line: u32, comptime fmt: []const u8, args: anytype) void {
         const msg = r.arena.print(fmt, args) catch return;
-        r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg }) catch {};
+        r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase }) catch {};
+    }
+
+    /// Entries from `from` on in pass order, each pass's in the order made.
+    pub fn sortPhases(r: *Report, from: usize) void {
+        std.sort.block(Diag, r.items.items[from..], {}, struct {
+            fn lt(_: void, a: Diag, b: Diag) bool {
+                return a.phase < b.phase;
+            }
+        }.lt);
     }
 
     pub fn countCode(r: *const Report, code: Code) usize {

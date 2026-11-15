@@ -17,7 +17,7 @@ pub const Tok = struct {
     text: []const u8,
     /// Exact source spelling, pointing into the logical line.
     raw: []const u8,
-    /// Index into `Lexed.lines`.
+    /// The number of its line in `Lines`.
     lno: u32,
     f: Flags = .{},
     /// How many `)` follow this token. Only counted where parentheses are
@@ -38,22 +38,9 @@ pub const Tok = struct {
 pub const LineKind = enum { code, comment, blank };
 
 /// A logical line: a statement with its continuation lines joined, or one
-/// comment line, or a run of blank lines.
-pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, tail: []const u8 = "" };
-
-/// A netlist cut into logical lines. `lines` stops before the end marker.
-pub const Lexed = struct {
-    title: []const u8,
-    lines: []Line,
-    all_lines: []Line = &.{},
-
-    /// The line list lives outside the arena and is freed when reading is done.
-    pub fn deinit(lx: *Lexed) void {
-        ir.big.free(lx.all_lines);
-        lx.lines = &.{};
-        lx.all_lines = &.{};
-    }
-};
+/// comment line, or a run of blank lines. `gen`: which of `Lines.gens`
+/// holds the text made for it.
+pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, gen: u1 = 0, tail: []const u8 = "" };
 
 fn startsWithAny(s: []const u8, markers: []const []const u8) ?usize {
     for (markers) |m| if (m.len > 0 and std.mem.startsWith(u8, s, m)) return m.len;
@@ -105,170 +92,325 @@ fn commentText(s: []const u8) []const u8 {
     const t = std.mem.trimEnd(u8, s, " \t");
     return if (t.len > 0 and t[0] == ' ') t[1..] else t;
 }
-
-const Joiner = struct {
-    arena: Allocator,
-    lines: std.ArrayList(Line) = .empty,
-    /// The open statement while it is a single physical line: a slice of
-    /// the source, no copy. `cur` takes over when a continuation arrives.
+/// The logical lines of a netlist, made as they are asked for: physical
+/// lines are joined a few at a time, never all at once, and a reader that
+/// is done with a line `release`s it. A line is numbered from 0 in the
+/// order made; it stops before the end marker.
+///
+/// Text made for a line (joined continuations, comments cut from a line)
+/// goes to `keep` when one is given, which outlives the lines; else to one
+/// of two arenas in turn, which `recycle` resets once every line whose text
+/// it holds is released.
+pub const Lines = struct {
+    cfg: *const LexCfg,
+    src: []const u8,
+    title: []const u8 = "",
+    keep: ?Allocator,
+    gens: [2]std.heap.ArenaAllocator,
+    /// The arena text goes to now, and for each arena the number one past
+    /// the last line whose text it may hold.
+    gen: u1 = 0,
+    hi: [2]u32 = .{ 0, 0 },
+    /// The lines made and not released: `buf[i]` is line `base + i`.
+    buf: std.ArrayList(Line) = .empty,
+    head: usize = 0,
+    base: u32 = 0,
+    /// Every physical line has been read, or the end marker met.
+    done: bool = false,
+    last_kind: ?LineKind = null,
+    // What the joiner carries from one physical line to the next.
+    it: std.mem.SplitIterator(u8, .scalar),
+    no: u32 = 0,
+    first_phys: bool = true,
+    in_block: bool = false,
+    trail: bool = false,
+    open_delim: []const u8 = "",
+    open: bool = false,
     first: []const u8 = "",
     first_tail: []const u8 = "",
     cur: std.ArrayList(u8) = .empty,
     tail: std.ArrayList(u8) = .empty,
+    cur_no: u32 = 0,
     /// Comments met while a statement may still be continued. They are
     /// placed after it once it is known to have ended.
     pending: std.ArrayList(Line) = .empty,
-    cur_no: u32 = 0,
-    open: bool = false,
+    /// `first` points into text made for it, not into the source.
+    first_made: bool = false,
+    want_switch: bool = false,
 
-    fn note(j: *Joiner, kind: LineKind, text: []const u8, no: u32) Allocator.Error!void {
-        const list = if (j.open) &j.pending else &j.lines;
+    pub fn init(cfg: *const LexCfg, src: []const u8, keep: ?Allocator) Lines {
+        return .{ .cfg = cfg, .src = src, .keep = keep, .gens = .{ .init(ir.big), .init(ir.big) }, .it = std.mem.splitScalar(u8, src, '\n') };
+    }
+
+    pub fn deinit(l: *Lines) void {
+        l.buf.deinit(ir.big);
+        l.pending.deinit(ir.big);
+        for (&l.gens) |*g| g.deinit();
+    }
+
+    /// Back to the first line, for another pass. Text made so far stays
+    /// where it is until the arenas are recycled.
+    /// Nothing made from the lines of the pass before may be used after.
+    pub fn restart(l: *Lines, keep: ?Allocator) void {
+        var next = init(l.cfg, l.src, keep);
+        next.gens = l.gens;
+        for (&next.gens) |*g| _ = g.reset(.retain_capacity);
+        next.buf = l.buf;
+        next.buf.clearRetainingCapacity();
+        next.pending = l.pending;
+        next.pending.clearRetainingCapacity();
+        l.* = next;
+    }
+
+    /// The allocator for text that lives as long as line `i`.
+    pub fn textFor(l: *Lines, i: u32) Allocator {
+        if (l.keep) |k| return k;
+        return l.gens[l.get(i).gen].allocator();
+    }
+
+    fn text(l: *Lines) Allocator {
+        return l.keep orelse l.gens[l.gen].allocator();
+    }
+
+    pub fn get(l: *const Lines, i: u32) Line {
+        return l.buf.items[l.head + (i - l.base)];
+    }
+
+    /// Lines made so far, released or not.
+    fn made(l: *const Lines) u32 {
+        return l.base + @as(u32, @intCast(l.buf.items.len - l.head));
+    }
+
+    /// Is there a line `i`? Joins physical lines until there is, or there
+    /// are no more. A trailing blank line is held back until something
+    /// follows it: a file's last blank lines are not lines.
+    pub fn has(l: *Lines, i: u32) Allocator.Error!bool {
+        while (true) {
+            const n = l.made();
+            const held: u32 = @intFromBool(!l.done and n > l.base and l.get(n - 1).kind == .blank);
+            if (i < n - held) return true;
+            if (l.done) return false;
+            try l.pump();
+        }
+    }
+
+    /// Forget the lines before `i`.
+    pub fn release(l: *Lines, i: u32) void {
+        if (i <= l.base) return;
+        const n = @min(i - l.base, l.buf.items.len - l.head);
+        l.head += n;
+        l.base += @intCast(n);
+        if (l.head == l.buf.items.len) {
+            l.buf.clearRetainingCapacity();
+            l.head = 0;
+        } else if (l.head > 1024 and l.head * 2 > l.buf.items.len) {
+            const left = l.buf.items.len - l.head;
+            std.mem.copyForwards(Line, l.buf.items[0..left], l.buf.items[l.head..]);
+            l.buf.shrinkRetainingCapacity(left);
+            l.head = 0;
+        }
+    }
+
+    /// Free the text of released lines: call when nothing made from them
+    /// (tokens, values) is used any more.
+    pub fn recycle(l: *Lines) void {
+        if (l.keep != null) return;
+        const other: u1 = 1 - l.gen;
+        if (l.hi[other] <= l.base) {
+            _ = l.gens[other].reset(.retain_capacity);
+            l.hi[other] = 0;
+            // Text from here on goes to the empty arena, so that this one
+            // can be reset in turn.
+            if (l.gens[l.gen].queryCapacity() > 1 << 20) l.want_switch = true;
+        }
+    }
+
+    fn emit(l: *Lines, line: Line) Allocator.Error!void {
+        var ln = line;
+        ln.gen = l.gen;
+        try l.buf.append(ir.big, ln);
+        l.hi[l.gen] = l.made();
+        l.last_kind = ln.kind;
+    }
+
+    fn note(l: *Lines, kind: LineKind, t: []const u8, no: u32) Allocator.Error!void {
         if (kind == .blank) {
             // Runs of blank lines collapse, and none leads the file.
-            const prev: ?Line = if (list.items.len > 0) list.items[list.items.len - 1] else if (j.open or j.lines.items.len == 0) null else j.lines.items[j.lines.items.len - 1];
-            if (!j.open and list.items.len == 0) return;
-            if (prev) |q| if (q.kind == .blank) return;
+            if (l.open) {
+                if (l.pending.items.len > 0 and l.pending.items[l.pending.items.len - 1].kind == .blank) return;
+            } else {
+                if (l.last_kind == null or l.last_kind.? == .blank) return;
+            }
         }
-        try list.append(if (j.open) j.arena else ir.big, .{ .text = text, .no = no, .kind = kind });
+        const ln: Line = .{ .text = t, .no = no, .kind = kind };
+        if (l.open) try l.pending.append(ir.big, ln) else try l.emit(ln);
     }
 
-    fn flush(j: *Joiner) Allocator.Error!void {
-        if (j.open) {
-            const joined = j.cur.items.len > 0;
-            try j.lines.append(ir.big, .{
-                .text = if (joined) try j.cur.toOwnedSlice(j.arena) else j.first,
-                .no = j.cur_no,
-                .tail = if (j.tail.items.len > 0) try j.tail.toOwnedSlice(j.arena) else j.first_tail,
-            });
-            j.open = false;
+    fn flush(l: *Lines) Allocator.Error!void {
+        if (l.open) {
+            l.first_made = false;
+            const joined = l.cur.items.len > 0;
+            const ln: Line = .{
+                .text = if (joined) try l.cur.toOwnedSlice(l.text()) else l.first,
+                .no = l.cur_no,
+                .tail = if (l.tail.items.len > 0) try l.tail.toOwnedSlice(l.text()) else l.first_tail,
+            };
+            l.open = false;
+            if (try l.isEnd(ln)) {
+                l.done = true;
+                return;
+            }
+            try l.emit(ln);
         }
-        try j.lines.appendSlice(ir.big, j.pending.items);
-        j.pending.clearRetainingCapacity();
+        for (l.pending.items) |p| try l.emit(p);
+        l.pending.clearRetainingCapacity();
     }
-};
 
-fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]const u8) Allocator.Error![]Line {
-    var j: Joiner = .{ .arena = arena };
-    // The list is outside the arena: on the way out with an error, free it.
-    errdefer j.lines.deinit(ir.big);
-    var trail = false; // previous physical line ended with the trailing marker
-    var open: []const u8 = ""; // a string or expression still open at the end of the last line
-    var no: u32 = 0;
-    var it = std.mem.splitScalar(u8, src, '\n');
-    var first = true;
-    var in_block = false;
-    while (it.next()) |phys_raw| {
-        no += 1;
+    /// The end marker: a line whose first token it is.
+    fn isEnd(l: *Lines, ln: Line) Allocator.Error!bool {
+        const m = l.cfg.end_marker;
+        if (m.len == 0 or ln.text.len < m.len or !std.ascii.eqlIgnoreCase(ln.text[0..m.len], m)) return false;
+        var scratch: std.heap.ArenaAllocator = .init(ir.big);
+        defer scratch.deinit();
+        var toks: std.ArrayList(Tok) = .empty;
+        try tokenizeLine(scratch.allocator(), scratch.allocator(), scratch.allocator(), l.cfg, ln.text, 0, &toks);
+        return toks.items.len > 0 and toks.items[0].tag == .word and std.mem.eql(u8, toks.items[0].text, m);
+    }
+
+    /// Read one more physical line.
+    fn pump(l: *Lines) Allocator.Error!void {
+        const cfg = l.cfg;
+        const phys_raw = l.it.next() orelse {
+            try l.flush();
+            if (!l.done) {
+                l.done = true;
+                const n = l.made();
+                if (n > l.base and l.get(n - 1).kind == .blank) _ = l.buf.pop();
+            }
+            return;
+        };
+        if (l.done) return;
+        // Text from here on goes to the other arena, once no line still
+        // being joined has text in this one.
+        if (l.want_switch and l.hi[1 - l.gen] == 0 and l.pending.items.len == 0 and l.cur.items.len == 0 and l.tail.items.len == 0 and !l.first_made) {
+            l.gen = 1 - l.gen;
+            l.want_switch = false;
+        }
+        const arena = l.text();
+        var made_text = false;
+        l.no += 1;
+        const no = l.no;
         var phys = std.mem.trimEnd(u8, phys_raw, "\r");
         if (cfg.block_comment) |bc| {
             // `/* ... */` spans, which may also run over several lines,
             // become comment lines of their own.
-            if (in_block or std.mem.indexOf(u8, phys, bc[0]) != null) {
+            if (l.in_block or std.mem.indexOf(u8, phys, bc[0]) != null) {
                 var kept: std.ArrayList(u8) = .empty;
                 var cut: std.ArrayList(u8) = .empty;
                 var i: usize = 0;
                 while (i < phys.len) {
-                    if (in_block) {
+                    if (l.in_block) {
                         const close = std.mem.indexOfPos(u8, phys, i, bc[1]) orelse {
                             try cut.appendSlice(arena, phys[i..]);
                             break;
                         };
                         try cut.appendSlice(arena, phys[i..close]);
                         i = close + bc[1].len;
-                        in_block = false;
+                        l.in_block = false;
                     } else if (std.mem.startsWith(u8, phys[i..], bc[0])) {
-                        in_block = true;
+                        l.in_block = true;
                         i += bc[0].len;
                     } else {
                         try kept.append(arena, phys[i]);
                         i += 1;
                     }
                 }
-                const text = std.mem.trim(u8, cut.items, " \t");
-                if (text.len > 0) {
+                const t = std.mem.trim(u8, cut.items, " \t");
+                if (t.len > 0) {
                     const marker = if (cfg.line_comments.len > 0) cfg.line_comments[0] else "*";
-                    try j.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, text }), no);
+                    try l.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, t }), no);
                 }
                 phys = kept.items;
-                if (std.mem.trim(u8, phys, " \t").len == 0) continue;
+                made_text = true;
+                if (std.mem.trim(u8, phys, " \t").len == 0) return;
             }
         }
-        if (first) {
-            first = false;
+        if (l.first_phys) {
+            l.first_phys = false;
             if (cfg.title) {
                 var t = std.mem.trim(u8, phys, " \t");
                 if (cfg.title_prefix.len > 0) {
                     const p = std.mem.trim(u8, cfg.title_prefix, " \t");
                     if (std.mem.startsWith(u8, t, p)) t = std.mem.trim(u8, t[p.len..], " \t");
                 }
-                title.* = t;
-                continue;
+                l.title = t;
+                return;
             }
         }
         const lead = std.mem.trimStart(u8, phys, " \t");
         if (lead.len == 0) {
-            if (!trail) try j.note(.blank, "", no);
-            continue;
+            if (!l.trail) try l.note(.blank, "", no);
+            return;
         }
         if (startsWithAny(lead, cfg.line_comments) != null) {
-            try j.note(.comment, std.mem.trimEnd(u8, lead, " \t"), no);
-            continue;
+            try l.note(.comment, std.mem.trimEnd(u8, lead, " \t"), no);
+            return;
         }
         var body = lead;
         var tail: []const u8 = "";
-        const continues = trail or (cfg.cont_lead.len > 0 and std.mem.startsWith(u8, lead, cfg.cont_lead));
-        if (!continues) open = "";
-        if (tailStart(cfg, lead, &open)) |cut| {
+        const continues = l.trail or (cfg.cont_lead.len > 0 and std.mem.startsWith(u8, lead, cfg.cont_lead));
+        if (!continues) l.open_delim = "";
+        if (tailStart(cfg, lead, &l.open_delim)) |cut| {
             body = lead[0..cut[0]];
             tail = commentText(lead[cut[0] + cut[1] ..]);
         }
         body = std.mem.trimEnd(u8, body, " \t");
         if (body.len == 0) {
             // The whole line was a trailing-style comment.
-            try j.note(.comment, std.mem.trimEnd(u8, lead, " \t"), no);
-            continue;
+            try l.note(.comment, std.mem.trimEnd(u8, lead, " \t"), no);
+            return;
         }
 
-        var is_cont = trail;
+        var is_cont = l.trail;
         if (!is_cont and cfg.cont_lead.len > 0 and std.mem.startsWith(u8, body, cfg.cont_lead)) {
-            if (!j.open) {
+            if (!l.open) {
                 // Nothing to continue but the title or a comment: it is one.
                 const marker = if (cfg.line_comments.len > 0) cfg.line_comments[0] else "*";
-                try j.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, lead }), no);
-                continue;
+                try l.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, lead }), no);
+                return;
             }
             is_cont = true;
             body = body[cfg.cont_lead.len..];
         }
-        trail = false;
+        l.trail = false;
         if (cfg.cont_trail.len > 0 and std.mem.endsWith(u8, body, cfg.cont_trail)) {
-            trail = true;
+            l.trail = true;
             body = body[0 .. body.len - cfg.cont_trail.len];
             // HSPICE's `\\` joins with no blank; a blank is harmless here.
             if (std.mem.endsWith(u8, body, cfg.cont_trail)) body = body[0 .. body.len - cfg.cont_trail.len];
             body = std.mem.trimEnd(u8, body, " \t");
         }
         if (!is_cont) {
-            try j.flush();
-            j.open = true;
-            j.cur_no = no;
-            j.first = body;
-            j.first_tail = tail;
-            continue;
+            try l.flush();
+            if (l.done) return;
+            l.open = true;
+            l.cur_no = no;
+            l.first = body;
+            l.first_tail = tail;
+            l.first_made = made_text;
+            return;
         }
-        if (j.cur.items.len == 0) try j.cur.appendSlice(arena, j.first);
-        try j.cur.append(arena, ' ');
-        try j.cur.appendSlice(arena, body);
+        const a = l.text();
+        if (l.cur.items.len == 0) try l.cur.appendSlice(a, l.first);
+        try l.cur.append(a, ' ');
+        try l.cur.appendSlice(a, body);
         if (tail.len > 0) {
-            if (j.tail.items.len == 0 and j.first_tail.len > 0) try j.tail.appendSlice(arena, j.first_tail);
-            if (j.tail.items.len > 0) try j.tail.appendSlice(arena, "; ");
-            try j.tail.appendSlice(arena, tail);
+            if (l.tail.items.len == 0 and l.first_tail.len > 0) try l.tail.appendSlice(a, l.first_tail);
+            if (l.tail.items.len > 0) try l.tail.appendSlice(a, "; ");
+            try l.tail.appendSlice(a, tail);
         }
     }
-    try j.flush();
-    while (j.lines.items.len > 0 and j.lines.items[j.lines.items.len - 1].kind == .blank) _ = j.lines.pop();
-    return j.lines.toOwnedSlice(ir.big);
-}
+};
 
 fn countCloses(text: []const u8, from: usize) u8 {
     var n: u8 = 0;
@@ -528,50 +670,21 @@ fn topComma(run: []const u8) bool {
     return false;
 }
 
-/// Join physical lines into logical ones and find the end marker. Tokens
-/// come later, a few lines at a time, from a `Window`.
-pub fn lex(arena: Allocator, cfg: *const LexCfg, src: []const u8) Allocator.Error!Lexed {
-    var title: []const u8 = "";
-    const lines = try joinLines(arena, cfg, src, &title);
-    errdefer ir.big.free(lines);
-    var lx: Lexed = .{ .title = title, .lines = lines, .all_lines = lines };
-    if (cfg.end_marker.len == 0) return lx;
-    var w: Window = .init(cfg, lines, arena);
-    defer w.deinit();
-    for (lines, 0..) |ln, idx| {
-        // Only a line that starts like the marker can be it.
-        if (ln.kind != .code or ln.text.len < cfg.end_marker.len or
-            !std.ascii.eqlIgnoreCase(ln.text[0..cfg.end_marker.len], cfg.end_marker)) continue;
-        w.drop(w.toks.items.len);
-        w.next = @intCast(idx);
-        _ = try w.has(0);
-        const first = w.toks.items[0];
-        if (first.tag == .word and std.mem.eql(u8, first.text, cfg.end_marker)) {
-            lx.lines = lines[0..idx];
-            break;
-        }
-    }
-    return lx;
-}
-
 /// The tokens of a few logical lines at a time. A pass over a netlist lexes
 /// each line when it reaches it and forgets it once it is read: the tokens
 /// of a whole netlist would take five times its size.
 pub const Window = struct {
     cfg: *const LexCfg,
-    lines: []const Line,
+    lines: *Lines,
     /// Case-folded copies of words, freed whenever the window empties. A
     /// value that keeps a folded `text` must copy it.
     scratch: std.heap.ArenaAllocator,
-    /// Text a token makes that is in no line (a joined expression) and
-    /// outlives the window.
-    keep: Allocator,
     toks: std.ArrayList(Tok) = .empty,
     /// The next line to lex.
     next: u32 = 0,
 
-    pub fn init(cfg: *const LexCfg, lines: []const Line, keep: Allocator) Window {
-        return .{ .cfg = cfg, .lines = lines, .scratch = .init(ir.big), .keep = keep };
+    pub fn init(cfg: *const LexCfg, lines: *Lines) Window {
+        return .{ .cfg = cfg, .lines = lines, .scratch = .init(ir.big) };
     }
 
     pub fn deinit(w: *Window) void {
@@ -584,33 +697,37 @@ pub const Window = struct {
     /// the line of token `i` is there too.
     pub fn has(w: *Window, i: usize) Allocator.Error!bool {
         while (i >= w.toks.items.len) {
-            if (w.next >= w.lines.len) return false;
+            if (!try w.lines.has(w.next)) return false;
             try w.lexLine(w.next);
             w.next += 1;
         }
         return true;
     }
 
-    /// Back to the first line, for another pass.
-    pub fn rewind(w: *Window) void {
+    /// Back to the first line, for another pass; `keep` as for `Lines`.
+    pub fn rewind(w: *Window, keep: ?Allocator) void {
         w.drop(w.toks.items.len);
         w.next = 0;
+        w.lines.restart(keep);
     }
 
-    /// Forget the tokens before `i`; token `i` becomes token 0.
+    /// Forget the tokens before `i`; token `i` becomes token 0. The lines
+    /// before the first token left are released.
     pub fn drop(w: *Window, i: usize) void {
         const left = w.toks.items.len - i;
         if (left == 0) {
             w.toks.clearRetainingCapacity();
             _ = w.scratch.reset(.retain_capacity);
+            w.lines.release(w.next);
             return;
         }
         std.mem.copyForwards(Tok, w.toks.items[0..left], w.toks.items[i..]);
         w.toks.shrinkRetainingCapacity(left);
+        w.lines.release(w.toks.items[0].lno);
     }
 
     fn lexLine(w: *Window, lno: u32) Allocator.Error!void {
-        const ln = w.lines[lno];
+        const ln = w.lines.get(lno);
         const cfg = w.cfg;
         if (ln.kind != .code) {
             const tag: TokTag = if (ln.kind == .blank) .blank else .comment;
@@ -620,7 +737,7 @@ pub const Window = struct {
             try w.toks.append(ir.big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
             return;
         }
-        try tokenizeLine(w.scratch.allocator(), w.keep, ir.big, cfg, ln.text, lno, &w.toks);
+        try tokenizeLine(w.scratch.allocator(), w.lines.textFor(lno), ir.big, cfg, ln.text, lno, &w.toks);
         try w.toks.append(ir.big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
     }
 };
@@ -851,7 +968,7 @@ test "lines, comments, continuation" {
     var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    var lx = try lex(a, &spice_cfg,
+    var lx: Lines = .init(&spice_cfg,
         \\My Title
         \\* a comment
         \\R1 in out 1K $ trailing
@@ -859,20 +976,20 @@ test "lines, comments, continuation" {
         \\+ W=1u L={2*0.5U}
         \\.end
         \\R9 never seen 1
-    );
+    , a);
     defer lx.deinit();
-    var w: Window = .init(&spice_cfg, lx.lines, a);
+    var w: Window = .init(&spice_cfg, &lx);
     defer w.deinit();
     while (try w.has(w.toks.items.len)) {}
     const toks = w.toks.items;
     try testing.expectEqualStrings("My Title", lx.title);
-    try testing.expectEqual(3, lx.lines.len);
+    try testing.expectEqual(3, w.next);
     try testing.expectEqual(TokTag.comment, toks[0].tag);
     try testing.expectEqualStrings("a comment", toks[0].text);
     try testing.expectEqualStrings("r1", toks[2].text);
     try testing.expectEqualStrings("R1", toks[2].raw);
     try testing.expectEqualStrings("trailing", toks[6].text);
-    try testing.expectEqual(@as(u32, 4), lx.lines[2].no);
+    try testing.expectEqual(@as(u32, 4), lx.get(2).no);
     var saw_expr = false;
     for (toks) |t| {
         if (t.tag == .expr) {
@@ -889,17 +1006,17 @@ test "spectre tokens" {
     const a = arena_state.allocator();
     var cfg = spectre_cfg;
     cfg.title = false;
-    var lx = try lex(a, &cfg,
+    var lx: Lines = .init(&cfg,
         \\r1 (a b) resistor r=(ra + rb)*2 // note
         \\v1 (a 0) vsource type=pwl \
         \\    wave=[0 0 1n 1]
-    );
+    , a);
     defer lx.deinit();
-    var w: Window = .init(&cfg, lx.lines, a);
+    var w: Window = .init(&cfg, &lx);
     defer w.deinit();
     while (try w.has(w.toks.items.len)) {}
     const toks = w.toks.items;
-    try testing.expectEqual(2, lx.lines.len);
+    try testing.expectEqual(2, w.next);
     try testing.expectEqual(TokTag.lparen, toks[1].tag);
     try testing.expect(toks[6].f.key);
     try testing.expectEqual(TokTag.expr, toks[8].tag);
