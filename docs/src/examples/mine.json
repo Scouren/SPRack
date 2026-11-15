@@ -1,0 +1,9 @@
+{
+  "name": "mine",
+  "dialect": "ngspice",
+  "layouts": [{"probe": "models.lib"}],
+  "corners": {
+    "tt": [["models.lib", "tt"]],
+    "ff": [["models.lib", "ff"]]
+  }
+}

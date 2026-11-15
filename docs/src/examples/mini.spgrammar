@@ -1,0 +1,57 @@
+# Mini: a made-up SPICE-like dialect, written to show how a grammar grows.
+
+dialect mini
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  comment   tail ";"
+  continue  lead "+"
+  parens    space
+  expr      "{" "}"
+  values    strict
+  scale     meg=6 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15
+  units     ignore
+  end       ".end"
+end
+
+rule resistor  = name~"R" pos neg r
+rule capacitor = name~"C" pos neg c
+rule vsource   = name~"V" pos neg [ "dc" dc ] [ "ac" acmag ]
+rule op        = ".dcop"
+rule tran      = ".transient" stop "by" step [ skip_dc:"cold"=yes ]
+
+block subckt
+  open   ".cell" name ports* {...params}
+  close  ".endcell" [name]
+end
+
+rule instance  = name~"X" nodes+ master {...params}
+rule param     = ".set" {...params}
+
+rule model     = ".model" name type {...params?}
+rule mosfet    = name~"M" d g s b master {...params}
+
+models
+  mos1 n  = nfet level=1
+  mos1 p  = pfet level=1
+  bsim4 n = nfet level=14
+  bsim4 p = pfet level=14
+end
+
+no ac  : Mini has no small-signal analysis
+no pz  : Mini has no small-signal analysis
+no hdl : Mini cannot load Verilog-A
+
+functions
+  same abs min max sqrt exp
+  ln = log
+end
+
+operators
+  pow "^"
+end
+
+caveat tran skip_dc : "cold" starts every node at zero; it does not read initial conditions
+differs sqrt : a negative argument gives zero, where other simulators stop with an error

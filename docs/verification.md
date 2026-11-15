@@ -759,7 +759,7 @@ unclear and untested but is not counted.
 
 ---
 
-## 7. Sweeps (PLAN 5.1)
+## 7. Sweeps
 
 What the sweep rules rest on. HSPICE and Spectre: observed by running decks
 of a few lines written for this; the others: run locally (ngspice 45,

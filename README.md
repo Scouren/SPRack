@@ -1,153 +1,184 @@
-# SPRack: SPICE dialect translator
+# SPRack
 
-SPRack reads a netlist in one SPICE dialect and writes it in another, and lets
-a Python program describe a circuit once and get it in any of them. Eight
-dialects are built in: ngspice, HSPICE, Xyce, Spectre, VACASK, ESPice,
-LTspice and CDL (see [Dialects](#dialects)).
+SPRack translates SPICE netlists between simulators: it reads a netlist in one
+dialect and writes it in another, and it gives Python one way to describe a
+circuit for all of them. Eight dialects are built in: ngspice, HSPICE, Xyce,
+Spectre, VACASK, ESPice, LTspice and CDL.
 
-It translates; it does not simulate. Each dialect is described in one
-`grammars/<name>.spgrammar` file. The Zig compiler reads those files at compile
-time and generates the reader and the writer for each. There is no hand-written
-parser per dialect and no converter per pair of dialects: every reader produces
-the same canonical statements, and every writer consumes them.
+[![Tests](https://github.com/Scouren/SPRack/actions/workflows/test.yaml/badge.svg)](https://github.com/Scouren/SPRack/actions/workflows/test.yaml)
+[![Nightly corpus audit](https://github.com/Scouren/SPRack/actions/workflows/nightly.yaml/badge.svg)](https://github.com/Scouren/SPRack/actions/workflows/nightly.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-    zig build                      # the sprack command, zig-out/bin/sprack
-    zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 100 tests
-    python -m build                # dist/sprack-<ver>.tar.gz and a wheel (Zig on PATH)
+It translates; it does not simulate. Each dialect is one
+`grammars/<name>.spgrammar` file, from which the reader and the writer for
+that dialect are generated at compile time. There is no hand-written parser
+per dialect and no converter per pair: every reader produces the same
+canonical statements and every writer consumes them. What the target cannot
+say is never dropped in silence: it is an error in the report, with the
+reason and the dialects that can.
 
-Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
+## Quick start
 
-## Dialects
+    nix develop                    # Zig 0.18.0-dev.349, pinned in flake.lock
+    zig build                      # the command: zig-out/bin/sprack
+    zig build py                   # the Python extension: python/sprack/_core.abi3.so
 
-| name | what | `assumed` lines |
-|---|---|---|
-| `ngspice` | ngspice 45 | 0 |
-| `hspice` | HSPICE | 0 |
-| `xyce` | Xyce | 0 |
-| `spectre` | Spectre's own language | 1 |
-| `vacask` | VACASK, from its README, slides and upstream decks | 9 |
-| `espice` | ESPice, from its docs: ngspice's dialect with `.hdl` for Verilog-A source, `.pss f0 [points]`, `.hb TONES= NHARMS=`, `.stb probe ...`, and its model levels (BSIM-CMG 72, BSIM-BULK 77, PSP 103 at 1040) | 0 |
-| `ltspice` | LTspice, from knowledge of its syntax; no LTspice was available to check against | 13 |
-| `cdl` | CDL, the connectivity netlist of layout-versus-schematic checks: subcircuits, `X ... / name` instances, devices, `.PARAM`, `.GLOBAL`, `$` comments. No sources, analyses or controls: each is a `no` line | 4 |
+A netlist from ngspice to Spectre:
 
-Each file's header says what it was written from. A line marked `assumed` is
-syntax that source does not settle.
+    $ cat amp.sp
+    RC low-pass
+    V1 in 0 DC 1 AC 1
+    R1 in out 1k
+    C1 out 0 1M
+    .ac dec 10 1 1MEG
+    .pz in 0 out 0 vol pz
+    .end
 
-CDL's annotations (`$[model]`, `$X=`) and `*.PININFO` lines are comments to
-SPRack: carried over as written, not understood.
+    $ sprack translate --from ngspice --to spectre amp.sp
+    // RC low-pass
+    simulator lang=spectre insensitive=yes
+    global 0
+    V1 (in 0) vsource dc=1 mag=1
+    R1 (in out) resistor r=1k
+    C1 (out 0) capacitor c=1m
+    ac1 ac start=1 stop=1M dec=10
+    pz1 (out 0) pz iprobe=V1
+    info[oneway]: line 6: pz: the input nodes in 0 are source V1, as spectre names it
+
+`1M` is milli in SPICE and is written `1m` for Spectre, where `M` is mega.
+The same file for Xyce, which has no pole-zero analysis, exits with status 1:
+
+    $ sprack translate --from ngspice --to xyce amp.sp
+    ...
+    * [sprack] not written: analysis 'pz' has no xyce form
+    .end
+    error[unsupported]: line 6: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre
+
+The same from Python (`PYTHONPATH=python`):
+
+    import sprack
+
+    c = sprack.Circuit("inverter")
+    c.model("nch", "bsim4", "n", vth0=0.4)
+    c.model("pch", "bsim4", "p", vth0=-0.4)
+    c.V("dd", "vdd", 0, 1.8)
+    c.V("in", "in", 0, pulse=(0, 1.8, "1n", "50p", "50p", "2n", "4n"))
+    c.M("p", "out", "in", "vdd", "vdd", "pch", w="2u", l="180n")
+    c.M("n", "out", "in", 0, 0, "nch", w="1u", l="180n")
+    c.tran("10p", "8n")
+    print(c.netlist("ngspice"))    # Mp out in vdd vdd pch w=2u l=180n ...
+    print(c.netlist("spectre"))    # Mp (out in vdd vdd) pch w=2u l=180n ...
 
 ## What it guarantees
 
-**Nothing is dropped.** If something in the input has no form in the target,
-the report carries an error for it and the exit status is 1. There is no option
-to turn that off. The output is still written, with the line that could not be
-translated left in it as a comment, so you can see what is missing.
+- **Nothing is dropped.** Something in the input with no form in the target is
+  an error in the report and exit status 1. There is no option to turn that
+  off. The output is still written, with the line that could not be
+  translated left in it as a comment.
+- **Errors say why, and who can.** `analysis 'pz' cannot be written for xyce:
+  Xyce has no pole-zero analysis. Dialects that define it: ...`
+- **Numbers are exact.** `1.5p` is stored as the digits `1.5` and the exponent
+  -12, never as a float; `1mil` is exactly 25.4e-6.
+- **Source spelling is kept.** Names keep their capitals; where the source
+  ignores case, a name written two ways gets one spelling, so the result is
+  also right for a target that tells them apart. Comments, blank lines and
+  trailing comments are carried over.
+- **A translation can be checked against itself.** `sprack audit` translates,
+  reads its own output back with the target's reader and compares. A
+  difference the report does not explain is a bug.
 
-**Errors say why, and who can.** `analysis 'pz' cannot be written for xyce:
-Xyce has no pole-zero analysis. Dialects that define it: ngspice`.
+## Dialects
 
-**Numbers are exact.** `1.5p` is stored as the digits `1.5` and the exponent
--12, never as a float. `1M` read as ngspice is milli and is written to Spectre
-as `1m`; `1mil` is exactly 25.4e-6.
+| name | simulator | checked against |
+|---|---|---|
+| `ngspice` | ngspice 45 | ngspice itself: load and results (`tools/parse_check.py`, `tools/sim_check.py`) |
+| `xyce` | Xyce 7.10 | Xyce itself: load and results |
+| `vacask` | VACASK | VACASK built from source: load and results; its manual and parser |
+| `spectre` | Spectre's own language | Spectre 25.10: every error-free translation of the corpus loaded (`tools/licensed_check.py`) |
+| `hspice` | HSPICE | HSPICE Y-2026.03: the same |
+| `espice` | ESPice (ngspice's dialect plus its own analyses) | ESPice's documentation and its maintainers' runs |
+| `ltspice` | LTspice | not yet: written without an LTspice to check against, and the lines that source does not settle are marked `assumed` in the grammar. LTspice 26.0.2 now runs here (`nix develop .#ltspice`) |
+| `cdl` | CDL, the connectivity netlist of LVS: no sources, analyses or controls | no tool; a few lines marked `assumed` |
 
-**Source spelling is kept.** Names keep the capitals the author gave them.
-Where the source ignores case, a name written `Vdd` in one place and `VDD` in
-another gets one spelling (the first capitalised one), so the result is also
-correct for a target that does distinguish case. Comments, blank lines and
-trailing comments are carried over.
-
-**A translation can be checked against itself.** `sprack audit` translates,
-reads its own output back with the target's reader and compares. A difference
-that the report does not explain is a bug.
+`sprack caps` prints which dialect can write which statement. Each grammar
+file's header says what it was written from; `docs/verification.md` records
+what was measured on each simulator, claim by claim.
 
 ## Command line
 
     sprack translate --from ngspice --to spectre amp.sp -o amp.scs
     sprack project   --from ngspice --to xyce --lib --out sky130-xyce $PDK/libs.tech/ngspice/sky130.lib.spice
-    sprack catalog   --from hspice 7nm_TT.pm
+    sprack catalog   --from hspice 7nm_TT.pm         # the subcircuits and models, as JSON
     sprack read      --from spectre amp.scs          # the netlist as JSON
     sprack write     --to vacask amp.json            # a netlist from that JSON
-    sprack caps                                      # which dialect can write what
-    sprack info                                      # the schema, as JSON
+    sprack audit     --from ngspice --to spectre amp.sp
+    sprack dialects | caps | info
 
-Wherever a dialect is named (`--from`, `--to`), a path ending in
-`.spgrammar` may stand instead: that grammar is compiled when the command
-starts, by the same compiler that builds the built-in ones (a fraction of a
-millisecond). A mistake in it is reported as `path:line: message`. Error
-messages that list the "dialects that define" something name only the
-built-in ones.
-
-`project` follows every `.include` and `.lib` from the files it is given and
-writes a translated copy of the whole tree, with the include lines rewritten as
-relative paths, and the Verilog-A files `.hdl` names copied beside them.
-`--section tt` (repeatable) follows only the library sections named and those
-their `.lib` lines name; the log lists each section not followed. It reads the set twice: once to learn which models,
-subcircuits and functions each file declares, once with that knowledge. That
-is what lets a Spectre instance line be recognised as a MOSFET when its model
-is declared three includes away. `$NAME` in include paths is expanded from the
-environment or from `-D NAME=VALUE`. With `--lib` the named files are libraries
-themselves, with no title line, as in a PDK.
+Exit status: 0 when nothing was lost, 1 when the report has an error, 2 for a
+wrong command line. Wherever a dialect is named, a path ending in
+`.spgrammar` may stand instead and is compiled on the spot.
+`project` follows every `.include` and `.lib` and writes a translated copy of
+the whole tree: this is how a PDK is translated. More in
+[docs/src/cli.md](docs/src/cli.md).
 
 ## Python
 
+The package is a compiled extension (`sprack._core`, CPython's limited API:
+one binary for Python 3.10 and later) and a thin layer on top that knows no
+dialect: it builds statements of the canonical vocabulary and the core writes
+them.
+
+- **Everything is a function.** Devices by SPICE letter (`c.R`, `c.M`, `c.X`,
+  ...) or by kind (`c.resistor`), every analysis and control statement by
+  name, and a `with` block for a statement that holds others (a subcircuit, a
+  sweep, an alter, a conditional, a library section). A test builds every
+  kind with every slot through the builder: no netlist text is needed for
+  anything a reader understands.
+- **The vocabulary is closed.** `c.tran("1n", "1u", errpreset="moderate")`
+  raises `TypeError: tran has no 'errpreset'; it has: name, step, stop, ...`.
+- **`netlist(dialect)`** raises `sprack.Unsupported` when the dialect cannot
+  say something, with the reason and the dialects that can; `strict=False`
+  returns the netlist with the report attached as `.report`.
+- **Numbers** are Python numbers or strings with an SI suffix (`"10n"`,
+  `"1meg"`); `"1M"` is refused as ambiguous. Any other string is an
+  expression.
+- **Existing netlists**: `sprack.translate(text, frm=, to=)`,
+  `sprack.read(text, dialect)`, and `c.code(text, dialect)` to add statements
+  written in a dialect to a circuit.
+
+### A netlist as a Python script
+
+Any netlist, in any dialect, becomes a flat script of builder calls:
+
+    $ python -m sprack --from ngspice deck.sp
     import sprack
+
+    c = sprack.Circuit("t", dialect="ngspice")
+    c.R("1", "a", 0, "1k")
+    c.tran("1n", "1u", uic=True)
+
+(`sprack.to_python(text, dialect)` and `Circuit.python()` do the same.) The
+script rebuilds the circuit: every dialect is written from it exactly as from
+the netlist. A line no rule of the dialect understood is the one thing with
+no call; it is kept as a `c.code(...)` block of that dialect's text.
+
+### PDKs
 
     pdk = sprack.PDK("sky130A")                  # from $PDK_ROOT, corner tt
     c = sprack.Circuit("inverter", pdk=pdk)
-    c.V("dd", "vdd", 0, 1.8)
-    c.V("in", "in", 0, pulse=(0, 1.8, "1n", "50p", "50p", "2n", "4n"))
     c.pfet_01v8("Mp", "out", "in", "vdd", "vdd", w=1, l=0.15)
-    c.nfet_01v8("Mn", "out", "in", 0, 0, w=0.5, l=0.15)
-    c.tran("10p", "8n")
-    print(c.netlist("ngspice"))
-    print(c.netlist("spectre"))
 
-The package is a compiled extension module (`sprack._core`, written in Zig
-against CPython's limited API, so one binary serves Python 3.10 and later) and
-a thin Python layer on top. The Python layer knows no dialect: it builds
-statements of the canonical vocabulary and the core writes them.
-
-* Devices are methods named by SPICE letter (`R`, `C`, `L`, `K`, `V`, `I`,
-  `B`, `E`, `G`, `F`, `H`, `D`, `Q`, `M`, `J`, `Z`, `S`, `W`, `T`, `X`) or by
-  kind (`c.resistor(...)`). Analyses and the rest are methods too: `op`, `dc`,
-  `ac`, `tran`, `noise`, `tf`, `pz`, `sens`, `four`, `hb`, `sp`, `pss`, `stb`,
-  `pac`, `pnoise`, `pxf`, `psp`, `xf`, `dcmatch`, `trannoise`, `phasenoise`,
-  `envelope`, `qpss`, `step`, `data`, `alter`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
-  `func`, `include`, `lib`, `hdl`, `global_`, `subckt`.
-* The vocabulary is closed. `c.tran("1n", "1u", errpreset="moderate")` raises
-  `TypeError: tran has no 'errpreset'; it has: name, step, stop, ...`. There is
-  no escape hatch for raw text.
-* `netlist(dialect)` raises `sprack.Unsupported` when the dialect cannot say
-  something, with the reason and the dialects that can. `strict=False` returns
-  the netlist with the report attached as `.report`.
-* Numbers are Python numbers or strings with an SI suffix (`"10n"`, `"4.7k"`,
-  `"1meg"`). `"1M"` is refused as ambiguous. Any other string is an
-  expression in the canonical spelling: `"2*wmin"`, `"ln(a)**2"`.
-* `sprack.translate(text, frm=..., to=...)` and `sprack.read(text, dialect)`
-  work on existing netlists.
-* `c.code(text, dialect="ngspice")` (on a circuit or a subcircuit) reads
-  `text` with that dialect's reader, with no title line, and adds the
-  statements: `c.code(".tran 1n 1u\n.save v(out)")` is then written for any
-  target like `c.tran(...)` would be. Each statement remembers its dialect:
-  for a target of that dialect its own options (`.options plotwinsize=0`)
-  and lines no rule understands are written as they are; for any other
-  target they are errors in `netlist()`'s report, so a strict `netlist()`
-  raises.
-* A `lib` or `include` read from text in one dialect (`c.code('.lib
-  "/pdk/sky130.lib.spice" tt')`) and written for another is pointed at a
-  translated copy of the whole file tree it reaches, made as `sprack project
-  --lib` makes one and kept in `$SPRACK_CACHE/libs` (default
-  `~/.cache/sprack`). The copy is reused while every file it was made from is
-  unchanged (size and mtime, then content); it is built in a temporary
-  directory and renamed into place, so parallel writers can share the cache.
-  `$VAR` in the path expands from the environment; a missing file is an
-  `invalid` error. What the library cannot say is in the netlist's report
-  with file and line. sky130 tt to Xyce: 2.1 s the first time, 8 ms after.
-  Paths added by method (`c.include(...)`) are in no dialect and stay as
-  written.
-* Every `dialect` argument (`netlist`, `write`, `translate`, `read`, `code`)
-  may also be a path to a `.spgrammar` file.
+`sprack.PDK` finds a PDK's model libraries, lists the devices they define and
+makes each one a method of the circuit, with terminals counted and parameter
+names checked. For a target of another dialect the whole library is
+translated once into `~/.cache/sprack` and referenced from there. A PDK is
+described by a small JSON manifest; five ship (sky130A, IHP SG13G2, ASAP7,
+FreePDK45, GF180MCU), and `manifest=` takes your own. Without a manifest,
+name the library in its own dialect, `c.code('.lib "models.lib" tt',
+"ngspice")`: for a target of another dialect the file and everything it
+includes are translated the same way. See
+[docs/src/pdks.md](docs/src/pdks.md) and
+[docs/src/adding-a-pdk.md](docs/src/adding-a-pdk.md).
 
 ### Shipping it inside another program
 
@@ -190,288 +221,94 @@ The sdist ships what `zig build py` needs: `build.zig`, `build.zig.zon`,
 `src`, `grammars`, `python`, `tools/wheel_backend.py`, `pyproject.toml`,
 `LICENSE` and this file.
 
-### PDKs
+## Status
 
-`sprack.PDK(name, root=None, corner=None)` finds a PDK's model libraries, lists
-the devices they define and makes each one a method of the circuit. A device's
-terminals are counted and its parameter names are checked against what the
-library declares.
+Version 0.1.0 (`build.zig.zon`, the one place it is written); not yet
+published to a package index. Built and tested with Zig 0.18.0-dev.349.
+A release is one run of the Publish workflow (`.github/workflows/publish.yaml`):
+it moves the version, tests, tags, and uploads the sdist and wheels to PyPI.
 
-A PDK is described by a small JSON manifest in `python/sprack/pdks/`: the
-dialect it is written in, where its entry files are, and which files and
-sections make up each corner. Nothing else about a PDK is built in; the device
-list comes from reading the libraries. Five manifests ship:
-
-| name | written in | corners | devices found |
-|---|---|---|---|
-| `sky130A` | ngspice | tt ff ss sf fs ll hh hl lh | 162 subcircuits, 76 model cards |
-| `ihp-sg13g2` (`IHP`) | ngspice | tt ss ff sf fs | 35 subcircuits |
-| `ASAP7` | HSPICE | tt ff ss | 8 BSIM-CMG models |
-| `FreePDK45` | HSPICE | nom ff ss | 8 BSIM4 models |
-| `gf180mcuD` (`gf180mcu`) | ngspice | tt ss ff sf fs | 69 subcircuits, 13 model cards |
-
-When the target dialect is the one the PDK ships, the netlist references the
-PDK's own files. For any other dialect the whole library is translated once
-into `~/.cache/sprack` (as `sprack project` does) and referenced from there.
-If the library contains something the target cannot say, that is an error like
-any other, reported with file and line; `strict=False` accepts the copy and
-puts those errors in the netlist's report.
-
-Pass `manifest=` to use a PDK that has no manifest here.
-
-## What was run
-
-* `zig build test`: 100 tests (3 of them skipped reproducers of open gaps), among them the 64 translations of one circuit
-  between the eight dialects with a read-back comparison (into CDL, the
-  sources and analyses are each an `unsupported` error and the rest reads
-  back the same), 20,000 randomly
-  damaged netlists through every reader and writer, and a project with
-  includes.
-* `python/test_sprack.py`: 17 tests, 9 of them against the five PDKs' real
-  model libraries: the repositories, and sky130A and IHP as installed
-  (open_pdks' build of sky130A as ciel ships it, with its combined layout;
-  IHP with its OSDI models built by openvaf-r). The GF180MCU, installed
-  sky130A and IHP inverters are simulated in ngspice, IHP in all five
-  corners; an nfet_01v8 through sky130's combined layout gives the same
-  operating point from its ngspice translation as from the original.
-* The five PDKs, whole libraries translated:
-
-  | PDK, all corners | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
-  |---|---|---|---|---|---|---|
-  | sky130 (ngspice) | 280 | 0 errors | 2 | 3 | 7 | 4120 |
-  | sky130A installed, combined layout (ngspice) | 194 | 0 | 4 | 4 | 4 | 480 |
-  | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 55 | 2 | 14 |
-  | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
-  | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
-  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 200 |
-
-  Every error names a file and a line. They are: two lines in the sky130
-  repository that are not ngspice syntax, and one in the installed cells;
-  a sky130 parameter named `vt`, which Xyce refuses; HSPICE's `dev/gauss`
-  repeated on one sky130 card, which Spectre takes as one parameter defined
-  five times; `.options parser`
-  in the combined layout, which no other dialect has; flags on IHP
-  instances that Spectre has no spelling for; conditional blocks, which
-  Xyce does not have;
-  Verilog-A models in Xyce;
-  BSIM-CMG, which ngspice has only as a Verilog-A model; and, for VACASK,
-  library sections and the BSIM model families, which its grammar does not
-  cover. sky130 takes 3 to 4 seconds per target.
-* The VAMS Conformance Suite (969 decks): 9,670 translations, no crash, no
-  difference the report does not explain; every deck is unchanged in meaning
-  when written back in its own dialect. Read as ngspice, 99.8% of statements
-  and 588 of 965 decks are understood completely (many decks are written in a
-  wider dialect than ngspice).
-* A 117 MiB netlist translates in 14 seconds using 2.0 GiB.
-
-Spectre and HSPICE output is load-checked with `tools/licensed_check.py`, which
-runs every error-free translation of the suite on a host that has the tools
-(Spectre 25.10, HSPICE Y-2026.03) and compares against the source deck run in
-its own simulator. The expression, model and enum tables of both grammars were
-measured there with decks of a few lines (`docs/verification.md`). The VACASK manual could not be consulted; that grammar is
-written from the project's README, slides and four upstream decks, and its
-unconfirmed lines are marked `assumed`.
-
-## The .spgrammar format
-
-A grammar file is a list of directives. `#` starts a comment. Kinds and slots
-are the canonical vocabulary in `src/schema.zig`; naming anything else is a
-compile error with the file and line.
-
-### lexer
-
-    lexer
-      case      insensitive            # or: sensitive
-      title     yes                    # first line is a title; optional prefix: yes "// "
-      comment   line "*"               # whole-line comments
-      comment   tail "$" ";"           # trailing comments
-      comment   block "/*" "*/"
-      continue  lead "+"               # continuation marker at the start of the next line
-      continue  trail "\"              # or at the end of this one
-      parens    space                  # ( ) , are blanks; or: token
-      expr      "{" "}"                # expression delimiters, may repeat
-      expr      bare                   # expressions need no delimiters (Spectre)
-      expr      after-equals           # undelimited after "=" up to the next blank
-      quotes    '"' expr-in-values except rlgcfile   # "..." in a value slot is an
-                                       # expression, in a path or name slot a string;
-                                       # or: quotes '"' string (the default)
-      values    strict                 # or: idents (a bare name may be a value)
-      scale     meg=6 k=3 m=-3 u=-6    # suffix = power of ten; longest match wins
-      readscale _=0 %=-2               # accepted when reading, never written
-      oddscale  mil=25.4e-6            # multipliers that are not powers of ten
-      units     ignore                 # letters after a number; or: after-scale
-      numbers   strict                 # a malformed number (3.3.0) is refused
-      vectors   comma                  # `[a, b]` written with commas; or: space
-      end       ".end"
-    end
-
-### Statements
-
-    rule  tran = ".tran" step stop [ start [maxstep] ] [ skip_dc:"uic"=yes ]
-    write bjt[hicum2] = ...            # only for an instance whose model is of that family
-    read  include = ".inc" path        # this form is only read
-    write save = ".probe" signals+     # this form is only written
-
-    define wave = ( wave:"pulse" ... | wave:"pwl" ~"(" pwl+ ~")" )
-    rule  vsource = name~"V" pos neg [ <wave> ]   # a define, used by name
-
-    block subckt
-      open   ".subckt" name ports* ( {...params} | "params:" {...params} )
-      inner  "parameters" {...params}  # lines inside that belong to the header
-      close  ".ends" [name]
-    end
-
-    header   ... end                   # lines at the top of every file
-    header folded ... end              # instead, when the source folds case
-    preamble ... end                   # lines at the top of the top netlist only
-    preamble unless global ... end     # unless a statement of that kind says it
-    needs resistor ... end             # lines written once if the kind is used
-    wrap "control" "endc" : op dc tran # these kinds are collected into one block
-    raw ".control" ".endc"             # kept verbatim, never translated
-    raw "embed" ">>>FILE" : reason     # and why no other dialect can take it
-
-A `define` names a pattern fragment; `<name>` in a later rule, block line or
-define stands for it. It is parsed where it is used, so its slot names are
-those of the using rule's kind (`vsource` and `isource` share one `wave`).
-
-Rules are tried in file order when reading. When writing, the rule that loses
-least is chosen and, among equals, the one that keeps the instance's name. A
-`control` kind (options, save, ...) may be written as several statements when
-no single rule holds everything, which is how `.options timeint ...` and
-`.options device ...` come from one set of options.
-
-### Patterns
-
-| form | meaning |
+| | |
 |---|---|
-| `"lit"` | a literal word |
-| `~"("` | a literal glued to its neighbours when written (`v(out)`) |
-| `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot; `slot#n` as many items as slot `n` holds |
-| `slot~"R"` | the name must start with R; added, with a note, when writing |
-| `path!` | a path written without quotes when it has no blank |
-| `slot?default` | written when the slot is empty; `$other` and `$#` expand, and `$+list` is the number of items in a list slot |
-| `slot:"lit"=atom` | the literal stands for a value of an atom slot (or a number in a value slot); a trailing `?` writes it even when the slot is unset |
-| `slot...` | the rest of the line as text, or as one expression for a value slot |
-| `-slot` | when writing, deliberately not written (a `caveat` says why) |
-| `_` | any one word |
-| `[ ... ]` | optional |
-| `( a \| b )` | alternatives |
-| `( ... )*` `( ... )+` `( ... )#n` | the group repeated, zero or more / one or more / exactly slot `n` times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
-| `<name>` | the pattern of a `define`, as if written here |
-| `/` | the statement continues on the next line |
-| `{ k=slot k="slot" k=[slot] k==lit k=slot! k=slot?$other k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, defaulted (written from another dialect when the slot is empty, a `synthesized` warning), tagged, `v(node)=value` (`v(*)=slot+` also reads bare `node value` pairs), and everything else. `k=slot+` writes another dialect's slot once more under this key (`reli=reltol+`: HSPICE says one reltol twice); read, it takes only a repeat of the value already read, and otherwise leaves the key to later entries. Two slots one key spells (`gmin=gmin gmin=gmindc`) are written once, a loss when their values differ. `...rest?` also takes bare flags; `k==lit!@s:a` is a fixed pair that stands for `s` = `a` |
+| Statement kinds | every kind has a rule, another statement that carries it, or a stated reason in every dialect (`sprack caps` shows no gap; a test keeps it so) |
+| Corpus | VAMS Conformance Suite, 969 decks, 9,670 translations: no crash, no difference the report does not explain |
+| Simulators | output loaded and compared in ngspice, Xyce and VACASK; loaded in Spectre and HSPICE; LTspice not yet checked |
+| PDKs | five open PDKs translated whole (table below); inverters simulated in ngspice |
+| Python | every statement kind and slot reachable through the builder |
+| CI | tests on every push (Linux), wheels on Linux and macOS for CPython 3.10 and 3.13, corpus audit nightly |
 
-### Meaning that is not syntax
+Whole model libraries, all corners, errors per target:
 
-    implied noise ref = 0              # what the dialect assumes when it says nothing
-    implied options temp = $tnom       # for options, over the whole netlist; a
-                                       # translation states the ones the target
-                                       # assumes otherwise (HSPICE's TNOM 25)
-    enum options method : trap=trap gear=gear2      # canonical = this dialect's word
-    move options.method -> tran.method # this dialect says it on another statement
-    move options.delmax -> tran.maxstep oneway   # only when writing
-    merge ac -> noise                  # read: noise takes what it lacks from the ac
-                                       # before it, and absorbs it if only comments
-                                       # stand between them
-    caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
-    caveat hdl path=*.osdi : ...       # only where the value ends so
-    caveat read options gmin : ...     # said when a netlist of this dialect is
-                                       # translated out, not into it
-    inert options post : ...           # a parameter that changes no result here:
-                                       # left out crossing out, with an info note
-    threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
-    convert pss : fund = 1 / fund      # a value this dialect says differently:
-    convert vsource wave=exp : td2 = td2 - td1    # a = b, a = a +/- c, a = 1 / a;
-                                       # inverted when reading
-    invalid vsource rise=0 wave=pulse : ...  # left out (or 0) it means something
-                                       # else here: an error crossing in or out
-    default vsource rise=0 wave=pulse : tran.step  # left out (or 0) by a dialect
-                                       # that means its default by that: written
-                                       # out from the netlist's first .tran
-    unique param : ...                 # a parameter defined twice in one scope is
-                                       # refused here: an error
-    unique master : ...                # a name both a model and a subcircuit define
-                                       # (in any file of a project): the model and
-                                       # the devices that use it by their SPICE
-                                       # letter are renamed (nch__m), an info
-    reserved vt temp : ...             # parameter names the simulator refuses
-    requires dc-path error : ...       # a topology the simulator cannot solve, and
-                                       # whether it is an error or a warning here:
-                                       # dc-path (nodes no DC path reaches ground),
-                                       # cutset (such nodes fed by a current
-                                       # source; without it, dc-path with any
-                                       # analysis), no-vloop, no-vlloop, no-lloop (a loop of
-                                       # voltage sources, of sources and inductors,
-                                       # of inductors). An `invalid` entry naming
-                                       # the nodes or elements; src/topology.zig
-    requires dc-path error [op dc ac] : ...  # only in a netlist with one of these
-                                       # analyses (`tran`: one without UIC); with
-                                       # no list, with any analysis
-    spread montecarlo                  # a block written by adding its rule to each
-                                       # analysis of its body (`sweep monte=30`)
-    spread step "sweep"                # the same; only the rules starting with
-                                       # the word are endings (`.temp` is not)
-    rerun alter                        # analyses run where they stand: written
-                                       # again after each statement of the kind
-    switch "simulator lang=spice" -> hspice   # from such a line on, read with
-                                       # another grammar, until the next switch
-    noparam jfet level=2 : ...         # a model parameter (with that value) the
-                                       # family's model here refuses: not written, a loss
-    no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
-    differs pow : the exponent is cut to an integer  # a shared function or operator
-                                                     # evaluated differently: a caveat
-                                                     # (`negpow`: a minus after an
-                                                     # operator, before `**`)
+| PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
+|---|---|---|---|---|---|---|
+| sky130 (ngspice) | 280 | 0 | 2 | 3 | 7 | 4120 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 55 | 2 | 14 |
+| ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
+| FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
+| GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 200 |
 
-    signals                            # how recordable things are written
-      v = "v(%)"
-      i = "%:p"
-    end
-    functions                          # canonical name = spellings here
-      same abs sqrt exp
-      ln = log
-    end
-    variables  temper = temp  end
-    operators                          # pow, xor; ternary "?" if it has c ? a : b
-      pow "**" "^"
-    end
-    params resistor                    # the instance parameters a device takes,
-      same ac dtemp l m>0 w            # by canonical (ngspice) name; m>0: refused
-      noisy = noise                    # at zero or less; canonical = spelling
-    end
-    models
-      bsim4 n = nmos level=14 | nmos level=54     # first spelling is written
-    end
+Every error names a file and a line. They are: lines in the sky130
+repository that are not ngspice syntax; a sky130 parameter named `vt`, which
+Xyce refuses; HSPICE's `dev/gauss` repeated on one sky130 card, which Spectre
+takes as one parameter defined several times; flags on IHP instances that
+Spectre has no spelling for; conditional blocks and Verilog-A models, which
+Xyce does not have; BSIM-CMG, which ngspice has only as a Verilog-A model;
+and, for VACASK, the BSIM model versions and families its shipped modules do
+not cover.
 
-A device's instance parameters that cross into a dialect with a `params`
-table for its kind are renamed to that dialect's spelling (an info
-`rename`); one its device does not take is a `loss` error and is not
-written. A kind without a table is not checked, and neither is what a table
-ending in `same ...` leaves out: such a table only renames.
+## Tests
 
-Expressions are translated token by token: numbers, function names, simulator
-variables and the operators that differ (`**`/`^` for power, `^` for
-exclusive-or in Spectre, `!=` there with blanks: `ne " != "`). Spacing, parentheses and operand order stay as
-written. A function with no spelling in the target is an error naming the
-dialects that have it; so is one that nothing defines. The one
-restructuring is a choice: `c ? a : b` is written `if(c, a, b)` for a
-dialect that has only `if()` (LTspice), and the other way round for one that
-has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
+    zig build test                                # everything below marked "zig"
+    cd python && python3 test_sprack.py           # after zig build py
 
-## Report codes
-
-| code | severity | meaning |
+| what | where | count |
 |---|---|---|
-| `untranslated` | error | no rule of the source grammar understood the line |
-| `unsupported` | error | the target has no statement, model family, function or operator for it |
-| `loss` | error | one value of a statement has no place in the target form |
-| `invalid` | error or warning | the input is wrong or cannot be right in the target |
-| `synthesized` | warning | the target needs a value the source did not give; one was written |
-| `caveat` | warning | written, but the two simulators do not mean quite the same |
-| `ambiguous` | warning | the same text means different things in the two dialects |
-| `rename` | info | a name got the device letter the target needs |
-| `oneway` | info | written in a form the target's own grammar does not read back |
-| `cosmetic` | info | something without meaning was not written (an analysis label) |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 159 tests |
+| The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 29 runs |
+| The Python package | `python/test_sprack.py` | 23 tests, 10 of them on real PDK libraries |
+| Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |
+| Load and result checks in the simulators | `tools/parse_check.py`, `tools/sim_check.py`, `tools/licensed_check.py`, `tools/vacask-loadcheck/` | by hand, where the tools are |
+
+What the tests hold the translator to:
+
+- **Every example is also checked for what must always hold.** Each of the
+  about 300 translations in `src/tests.zig` goes through one helper that also
+  requires: twice gives the same bytes; the JSON form reads back as the same
+  statements and writes the same output; the grammar file compiled at run
+  time behaves as the one compiled in; the target reads the output as the
+  same circuit or the report says why not; and what the target read, it
+  writes again without an error.
+- **The whole vocabulary.** Every statement kind, with all its slots and with
+  each alone, is written by every dialect (about 4,900 cases); every `no`
+  line of every grammar gives its reason; all 64 pairs of dialects translate
+  one circuit and read it back.
+- **Damaged input.** 20,000 randomly damaged netlists and a fuzz target go
+  through every reader and writer without a crash, one in eight through the
+  byte-for-byte checks above; truncated input, deeply nested and oversized
+  grammars are refused with a message.
+- **Both compilers of a grammar agree.** Each of the eight grammar files
+  compiled at run time equals, field for field, the one compiled into the
+  binary.
+
+The PDK tests need the model libraries: `nix build .#test-pdks` and
+`.#test-pdks-installed`, named by `SPRACK_TEST_PDKS` and
+`SPRACK_TEST_PDKS_INSTALLED`; without them those tests are skipped and say
+so. More in [docs/src/testing.md](docs/src/testing.md).
+
+## Documentation
+
+- [Command line](docs/src/cli.md) and [Python](docs/src/python.md)
+- [Using it with any simulator](docs/src/simulators.md), and
+  [adding one](docs/src/adding-a-simulator.md): a `.spgrammar` file, used by
+  path at once or dropped into `grammars/` to become built in
+- [The `.spgrammar` reference](docs/src/grammar-reference.md), with the
+  report codes
+- [Using it with any PDK](docs/src/pdks.md), and
+  [adding one](docs/src/adding-a-pdk.md)
+- [What was measured on each simulator](docs/verification.md)
+
+The pages are an mdBook (`mdbook build docs`), published as a website by
+`.github/workflows/web.yaml`.
 
 ## Layout
 
@@ -484,13 +321,14 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
     src/expr.zig           expressions
     src/topology.zig       circuits a target cannot solve (`requires`)
     src/ir.zig             statements, values, reports, circuit comparison
-    src/json.zig           the IR as JSON
+    src/json.zig           the statements as JSON
     src/project.zig        include following, shared declarations, catalogue
     src/main.zig           the command
     src/pyext.zig          the CPython extension
     src/capi.zig           a C ABI for other hosts
     python/sprack/         the Python package and the PDK manifests
-    tools/                 corpus audit scripts
+    tools/                 corpus audit and simulator check scripts
+    docs/                  the documentation site (mdBook) and the verification log
 
 ## Known limits
 
@@ -547,3 +385,7 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   cells defined in other files) is taken to join all its terminals, and the
   branches of a conditional all count, so it errs towards no alarm.
 * The whole netlist is held in memory, at about 4 to 7 times its size.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

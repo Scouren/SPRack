@@ -1,0 +1,6 @@
+.lib tt
+.param rsh=10
+.endl tt
+.lib ff
+.param rsh=8
+.endl ff

@@ -1,0 +1,337 @@
+name: Publish
+
+# Releasing a version is one click: Actions -> Publish -> Run workflow, pick
+# the bump (patch/minor/major or an explicit X.Y.Z). One run then:
+#   1. opens a pull request moving the version in build.zig.zon, the one
+#      place it is written (the wheel and the sdist take it from there);
+#   2. runs the tests on that branch;
+#   3. merges the pull request only if the tests passed;
+#   4. at the merge commit, builds the sdist and a wheel per platform, tests
+#      each wheel installed, and creates the tag and the GitHub release;
+#   5. uploads the same files to PyPI.
+# It all happens in this run because a merge made with the run's own token
+# starts no other workflow.
+#
+# A version bump merged by hand (a person editing the version in a pull
+# request) still releases: that push to main runs `check`, then 4 and 5.
+# No other push publishes anything.
+#
+# One-time setup:
+#   - PyPI: a trusted publisher for project "sprack": this repository,
+#     workflow publish.yaml, environment pypi.
+#   - GitHub: an environment named "pypi", and "Allow GitHub Actions to create
+#     and approve pull requests" in the repository's Actions settings (and
+#     the organization's, if it is in one).
+
+"on":
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: patch, minor, major, or an explicit X.Y.Z
+        required: true
+        default: patch
+  push:
+    branches: [main]
+    paths: [build.zig.zon]
+
+permissions: {}
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  # ── One click: bump, test, merge ──
+  bump:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      branch: ${{ steps.pr.outputs.branch }}
+      pr: ${{ steps.pr.outputs.pr }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Refuses a version that does not move forward.
+      - name: Bump build.zig.zon
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          python3 - "$BUMP" >> "$GITHUB_OUTPUT" <<'EOF'
+          import re, sys
+          how = sys.argv[1]
+          text = open("build.zig.zon").read()
+          line = re.compile(r'(\.version\s*=\s*")(\d+)\.(\d+)\.(\d+)(")')
+          m = line.search(text) or sys.exit('build.zig.zon has no .version = "X.Y.Z"')
+          old = tuple(int(g) for g in m.group(2, 3, 4))
+          major, minor, patch = old
+          new = {"major": f"{major + 1}.0.0", "minor": f"{major}.{minor + 1}.0", "patch": f"{major}.{minor}.{patch + 1}"}.get(how, how)
+          n = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", new)
+          if not n or tuple(map(int, n.groups())) <= old:
+              sys.exit(f"{how!r} is not patch, minor, major or an X.Y.Z above {major}.{minor}.{patch}")
+          open("build.zig.zon", "w").write(line.sub(rf"\g<1>{new}\g<5>", text, count=1))
+          print(f"version={new}")
+          EOF
+
+      - name: Open the release pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          branch="release/v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "release: v$VERSION"
+          git push origin "$branch"
+          url=$(gh pr create --base main --head "$branch" --title "release: v$VERSION" \
+            --body "Moves the version to $VERSION. The Publish run that opened this tests it, merges it, and releases v$VERSION to GitHub and PyPI.")
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
+
+  # The `test` job of test.yaml, on the release branch.
+  test:
+    needs: bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.bump.outputs.branch }}
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@9383ce2bf08796b65508822f5982f49151badc4e # main
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@f69a2d3e148e90223fe63ab6e3f6331f2e7e33dc # main
+
+      - name: Zig tests
+        run: nix develop .#ci --command zig build test
+
+      # Assigned before they are exported, so a failed build fails the step.
+      - name: Python tests
+        run: |
+          SPRACK_TEST_PDKS=$(nix build .#test-pdks --no-link --print-out-paths)
+          SPRACK_TEST_PDKS_INSTALLED=$(nix build .#test-pdks-installed --no-link --print-out-paths)
+          ngspice=$(nix build --inputs-from . nixpkgs#ngspice --no-link --print-out-paths)
+          export SPRACK_TEST_PDKS SPRACK_TEST_PDKS_INSTALLED PATH="$ngspice/bin:$PATH"
+          nix develop .#ci --command sh -c 'zig build py && cd python && python3 test_sprack.py'
+
+  merge:
+    needs: [bump, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+    steps:
+      - name: Merge the tested release pull request
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.bump.outputs.pr }}
+        run: |
+          gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --merge --delete-branch
+          sha=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json mergeCommit -q .mergeCommit.oid)
+          [ -n "$sha" ] || { echo "::error::pull request $PR has no merge commit"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  # ── A version bump merged by hand ──
+  check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: A version this push moved, and not yet tagged?
+        id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          version() { sed -n 's/^ *\.version = "\(.*\)",$/\1/p' | head -1; }
+          v=$(version < build.zig.zon)
+          git fetch -q --depth=1 origin "$BEFORE"
+          was=$(git show "$BEFORE:build.zig.zon" | version)
+          if [ "$v" = "$was" ]; then
+            echo "build.zig.zon changed but the version is still $v; nothing to publish"
+          elif git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+            echo "v$v is already released; nothing to publish"
+          else
+            echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Both paths: build, release and upload ──
+  # Refuse a tag that disagrees with build.zig.zon, and fix the commit.
+  version:
+    needs: [bump, merge, check]
+    if: always() && (needs.merge.result == 'success' || needs.check.outputs.tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.merge.outputs.sha }}
+      - name: The tag is the version in build.zig.zon
+        id: version
+        env:
+          TAG: ${{ needs.check.outputs.tag || format('v{0}', needs.bump.outputs.version) }}
+        run: |
+          v=$(sed -n 's/^ *\.version = "\(.*\)",$/\1/p' build.zig.zon | head -1)
+          [ "v$v" = "$TAG" ] || { echo "::error::build.zig.zon is $v, tag is $TAG"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # The `wheel` job of test.yaml, once per platform: the extension is abi3,
+  # so one wheel serves CPython 3.10 and later. Zig from setup-zig, not nix,
+  # so macOS needs no Nix install.
+  wheels:
+    needs: version
+    if: always() && needs.version.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.18.0-dev.349+d924f83bf
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.10"
+
+      - name: Build the wheel
+        run: python -m pip wheel . -w dist --no-deps
+
+      # The tag must match what the binary needs: glibc 2.28 on Linux, and on
+      # macOS the minos Zig wrote into LC_BUILD_VERSION.
+      - name: Check the platform tag
+        run: |
+          ls dist
+          if [ "$RUNNER_OS" = Linux ]; then
+            ls dist/*-manylinux_2_28_x86_64.whl
+            python -m pip install auditwheel
+            python -m auditwheel show dist/*.whl | tr '\n' ' ' | grep -q '"manylinux_2_28_x86_64"'
+          else
+            ls dist/*-macosx_11_0_arm64.whl
+            unzip -p dist/*.whl sprack/_core.abi3.so > "$RUNNER_TEMP/core.so"
+            otool -l "$RUNNER_TEMP/core.so" | grep -A4 LC_BUILD_VERSION | grep -q 'minos 11.0'
+          fi
+
+      # Run the tests from outside the checkout so `import sprack` finds the
+      # installed wheel, not python/sprack/.
+      - name: Test the installed wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install dist/*.whl
+          cp python/test_sprack.py "$RUNNER_TEMP/"
+          export SPRACK_GRAMMARS="$PWD/grammars"
+          cd "$RUNNER_TEMP"
+          venv/bin/python -c 'import sprack; print(sprack.__file__)'
+          venv/bin/python test_sprack.py
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    needs: version
+    if: always() && needs.version.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.18.0-dev.349+d924f83bf
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.10"
+
+      # The backend's own PEP 517 hook: what `python -m build --sdist` calls,
+      # with nothing to install first.
+      - name: Build the sdist
+        run: |
+          mkdir dist
+          python -c "import sys; sys.path.insert(0, 'tools'); import wheel_backend; print(wheel_backend.build_sdist('dist'))"
+
+      - name: The sdist builds a wheel
+        run: python -m pip wheel dist/*.tar.gz -w "$RUNNER_TEMP/from-sdist" --no-deps
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # The tag and the GitHub release, on the commit that was built.
+  release:
+    needs: [version, wheels, sdist]
+    if: always() && needs.wheels.result == 'success' && needs.sdist.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the tag and the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          SHA: ${{ needs.version.outputs.sha }}
+        run: |
+          ls dist
+          pre=
+          case "$TAG" in *-*) pre=--prerelease ;; esac
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$SHA" --generate-notes $pre dist/*
+
+  pypi:
+    needs: release
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sprack/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

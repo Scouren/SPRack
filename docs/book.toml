@@ -1,0 +1,8 @@
+[book]
+title = "SPRack"
+description = "SPRack: a SPICE dialect translator"
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
