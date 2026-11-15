@@ -1338,6 +1338,12 @@ const fuzzed_grammars = [_]struct { src: []const u8, msg: []const u8 }{
     // An empty operator spelling matched without moving: the reader looped
     // on `B1 o 0 V={v(a)+1}` until it ran out of memory.
     .{ .src = "dialect x\nlexer\n  expr after-equals\nend\nrule bsource = name~\"B\" pos neg { v=v ...params }\noperators\n  pow \"\"\nend\n", .msg = "f.spgrammar:7: empty string" },
+    // The wildcard `_` where only a named slot can stand indexed the
+    // kind's slots with it.
+    .{ .src = "dialect x\nlexer\nend\nrule resistor = name pos neg r _...\n", .msg = "f.spgrammar:4: unknown slot '_' for kind 'resistor'" },
+    .{ .src = "dialect x\nlexer\nend\nrule resistor = name pos neg r _:\"a\"\n", .msg = "f.spgrammar:4: unknown slot '_'" },
+    .{ .src = "dialect x\nlexer\nend\nrule resistor = name pos neg r { ..._ }\n", .msg = "f.spgrammar:4: unknown slot '_'" },
+    .{ .src = "dialect x\nlexer\nend\nrule resistor = name pos neg r -_\n", .msg = "f.spgrammar:4: unknown slot '_'" },
 };
 
 test "fuzz: mutated grammars are refused with a diagnostic" {

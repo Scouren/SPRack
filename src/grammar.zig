@@ -521,8 +521,9 @@ const P = struct {
         return p.peek() == '"' or p.peek() == '\'';
     }
 
+    /// A named slot of the rule's kind. `_` is not one: only a capture
+    /// may be the wildcard, and the capture checks for it first.
     fn slotOf(p: *P, name: []const u8) Error!u8 {
-        if (std.mem.eql(u8, name, "_")) return wild_slot;
         return schema.slotIndex(p.kind, name) orelse {
             var known: []const u8 = "";
             for (schema.info(p.kind).slots) |s| known = try p.c.cat(try p.c.cat(known, " "), s.name);
@@ -686,7 +687,7 @@ const P = struct {
             }
             return .{ .tag = .taglit, .slot = slot, .text = try p.lit(text), .atom = atom, .soft = soft };
         }
-        var n: Node = .{ .tag = .cap, .slot = try p.slotOf(name) };
+        var n: Node = .{ .tag = .cap, .slot = if (std.mem.eql(u8, name, "_")) wild_slot else try p.slotOf(name) };
         while (true) {
             switch (p.peek()) {
                 '~' => {
