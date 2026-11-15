@@ -119,6 +119,27 @@ Order, by deck count:
 
 1. [ ] **Parameter sweeps (4.1):** `.dc` param, `.step`, `.temp` lists, `.alter`, `.data`, Spectre `sweep`.
 2. [ ] **Analyses (4.2):** `pss`, HSPICE `pz`, `mc`/`variation`, `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
+   - [x] **Periodic small-signal (b3):** kinds `pac`, `pnoise`, `pxf`, `psp`,
+     each with `engine=hb` for the harmonic-balance form. Spectre
+     `pac`/`hbac`, `pnoise`/`hbnoise`, `pxf`/`hbxf`, `psp`/`hbsp`; HSPICE
+     `.SNAC`/`.HBAC`, `.SNNOISE`/`.HBNOISE`, `.SNXF`/`.HBXF`, `.HBLIN`;
+     VACASK `pac` and `pnoise`, on the period given on the same statement.
+   - [x] **The rest of the Spectre list (b3):** `xf` (also VACASK `acxf`),
+     `dcmatch` (also HSPICE `.DCMATCH`), `envlp` (`envelope`), `qpss`;
+     `stb` now also reads and writes HSPICE `.LSTB mode=single`.
+   - [x] **HSPICE `.TRANNOISE` and `.PHASENOISE` (b3):** kinds `trannoise`
+     and `phasenoise`.
+   - [ ] **Left:** HSPICE `.SN TRES= PERIOD=` (3 decks; the period-and-step
+     form needs a per-rule conversion), the keyword `.HBOSC` (needs an
+     oscillator node on `hb` and `pss`), `.LSTB mode=diff|comm`, and a
+     VACASK `pac`/`pnoise` written from a Spectre or HSPICE one (the period
+     is on the `pss` before it).
+   - **Out of scope, ESPice-only syntax** (HSPICE Y-2026.03 ignores each as an
+     unknown card): `.pss f0 [points]` and `.pss v(osc) ...`, `.pac`, `.pxf`,
+     `.pnoise`, `.qpss`, `.envelope`, `.matex`, `.stb Vprobe ...`, and the
+     `.trannoise tstep tstop`, `.hbac ... f0 K` and `.hbosc v(osc) f0 K`
+     forms, which HSPICE refuses. ESPice's own `.pss` and `.stb` rules were
+     already in its grammar and stay.
 3. [ ] **Devices (4.3):** P, O, Y and W lines; `poly`/`table`/`laplace` sources.
 4. [ ] **Source forms (4.4)** and **output forms (4.5).**
 5. [ ] **Spectre structure (4.6).** `statistics` blocks come first: they are the 179 IHP errors.
