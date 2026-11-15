@@ -229,7 +229,7 @@ supported simulator defines.
   mismatches -> 79. Left: a loop that runs through a subcircuit instance
   is not seen; ESPice and LTspice state no `requires` (not measured).
 
-- [x] **6.2 HSPICE reader gaps from ESPice (c4).** Per-dialect TNOM/TEMP
+- [x] **6.3 HSPICE reader gaps from ESPice (c4).** Per-dialect TNOM/TEMP
   defaults (`implied options`, written where the target's differ), SFFM
   order in ngspice/ESPice, GSHUNT/CSHUNT/DELMAX, `.DCVOLT`, `.PZ v(out) src`
   as ngspice node pairs, multi-segment `.TRAN`, `.OPTION SEARCH` in
