@@ -270,6 +270,17 @@ convert sp sweep=lin : points = points - 1
 convert stb sweep=lin : points = points - 1
 
 # Source parameters whose VACASK default is not SPICE's (lib/devvisrc.cpp:90-140).
+# Where the netlist has a .tran, SPICE's default is written out instead.
+default vsource rise=0 wave=pulse : tran.step
+default isource rise=0 wave=pulse : tran.step
+default vsource fall=0 wave=pulse : tran.step
+default isource fall=0 wave=pulse : tran.step
+default vsource width wave=pulse : tran.stop
+default isource width wave=pulse : tran.stop
+default vsource tau1 wave=exp : tran.step
+default isource tau1 wave=exp : tran.step
+default vsource tau2 wave=exp : tran.step
+default isource tau2 wave=exp : tran.step
 invalid vsource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
 invalid isource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
 invalid vsource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step

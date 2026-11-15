@@ -2939,3 +2939,24 @@ test "instance parameters: renamed for the target, a loss where its device lacks
     try has(ng, "R1 a b 1k noisy=0 dtemp=2\n");
     try clean(&r3);
 }
+
+test "a zero or missing pulse rise is SPICE's .tran step, written out where the target needs it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 a 0 pulse(0 1 0 0 0 10n 20n)\nV2 b 0 pulse(0 1 1n)\nR1 a b 1k\n.tran 2n 50n\n.end\n";
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", src, &r1);
+    try has(sp, "V1 (a 0) vsource type=pulse val0=0 val1=1 delay=0 rise=2n fall=2n width=10n period=20n\n");
+    try has(sp, "V2 (b 0) vsource type=pulse val0=0 val1=1 delay=1n rise=2n fall=2n\n");
+    try reported(&r1, .warning, "vsource.rise is 0: ngspice means the tran.step by that, and spectre needs it said; wrote 2n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", src, &r2);
+    try has(va, "delay=1n rise=2n fall=2n width=50n\n");
+    try clean(&r2);
+    // No .tran to take the step from: the value cannot be known.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 pulse(0 1 0 0 0 10n 20n)\n.op\n.end\n", &r3);
+    try reported(&r3, .@"error", "vsource.rise is 0: Spectre refuses a zero rise time");
+}

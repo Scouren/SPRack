@@ -210,6 +210,21 @@ pub const Check = struct {
     text: []const u8,
 };
 
+/// `default kind slot[=0] [slot=atom] : kind.slot`: where a statement
+/// crossing into this dialect leaves the slot out (or, with `=0`, gives it
+/// as zero) and its own dialect means "the default" by that, this dialect
+/// needs the default written: the value of `from_slot` on the netlist's
+/// first `from` statement (a pulse's rise time is the `.tran` step).
+pub const Fill = struct {
+    kind: Kind,
+    slot: u8,
+    zero: bool,
+    when_slot: u8 = no_slot,
+    when_atom: []const u8 = "",
+    from: Kind,
+    from_slot: u8,
+};
+
 /// Something a reader of the translated netlist should know when a slot
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
 pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8 };
@@ -282,6 +297,15 @@ pub const Grammar = struct {
     differs: []const Differs = &.{},
     thresholds: []const Threshold = &.{},
     params: []const ParamTable = &.{},
+    fills: []const Fill = &.{},
+
+    /// Does this dialect give the slot a meaning of its own when it is
+    /// missing (an `invalid` line)? Then a missing value is not SPICE's
+    /// default, and no `default` line fills it.
+    pub fn checksSlot(g: *const Grammar, kind: Kind, slot: u8) bool {
+        for (g.checks) |ck| if (ck.kind == kind and ck.slot == slot) return true;
+        return false;
+    }
 
     pub fn paramsOf(g: *const Grammar, kind: Kind) ?[]const Spellings {
         for (g.params) |t| if (t.kind == kind) return t.names;
@@ -1107,6 +1131,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var differs: []const Differs = &.{};
     var thresholds: []const Threshold = &.{};
     var params: []const ParamTable = &.{};
+    var fills: []const Fill = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1265,6 +1290,17 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var ck: Check = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .text = rest[colon + 3 ..] };
             if (ks.len == 3) ck.when_slot, ck.when_atom = try condition(c, no, kind, ks[2]);
             checks = try c.add(Check, checks, ck);
+        } else if (std.mem.eql(u8, head, "default")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "default is `default kind slot[=0] [slot=atom] : kind.slot`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len < 2 or ks.len > 3) return c.fail(no, "default needs a kind, a slot and at most one condition", .{});
+            const kind = try kindOf(c, no, ks[0]);
+            const zero = std.mem.endsWith(u8, ks[1], "=0");
+            const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
+            const fk, const fs = try dotted(c, no, std.mem.trim(u8, rest[colon + 3 ..], " \t"));
+            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs };
+            if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
+            fills = try c.add(Fill, fills, f);
         } else if (std.mem.eql(u8, head, "models")) {
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
@@ -1346,6 +1382,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .differs = differs,
         .thresholds = thresholds,
         .params = params,
+        .fills = fills,
     };
 }
 

@@ -1264,6 +1264,54 @@ const Writer = struct {
         }
     }
 
+    /// Apply the grammar's `default` lines: a value a statement from another
+    /// dialect leaves to that dialect's default (a SPICE pulse's rise time
+    /// is the `.tran` step) is written out where this dialect needs it.
+    /// Where the netlist has nothing to take it from, nothing is filled and
+    /// the dialect's `invalid` line says why.
+    fn fill(w: *Writer, stmts: []ir.Stmt, all: []const ir.Stmt) Allocator.Error![]ir.Stmt {
+        var list: ?[]ir.Stmt = null;
+        for (stmts, 0..) |*st, i| {
+            var cur = st.*;
+            var changed = false;
+            if (st.body.len > 0) {
+                const b = try w.fill(st.body, all);
+                if (b.ptr != st.body.ptr) {
+                    cur.body = b;
+                    changed = true;
+                }
+            }
+            for (w.g.fills) |f| {
+                if (f.kind != st.kind or std.mem.eql(u8, w.sourceOf(st), w.g.name)) continue;
+                if (f.when_slot != grammar.no_slot) {
+                    const c = cur.at(f.when_slot);
+                    if (c != .atom or !std.mem.eql(u8, c.atom, f.when_atom)) continue;
+                }
+                const v = cur.at(f.slot);
+                const zero = v == .num and v.num.toFloat() == 0;
+                if (v != .none and !(f.zero and zero)) continue;
+                // A source dialect with a default of its own means that one.
+                if (w.sourceGrammar(st)) |sg| if (sg.checksSlot(f.kind, f.slot)) continue;
+                const from = firstValue(all, f.from, f.from_slot) orelse continue;
+                try cur.own(w.arena);
+                try cur.set(w.arena, f.slot, from);
+                changed = true;
+                const sl = schema.info(f.kind).slots;
+                var em = w.emitter(w.arena, st);
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
+                    @tagName(f.kind), sl[f.slot].name,       if (zero) "is 0" else "is not given",
+                    w.sourceOf(st),   @tagName(f.from),      schema.info(f.from).slots[f.from_slot].name,
+                    w.g.name,         try em.describe(from),
+                });
+            }
+            if (changed) {
+                if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
+                list.?[i] = cur;
+            }
+        }
+        return list orelse stmts;
+    }
+
     /// Apply the grammar's `move` lines: values this dialect says on another
     /// statement are carried there before anything is written.
     fn applyMoves(w: *Writer, stmts: []const ir.Stmt) Allocator.Error![]const ir.Stmt {
@@ -1296,6 +1344,15 @@ const Writer = struct {
 /// The canonical name a dialect's `params` table gives a spelling.
 fn spellingCanon(table: []const grammar.Spellings, key: []const u8) ?[]const u8 {
     for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, key)) return e.canon;
+    return null;
+}
+
+/// The value of `slot` on the first statement of `kind` that has one.
+fn firstValue(stmts: []const ir.Stmt, kind: Kind, slot: u8) ?Value {
+    for (stmts) |*s| {
+        if (s.kind == kind and s.at(slot) != .none) return s.at(slot);
+        if (firstValue(s.body, kind, slot)) |v| return v;
+    }
     return null;
 }
 
@@ -1460,13 +1517,14 @@ pub fn write(
             for (n.lines) |l| try w.line(l);
         }
     }
+    const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
-        try w.check(g, nl.stmts);
+        try w.check(g, filled);
         if (caps) |c| for (c.grammars) |*sg| {
-            if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, nl.stmts);
+            if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, filled);
         };
     }
-    const gathered = try ir.gatherSteps(arena, nl.stmts);
+    const gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
     var stmts = try w.applyMoves(gathered);
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
