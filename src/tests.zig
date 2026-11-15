@@ -2369,6 +2369,7 @@ test "gap: a project keeps Verilog-A sources and section spellings" {
     const va_copied = if (tmp.dir.access(io, "out/cap.va", .{})) |_| true else |_| false;
     try testing.expect(va_copied or std.mem.indexOf(u8, top, "ahdl_include \"./cap.va\"") == null);
     try testing.expect(std.mem.indexOf(u8, log.written(), "OSDI") == null);
+}
 
 test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stability" {
     var arena_state: Arena = .init(testing.allocator);
