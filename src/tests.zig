@@ -3270,3 +3270,14 @@ test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no plac
     try has(ng, "R1 a 0 1k m=2 tc=1m\n");
     try has(ng, "M1 d g 0 0 nm w=1u l=1u m=3 sa=1u\n");
 }
+
+test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // ngspice takes a zero PW as the final time; VACASK's width=0 has no flat top.
+    const va = try tr(a, "ngspice", "vacask", "t\nV1 a 0 PULSE(0 1 0 1n 1n 0 0)\nR1 a 0 1k\n.tran 10n 1u\n.end\n", &report);
+    try has(va, "width=1u period=0\n");
+    try reported(&report, .warning, "vsource.width is 0: ngspice means the tran.stop by that");
+}

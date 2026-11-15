@@ -278,8 +278,8 @@ default vsource rise=0 wave=pulse : tran.step
 default isource rise=0 wave=pulse : tran.step
 default vsource fall=0 wave=pulse : tran.step
 default isource fall=0 wave=pulse : tran.step
-default vsource width wave=pulse : tran.stop
-default isource width wave=pulse : tran.stop
+default vsource width=0 wave=pulse : tran.stop
+default isource width=0 wave=pulse : tran.stop
 default vsource tau1 wave=exp : tran.step
 default isource tau1 wave=exp : tran.step
 default vsource tau2 wave=exp : tran.step
@@ -288,8 +288,8 @@ invalid vsource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n;
 invalid isource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
 invalid vsource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step
 invalid isource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step
-invalid vsource width wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
-invalid isource width wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
+invalid vsource width=0 wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
+invalid isource width=0 wave=pulse : a VACASK pulse without a width has no flat top; SPICE holds it to the end of the run
 invalid vsource freq=0 wave=sine : VACASK's default frequency is 1k; SPICE's is 1/TSTOP
 invalid isource freq=0 wave=sine : VACASK's default frequency is 1k; SPICE's is 1/TSTOP
 invalid vsource tau1 wave=exp : VACASK's default rise time constant is 0; SPICE's is the time step
