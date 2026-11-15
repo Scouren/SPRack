@@ -72,6 +72,11 @@ const Scope = struct {
     lines: std.ArrayList(u32) = .empty,
     dc: Sets = .{},
     edges: std.ArrayList(Edge) = .empty,
+    /// Names of the sources and inductors in `edges`: a later definition
+    /// of one (an `.alter`) replaces it, and makes no loop with it.
+    edge_names: ir.CaselessSet = .empty,
+    /// A line no rule understood may be a device: the scope is not checked.
+    unread: bool = false,
     terms: std.ArrayList(Term) = .empty,
 
     fn deinit(sc: *Scope, gpa: Allocator) void {
@@ -80,6 +85,7 @@ const Scope = struct {
         sc.lines.deinit(gpa);
         sc.dc.up.deinit(gpa);
         sc.edges.deinit(gpa);
+        sc.edge_names.deinit(gpa);
         sc.terms.deinit(gpa);
     }
 };
@@ -186,6 +192,7 @@ fn instanceSummary(cx: *Cx, s: *const Stmt) Allocator.Error!?Summary {
 fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .subckt) continue;
+        if (s.kind == .@"opaque") sc.unread = true;
         if (s.body.len > 0) try walk(cx, sc, s.body, branch or s.kind == .cond_if);
         if (schema.info(s.kind).class != .device) continue;
         const sum = try instanceSummary(cx, s);
@@ -195,17 +202,29 @@ fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!
                 sc.dc.join(t.node, if (gi == grounded) 0 else ts[gi].node);
             }
         } else {
-            var first: ?u32 = null;
+            // A Verilog-A module or a cell defined elsewhere may also
+            // reach ground inside (`V(out) <+ ...`): take it as reaching it.
+            const inside = switch (s.kind) {
+                .device, .xspice, .instance => true,
+                else => false,
+            };
+            var first: ?u32 = if (inside) 0 else null;
             for (ts) |t| if (t.conducts) {
                 if (first) |f| sc.dc.join(f, t.node) else first = t.node;
             };
         }
         const volt = switch (s.kind) {
-            .vsource, .vcvs, .ccvs => true,
+            // An RF port (portnum) has its z0 in series: not a voltage source.
+            .vsource => if (s.get("portnum") != .none) continue else true,
+            .vcvs, .ccvs => true,
             .inductor => false,
             else => continue,
         };
-        if (ts.len >= 2 and ts[0].conducts and ts[1].conducts and !branch) try sc.edges.append(cx.gpa, .{ .a = ts[0].node, .b = ts[1].node, .s = s, .volt = volt });
+        if (ts.len < 2 or !ts[0].conducts or !ts[1].conducts or branch) continue;
+        if (nodeName(s.get("name"))) |name| {
+            if ((try sc.edge_names.fetchPut(cx.gpa, name, {})) != null) continue;
+        }
+        try sc.edges.append(cx.gpa, .{ .a = ts[0].node, .b = ts[1].node, .s = s, .volt = volt });
     }
 }
 
@@ -219,6 +238,8 @@ fn summarize(cx: *Cx, def: *const Stmt) Allocator.Error!?Summary {
     var idx = try cx.arena.alloc(u32, plist.len);
     for (plist, 0..) |p, i| idx[i] = (try node(cx, &sc, p, def.line)) orelse 0;
     try walk(cx, &sc, def.body, false);
+    // Not understood, it is a cell whose paths are not known (null).
+    if (sc.unread) return null;
     const group = try cx.arena.alloc(u32, plist.len);
     for (idx, 0..) |n, i| {
         const r = sc.dc.find(n);
@@ -482,5 +503,5 @@ pub fn check(gpa: Allocator, arena: Allocator, nl: *const ir.Netlist, g: *const 
     var sc = try newScope(&cx);
     defer sc.deinit(gpa);
     try walk(&cx, &sc, nl.stmts, false);
-    try finish(&cx, &sc, nl.stmts, &.{}, "");
+    if (!sc.unread) try finish(&cx, &sc, nl.stmts, &.{}, "");
 }

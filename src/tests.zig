@@ -3503,3 +3503,26 @@ test "topology: subcircuits carry their DC paths to the instance, and are checke
     r = try topo(a, "vacask", "t\n.global vdd\n.subckt inv i o\nM1 o i vdd vdd pm\nM2 o i 0 0 nm\n.ends\n.model nm nmos level=1\n.model pm pmos level=1\nX1 a b inv\nVa a 0 1\nVdd vdd 0 1\n.op\n.end\n");
     try testing.expectEqual(0, r.items.items.len);
 }
+
+test "topology: no alarm where the netlist does not say enough" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const cases = [_][]const u8{
+        // A Verilog-A module may drive its one terminal against ground.
+        "t\n.model pm v_pulse rout=1k\nN1 y pm\nC1 y 0 1p\n.tran 1n 10n\n.end\n",
+        // A line no rule understood may be the device that gives the path.
+        "t\nP1 b 0 port=2 z0=1k\nC2 b 0 1n\n.tran 1n 10n\n.end\n",
+        // An RF port has its z0 in series: no loop with the inductor.
+        "t\nVp out 0 DC 0 AC 1 portnum 1 z0 50\nL1 out 0 1m\n.ac dec 3 1k 1meg\n.end\n",
+        // An .alter's redefinition replaces the source; it is not a second one.
+        "t\nV1 a 0 1\nR1 a 0 1k\n.op\n.alter\nV1 a 0 2\n.end\n",
+    };
+    for (cases) |src| {
+        const r = try topo(a, "vacask", src);
+        if (r.items.items.len != 0) {
+            dumpReport(&r);
+            return error.TestUnexpectedReport;
+        }
+    }
+}

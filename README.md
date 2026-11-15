@@ -373,6 +373,13 @@ no single rule holds everything, which is how `.options timeint ...` and
     unique master : ...                # or a name both a model and a subcircuit
                                        # define, is refused here: an error
     reserved vt temp : ...             # parameter names the simulator refuses
+    requires dc-path error : ...       # a topology the simulator cannot solve, and
+                                       # whether it is an error or a warning here:
+                                       # dc-path (nodes no DC path reaches ground),
+                                       # no-vloop, no-vlloop, no-lloop (a loop of
+                                       # voltage sources, of sources and inductors,
+                                       # of inductors). An `invalid` entry naming
+                                       # the nodes or elements; src/topology.zig
     spread montecarlo                  # a block written by adding its rule to each
                                        # analysis of its body (`sweep monte=30`)
     spread step "sweep"                # the same; only the rules starting with
@@ -448,6 +455,7 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
     src/reader.zig         pattern matcher: text to statements
     src/writer.zig         patterns in reverse: statements to text
     src/expr.zig           expressions
+    src/topology.zig       circuits a target cannot solve (`requires`)
     src/ir.zig             statements, values, reports, circuit comparison
     src/json.zig           the IR as JSON
     src/project.zig        include following, shared declarations, catalogue
@@ -495,4 +503,11 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   the simulators ship different versions of the same model. Instance
   parameters are checked (`params` tables) for resistors, capacitors,
   inductors, current sources, diodes, BJTs and JFETs, and HSPICE MOSFETs.
+* The topology check (`requires`) runs when translating between two
+  dialects, not on a deck written back in its own. It follows DC paths
+  through subcircuit instances but finds a loop of sources and inductors
+  only within one subcircuit or the top level. A device whose DC behaviour
+  depends on its model (behavioural sources, Verilog-A, transmission lines,
+  cells defined in other files) is taken to join all its terminals, and the
+  branches of a conditional all count, so it errs towards no alarm.
 * The whole netlist is held in memory, at about 4 to 7 times its size.
