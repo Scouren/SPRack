@@ -550,7 +550,7 @@ test "comments, blank lines and trailing comments are carried over" {
     , &report);
     try has(sp,
         \\// Bias network
-        \\simulator lang=spectre
+        \\simulator lang=spectre insensitive=yes
         \\global 0
         \\// --- supplies ---
         \\V1 (vdd 0) vsource dc=1.8 // core supply
@@ -2593,6 +2593,37 @@ test "statistics: Spectre blocks, SPICE random functions, HSPICE variation" {
     try reported(&r6, .@"error", "vary.model = rm has no spelling in spectre");
 }
 
+test "Spectre: insensitive=yes from a source that folds case, kept from Spectre" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const folded = "simulator lang=spectre insensitive=yes\nglobal 0\n";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "spectre", "t\nV1 IN 0 1\nr1 in 0 1k\n.end\n", &r1), "// t\n" ++ folded ++ "V1 (IN 0) vsource dc=1\nr1 (IN 0) resistor r=1k\n");
+    try clean(&r1);
+    // Spectre to Spectre: the header the source had, first line or a later switch.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", "// t\nsimulator lang=spectre\nr1 (a 0) resistor r=1k\n", &r2), "// t\nsimulator lang=spectre\nglobal 0\nr1");
+    var r3: ir.Report = .init(a);
+    const ins = "// t\nsimulator lang=spectre insensitive=yes\nr1 (a 0) resistor r=1k\n";
+    try has(try tr(a, "spectre", "spectre", ins, &r3), "// t\n" ++ folded ++ "r1 (a 0) resistor r=1k\n");
+    try clean(&r3);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", "// t\nsimulator lang=spectre\nr1 (a 0) resistor r=1k\nsimulator lang=spectre insensitive=yes\nr2 (a 0) resistor r=1k\n", &r4), "// t\n" ++ folded ++ "r1 (a 0) resistor r=1k\nr2 (a 0) resistor r=1k\n");
+    // Folding merges names the source kept apart.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "spectre", "// t\nsimulator lang=spectre\nr1 (a 0) resistor r=1k\nsimulator lang=spectre insensitive=yes\nR1 (b 0) resistor r=1k\n", &r5);
+    try reported(&r5, .@"error", "'r1' and 'R1' are different names in the source but the same name in spectre");
+    // Nothing of it reaches a SPICE dialect, which folds case anyway.
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", ins, &r6), "t\nr1 a 0 1k\n.end\n");
+    try clean(&r6);
+    // The reader records it; the JSON form carries it as `folds_case`.
+    var r7: ir.Report = .init(a);
+    const nl = try sprack.read(a, sprack.find("spectre").?, ins, &r7);
+    try testing.expect(nl.folds_case);
+}
+
 test "Spectre: a simulator lang=spice section is read as HSPICE" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -2616,6 +2647,9 @@ test "Spectre: a simulator lang=spice section is read as HSPICE" {
     const sp = try tr(a, "spectre", "spectre", src, &r2);
     try clean(&r2);
     try has(sp, "r0 (a 0) resistor r=1k\nparameters rv=2k\nR1 (a b) resistor r=rv*2\nr2 (b 0) resistor r=3k\n");
+    // Spectre reads the spice section ignoring case; written in Spectre's
+    // syntax, it keeps that only with insensitive=yes.
+    try has(sp, "// t\nsimulator lang=spectre insensitive=yes\nglobal 0\n");
     // Line numbers are the file's.
     var r3: ir.Report = .init(a);
     _ = try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spice\n.bogus x\n", &r3);

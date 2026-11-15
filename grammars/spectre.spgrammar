@@ -40,6 +40,18 @@ header
   simulator lang=spectre
 end
 
+# The header instead when the source folds case (every SPICE dialect, or a
+# Spectre file that said so). Measured on decks written for it, loaded in
+# Spectre 23.10 (module and model names in 25.10 too): with it, instance,
+# node, model, subcircuit and parameter names match whatever their case,
+# and so do Verilog-A module names and their model and instance
+# parameters. It holds for one file only: a file included with the plain
+# header is case sensitive again, so every file of a translated tree
+# carries it.
+header folded
+  simulator lang=spectre insensitive=yes
+end
+
 # In the top netlist only.
 preamble
   global 0

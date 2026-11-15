@@ -1046,6 +1046,9 @@ const Reader = struct {
     /// Index into the matcher's window.
     ti: usize = 0,
     boiler: []const []const u8 = &.{},
+    /// The grammar's `header folded` lines, normalized; seeing one sets `folded`.
+    folded_boiler: []const []const u8 = &.{},
+    folded: bool = false,
 
     fn toks(self: *const Reader) []const Tok {
         return self.m.win.toks.items;
@@ -1057,9 +1060,13 @@ const Reader = struct {
     }
 
     fn isBoilerplate(self: *Reader, text: []const u8) Allocator.Error!bool {
-        if (self.boiler.len == 0) return false;
+        if (self.boiler.len == 0 and self.folded_boiler.len == 0) return false;
         const n = try normalize(self.arena, self.g.lex.case_sensitive, text);
         for (self.boiler) |b| if (std.mem.eql(u8, b, n)) return true;
+        for (self.folded_boiler) |b| if (std.mem.eql(u8, b, n)) {
+            self.folded = true;
+            return true;
+        };
         return false;
     }
 
@@ -1727,6 +1734,7 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
     var from: usize = 0;
     var cur = g;
     var k: usize = 0;
+    var folds = false;
     while (from < lines.items.len) {
         const to = if (k < starts.items.len) starts.items[k] else lines.items.len;
         if (to > from) {
@@ -1739,6 +1747,7 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
             seg_opts.library = opts.library or from > 0;
             const nl = try readPlain(cur, arena, text.items, report, seg_opts);
             if (from == 0) title = nl.title;
+            folds = folds or nl.folds_case or !cur.lex.case_sensitive;
             const tag: u8 = if (cur == g) 0 else (try root.internDialect(cur.name)) orelse 0;
             for (nl.stmts) |st| {
                 // The blanked lines read as blank lines; they are not the file's.
@@ -1751,10 +1760,12 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
         if (k >= starts.items.len) break;
         const sw = switchOf(g, lines.items[starts.items[k]]).?;
         cur = root.find(sw.dialect) orelse g;
+        const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
+        for (cur.header_folded) |l| folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
         from = starts.items[k] + 1;
         k += 1;
     }
-    var nl: ir.Netlist = .{ .title = title, .dialect = g.name, .library = opts.library, .stmts = out.items };
+    var nl: ir.Netlist = .{ .title = title, .dialect = g.name, .library = opts.library, .folds_case = folds, .stmts = out.items };
     try ir.resolveInstances(arena, &nl, opts.env);
     return nl;
 }
@@ -1785,12 +1796,15 @@ fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.R
     for (g.needs) |n| {
         for (n.lines) |l| try boiler.append(arena, try normalize(arena, g.lex.case_sensitive, l));
     }
+    var folded: std.ArrayList([]const u8) = .empty;
+    for (g.header_folded) |l| try folded.append(arena, try normalize(arena, g.lex.case_sensitive, l));
     var r: Reader = .{
         .g = g,
         .arena = arena,
         .lines = lx.lines,
         .report = report,
         .boiler = boiler.items,
+        .folded_boiler = folded.items,
         .m = .{ .g = g, .arena = arena, .win = &win, .lines = lx.lines, .declared = &declared },
     };
     defer r.spell.deinit();
@@ -1798,6 +1812,7 @@ fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.R
     // decides depends on it.
     try r.collectDeclared(&declared);
     var nl: ir.Netlist = .{ .title = lx.title, .dialect = g.name, .library = opts.library, .stmts = try r.top() };
+    nl.folds_case = r.folded;
     try r.finish(nl.stmts);
     nl.stmts = try normalizeLists(g, arena, nl.stmts, report);
     try ir.markUnlistedBuiltins(arena, &nl);

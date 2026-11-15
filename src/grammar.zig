@@ -296,6 +296,9 @@ pub const Grammar = struct {
     /// Like the preamble, but written at the top of every file, included
     /// files too (`simulator lang=spectre`).
     header: []const []const u8 = &.{},
+    /// `header folded`: the header instead, when the source folds case
+    /// (`simulator lang=spectre insensitive=yes`). Read as the header too.
+    header_folded: []const []const u8 = &.{},
     needs: []const Needs,
     wraps: []const Wrap,
     raws: []const RawBlock,
@@ -1160,6 +1163,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var have_lexer = false;
     var preamble: []const []const u8 = &.{};
     var header: []const []const u8 = &.{};
+    var header_folded: []const []const u8 = &.{};
     var needs: []const Needs = &.{};
     var wraps: []const Wrap = &.{};
     var raws: []const RawBlock = &.{};
@@ -1204,7 +1208,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "preamble")) {
             preamble = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "header")) {
-            header = try literalLines(c, &lines);
+            if (std.mem.eql(u8, rest, "folded")) {
+                header_folded = try literalLines(c, &lines);
+            } else if (rest.len > 0) {
+                return c.fail(no, "`header {s}`: only `header folded` takes a word", .{rest});
+            } else header = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "needs")) {
             if (schema.kindFromName(rest) == null and schema.familyKind(rest) != null) {
                 needs = try c.add(Needs, needs, .{ .kind = .model, .family = rest, .lines = try literalLines(c, &lines) });
@@ -1450,6 +1458,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .lex = lex,
         .preamble = preamble,
         .header = header,
+        .header_folded = header_folded,
         .needs = needs,
         .wraps = wraps,
         .raws = raws,

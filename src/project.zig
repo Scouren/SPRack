@@ -553,13 +553,14 @@ test "a small project: includes followed, declarations shared, tree copied" {
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed") != null);
 
     const top = try tmp.dir.readFileAlloc(io, "out/top.sp", a, .unlimited);
-    try std.testing.expect(std.mem.indexOf(u8, top, "// Top netlist\nsimulator lang=spectre\nglobal 0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, top, "// Top netlist\nsimulator lang=spectre insensitive=yes\nglobal 0\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, top, "include \"models/corners.lib\" section=tt\n") != null);
     // Recognised as a transistor of a model declared elsewhere in the project.
     try std.testing.expect(std.mem.indexOf(u8, top, "M1 (d g 0 0) nch w=1u l=1u\n") != null);
     const lib = try tmp.dir.readFileAlloc(io, "out/models/corners.lib", a, .unlimited);
-    // An included file: no title, no `global`, but it does say its language.
-    try std.testing.expect(std.mem.startsWith(u8, lib, "simulator lang=spectre\n// corners\nsection tt\ninclude \"nch.mod\"\nendsection tt\n"));
+    // An included file: no title, no `global`, but it does say its language,
+    // and that HSPICE ignores case: in Spectre the setting is per file.
+    try std.testing.expect(std.mem.startsWith(u8, lib, "simulator lang=spectre insensitive=yes\n// corners\nsection tt\ninclude \"nch.mod\"\nendsection tt\n"));
     const mod = try tmp.dir.readFileAlloc(io, "out/models/nch.mod", a, .unlimited);
     try std.testing.expect(std.mem.indexOf(u8, mod, "model nch bsim4 type=n vth0=0.4\n") != null);
 

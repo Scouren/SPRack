@@ -312,6 +312,7 @@ compile error with the file and line.
     end
 
     header   ... end                   # lines at the top of every file
+    header folded ... end              # instead, when the source folds case
     preamble ... end                   # lines at the top of the top netlist only
     needs resistor ... end             # lines written once if the kind is used
     wrap "control" "endc" : op dc tran # these kinds are collected into one block

@@ -285,6 +285,10 @@ pub const Netlist = struct {
     /// Name of the dialect this was read from.
     dialect: []const u8 = "",
     library: bool = false,
+    /// Names differing only by case are one name although the dialect is
+    /// case sensitive: the file said so (`header folded`), or part of it is
+    /// in a dialect that folds case. A dialect that folds case implies it.
+    folds_case: bool = false,
     stmts: []Stmt = &.{},
 
     pub fn eql(a: *const Netlist, b: *const Netlist) bool {

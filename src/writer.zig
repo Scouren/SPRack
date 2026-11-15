@@ -1721,7 +1721,11 @@ pub fn write(
         var fi = e.funcs.keyIterator();
         while (fi.next()) |k| try w.funcs.put(arena, k.*, {});
     }
-    if (!g.lex.case_sensitive) {
+    // A case-sensitive target told to fold case (`header folded`) merges
+    // names the way a case-insensitive one does.
+    const fold_header = g.header_folded.len > 0 and (nl.folds_case or
+        if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
+    if (!g.lex.case_sensitive or fold_header) {
         var seen: CaseMaps = .{};
         defer seen.deinit();
         try checkCase(nl.stmts, &seen, report, g.name);
@@ -1731,7 +1735,7 @@ pub fn write(
     if (g.lex.title and !nl.library) {
         try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0) nl.title else "untitled" });
     }
-    for (g.header) |l| try w.line(l);
+    for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
     if (!nl.library) {
         for (g.preamble) |l| try w.line(l);
         var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);

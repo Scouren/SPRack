@@ -131,6 +131,7 @@ pub fn writeNetlist(w: *Writer, nl: *const ir.Netlist) Writer.Error!void {
     try str(w, nl.title);
     try w.writeAll(",\"dialect\":");
     try str(w, nl.dialect);
+    if (nl.folds_case) try w.writeAll(",\"folds_case\":true");
     try w.writeAll(",\"stmts\":");
     try stmts(w, nl.stmts);
     try w.writeAll("}\n");
@@ -400,6 +401,7 @@ pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allo
     if (root.object.get("dialect")) |t| if (t == .string) {
         nl.dialect = t.string;
     };
+    if (root.object.get("folds_case")) |t| nl.folds_case = t == .bool and t.bool;
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);
     return nl;
 }

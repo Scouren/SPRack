@@ -181,6 +181,12 @@ Order, by deck count:
    `.VARIATION`, mismatch and correlation into SPICE, Spectre `truncate`;
    a case-insensitive source needs `simulator lang=spectre insensitive=yes`
    in Spectre when Verilog-A parameter names are upper case (PSP103).
+   *Done (c1):* written in every file (`header folded`) from a dialect that
+   folds case, kept from a Spectre source; the setting is per file in
+   Spectre, so an included file with the plain header was what failed. It
+   covers Verilog-A module names too: the IHP tree loads with IHP's own
+   `.va` files unedited, and the inverter (2u/1u, l=0.13u, VDD 1.2 V)
+   crosses v(out)=v(in) at 0.6173038 V in Spectre and in ngspice.
 6. [x] **VACASK control language (4.7).** `print`, `postprocess`, `abort`,
    `elaborate` are `simctl` statements in the control block; every other
    dialect has a `no simctl` line saying why. An `embed` block written
