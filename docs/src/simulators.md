@@ -99,7 +99,7 @@ nothing.
 | `synthesized` | warning | the target needs a value the source did not give; one was written |
 | `caveat` | warning | written, but the two simulators do not mean quite the same |
 | `ambiguous` | warning | the same text means different things in the two dialects |
-| `rename` | info | a name got the device letter the target needs |
+| `rename` | info | a name got the device letter the target needs, or a parameter the target's spelling or number |
 | `oneway` | info | written in a form the target's own grammar does not read back |
 | `cosmetic` | info | something without meaning was not written (an analysis label) |
 

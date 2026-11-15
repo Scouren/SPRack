@@ -432,3 +432,14 @@ end
 # one of several words is not kept.
 rule  alter     = ".alter" [name]
 read  alter     = ".alter" ...
+
+# A model card's parameters that were measured, by ngspice name. A resistor's
+# DW and DLR, with RSH=1000 at five L and W (docs/verification.md 4.13):
+# ngspice's NARROW and SHORT, each taken off twice. NARROW and SHORT
+# themselves are ignored here with a warning. Where W - 2 DW is 0 the
+# resistance is a floor value with a warning, where ngspice is open.
+modelparams resistor
+  narrow = dw
+  short  = dlr
+end
+computes resistor narrow short : R = RSH (L - 2 DLR) / (W - 2 DW)

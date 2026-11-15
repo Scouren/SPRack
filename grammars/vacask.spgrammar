@@ -509,6 +509,15 @@ implied options temp = 27
 # No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
 move options.delmax -> tran.maxstep oneway
 
-# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
-# (docs/verification.md 4.13).
+# A model card's parameters that were measured, by ngspice name. sp_resistor's
+# NARROW and SHORT, with RSH=1000 at five L and W: ngspice's formula, and DW
+# and DLR name them too (docs/verification.md 4.13). sp_inductor's IND, the
+# inductance of a line that gives none, and its TC1 (docs/verification.md 9.2).
+modelparams resistor
+  narrow = narrow dw
+  short  = short dlr
+end
+modelparams inductor
+  same ind tc1
+end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)

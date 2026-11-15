@@ -218,10 +218,9 @@ noparam jfet level=2 error : ...   # a model parameter (with that value) the
                                    # by card) or warning (the same model, once a file)
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # how the family's model here computes with
-                                   # these parameters, as measured: a card with
-                                   # one of them crossing to a dialect that
-                                   # says another formula is copied with a
-                                   # `caveat` stating both
+                                   # these parameters, as measured: said, with
+                                   # the other dialect's line, in the error for
+                                   # a card that has no form in one of the two
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
@@ -246,6 +245,14 @@ params resistor                    # the instance parameters a device takes,
   same ac dtemp l m>0 w            # by canonical (ngspice) name; m>0: refused
   noisy = noise                    # at zero or less; canonical = spelling
 end
+modelparams inductor               # a model card's parameters of a family that
+  same tc1                         # were measured here, by canonical (ngspice)
+  ind = l                          # name; canonical = spellings, the first
+end                                # one written
+modelparams resistor
+  narrow = narrow / 2              # the canonical value is half the one here;
+  short  = narrow / 2              # two names of one spelling: one parameter
+end                                # here, for both
 models
   bsim4 n = nmos level=14 | nmos level=54     # first spelling is written
 end
@@ -256,6 +263,21 @@ table for its kind are renamed to that dialect's spelling (an info
 `rename`); one its device does not take is a `loss` error and is not
 written. A kind without a table is not checked, and neither is what a table
 ending in `same ...` leaves out: such a table only renames.
+
+A model card that crosses between two dialects that both have a
+`modelparams` table for its family gets the target's first spelling of each
+parameter the source's table lists (an info `rename`), at the target's
+number. What the tables do not list is copied as written, and so is every
+card of a family without a table on either side. A name the source's table
+lists without itself among its spellings (`narrow` where it says `narrow =
+dw`) is
+not a parameter of the source's model: it is not written, a `loss` warning.
+Where two canonical names are one parameter of the target (`narrow` and
+`short` above), the card is written only when their values are equal, as
+numbers or as the same expression, one left out counting as 0; otherwise
+neither is written and a `loss` error says so, with the `computes` lines of
+the two dialects. A canonical name the target has no parameter for is a
+`noparam` line.
 
 Expressions are translated token by token: numbers, function names, simulator
 variables and the operators that differ (`**`/`^` for power, `^` for
@@ -336,6 +358,6 @@ Every entry of a translation's report has one of these codes.
 | `synthesized` | warning | the target needs a value the source did not give; one was written |
 | `caveat` | warning | written, but the two simulators do not mean quite the same |
 | `ambiguous` | warning | the same text means different things in the two dialects |
-| `rename` | info | a name got the device letter the target needs |
+| `rename` | info | a name got the device letter the target needs, or a parameter the target's spelling or number |
 | `oneway` | info | written in a form the target's own grammar does not read back |
 | `cosmetic` | info | something without meaning was not written (an analysis label) |

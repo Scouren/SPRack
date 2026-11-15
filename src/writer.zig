@@ -1027,6 +1027,7 @@ const Writer = struct {
         const selectors = ps.items.len;
         if (st.get("params") == .params) try ps.appendSlice(a, st.get("params").params);
         if (!same) {
+            try w.cardParams(a, st, fam.atom, &ps, selectors);
             // A key given twice: SPICE keeps the last, Xyce rejects the card.
             // But a key that names the model here (`level=103`) stays, and
             // the card's own parameter of that name (PSP's LEVEL) goes.
@@ -1065,24 +1066,6 @@ const Writer = struct {
                 }
             }
         }
-        // Parameters the two dialects' models were measured to compute with
-        // differently (`computes`).
-        if (!same) if (w.sourceGrammar(st)) |sg| for (w.g.computes) |*tc| {
-            if (!std.mem.eql(u8, tc.family, fam.atom)) continue;
-            const sc = for (sg.computes) |*c| {
-                if (std.mem.eql(u8, c.family, tc.family)) break c;
-            } else continue;
-            if (std.mem.eql(u8, sc.text, tc.text)) continue;
-            for (ps.items) |p| {
-                for (sc.keys) |k| {
-                    if (std.ascii.eqlIgnoreCase(k, p.key)) break;
-                } else continue;
-                w.report.add(.warning, .caveat, st.line, "model '{s}': {s} does not mean the same in the two: {s} computes {s}; {s} computes {s}. The card is copied as written", .{
-                    st.get("name").atom, p.key, sg.name, sc.text, w.g.name, tc.text,
-                });
-                break;
-            }
-        };
         const th = try expr.thresholds(a, w.g, fam.atom, ps.items, true);
         if (th.changed and !th.no_half) w.report.add(.warning, .caveat, st.line, "model '{s}': the threshold and hysteresis are written as on and off levels; {s} moves smoothly between them where SPICE switches with hysteresis", .{ st.get("name").atom, w.g.name });
         if (th.changed) for (th.params) |p| if (p.val == .expr and isLevel(w.g, p.key)) {
@@ -1096,6 +1079,92 @@ const Writer = struct {
             w.copied.n += 1;
         }
         return out;
+    }
+
+    /// The parameters of a model card, `ps` from `own` on, against the
+    /// `modelparams` tables of the two dialects for the family, when both
+    /// have one: each gets the target's spelling and number. One the
+    /// source's model does not take by the name written is not written, and
+    /// neither are those the target has one parameter for when they differ.
+    fn cardParams(w: *Writer, a: Allocator, st: *const ir.Stmt, family: []const u8, ps: *std.ArrayList(ir.Param), own: usize) Allocator.Error!void {
+        const to = w.g.modelParamsOf(family) orelse return;
+        const sg = w.sourceGrammar(st) orelse return;
+        const from = sg.modelParamsOf(family) orelse return;
+        const name = st.get("name").atom;
+        var em = w.emitter(a, st);
+        // Canonical names and values; `wrote` is the key each was written by.
+        // `as_is`: the source's table does not list it, so it is copied.
+        const Canon = struct { p: ir.Param, wrote: []const u8, as_is: bool = false, done: bool = false };
+        var cs: std.ArrayList(Canon) = .empty;
+        for (ps.items[own..]) |p| {
+            var halves: std.ArrayList(ir.Param) = .empty;
+            var taken = false;
+            for (from) |*e| {
+                for (e.spellings) |sp| {
+                    if (std.ascii.eqlIgnoreCase(sp, p.key)) break;
+                } else continue;
+                taken = true;
+                // A number at an exponent a scale suffix can spell (500n).
+                const half: Value = if (!e.halved) p.val else if (p.val == .num) try expr.arith(a, .mul, p.val, .{ .num = .init("5", -1) }) else try expr.halve(a, p.val);
+                const c: ir.Param = .{ .key = e.canon, .val = half };
+                try cs.append(a, .{ .p = c, .wrote = if (e.halved) e.canon else p.key });
+                if (e.halved) try halves.append(a, c);
+            }
+            if (halves.items.len > 0) w.report.add(.info, .rename, st.line, "model '{s}': {s} of {s} is {s}, each half its value", .{
+                name, try em.describe(.{ .params = &.{p} }), sg.name, try em.describe(.{ .params = halves.items }),
+            });
+            if (taken) continue;
+            if (spellingsOf(from, p.key)) |e| {
+                w.report.add(.warning, .loss, st.line, "model '{s}': {s} not written: the {s} model of {s} does not take it; that parameter is '{s}' there", .{ name, p.key, family, sg.name, e.spellings[0] });
+                continue;
+            }
+            try cs.append(a, .{ .p = p, .wrote = p.key, .as_is = true });
+        }
+        ps.shrinkRetainingCapacity(own);
+        for (cs.items, 0..) |*c, i| {
+            if (c.done) continue;
+            const e = (if (c.as_is) null else spellingsOf(to, c.p.key)) orelse {
+                try ps.append(a, c.p);
+                continue;
+            };
+            if (!e.halved) {
+                if (!std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote)) w.report.add(.info, .rename, st.line, "model '{s}': the parameter '{s}' is spelled '{s}' in {s}", .{ name, c.wrote, e.spellings[0], w.g.name });
+                try ps.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote)) c.wrote else e.spellings[0], .val = c.p.val });
+                continue;
+            }
+            // One parameter here for every canonical name of this spelling:
+            // they must agree, one left out being 0.
+            var value: ?Value = null;
+            var same = true;
+            var names: std.ArrayList(u8) = .empty;
+            var shown: std.ArrayList(ir.Param) = .empty;
+            for (to) |*t| {
+                if (!t.halved or !std.mem.eql(u8, t.spellings[0], e.spellings[0])) continue;
+                try names.print(a, "{s}{s}", .{ if (names.items.len > 0) " and " else "", t.canon });
+                var v: Value = .{ .num = .init("0", 0) };
+                // The last of a name, as the simulators take a card.
+                for (cs.items[i..]) |*o| if (!o.as_is and std.ascii.eqlIgnoreCase(o.p.key, t.canon)) {
+                    v = o.p.val;
+                    o.done = true;
+                    try shown.append(a, .{ .key = o.wrote, .val = v });
+                };
+                if (value) |first| same = same and v.eql(first) else value = v;
+            }
+            const was = try em.describe(.{ .params = shown.items });
+            if (same) {
+                const twice: ir.Param = .{ .key = e.spellings[0], .val = try expr.arith(a, .mul, value.?, .{ .num = .init("2", 0) }) };
+                const now = try em.describe(.{ .params = &.{twice} });
+                if (!std.mem.eql(u8, was, now)) w.report.add(.info, .rename, st.line, "model '{s}': {s} is written {s}, twice the value: {s} has the one parameter for {s}", .{ name, was, now, w.g.name, names.items });
+                try ps.append(a, twice);
+                continue;
+            }
+            var why: std.ArrayList(u8) = .empty;
+            if (w.g.computesText(family, e.canon)) |t| try why.print(a, ": {s} computes {s}", .{ w.g.name, t });
+            if (sg.computesText(family, e.canon)) |t| try why.print(a, "; {s} computes {s}", .{ sg.name, t });
+            w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s} has the one parameter '{s}' for {s}, and they are not equal here (one left out is 0){s}", .{
+                name, was, w.g.name, e.spellings[0], names.items, why.items,
+            });
+        }
     }
 
     /// After the last statement: what `refused` gathered, one entry a rule.
@@ -2002,6 +2071,12 @@ const Writer = struct {
 };
 
 /// The canonical name a dialect's `params` table gives a spelling.
+/// The entry of a spellings table for a canonical name.
+fn spellingsOf(table: []const grammar.Spellings, canon: []const u8) ?*const grammar.Spellings {
+    for (table) |*e| if (std.ascii.eqlIgnoreCase(e.canon, canon)) return e;
+    return null;
+}
+
 fn spellingCanon(table: []const grammar.Spellings, key: []const u8) ?[]const u8 {
     for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, key)) return e.canon;
     return null;

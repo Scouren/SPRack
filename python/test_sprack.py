@@ -367,11 +367,13 @@ def test_pdk_sky130():
     raises(AttributeError, lambda: c.nfet_1v8, "Did you mean: nfet_01v8")
     # Another dialect: the library itself is translated, once, and referenced.
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
-    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 3, str(e)
+    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 15, str(e)
     xy = c.netlist("xyce", strict=False)
-    # Two lines that are not ngspice syntax. (A parameter named vt, which Xyce refuses, is renamed.)
+    # Two lines that are not ngspice syntax, and the twelve resistor cards with dw (ngspice's NARROW,
+    # with no SHORT), which no Xyce card computes. (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    assert codes == ["untranslated", "untranslated"], codes
+    assert codes == ["loss"] * 12 + ["untranslated", "untranslated"], codes
+    assert all("__res_generic_" in x.message and "dw=" in x.message for x in xy.report.errors if x.code == "loss")
     assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
@@ -690,9 +692,11 @@ def test_tiny_pdk_model_cards():
         c.op()
         assert ("R1 a 0 rmod w=1u l=10u\nC1 a 0 cmod w=1u l=10u\nL1 a 0 lmod 2n tc1=0.01\nL2 a 0 lmod\n"
                 "M1 a a 0 0 nch w=1u l=1u\nX1 a 0 cell\n") in c.netlist("ngspice")
-        assert "R1 (a 0) rmod w=1u l=10u\nC1 (a 0) cmod w=1u l=10u\n" in c.netlist("spectre", strict=False)
-        # An inductor's model has a measured form in ngspice, Xyce and VACASK only.
-        raises(sprack.Unsupported, lambda: c.netlist("spectre"), "inductor.master = lmod has no spelling in spectre")
+        # An inductor's model has a measured form in ngspice, Xyce, VACASK and Spectre; HSPICE takes none.
+        assert ("R1 (a 0) rmod w=1u l=10u\nC1 (a 0) cmod w=1u l=10u\nL1 (a 0) lmod l=2n tc1=0.01\nL2 (a 0) lmod\n"
+                in c.netlist("spectre", strict=False))
+        assert not any("inductor" in e.message for e in c.netlist("spectre", strict=False).report.errors)
+        raises(sprack.Unsupported, lambda: c.netlist("hspice"), "inductor.master = lmod has no spelling in hspice")
     _tiny(body)
 
     # A source's model (VACASK has them) holds no parameter: nothing to instantiate.

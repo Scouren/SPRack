@@ -418,7 +418,7 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
 }
 
 /// Half a value: exact for a decimal number, else an expression.
-fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value {
+pub fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value {
     if (v == .num) if (decimal(v.num)) |x| {
         const m = std.math.mul(i128, x[0], 5) catch return .{ .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}) };
         return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), x[1] - 1) };

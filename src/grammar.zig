@@ -221,9 +221,8 @@ pub const Convert = struct {
 /// reported as a loss with the severity given (warning: the card still
 /// means the same model, said once per file; error: it does not, card by card).
 /// `computes resistor narrow short : formula`: how this dialect's model of
-/// the family computes with these parameters, as measured. A card carrying
-/// one of them that crosses to a dialect saying another formula is copied
-/// with a warning that states both.
+/// the family computes with these parameters (canonical names), as measured.
+/// Said, with the other dialect's, where a card has no form in one of them.
 pub const Computes = struct { family: []const u8, keys: []const []const u8, text: []const u8 };
 pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
 
@@ -325,12 +324,24 @@ pub const Spellings = struct {
     spellings: []const []const u8,
     /// `m>0` in a `params` table: the simulator refuses zero or less.
     positive: bool = false,
+    /// `canon = spelling / 2` in a `modelparams` table: the canonical value
+    /// is half this dialect's.
+    halved: bool = false,
 };
 /// `params kind ... end`: the instance parameters a device of that kind
 /// takes here, by canonical (ngspice) name. A parameter a statement brings
 /// from another dialect that the table lacks is a loss; a kind without a
 /// table is not checked.
 pub const ParamTable = struct { kind: Kind, names: []const Spellings };
+/// `modelparams family ... end`: the parameters of a model card of that
+/// family that this dialect's model was measured to take, by canonical
+/// (ngspice) name. A card crossing between two dialects that both have the
+/// table gets the target's spelling of each; what a table does not list is
+/// copied as written. `canon = spelling / 2`: the canonical value is half
+/// this dialect's. Canonical names that share such a spelling are one
+/// parameter here and must be equal to be written (one left out counts as
+/// 0); a name listed without itself among its spellings is not taken here.
+pub const ModelParamTable = struct { family: []const u8, names: []const Spellings };
 
 /// Does a `params` table end in `same ...`: unlisted parameters are not checked?
 pub fn paramsOpen(table: []const Spellings) bool {
@@ -407,6 +418,7 @@ pub const Grammar = struct {
     differs: []const Differs = &.{},
     thresholds: []const Threshold = &.{},
     params: []const ParamTable = &.{},
+    modelparams: []const ModelParamTable = &.{},
     fills: []const Fill = &.{},
     omitted: []const Omitted = &.{},
     /// `unique param : why`: a parameter defined twice in one scope is
@@ -450,6 +462,20 @@ pub const Grammar = struct {
 
     pub fn paramsOf(g: *const Grammar, kind: Kind) ?[]const Spellings {
         for (g.params) |t| if (t.kind == kind) return t.names;
+        return null;
+    }
+
+    pub fn modelParamsOf(g: *const Grammar, family: []const u8) ?[]const Spellings {
+        for (g.modelparams) |t| if (std.mem.eql(u8, t.family, family)) return t.names;
+        return null;
+    }
+
+    /// The formula of the `computes` line for `family` that names `key`.
+    pub fn computesText(g: *const Grammar, family: []const u8, key: []const u8) ?[]const u8 {
+        for (g.computes) |c| {
+            if (!std.mem.eql(u8, c.family, family)) continue;
+            for (c.keys) |k| if (std.ascii.eqlIgnoreCase(k, key)) return c.text;
+        }
         return null;
     }
 
@@ -1233,6 +1259,12 @@ fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]
             if (a.len <= from) return c.fail(lines.no, "expected `name = spelling ...` or `same name ...`", .{});
             spell = a[from..];
         }
+        // `canon = spelling / 2` (a `modelparams` table).
+        const halved = known == null and spell.len == 3 and std.mem.eql(u8, spell[1], "/");
+        if (halved) {
+            if (!std.mem.eql(u8, spell[2], "2")) return c.fail(lines.no, "a {s} is halved or not: `name = spelling / 2`", .{what});
+            spell = spell[0..1];
+        }
         for (names) |raw| {
             const positive = known == null and std.mem.endsWith(u8, raw, ">0");
             const n = if (positive) raw[0 .. raw.len - 2] else raw;
@@ -1246,7 +1278,7 @@ fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]
             var sp: []const []const u8 = &.{};
             if (spell.len == 0) sp = try c.add([]const u8, sp, try c.foldIf(fold, n));
             for (spell) |x| sp = try c.add([]const u8, sp, try c.foldIf(fold, x));
-            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp, .positive = positive });
+            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp, .positive = positive, .halved = halved });
         }
     }
     return c.fail(lines.no, "{s} section is missing 'end'", .{what});
@@ -1328,6 +1360,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var differs: []const Differs = &.{};
     var thresholds: []const Threshold = &.{};
     var params: []const ParamTable = &.{};
+    var modelparams: []const ModelParamTable = &.{};
     var fills: []const Fill = &.{};
     var omitted: []const Omitted = &.{};
     var unique_param: []const u8 = "";
@@ -1670,6 +1703,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const kind = try kindOf(c, no, rest);
             if (schema.info(kind).class != .device or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device kind with parameters", .{});
             params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
+        } else if (std.mem.eql(u8, head, "modelparams")) {
+            if (schema.familyKind(rest) == null) return c.fail(no, "unknown model family '{s}'", .{rest});
+            modelparams = try c.add(ModelParamTable, modelparams, .{ .family = rest, .names = try parseSpellings(c, &lines, fold, "model parameter", null) });
         } else if (std.mem.eql(u8, head, "differs")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "differs is `differs function-or-operator : reason`", .{});
             const canon = std.mem.trim(u8, rest[0..colon], " \t");
@@ -1742,6 +1778,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .differs = differs,
         .thresholds = thresholds,
         .params = params,
+        .modelparams = modelparams,
         .fills = fills,
         .omitted = omitted,
         .unique_param = unique_param,
@@ -1831,6 +1868,8 @@ test "a broken grammar at run time names the file and line" {
         .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
         .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
         .{ .src = "dialect x\nlexer\nend\nnoparam bsim4 version : why\n", .msg = "x/bad.spgrammar:4: noparam needs a model family, a parameter and a severity" },
+        .{ .src = "dialect x\nlexer\nend\nmodelparams nosuch\nend\n", .msg = "x/bad.spgrammar:4: unknown model family 'nosuch'" },
+        .{ .src = "dialect x\nlexer\nend\nmodelparams resistor\n  narrow = narrow / 3\nend\n", .msg = "x/bad.spgrammar:5: a model parameter is halved or not: `name = spelling / 2`" },
         .{ .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n", .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis" },
     };
     for (cases) |cs| {

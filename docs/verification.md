@@ -845,7 +845,7 @@ its lines are ngspice's on the word of the Conformance Suite deck
 `netlist/tran/source_exp_defaults_ngspice` (TD1 = TAU1 = TAU2 = 1n, TD2 = 2n
 at a 1 ns step).
 
-### 4.13 A resistor model's NARROW and SHORT (s3)
+### 4.13 A resistor model's NARROW and SHORT (s3, y2)
 
 `.model ... R RSH=1000` with NARROW and SHORT, a resistor of the model
 across a 1 V source, the current read back (ngspice `print`, Xyce `.print
@@ -868,13 +868,107 @@ its NARROW (Xyce NARROW twice that). VACASK's `sp_resistor`, the same six
 rows from the raw file: 0, -2.727272727e-4, -1.0e-4, -5.555555556e-4,
 -3.0e-4 and -4.545454545e-4 A, ngspice's formula.
 
-Each grammar says its formula in a `computes resistor narrow short` line.
-A card with NARROW or SHORT that crosses between two dialects whose lines
-differ (ngspice or VACASK and Xyce, either way) is copied with a `caveat`
-warning that states both formulas; between ngspice and VACASK, and to or
-from a dialect not measured (HSPICE, Spectre), nothing is added to the
-general model caveat. The card is not converted: the exact form exists one
-way only, and a model card's parameters have no `convert`.
+The same six rows in HSPICE Y-2026.03-SP2-1 and Spectre 25.10:
+
+| card | L, W | HSPICE Y-2026.03-SP2-1 | Spectre 25.10 |
+|---|---|---|---|
+| `narrow=1u` | 11u, 5u | -454.5454545455u (2200), 2 warnings naming it | -4.545454545454547e-04, 1 warning naming it |
+| `narrow=1u` | 20u, 4u | -200.0000000000u (5000) | -2.000000000000000e-04 |
+| `narrow=1u` | 11u, 2u | -181.8181818182u (5500) | -1.818181818181818e-04 |
+| `short=1u` | 11u, 5u | -454.5454545455u, 2 warnings naming it | -4.545454545454547e-04, 1 warning naming it |
+| `narrow=1u short=0.5u` | 11u, 5u | -454.5454545455u, 4 warnings | -4.545454545454547e-04, 2 warnings |
+| neither | 11u, 5u | -454.5454545455u | -4.545454545454547e-04 |
+
+So neither has NARROW or SHORT: each is ignored with a warning, and R = RSH
+L / W. Their own parameters, at the same geometry:
+
+| HSPICE card | L, W | HSPICE Y-2026.03-SP2-1 | Spectre card | Spectre 25.10 |
+|---|---|---|---|---|
+| `dw=1u` | 11u, 5u | -272.7272727273u (3666.7) | `etch=1u` | -2.727272727272728e-04 |
+| `dw=1u` | 20u, 4u | -100.0000000000u (10k) | `etch=1u` | -1.000000000000000e-04 |
+| `dw=1u` | 11u, 2u | -100.0000000000k (a floor resistance, 1 warning) | `etch=1u` | 0 (open, with warnings) |
+| `dlr=1u` | 11u, 5u | -555.5555555556u (1800) | `etchl=1u` | -5.555555555555556e-04 |
+| `dw=1u dlr=0.5u` | 11u, 5u | -300.0000000000u (3333.3) | `etch=1u etchl=0.5u` | -3.000000000000001e-04 |
+
+So HSPICE computes RSH (L - 2 DLR) / (W - 2 DW) and Spectre RSH (L - 2
+ETCHL) / (W - 2 ETCH): ngspice's formula with NARROW spelled `dw` or `etch`
+and SHORT spelled `dlr` or `etchl`. The one difference: where W - 2 NARROW
+is 0, ngspice and Spectre are open (0 A) and HSPICE takes a floor
+resistance (1e5 A at 1 V) with a warning.
+
+`dw` and `dlr` in ngspice 45, VACASK and Xyce 7.10, at 11u, 5u:
+
+| card | ngspice 45 | VACASK | Xyce 7.10 |
+|---|---|---|---|
+| `dw=1u` | -2.72727e-4 | -2.727272727e-4 | -4.54545455e-4, with a netlist warning: "No model parameter DW found for model RM1 of type R, parameter ignored." |
+| `dlr=1u` | -5.55556e-4 | -5.555555556e-4 | -4.54545455e-4, with the warning for DLR |
+| `dw=1u dlr=0.5u` | -3.00000e-4 | -3.000000000e-4 | not run |
+| `narrow=1u dw=0.2u` | -4.18182e-4 (2391.3) | -4.181818182e-4 | not run |
+| `dw=0.2u narrow=1u` | -2.72727e-4 | -2.727272727e-4 | not run |
+
+So ngspice and VACASK take `dw` for NARROW and `dlr` for SHORT as well, and
+of two names for one parameter the last on the card is the one used. Xyce
+takes neither: a card copied there with `dw` is computed without it. The
+twelve resistor models of sky130 that say `dw` and no `dlr` are such
+cards: each is the `loss` error below.
+
+Each grammar lists the two in a `modelparams resistor` table, by ngspice's
+names: `narrow = narrow dw` and `short = short dlr` (ngspice, VACASK),
+`narrow = dw` and `short = dlr` (HSPICE), `narrow = etch` and `short =
+etchl` (Spectre), `narrow = narrow / 2` and `short = narrow / 2` (Xyce:
+one parameter for both, at twice the number), and says its formula in a
+`computes resistor narrow short` line. A card crossing between two of the
+five is written with the target's first spelling of each (an info,
+`rename`). Out of Xyce, `narrow=1u` is `narrow=500n short=500n`, and
+`dw=500n dlr=500n` or `etch=500n etchl=500n`. Into Xyce, a card whose
+SHORT equals its NARROW (as numbers, or as the same expression; one left
+out is 0) is written with `narrow` at twice that; any other card has no
+Xyce form: neither parameter is written, and a `loss` error states both
+formulas. A name the source's model was measured to ignore (HSPICE's and
+Spectre's `narrow` and `short`, Xyce's `short`) is not written, a `loss`
+warning. The floor resistance of HSPICE where W - 2 DW is 0 is not
+reported. Other dialects have no table: their cards are copied as written.
+
+The translations run. An ngspice deck of five cards, each with a resistor
+across its own 1 V source, translated to Xyce (`narrow=2u`, `narrow=2u`,
+`narrow=1u`, `narrow=500n`, none):
+
+| ngspice card | L, W | ngspice 45 | Xyce 7.10, translated |
+|---|---|---|---|
+| `narrow=1u short=1u` | 11u, 5u | -3.33333e-4 | -3.33333333e-4 |
+| `narrow=1u short=1u` | 20u, 4u | -1.11111e-4 | -1.11111111e-4 |
+| `narrow=0.5u short=0.5u` | 11u, 2u | -1.00000e-4 | -1.00000000e-4 |
+| `narrow=0.25u short=0.25u` | 11u, 5u | -4.28571e-4 | -4.28571429e-4 |
+| neither | 11u, 5u | -4.54545e-4 | -4.54545455e-4 |
+
+And the six cards of the first table as a Xyce deck, translated to ngspice
+and to VACASK (`narrow=500n short=500n` for each card with `narrow=1u`;
+the two `short` not written):
+
+| Xyce card | L, W | Xyce 7.10 | ngspice 45, translated | VACASK, translated |
+|---|---|---|---|---|
+| `narrow=1u` | 11u, 2u | -1.00000000e-4 | -1.00000e-4 | -1.000000000e-4 |
+| `narrow=1u` | 11u, 5u | -4.00000000e-4 | -4.00000e-4 | -4.000000000e-4 |
+| `narrow=1u` | 20u, 4u | -1.57894737e-4 | -1.57895e-4 | -1.578947368e-4 |
+| `short=1u` | 11u, 5u | -4.54545455e-4 | -4.54545e-4 | -4.545454545e-4 |
+| `narrow=1u short=0.5u` | 11u, 5u | -4.00000000e-4 | -4.00000e-4 | -4.000000000e-4 |
+| neither | 11u, 5u | -4.54545455e-4 | -4.54545e-4 | -4.545454545e-4 |
+
+And the same six cards as an ngspice deck, translated to HSPICE (`dw=1u`,
+`dlr=1u`, `dw=1u dlr=0.5u`) and to Spectre (`etch=1u`, `etchl=1u`,
+`etch=1u etchl=0.5u`). HSPICE: 0 errors, 1 warning. Spectre: 0 errors, 5
+warnings.
+
+| ngspice card | L, W | ngspice 45 | HSPICE Y-2026.03-SP2-1, translated | Spectre 25.10, translated |
+|---|---|---|---|---|
+| `narrow=1u` | 11u, 2u | 0 A: open | -100.0000000000k | 0.000000000000000e+00 |
+| `narrow=1u` | 11u, 5u | -2.72727273e-4 | -272.7272727273u | -2.727272727272728e-04 |
+| `narrow=1u` | 20u, 4u | -1.0e-4 | -100.0000000000u | -1.000000000000000e-04 |
+| `short=1u` | 11u, 5u | -5.55555556e-4 | -555.5555555556u | -5.555555555555556e-04 |
+| `narrow=1u short=0.5u` | 11u, 5u | -3.0e-4 | -300.0000000000u | -3.000000000000001e-04 |
+| neither | 11u, 5u | -4.54545455e-4 | -454.5454545455u | -4.545454545454547e-04 |
+
+The first row is the floor resistance of HSPICE where W - 2 DW is 0.
 
 ### 4.14 A parameter defined inside a subcircuit, set from an instance (u1)
 
@@ -1805,6 +1899,14 @@ reads `ind` as well as `l`. VACASK: `L (pos neg) master l=`, written, and
 read as any instance of a declared model is. Spectre (9.6): the same form
 as VACASK's, written and read the same way. LTspice and HSPICE: nothing.
 
+The card's parameters that were measured are in `modelparams inductor`
+tables, by ngspice's names: `same ind tc1` (ngspice, VACASK), `same tc1`
+and `ind = l` (Spectre), `same tc1` (Xyce). So `ind` is written `l` in a
+Spectre card and a Spectre card's `l` is written `ind` (an info,
+`rename`). Xyce has `noparam inductor ind warning`: the card is written
+without it, from ngspice's `ind` or Spectre's `l`, and a `loss` warning
+says so. The rest of a card is copied as written.
+
 Each source deck run, translated, and the translation run:
 
 | source | read back | written | read back |
@@ -1822,9 +1924,9 @@ Each source deck run, translated, and the translation run:
 VACASK deck has no such line to translate.)
 
 Into Spectre, ngspice `L1 a 0 lmod 1m tc1=0.03`, `L2 b 0 lmod` and `.model
-lmod l tc1=0.01` are written `L1 (a 0) lmod l=1m tc1=0.03`, `L2 (b 0)
-lmod` and `model lmod inductor tc1=0.01`: the line forms of the second to
-fourth rows of the Spectre table in 9.6.
+lmod l tc1=0.01 ind=3m` are written `L1 (a 0) lmod l=1m tc1=0.03`, `L2 (b
+0) lmod` and `model lmod inductor tc1=0.01 l=3m`: the forms of the second
+to fourth rows of the Spectre table in 9.6, where the translation is run.
 
 Into LTspice the line is written without its model, `L1 a 0 1m tc1=0.03`,
 with two errors: `inductor.master = lmod has no spelling in ltspice` and
@@ -1833,9 +1935,9 @@ HSPICE it is the first of the two errors (9.6: no form names a model),
 and the card is written.
 
 Left open: a Xyce line with a model and no value is read, though Xyce
-refuses it. The card's parameters are copied as written, with the standing
-caveat: a Xyce card's `l`, a multiplier there, means something else in
-ngspice, and ngspice's `ind` is `l` in a Spectre card.
+refuses it. A Xyce card's `l`, a multiplier there, has no name in the
+other dialects: it is copied as written with the standing caveat, and
+means something else in ngspice and in Spectre.
 
 ### 9.6 HSPICE and Spectre
 
@@ -1876,3 +1978,16 @@ So a Spectre inductor names its model as its master (`L1 (a 0) lmod
 l=1m`), the card is `model lmod inductor ...`, the card's `l` is the
 inductance of a line that gives none (ngspice's card says `ind` for that),
 and the line's `tc1` beats the card's, as in ngspice.
+
+The translation of 9.5 run in Spectre 25.10, each inductor fed its own 1 A
+(`L1 (a 0) lmod l=1m tc1=0.03`, `L2 (b 0) lmod`, `model lmod inductor
+tc1=0.01 l=3m`), 0 errors and 0 warnings, beside the ngspice deck it was
+written from:
+
+| degrees | Spectre 25.10, v(a) | v(b) | ngspice 45, vm(a) | vm(b) |
+|---|---|---|---|---|
+| 27 | 9.999999999880912e-01 | 2.999999999964273e+00 | 1.000000e+00 | 3.000000e+00 |
+| 127 | 3.999999999952365e+00 | 5.999999999928547e+00 | 4.000000e+00 | 6.000000e+00 |
+
+`L1 (a 0) lmod` with `model lmod inductor ind=3m`: 0 errors, 1 warning
+that names `ind`, and v(a) = 0. So Spectre's inductor card has no `ind`.

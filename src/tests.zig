@@ -2618,27 +2618,6 @@ test "verification: an inductor's model between ngspice, Xyce and VACASK; a loss
     try reported(&r8, .@"error", "inductor.master = lmod has no spelling in hspice");
 }
 
-test "y2: a Spectre inductor names its model as its master" {
-    var arena_state: Arena = .init(testing.allocator);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
-    // Measured: docs/verification.md 9.6. A line that gives no value takes
-    // the card's.
-    const ng = "t\nI1 0 a dc 0 ac 1\nL1 a 0 lmod 1m tc1=0.03\nI2 0 b dc 0 ac 1\nL2 b 0 lmod\n.model lmod l tc1=0.01\n.end\n";
-    var r1: ir.Report = .init(a);
-    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
-    try has(sp, "L1 (a 0) lmod l=1m tc1=0.03\n");
-    try has(sp, "L2 (b 0) lmod\n");
-    try has(sp, "model lmod inductor tc1=0.01\n");
-    try clean(&r1);
-    var r2: ir.Report = .init(a);
-    const back = try tr(a, "spectre", "ngspice", sp, &r2);
-    try has(back, "L1 a 0 lmod 1m tc1=0.03\n");
-    try has(back, "L2 b 0 lmod\n");
-    try has(back, ".model lmod l tc1=0.01\n");
-    try clean(&r2);
-}
-
 // Each written form below was loaded in Spectre 25.10 or HSPICE Y-2026.03.
 
 test "verification: LTspice 26.0.2, what running it showed" {
@@ -5585,33 +5564,144 @@ test "s4: a Spectre condition keeps its two-character operators, whatever its fi
     try has(try tr(a, "vacask", "ngspice", va, &r3), "\n.if (a==1&&b<=2||b>=3)\nR1 p 0 1k\n.elseif ((a != 1) && (b >= 2))\n");
 }
 
-// s3: a resistor model's NARROW and SHORT. Measured: docs/verification.md 4.13.
+// s3, y2: a resistor model's NARROW and SHORT, and an inductor model's IND.
+// Measured: docs/verification.md 4.13 and section 9.
 
-test "s3: a resistor model's NARROW or SHORT crossing between ngspice and Xyce states both formulas" {
+test "y2: a resistor model's NARROW and SHORT are written by the target's names" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const deck = "t\n.model rm R RSH=1000 {s}\nR1 1 0 rm L=11u W=5u\nV1 1 0 1\n.op\n.end\n";
+    // { from, to, the card's parameters, the card written, a rename reported }
+    const cases = [_][5][]const u8{
+        .{ "ngspice", "hspice", "narrow=1u short=0.5u", ".model rm r rsh=1000 dw=1u dlr=0.5u\n", "the parameter 'narrow' is spelled 'dw' in hspice" },
+        .{ "hspice", "ngspice", "dw=1u dlr=0.5u", ".model rm r rsh=1000 narrow=1u short=0.5u\n", "the parameter 'dlr' is spelled 'short' in ngspice" },
+        .{ "ngspice", "spectre", "narrow=1u short=0.5u", "model rm resistor rsh=1000 etch=1u etchl=0.5u\n", "the parameter 'short' is spelled 'etchl' in spectre" },
+        .{ "hspice", "spectre", "dw=1u dlr=0.5u", "model rm resistor rsh=1000 etch=1u etchl=0.5u\n", "the parameter 'dw' is spelled 'etch' in spectre" },
+        .{ "hspice", "vacask", "dw=1u", "model rm sp_resistor (rsh=1000 narrow=1u)\n", "the parameter 'dw' is spelled 'narrow' in vacask" },
+        // ngspice and VACASK take DW and DLR for the two as well.
+        .{ "ngspice", "spectre", "dw=1u dlr=0.5u", "model rm resistor rsh=1000 etch=1u etchl=0.5u\n", "the parameter 'dw' is spelled 'etch' in spectre" },
+        .{ "vacask", "hspice", "narrow=1u short=0.5u", ".model rm r rsh=1000 dw=1u dlr=0.5u\n", "the parameter 'short' is spelled 'dlr' in hspice" },
+    };
+    for (cases) |c| {
+        var r: ir.Report = .init(a);
+        const src = if (std.mem.eql(u8, c[0], "vacask"))
+            try std.fmt.allocPrint(a, "t\nground 0\nload \"spice/resistor.osdi\"\nmodel rm sp_resistor (rsh=1000 {s})\nR1 (1 0) rm l=11u w=5u\n", .{c[2]})
+        else
+            try std.fmt.allocPrint(a, deck, .{c[2]});
+        try has(try tr(a, c[0], c[1], src, &r), c[3]);
+        try reported(&r, .info, c[4]);
+        try clean(&r);
+    }
+    var back: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spectre\nmodel rm resistor rsh=1000 etch=1u etchl=0.5u\nR1 (1 0) rm l=11u w=5u\n", &back), ".model rm r rsh=1000 narrow=1u short=0.5u\n");
+    try reported(&back, .info, "the parameter 'etch' is spelled 'narrow' in ngspice");
+
+    // Between ngspice and VACASK the names are the same, and a card with
+    // neither parameter is the card it was: nothing is renamed.
+    const kept = [_][4][]const u8{
+        .{ "ngspice", "vacask", "narrow=1u short=0.5u", "model rm sp_resistor (rsh=1000 narrow=1u short=0.5u)\n" },
+        .{ "ngspice", "hspice", "TC1=0.01", ".model rm r rsh=1000 tc1=0.01\n" },
+        .{ "ngspice", "xyce", "TC1=0.01", ".model rm r rsh=1000 tc1=0.01\n" },
+        .{ "xyce", "spectre", "TC1=0.01", "model rm resistor rsh=1000 tc1=0.01\n" },
+    };
+    for (kept) |c| {
+        var r: ir.Report = .init(a);
+        try has(try tr(a, c[0], c[1], try std.fmt.allocPrint(a, deck, .{c[2]}), &r), c[3]);
+        try testing.expectEqual(0, r.countCode(.rename) + r.countCode(.loss));
+    }
+
+    // The name itself is no parameter of HSPICE's model or Spectre's
+    // (ignored there with a warning): it is not handed to one that takes it.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", try std.fmt.allocPrint(a, deck, .{"dw=1u narrow=3u"}), &r1), ".model rm r rsh=1000 narrow=1u\n");
+    try reported(&r1, .warning, "model 'rm': narrow not written: the resistor model of hspice does not take it; that parameter is 'dw' there");
+}
+
+test "y2: Xyce's NARROW is ngspice's NARROW and SHORT at twice the number, or the card has no Xyce form" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const deck = "t\n.model rm R RSH=1000 {s}\nR1 1 0 rm L=11u W=5u\nV1 1 0 1\n.op\n.end\n";
     const ng = "ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)";
     const xy = "xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT";
-    const differs = "does not mean the same in the two";
-    var r: ir.Report = .init(a);
-    try has(try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{"NARROW=1u"}), &r), ".model rm r rsh=1000 narrow=1u\n");
-    try reported(&r, .warning, "model 'rm': narrow " ++ differs ++ ": " ++ ng ++ "; " ++ xy);
+    // { from, to, the card's parameters, the card written, an info reported }
+    const exact = [_][5][]const u8{
+        .{ "xyce", "ngspice", "NARROW=1u", ".model rm r rsh=1000 narrow=500n short=500n\n", "model 'rm': narrow=1u of xyce is narrow=500n short=500n, each half its value" },
+        .{ "xyce", "vacask", "NARROW=1u", "model rm sp_resistor (rsh=1000 narrow=500n short=500n)\n", "each half its value" },
+        .{ "xyce", "hspice", "NARROW=1u", ".model rm r rsh=1000 dw=500n dlr=500n\n", "the parameter 'short' is spelled 'dlr' in hspice" },
+        .{ "xyce", "spectre", "NARROW=1u", "model rm resistor rsh=1000 etch=500n etchl=500n\n", "the parameter 'narrow' is spelled 'etch' in spectre" },
+        .{ "xyce", "ngspice", "NARROW={a}", ".model rm r rsh=1000 narrow={(a)/2} short={(a)/2}\n", "each half its value" },
+        .{ "ngspice", "xyce", "NARROW=1u SHORT=1u", ".model rm r rsh=1000 narrow=2u\n", "model 'rm': narrow=1u short=1u is written narrow=2u, twice the value: xyce has the one parameter for narrow and short" },
+        .{ "ngspice", "xyce", "SHORT=0.25u DW=250n", ".model rm r rsh=1000 narrow=500n\n", "twice the value" },
+        .{ "hspice", "xyce", "DW='a' DLR='a'", ".model rm r rsh=1000 narrow={(a) * (2)}\n", "twice the value" },
+        .{ "spectre", "xyce", "etch=1u etchl=1u", ".model rm r rsh=1000 narrow=2u\n", "twice the value" },
+    };
+    for (exact) |c| {
+        var r: ir.Report = .init(a);
+        const src = if (std.mem.eql(u8, c[0], "spectre"))
+            try std.fmt.allocPrint(a, "// t\nsimulator lang=spectre\nmodel rm resistor rsh=1000 {s}\nR1 (1 0) rm l=11u w=5u\n", .{c[2]})
+        else
+            try std.fmt.allocPrint(a, deck, .{c[2]});
+        try has(try tr(a, c[0], c[1], src, &r), c[3]);
+        try reported(&r, .info, c[4]);
+        try clean(&r);
+    }
+    // Xyce's own SHORT is ignored there with a warning: it is not handed on.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", try std.fmt.allocPrint(a, deck, .{"NARROW=1u SHORT=0.3u"}), &r1), ".model rm r rsh=1000 narrow=500n short=500n\n");
+    try reported(&r1, .warning, "model 'rm': short not written: the resistor model of xyce does not take it; that parameter is 'narrow' there");
+
+    // SHORT is not NARROW (one left out is 0): no Xyce card computes the
+    // same, so neither is written and the error states both formulas.
+    const none = [_][2][]const u8{ .{ "NARROW=1u", "narrow=1u" }, .{ "SHORT=1u", "short=1u" }, .{ "NARROW=1u SHORT=0.5u", "narrow=1u short=0.5u" }, .{ "NARROW={a} SHORT={b}", "narrow=a short=b" } };
+    for (none) |c| {
+        var r: ir.Report = .init(a);
+        try has(try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{c[0]}), &r), ".model rm r rsh=1000\n");
+        try reported(&r, .@"error", try std.fmt.allocPrint(a, "model 'rm': {s} not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): " ++ xy, .{c[1]}));
+        try reported(&r, .@"error", "; " ++ ng);
+    }
     var r2: ir.Report = .init(a);
-    _ = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{"SHORT=1u"}), &r2);
-    try reported(&r2, .warning, "model 'rm': short " ++ differs);
+    _ = try tr(a, "hspice", "xyce", try std.fmt.allocPrint(a, deck, .{"DW=1u"}), &r2);
+    try reported(&r2, .@"error", "model 'rm': dw=1u not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): " ++ xy);
+    try reported(&r2, .@"error", "; hspice computes R = RSH (L - 2 DLR) / (W - 2 DW)");
+    // NARROW = 0 with no SHORT is Xyce's NARROW = 0: nothing to say.
     var r3: ir.Report = .init(a);
-    _ = try tr(a, "xyce", "ngspice", try std.fmt.allocPrint(a, deck, .{"NARROW=1u"}), &r3);
-    try reported(&r3, .warning, "model 'rm': narrow " ++ differs ++ ": " ++ xy);
-    try reported(&r3, .warning, "; " ++ ng ++ ". The card is copied as written");
-    // VACASK computes as ngspice does; HSPICE is not measured; a card
-    // with neither parameter has nothing to say.
-    const quiet = [_][3][]const u8{ .{ "ngspice", "vacask", "NARROW=1u" }, .{ "ngspice", "hspice", "NARROW=1u" }, .{ "ngspice", "xyce", "TC1=0.01" } };
-    for (quiet) |q| {
-        var rq: ir.Report = .init(a);
-        _ = try tr(a, q[0], q[1], try std.fmt.allocPrint(a, deck, .{q[2]}), &rq);
-        try testing.expect(!rq.contains(.warning, differs));
+    try has(try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{"NARROW=0"}), &r3), ".model rm r rsh=1000 narrow=0\n");
+    try testing.expectEqual(0, r3.countCode(.rename) + r3.countCode(.loss));
+}
+
+test "y2: an inductor's model in Spectre, and its IND" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // The card's IND is the inductance of a line that gives none: Spectre's
+    // card says `l` for it, and the line names the model as its master.
+    const ng = "t\nI1 0 a dc 0 ac 1\nL1 a 0 lmod 1m tc1=0.03\nI2 0 b dc 0 ac 1\nL2 b 0 lmod\n.model lmod l tc1=0.01 ind=3m\n.end\n";
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
+    try has(sp, "L1 (a 0) lmod l=1m tc1=0.03\n");
+    try has(sp, "L2 (b 0) lmod\n");
+    try has(sp, "model lmod inductor tc1=0.01 l=3m\n");
+    try reported(&r1, .info, "model 'lmod': the parameter 'ind' is spelled 'l' in spectre");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try has(back, "L1 a 0 lmod 1m tc1=0.03\n");
+    try has(back, "L2 b 0 lmod\n");
+    try has(back, ".model lmod l tc1=0.01 ind=3m\n");
+    try reported(&r2, .info, "model 'lmod': the parameter 'l' is spelled 'ind' in ngspice");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "vacask", sp, &r3), "model lmod sp_inductor (tc1=0.01 ind=3m)\n");
+    try clean(&r3);
+    // Xyce's model has no IND (a warning there, and the line's value is
+    // read): not written, from ngspice's `ind` or from Spectre's `l`, which
+    // is a multiplier on a Xyce card.
+    inline for (.{ .{ "ngspice", ng }, .{ "spectre", sp } }) |c| {
+        var r: ir.Report = .init(a);
+        try has(try tr(a, c[0], "xyce", c[1], &r), ".model lmod l tc1=0.01\n");
+        try reported(&r, .warning, "model 'lmod': ind not written: Xyce's inductor model has no IND");
     }
 }
 

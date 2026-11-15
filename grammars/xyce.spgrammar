@@ -402,6 +402,20 @@ implied options temp = 27
 # No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
 move options.delmax -> tran.maxstep oneway
 
-# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
-# (docs/verification.md 4.13).
-computes resistor narrow short : R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); its NARROW = n is NARROW = SHORT = n/2 of a model that takes each off twice
+# A model card's parameters that were measured, by ngspice name. A resistor's
+# NARROW, with RSH=1000 at five L and W (docs/verification.md 4.13): it comes
+# off the length and the width once each, where ngspice takes SHORT off the
+# length and NARROW off the width twice each. So it is ngspice's NARROW and
+# SHORT both, at twice the number, and a card whose two differ has no form
+# here. An inductor's TC1 (docs/verification.md 9.1).
+modelparams resistor
+  narrow = narrow / 2
+  short  = narrow / 2
+end
+modelparams inductor
+  same tc1
+end
+# docs/verification.md 9.1: "No model parameter IND found for model LMOD of
+# type L, parameter ignored", and the line's own value is read.
+noparam inductor ind warning : Xyce's inductor model has no IND, the inductance of a line that gives none; a line gives its own here, and one that gives none is refused whatever the card says
+computes resistor narrow short : R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored)

@@ -384,6 +384,18 @@ end
 # a .control block, kept verbatim.
 write alter     = ".control" / ( "alterparam" keys ~"=" vals / )* "reset" / [ "option" { temp=temp } / ] "run" / ".endc"
 
-# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
-# (docs/verification.md 4.13).
+# A model card's parameters that were measured, by canonical name (ngspice's
+# own): a card crossing to or from a dialect that has the table for the family
+# gets each in the first spelling and the number of the target; the rest of a
+# card is copied as written. A resistor's NARROW and SHORT, with RSH=1000 at
+# five L and W, which DW and DLR also name (docs/verification.md 4.13); an
+# inductor's IND, the inductance of a line that gives none, and its TC1
+# (docs/verification.md 9.1).
+modelparams resistor
+  narrow = narrow dw
+  short  = short dlr
+end
+modelparams inductor
+  same ind tc1
+end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)

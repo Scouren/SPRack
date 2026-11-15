@@ -168,21 +168,27 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-150 files, 2 errors, 79 warnings
+150 files, 14 errors, 79 warnings
 ```
 
-Status 1: two lines of the library have no form in Xyce. Each error names
-its file and line, and says what is wrong:
+Status 1: two lines and twelve model cards of the library have no form in
+Xyce. Each error names its file and line, and says what is wrong:
 
 ```text
 pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
 pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:33: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: sky130_fd_pr__res_generic_po r0 r1 sky130_fd_pr__res_generic_po__monte r = {r_tot} tc1r = {tc1} tc2r = {tc2}
 ```
 
-Both are lines of the library that are not ngspice syntax. The rest of the
-tree is translated (a parameter named `vt`, which Xyce refuses, is written
-as `vt__p` with a note), and whether those two matter depends on the
-devices you use.
+Both are lines of the library that are not ngspice syntax. The other twelve
+are the resistor models that narrow the width by `dw`, one entry each:
+
+```text
+pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:130: error[loss]: model 'sky130_fd_pr__res_generic_nd': dw="-tol_nfom/2-nfom_dw/2" not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)
+```
+
+The rest of the tree is translated (a parameter named `vt`, which Xyce
+refuses, is written as `vt__p` with a note), and whether these matter
+depends on the devices you use.
 
 ## With a manifest: sprack.PDK
 

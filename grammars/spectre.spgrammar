@@ -427,3 +427,19 @@ implied options tnom = 27
 implied options temp = 27
 # No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
 move options.delmax -> tran.maxstep oneway
+
+# A model card's parameters that were measured, by ngspice name. A resistor's
+# ETCH and ETCHL, with RSH=1000 at five L and W (docs/verification.md 4.13):
+# ngspice's NARROW and SHORT, each taken off twice. NARROW and SHORT
+# themselves are ignored here with a warning. An inductor's L, the inductance
+# of a line that gives none, which ngspice calls IND (IND itself is ignored
+# here with a warning), and its TC1 (docs/verification.md 9.6).
+modelparams resistor
+  narrow = etch
+  short  = etchl
+end
+modelparams inductor
+  same tc1
+  ind = l
+end
+computes resistor narrow short : R = RSH (L - 2 ETCHL) / (W - 2 ETCH)
