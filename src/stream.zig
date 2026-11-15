@@ -254,7 +254,7 @@ const Survey = struct {
             sv.noteMoves(st);
         }
         if (ir.hasSweep(stmts)) sv.sweep = true;
-        if (stats.changes(gt, gf.name, stmts)) sv.stats = true;
+        if (stats.changes(gt, stmts)) sv.stats = true;
         try sv.masters(k, stmts);
         if (!gf.lex.case_sensitive and sv.canonical) sv.canonical = names(s, stmts);
         if (!sv.topo) return;
@@ -408,7 +408,7 @@ const Survey = struct {
     fn whole(sv: *Survey, arena: Allocator) Allocator.Error!bool {
         const gt = sv.gt;
         if (sv.sweep) sv.reason("a sweep");
-        if (sv.stats) sv.reason("random parameters or statistics");
+        if (sv.stats) sv.reason("a statistics block");
         // `ir.markUnlistedBuiltins`.
         var li = sv.lettered.keyIterator();
         while (li.next()) |m| if (sv.unlisted.contains(m.*)) sv.reason("a model of an unlisted type");

@@ -82,6 +82,22 @@ fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []cons
     };
 }
 
+/// All of `file`, in one buffer of its size where it has one: a buffer that
+/// grows as it is read is there twice at its last step, and in an arena
+/// every smaller one stays behind.
+fn readWhole(io: std.Io, file: std.Io.File) ![]u8 {
+    const pages = std.heap.page_allocator;
+    var fr = file.reader(io, &.{});
+    const size = fr.getSize() catch 0;
+    if (size == 0) return fr.interface.allocRemaining(pages, .unlimited) catch |e| switch (e) {
+        error.ReadFailed => fr.err.?,
+        else => |x| x,
+    };
+    // ponytail: a file that grows meanwhile is read to the size it had.
+    const buf = try pages.alloc(u8, size);
+    return buf[0 .. fr.interface.readSliceShort(buf) catch return fr.err.?];
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
@@ -199,13 +215,12 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    const src = if (a.files.items.len > 0)
-        cwd.readFileAlloc(io, a.files.items[0], arena, .unlimited) catch |e| die(io, "cannot read {s}: {s}\n", .{ a.files.items[0], @errorName(e) })
-    else blk: {
-        var in_buf: [64 * 1024]u8 = undefined;
-        var in_file = std.Io.File.stdin().reader(io, &in_buf);
-        break :blk try in_file.interface.allocRemaining(arena, .unlimited);
-    };
+    const src = if (a.files.items.len > 0) blk: {
+        const name = a.files.items[0];
+        const file = cwd.openFile(io, name, .{}) catch |e| die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) });
+        defer file.close(io);
+        break :blk readWhole(io, file) catch |e| die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) });
+    } else try readWhole(io, std.Io.File.stdin());
     var report: ir.Report = .init(arena);
     // Read and write whole, never as a stream: to compare the two.
     const whole = init.environ_map.get("SPRACK_WHOLE") != null;

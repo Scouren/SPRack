@@ -2400,6 +2400,7 @@ pub const Stream = struct {
     analyses: usize = 0,
     wrapped: std.ArrayList(ir.Stmt) = .empty,
     refs: Refs = .{},
+    lower: ?stats.Stream = null,
 
     /// Everything before the first statement: title, header, boilerplate
     /// and the options the source's dialect assumes. In place: the writer
@@ -2414,6 +2415,7 @@ pub const Stream = struct {
             .fill_from = sv.fill_from.items,
             .analyses = sv.analyses,
             .refs = sv.refs,
+            .lower = stats.Stream.init(k, g, report),
         };
         const w = &s.w;
         w.refs = &s.refs;
@@ -2532,14 +2534,23 @@ pub const Stream = struct {
             stmts = list;
         }
         if (g.blockOf(.model) != null) stmts = try groupBins(a, stmts);
-        // What else `stats.prepare` and `pzPorts` would change makes the
-        // netlist be written whole (`stream.zig`): here they only check.
+        // `stats.prepare`, but for the statistics blocks it folds, and
+        // `pzPorts`: what those would change makes the netlist be written
+        // whole (`stream.zig`).
         w.report.phase = ir.Phase.devlot;
         if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts)) stmts = try stats.devLot(a, stmts, w.report);
         w.report.phase = ir.Phase.stats;
         stats.checkReserved(g, stmts, w.report);
+        if (s.lower) |*l| stmts = try l.group(a, stmts);
+        try s.last(stmts);
+    }
+
+    /// The last pass and the writing itself.
+    fn last(s: *Stream, in: []const ir.Stmt) Writer.Error!void {
+        const w = &s.w;
+        const g = w.g;
         w.report.phase = ir.Phase.ceilings;
-        stmts = try idleCeilings(a, stmts, w.report);
+        const stmts = try idleCeilings(w.arena, in, w.report);
         w.report.phase = ir.Phase.write;
         for (stmts) |*st| {
             if (g.wrapOf(st.kind) != null) {
@@ -2562,6 +2573,10 @@ pub const Stream = struct {
         const w = &s.w;
         const g = w.g;
         const report = w.report;
+        if (s.lower) |*l| {
+            report.phase = ir.Phase.stats;
+            try s.last(try l.end(w.arena));
+        }
         report.phase = ir.Phase.write;
         for (g.wraps) |*wr| {
             // A control block runs in order (VACASK), so settings come before

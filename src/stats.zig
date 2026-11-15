@@ -46,7 +46,7 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
         if (!usesRandom(stmts)) return stmts;
         var l: Lower = .{ .arena = arena, .report = report, .g = g };
         const out = try l.list(stmts, null);
-        report.add(.warning, .caveat, l.first_line, "agauss(), gauss(), aunif() and unif() are written as {s} statistics variations: outside a Monte Carlo analysis the parameters keep their nominal values, where ngspice draws a new sample on every run", .{g.name});
+        l.caveat();
         return out;
     }
     if (hasFunction(g, "agauss")) {
@@ -57,13 +57,46 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
 }
 
 /// Does `prepare` need every statement of the netlist at once for
-/// `stmts`? Not for `devLot`, which changes a statement by itself.
-pub fn changes(g: *const Grammar, source: []const u8, stmts: []const Stmt) bool {
-    if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary))
-        return usesRandom(stmts) or (devLots(g, source) and usesDevLot(stmts));
-    if (hasFunction(g, "agauss")) return usesKind(stmts, .statistics);
-    return false;
+/// `stmts`? Only to fold statistics blocks into random functions: `devLot`
+/// changes a statement by itself, and `Stream` lowers them as they come.
+pub fn changes(g: *const Grammar, stmts: []const Stmt) bool {
+    return hasFunction(g, "agauss") and usesKind(stmts, .statistics);
 }
+
+/// `prepare`'s turning of random functions into statistics, for a netlist
+/// written a few top-level statements at a time: the variations they make
+/// are one parameter statement and one statistics block after the last.
+pub const Stream = struct {
+    l: Lower,
+    acc: Lower.Acc = .{},
+    any: bool = false,
+    /// The line of the last statement given.
+    line: u32 = 0,
+
+    /// Null when `g` has random functions of its own, or no statistics.
+    pub fn init(k: ir.Keep, g: *const Grammar, report: *ir.Report) ?Stream {
+        if (hasFunction(g, "agauss") or !g.canWrite(.statistics) or !g.canWrite(.vary)) return null;
+        return .{ .l = .{ .arena = k.perm, .report = report, .g = g, .keep = k } };
+    }
+
+    /// The next statements, lowered into `arena`.
+    pub fn group(s: *Stream, arena: Allocator, stmts: []const Stmt) Allocator.Error![]const Stmt {
+        if (stmts.len > 0) s.line = stmts[stmts.len - 1].line;
+        if (!usesRandom(stmts)) return stmts;
+        s.any = true;
+        s.l.arena = arena;
+        return s.l.walk(&s.acc, stmts, null);
+    }
+
+    /// After the last statement: those of the variations made.
+    pub fn end(s: *Stream, arena: Allocator) Allocator.Error![]const Stmt {
+        if (!s.any) return &.{};
+        s.l.arena = arena;
+        const out = try s.l.variations(&s.acc, s.line);
+        s.l.caveat();
+        return out;
+    }
+};
 
 /// Is `dev/gauss=` rewritten (`devLot`) on the way from `source` to `g`?
 pub fn devLots(g: *const Grammar, source: []const u8) bool {
@@ -280,6 +313,21 @@ const Lower = struct {
     g: *const Grammar,
     first_line: u32 = 0,
     used: std.StringHashMapUnmanaged(void) = .empty,
+    /// Set when the statements go away before the variations are written
+    /// (`Stream`): where the variations are kept, `arena` otherwise.
+    keep: ?ir.Keep = null,
+
+    fn perm(l: *const Lower) Allocator {
+        return if (l.keep) |k| k.perm else l.arena;
+    }
+
+    fn kept(l: *const Lower, text: []const u8) Allocator.Error![]const u8 {
+        return if (l.keep) |k| k.text(text) else text;
+    }
+
+    fn caveat(l: *const Lower) void {
+        l.report.add(.warning, .caveat, l.first_line, "agauss(), gauss(), aunif() and unif() are written as {s} statistics variations: outside a Monte Carlo analysis the parameters keep their nominal values, where ngspice draws a new sample on every run", .{l.g.name});
+    }
 
     /// Variations made for the list being lowered.
     const Acc = struct {
@@ -290,11 +338,12 @@ const Lower = struct {
     };
 
     fn vary(l: *Lower, name: []const u8, dist: []const u8, spread: []const u8, line: u32) Allocator.Error!Stmt {
-        var st = try ir.newStmt(l.arena, .vary, line);
-        try st.set(l.arena, schema.slotIndex(.vary, "param").?, .{ .atom = name });
-        try st.set(l.arena, schema.slotIndex(.vary, "dist").?, .{ .atom = dist });
+        const a = l.perm();
+        var st = try ir.newStmt(a, .vary, line);
+        try st.set(a, schema.slotIndex(.vary, "param").?, .{ .atom = try l.kept(name) });
+        try st.set(a, schema.slotIndex(.vary, "dist").?, .{ .atom = dist });
         const slot = if (std.mem.eql(u8, dist, "gauss")) "std" else "range";
-        try st.set(l.arena, schema.slotIndex(.vary, slot).?, .{ .expr = spread });
+        try st.set(a, schema.slotIndex(.vary, slot).?, .{ .expr = try l.kept(spread) });
         return st;
     }
 
@@ -302,10 +351,11 @@ const Lower = struct {
         var base: std.ArrayList(u8) = .empty;
         try base.appendSlice(l.arena, "sprack_rv_");
         for (hint) |c| try base.append(l.arena, if (std.ascii.isAlphanumeric(c) or c == '_') c else '_');
-        var name = base.items;
+        var name: []const u8 = base.items;
         var k: usize = 2;
         while (l.used.contains(name)) : (k += 1) name = try std.fmt.allocPrint(l.arena, "{s}_{d}", .{ base.items, k });
-        try l.used.put(l.arena, name, {});
+        name = try l.kept(name);
+        try l.used.put(l.perm(), name, {});
         return name;
     }
 
@@ -318,9 +368,9 @@ const Lower = struct {
             const call = it.next() orelse return cur;
             const sp = (try spreadOf(l.arena, call, false)) orelse return cur;
             const rv = try l.freshName(hint);
-            try acc.zeros.append(l.arena, .{ .key = rv, .val = .{ .expr = "0" } });
+            try acc.zeros.append(l.perm(), .{ .key = rv, .val = .{ .expr = "0" } });
             const into = if (mismatch) &acc.mismatch else &acc.process;
-            try into.append(l.arena, try l.vary(rv, sp.dist, "1", line));
+            try into.append(l.perm(), try l.vary(rv, sp.dist, "1", line));
             var factor = sp.spread;
             if (std.mem.endsWith(u8, call.name, "gauss") and call.n == 3 and !isNumber(call.args[2])) {
                 factor = try std.fmt.allocPrint(l.arena, "(({s}) == 0 ? 0 : {s})", .{ call.args[2], sp.spread });
@@ -368,7 +418,7 @@ const Lower = struct {
             if (call.start != 0 or call.end != e.len) continue;
             const sp = (try spreadOf(l.arena, call, true)) orelse continue;
             const spread = if (sp.relative) try std.fmt.allocPrint(l.arena, "({s})*({s})", .{ sp.nominal, sp.spread }) else sp.spread;
-            try acc.process.append(l.arena, try l.vary(p.key, sp.dist, spread, st.line));
+            try acc.process.append(l.perm(), try l.vary(p.key, sp.dist, spread, st.line));
             p.val = .{ .expr = sp.nominal };
             changed = true;
             if (l.first_line == 0) l.first_line = st.line;
@@ -384,9 +434,14 @@ const Lower = struct {
         var acc: Acc = .{};
         const out = try l.walk(&acc, stmts, owner);
         if (owner != null) return out;
-        if (acc.process.items.len == 0 and acc.mismatch.items.len == 0) return out;
-        var all: std.ArrayList(Stmt) = .fromOwnedSlice(@constCast(out));
-        const line = if (stmts.len > 0) stmts[stmts.len - 1].line else 0;
+        const made = try l.variations(&acc, if (stmts.len > 0) stmts[stmts.len - 1].line else 0);
+        return if (made.len > 0) std.mem.concat(l.arena, Stmt, &.{ out, made }) else out;
+    }
+
+    /// What `acc` holds, as the statements that end its list.
+    fn variations(l: *Lower, acc: *const Acc, line: u32) Allocator.Error![]const Stmt {
+        if (acc.process.items.len == 0 and acc.mismatch.items.len == 0) return &.{};
+        var all: std.ArrayList(Stmt) = .empty;
         if (acc.zeros.items.len > 0) {
             var ps = try ir.newStmt(l.arena, .param, line);
             try ps.set(l.arena, schema.slotIndex(.param, "params").?, .{ .params = acc.zeros.items });
