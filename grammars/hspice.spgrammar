@@ -404,9 +404,11 @@ params jfet
   same area dtemp ic l m>0 off w
 end
 params mosfet
-  same acnqsmod ad adeo as aseo d delvto dtemp fpitch geomod ic l lrsd m>0 min mult mulu0
+  same acnqsmod ad adeo as aseo d delvto dtemp factuo fpitch geomod ic l lrsd m>0 min mult mulu0
   same nf nfin ngcon nrd nrs off pd pdeo ps pseo rbdb rbodymod rbpb rbpd rbps rbsb
   same rgatemod rgeomod sa sb sc sca scb scc sd tfin trnqsmod w xgw
+  # PSP's own name for the instance's temperature offset (level 69 takes dtemp, not dta).
+  dta = dtemp
 end
 # alter (c2)
 # Each .alter reruns every analysis with its lines on top of those of the

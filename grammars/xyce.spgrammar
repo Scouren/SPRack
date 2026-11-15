@@ -192,6 +192,22 @@ caveat nodeset values : Xyce and ngspice apply nodesets with different algorithm
 # How this dialect writes the things a simulator can record.
 # A parameter of one of these names is refused: Xyce keeps them for its
 # own variables (the thermal voltage, temperature, time, frequency, gmin).
+# PSP 103.6 parameters Xyce 7.10's level 103 does not have: it loads the card and ignores
+# each with a warning. At the value given first nothing changes in ngspice's module either.
+noparam psp103 st2vfbo=0 warning : Xyce's PSP103 has no such parameter; at 0 it changes nothing
+noparam psp103 st2vfbo error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 ctgo=0 warning : Xyce's PSP103 has no such parameter; at 0 it changes nothing
+noparam psp103 ctgo error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 ctbo=0 warning : Xyce's PSP103 has no such parameter; at 0 it changes nothing
+noparam psp103 ctbo error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 stcto=1 warning : Xyce's PSP103 has no such parameter; at 1 it changes nothing
+noparam psp103 stcto error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 stthecso=0 warning : Xyce's PSP103 has no such parameter; at 0 it changes nothing
+noparam psp103 stthecso error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 nsubedgelexp=1 warning : Xyce's PSP103 has no such parameter; at 1 it changes nothing
+noparam psp103 nsubedgelexp error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+noparam psp103 thecso=2 warning : Xyce's PSP103 has no such parameter; at 2 it changes nothing
+noparam psp103 thecso error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
 reserved vt temp time freq gmin : Xyce keeps this name for a variable of its own and refuses a parameter called so
 
 # statistics

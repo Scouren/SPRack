@@ -4838,6 +4838,17 @@ test "r1: ngspice's psp103va is PSP103; its N instances are transistors" {
     try has(back, ".model nm psp103va type=1 tr=27\nNM1 d g 0 0 nm w=1u l=0.13u\n");
     try reported(&r5, .warning, "the deck must load psp103.osdi with pre_osdi");
     try testing.expectEqual(0, r5.count(.@"error"));
+    // Xyce 7.10's PSP103 lacks parameters of PSP 103.6: one that acts is an
+    // error by name, one at the value that changes nothing a warning.
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.model nm psp103va type=1 ctgo=0 thecso=1.2 tr=27\n.end\n", &r6), ".model nm nmos level=103 tr=27\n");
+    try reported(&r6, .@"error", "model 'nm': thecso not written: Xyce's PSP103 has no such parameter and ignores it");
+    try reported(&r6, .warning, "model 'nm': ctgo not written: Xyce's PSP103 has no such parameter; at 0 it changes nothing");
+    try testing.expectEqual(1, r6.count(.@"error"));
+    // HSPICE's level 69 takes factuo, and the temperature offset as dtemp.
+    var r7: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.model nm psp103va type=1 tr=27\nN1 d g 0 0 nm w=1u l=0.13u dta=5 factuo=1\n.end\n", &r7), "MN1 d g 0 0 nm w=1u l=0.13u dtemp=5 factuo=1\n");
+    try testing.expectEqual(0, r7.count(.@"error"));
 }
 
 test "r1: a parameter named like a variable Xyce keeps is renamed where it is defined and used" {

@@ -417,8 +417,16 @@ W 1u, L 0.13u, source and bulk grounded, drain 1.2 V; the drain current.
   parameter ignored`), 14 in all: `st2vfbo ctgo ctbo stcto thecso stthecso
   nsubedgelexp` and the seven of IHP's operating-area check (`swsoa`,
   `vgs_max` and the like). With the first seven removed from the card,
-  ngspice gives Xyce's number. SPRack copies them and says the two ship
-  different versions of the model (a `caveat`).
+  ngspice gives Xyce's number.
+* One of the seven at a time removed from the card in ngspice, at 27 and
+  at 77 degrees (24.0222 and 30.3626 uA with the whole card): only `thecso`
+  (1.1822 on this card) changes the current, to 26.8396 and 33.7982 uA.
+  `thecso=2.0` gives those same two numbers, so 2 is its default; the
+  other six are at values that change nothing (`st2vfbo ctgo ctbo
+  stthecso` 0, `stcto nsubedgelexp` 1). The Xyce grammar says each with
+  `noparam psp103`: an error for a value that acts, which Xyce would drop
+  with only a warning of its own, and a warning at the value that changes
+  nothing. The operating-area parameters are copied; Xyce ignores them.
 * The module's own `level` (`level=103.6` on the IHP cards) changes nothing
   in ngspice: without it, with 103, 103.6 or 7 the current is the same
   102.076 uA. In Xyce, HSPICE and ESPice `level` is what names the model, so
@@ -426,9 +434,8 @@ W 1u, L 0.13u, source and bulk grounded, drain 1.2 V; the drain current.
   `level=103.6` as 103.
 * The instance parameters of the IHP cards (`w l nf mult as ad ps pd dta
   ngcon delvto factuo`) are all instance parameters of Xyce's level 103
-  (`Xyce -param M 103`). HSPICE's level 69 was not tried with `dta` and
-  `factuo` (no HSPICE where this was measured): they are not in its
-  `params mosfet` table, and stay errors.
+  (`Xyce -param M 103`). For HSPICE's level 69 see 4.5: it takes `factuo`,
+  and the temperature offset as `dtemp`.
 * The NQS module (`pspnqs103va`, the PDK's `_rf` cards) has no Xyce form:
   `Xyce -param M 103` lists no NQS parameter, and a level 103 card with
   `swnqs=5 munqs=1` loads with `No model parameter SWNQS found ...
@@ -511,6 +518,20 @@ are both taken, no device tried takes `temp` except the inductor, and
 `ic`/`off` on a diode, BJT or JFET draw a warning. Xyce refuses `m` of zero
 or less on R, L and C, and takes negative `m` on D, Q and M; ngspice takes
 `m=-2` and `m=0` on a resistor.
+
+HSPICE's PSP (level 69, r1): `.model mm nmos level=69`, M instances W 1u,
+L 0.13u at 0.6 V on the gate and 1.2 V on the drain, the drain current
+from a `.dc` and `.meas`. On this device the made-up control (`zzfoo=1`)
+raised no message at all and left the current at the plain instance's
+97.0476 uA, so here a name is taken when it changes the result, not when
+it is silent. `factuo=2` gives 185.1408 uA: taken. `dta=50` leaves 97.0476
+uA and draws the run's one warning: not taken. `dtemp=50` at 25 degrees
+gives 104.5619 uA, the plain instance's current at 75 degrees (and 114.2078
+uA at 75): the instance's temperature offset. In ngspice 45 with IHP's
+compiled PSP103, a card of defaults, `dta=50` at 27 degrees gives 109.817
+uA, the plain instance's current at 77 degrees (102.076 uA at 27, and with
+`dta=0`): the same offset. So HSPICE's `params mosfet` has `factuo`, and
+`dta = dtemp`.
 
 ### 4.6 Pulse rise and fall (item 2)
 

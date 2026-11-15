@@ -351,9 +351,9 @@ def test_pdk_sky130():
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
     assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 3, str(e)
     xy = c.netlist("xyce", strict=False)
-    # Two lines that are not ngspice syntax, and a parameter named vt, which Xyce refuses.
+    # Two lines that are not ngspice syntax. (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    assert codes == ["invalid", "untranslated", "untranslated"], codes
+    assert codes == ["untranslated", "untranslated"], codes
     assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
@@ -376,16 +376,11 @@ def test_pdk_ihp():
     ng = unwrap(c.netlist("ngspice"))
     assert ng.count(".lib ") == 6 and '/cornerMOSlv.lib" mos_tt\n' in ng and '/cornerHBT.lib" hbt_typ\n' in ng
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
-    # HSPICE: the library translates, conditionals and all, but for two instance
-    # parameters of PSP103 its level 69 was not measured to take (docs/verification.md 3.5).
-    e = raises(sprack.Unsupported, lambda: c.netlist("hspice"), "has no spelling in hspice")
-    assert all("mosfet: 'dta=" in x.message or "mosfet: 'factuo=" in x.message for x in e.report.errors), e.report.errors
-    hs = unwrap(c.netlist("hspice", strict=False))
+    hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
-    # Spectre has no agauss(): written as statistics variations. What is
-    # left is reported per file and line. Conditional blocks translate.
-    e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "has no spelling in spectre")
-    assert not any("agauss" in x.message or "cond_if" in x.message for x in e.report.errors)
+    # Spectre has no agauss(): written as statistics variations. Conditional
+    # blocks translate, and a diode's OFF, which changes no result, is left out.
+    assert not c.netlist("spectre").report.errors
     assert sprack.PDK("ihp", root=os.path.join(PDKS, "ihp"), corner="ss").entries()[0][1] == "mos_ss"
 
 
