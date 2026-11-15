@@ -38,10 +38,20 @@ const Matcher = struct {
     log: std.ArrayList(Capture) = .empty,
     /// Index of the `nl` token that ended the last successful match.
     end: usize = 0,
+    /// Stack address where the match began: see `max_stack`.
+    stack_top: usize = 0,
+
+    /// Stack a match may use. `m` recurses once per pattern item and per
+    /// pass of a repeated group, so a statement of a few thousand repeated
+    /// words overflowed the stack; past this much it simply does not match.
+    // ponytail: a byte budget, not a depth, since Debug frames are several
+    // times larger; an explicit backtracking stack if a real deck needs more.
+    const max_stack = 1 << 20;
 
     fn run(self: *Matcher, kind: Kind, pat: []const Node, ti: usize) Allocator.Error!bool {
         self.kind = kind;
         self.log.clearRetainingCapacity();
+        self.stack_top = @frameAddress();
         return self.m(pat, ti, null);
     }
 
@@ -290,6 +300,7 @@ const Matcher = struct {
     }
 
     fn m(self: *Matcher, items: []const Node, ti: usize, k: ?*const Cont) Allocator.Error!bool {
+        if (self.stack_top -% @frameAddress() > max_stack) return false;
         if (items.len == 0) {
             if (k) |c| return self.m(c.items, ti, c.next);
             if (self.toks()[ti].tag != .nl) return false;

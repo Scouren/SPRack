@@ -1375,6 +1375,27 @@ test "fuzz: a model or device without a name is reported, not written" {
     try reported(&report, .@"error", "mosfet: a statement without a name cannot be written");
 }
 
+test "fuzz: a statement of thousands of repeated words does not overflow the stack" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // `( freqs )+` recursed once per word: 3000 of them overflowed an 8 MB stack.
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(a, "t\n.hb tones=");
+    for (0..20_000) |_| try src.appendSlice(a, "1 ");
+    try src.appendSlice(a, "\n.hb tones=1k 2k nharms=3 3\n.end\n");
+    for (dialects) |from| {
+        var report: ir.Report = .init(a);
+        const nl = try readAs(a, from, src.items, &report);
+        for (dialects) |to| _ = try writeAs(a, to, &nl, &report);
+    }
+    // The statement too long to match is kept as text; the next one still reads.
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src.items, &report);
+    try testing.expectEqual(.@"opaque", nl.stmts[0].kind);
+    try testing.expectEqual(.hb, nl.stmts[1].kind);
+}
+
 test "fuzz: long grammar lists compile in linear memory" {
     // A pattern of 3000 words, and 2000 function names on 100 lines, once
     // took O(n^2) memory: about 600 MB and 60 MB here.
