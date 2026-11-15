@@ -721,6 +721,36 @@ def test_tiny_pdk_names_are_known_to_the_writer():
     _tiny(body)
 
 
+def test_tiny_pdk_subcircuit_for_each_branch():
+    def body(make, d):
+        # A cell that picks its model by a parameter: Xyce, which has no
+        # conditional blocks, holds it once for each branch.
+        with open(os.path.join(d, "cells.inc"), "a") as f:
+            f.write(".model rmod2 r rsh=20\n.subckt msel a b w=1u rfmode=0\n.if (rfmode == 0)\nR1 a b rmod w=w\n.else\nR1 a b rmod2 w=w\n.endif\n.ends msel\n")
+        pdk = make()
+        c = sprack.Circuit("t", pdk=pdk)
+        c.msel("X1", "a", 0)
+        c.msel("X2", "a", 0, w="2u", rfmode=1)
+        c.V("1", "a", 0, 1)
+        c.op()
+        # An instance is the one its parameters select, as the PDK's files declare it.
+        out = c.netlist("xyce")
+        assert "X1 a 0 msel\nX2 a 0 msel__1 params: w=2u rfmode=1\n" in out, out
+        copy = "".join(open(os.path.join(at, n)).read() for at, _, names in os.walk(pdk.translate("xyce")) for n in names)
+        assert "* [sprack] 'msel' where !(rfmode == 0)\n.subckt msel__1 a b params: w=1u rfmode=0\nR1 a b rmod2 w={w}\n.ends msel__1\n" in copy, copy
+        assert ".subckt msel a b params: w=1u rfmode=0\nR1 a b rmod w={w}\n.ends msel\n" in copy, copy
+        # Where the block has a form, nothing changes.
+        assert "X2 a 0 msel w=2u rfmode=1\n" in c.netlist("ngspice")
+        # A catalogue kept by another build of the core is not this one's.
+        stamp, at = pdk._stamp(), sprack._core.__file__
+        sprack._core.__file__ = os.path.join(d, "m.lib")
+        try:
+            assert pdk._stamp() != stamp
+        finally:
+            sprack._core.__file__ = at
+    _tiny(body)
+
+
 def test_tiny_pdk_manifest():
     def body(make, d):
         # A manifest says what it lacks, and what one needs.

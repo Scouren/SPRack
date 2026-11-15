@@ -1109,6 +1109,14 @@ def _variables(defs: dict[str, str] = {}) -> dict[str, str]:
     return {k: v for k, v in {**os.environ, **defs}.items() if "\n" not in v}
 
 
+def _build() -> str:
+    """What tells one build of the core from another, for what is kept in
+    the cache: its schema and the file it is. Another build may read the
+    same files another way, or list more of what they declare."""
+    st = os.stat(_core.__file__)
+    return f"{_core.info()}\0{_core.__file__}:{st.st_mtime_ns}:{st.st_size}"
+
+
 def _lines(variables: dict[str, str]) -> str:
     return "\n".join(f"{k}={v}" for k, v in variables.items())
 
@@ -1137,7 +1145,7 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     stale copy is renamed aside before it is replaced, and what a writer
     leaves behind is swept by the next one (`_sweep`).
     """
-    key = hashlib.sha1(f"{src}\0{_dialect_tag(frm)}\0{_dialect_tag(to)}\0{_core.info()}".encode()).hexdigest()[:16]
+    key = hashlib.sha1(f"{src}\0{_dialect_tag(frm)}\0{_dialect_tag(to)}\0{_build()}".encode()).hexdigest()[:16]
     base = os.path.join(_cache_root(), "libs")
     name = f"{os.path.basename(src)}-{key}"
     final = os.path.join(base, name)
@@ -1327,7 +1335,7 @@ class PDK:
         for path in self._tops():
             st = os.stat(path)
             h.update(f"{path}:{st.st_mtime_ns}:{st.st_size}".encode())
-        h.update(_core.info().encode())
+        h.update(_build().encode())
         return h.hexdigest()[:16]
 
     # -- devices ----------------------------------------------------------
