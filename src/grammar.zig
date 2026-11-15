@@ -375,6 +375,11 @@ pub const Grammar = struct {
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
+    /// `hoist param from dialect...`: an instance sets only what a
+    /// subcircuit's header declares here, so a parameter statement inside a
+    /// subcircuit read from one of these dialects, measured to take it per
+    /// instance, is written on the header.
+    hoist_param: []const []const u8 = &.{},
     /// `spread kind ["word"]`: a block kind this dialect says by adding the
     /// kind's rule to the end of each statement in its body (HSPICE
     /// `monte=`). With a word, only the rules that start with it are such
@@ -1282,6 +1287,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var fills: []const Fill = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
+    var hoist_param: []const []const u8 = &.{};
     var spreads: []const Spread = &.{};
     var reruns: []const Kind = &.{};
     var reserved: []const Reserved = &.{};
@@ -1508,6 +1514,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             } else if (std.mem.eql(u8, what, "master")) {
                 unique_master = rest[colon + 3 ..];
             } else return c.fail(no, "unique takes param or master, not '{s}'", .{what});
+        } else if (std.mem.eql(u8, head, "hoist")) {
+            const a = try args(c, no, rest);
+            if (a.len < 3 or !std.mem.eql(u8, a[0], "param") or !std.mem.eql(u8, a[1], "from")) return c.fail(no, "hoist is `hoist param from dialect...`", .{});
+            hoist_param = a[2..];
         } else if (std.mem.eql(u8, head, "models")) {
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
@@ -1627,6 +1637,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .fills = fills,
         .unique_param = unique_param,
         .unique_master = unique_master,
+        .hoist_param = hoist_param,
         .spreads = spreads,
         .reruns = reruns,
         .reserved = reserved,

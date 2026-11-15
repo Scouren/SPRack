@@ -836,6 +836,13 @@ const Writer = struct {
     /// per rule: one report per file, naming the first card (sky130 has a
     /// version on every bin). An error is reported card by card.
     refused: std.AutoArrayHashMapUnmanaged(*const grammar.NoParam, struct { n: usize, name: []const u8, line: u32 }) = .empty,
+    /// Subcircuits whose inner parameters went to the header (`hoist
+    /// param`), and those whose stayed inside because their dialect is not
+    /// measured: one entry a file each, naming the first (a PDK has hundreds).
+    hoisted: Hoisted = .{},
+    unhoisted: Hoisted = .{},
+
+    const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 = "", line: u32 = 0 };
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -1081,6 +1088,68 @@ const Writer = struct {
                 w.report.add(.warning, .loss, r.line, "model '{s}' and {d} more card{s} in this file: {s} not written: {s}", .{ r.name, r.n - 1, if (r.n == 2) "" else "s", np.key, np.text });
             }
         }
+        var buf: [48]u8 = undefined;
+        const hs = w.hoisted;
+        if (hs.n > 0) w.report.add(.info, .oneway, hs.line, "subckt '{s}'{s}: the parameters defined inside are written on the header, which reads back there; {s} gives an instance's value to that instance alone only for a parameter of the header", .{
+            hs.name, if (hs.n > 1) std.fmt.bufPrint(&buf, " and {d} more in this file", .{hs.n - 1}) catch unreachable else "", w.g.name,
+        });
+        const us = w.unhoisted;
+        if (us.n > 0) w.report.add(.warning, .ambiguous, us.line, "subckt '{s}'{s}: the parameters defined inside are written as they were; {s} gives an instance's value to that instance alone only for a parameter of the header, and what {s} does with one defined inside is not measured", .{
+            us.name, if (us.n > 1) std.fmt.bufPrint(&buf, " and {d} more in this file", .{us.n - 1}) catch unreachable else "", w.g.name, us.source,
+        });
+    }
+
+    /// A parameter statement of a dialect the grammar's `hoist param` lists.
+    fn hoists(w: *const Writer, st: *const ir.Stmt) bool {
+        if (st.kind != .param or st.get("params") != .params) return false;
+        for (w.g.hoist_param) |d| {
+            if (std.mem.eql(u8, d, w.sourceOf(st))) return true;
+        }
+        return false;
+    }
+
+    /// `hoist param`: subcircuit `st` with the parameter statements of its
+    /// body on its header, the only place an instance sets one for itself
+    /// alone here. A later value of a name replaces an earlier one, the
+    /// header's too, as the listed dialects take it (docs/verification.md
+    /// 4.14). Null: nothing moves.
+    fn hoistParams(w: *Writer, st: *const ir.Stmt) Allocator.Error!?ir.Stmt {
+        if (st.kind != .subckt or w.g.hoist_param.len == 0) return null;
+        var any = false;
+        var unmeasured: ?[]const u8 = null;
+        for (st.body) |*c| {
+            if (w.hoists(c)) any = true else if (c.kind == .param and !std.mem.eql(u8, w.sourceOf(c), w.g.name)) unmeasured = w.sourceOf(c);
+        }
+        const h = if (any) &w.hoisted else &w.unhoisted;
+        if (any or unmeasured != null) {
+            if (h.n == 0) h.* = .{ .name = if (st.get("name") == .atom) try w.perm.dupe(u8, st.get("name").atom) else "", .source = unmeasured orelse "", .line = st.line };
+            h.n += 1;
+        }
+        if (!any) return null;
+        const a = w.arena;
+        const pi = schema.slotIndex(.subckt, "params").?;
+        var ps: std.ArrayList(ir.Param) = .empty;
+        if (st.at(pi) == .params) try ps.appendSlice(a, st.at(pi).params);
+        var body: std.ArrayList(ir.Stmt) = try .initCapacity(a, st.body.len);
+        for (st.body) |*c| {
+            if (!w.hoists(c)) {
+                body.appendAssumeCapacity(c.*);
+                continue;
+            }
+            next: for (c.get("params").params) |p| {
+                for (ps.items) |*q| if (std.ascii.eqlIgnoreCase(q.key, p.key)) {
+                    q.val = p.val;
+                    continue :next;
+                };
+                try ps.append(a, p);
+            }
+            if (c.tail.len > 0) body.appendAssumeCapacity(.{ .kind = .comment, .raw = c.tail, .line = c.line });
+        }
+        var out = st.*;
+        try out.own(a);
+        try out.set(a, pi, .{ .params = ps.items });
+        out.body = body.items;
+        return out;
     }
 
     /// The grammar of the dialect `st` was read in, when it is a built-in one.
@@ -1185,6 +1254,7 @@ const Writer = struct {
 
     fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
         if (st.kind == .model and st.body.len > 0) return w.binnedModel(st);
+        if (try w.hoistParams(st)) |h| return w.stmt(&h);
         // A conditional block where there are none, but a choice inside an
         // expression: the same statements in every branch are written once,
         // their values as choices (`cond.zig`).

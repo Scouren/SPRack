@@ -809,6 +809,83 @@ from a dialect not measured (HSPICE, Spectre), nothing is added to the
 general model caveat. The card is not converted: the exact form exists one
 way only, and a model card's parameters have no `convert`.
 
+### 4.14 A parameter defined inside a subcircuit, set from an instance (u1)
+
+A subcircuit `rr` holding `R1 a b {r0}`, and four instances of it in the
+order X2, X1, X3, X4, each across its own 1 V source; X2 and X4 give no
+parameter. The source currents are read back (ngspice `print`, Xyce `.print
+dc`, the VACASK raw file, LTspice `.meas op` in the log, which is single
+precision). In the first two rows X1 gives `r0=4k` and X3 `r0=2k`; in the
+last three X1 gives `a=2k` and X3 `a=500`. Currents in the order X2, X1, X3,
+X4, their sign left out.
+
+| the subcircuit declares | ngspice 45 | Xyce 7.10 | LTspice 26.0.2 |
+|---|---|---|---|
+| `.param r0=1k` inside | 1 mA, 250 uA, 500 uA, 1 mA | 1 mA, 250 uA, 500 uA, **500 uA** | 1 mA, 250 uA, 500 uA, 1 mA |
+| `r0=1k` on the header | 1 mA, 250 uA, 500 uA, 1 mA | 1 mA, 250 uA, 500 uA, 1 mA | 1 mA, 250 uA, 500 uA, 1 mA |
+| `.param a=1k` and `.param r0={2*a}` inside | 500 uA, 250 uA, 1 mA, 500 uA | 500 uA, 250 uA, 1 mA, **1 mA** | 500 uA, 250 uA, 1 mA, 500 uA |
+| `a=1k r0={2*a}` on the header | 500 uA, 250 uA, 1 mA, 500 uA | 500 uA, 250 uA, 1 mA, 500 uA | 500 uA, 250 uA, 1 mA, 500 uA |
+| `a=1k` on the header, `.param r0={2*a}` inside | 500 uA, 250 uA, 1 mA, 500 uA | 500 uA, 250 uA, 1 mA, 500 uA | 500 uA, 250 uA, 1 mA, 500 uA |
+
+So ngspice 45 and LTspice 26.0.2 take an instance's value for a parameter
+defined inside the subcircuit as they take one for a header parameter: for
+that instance alone. Xyce 7.10 takes it too, and keeps it for the later
+instances that give none (X4 has X3's value); it does so only for a
+parameter the header does not declare, and prints no warning. ngspice reads
+`.params` as `.param` here (the same four currents). VACASK (b2c1551) has no
+header parameters: its `parameters` lines inside the subcircuit are the
+declaration, and the translations of the first and third deck (`parameters
+r0=1k`; `parameters a=1k` and `parameters r0=2*a`) give 1 mA, 250 uA, 500
+uA, 1 mA and 500 uA, 250 uA, 1 mA, 500 uA.
+
+What a Xyce 7.10 header default may be, each with the currents right for all
+four instances: an expression of a header parameter that comes after it
+(`params: r0={2*a} a=1k`); of a parameter of the netlist (`.param g=1k`,
+`params: r0={2*g}`); of a function, the `.func` standing inside the
+subcircuit or outside it; and `{1k*agauss(1,s,1)}` under `.sampling` (three
+samples, seed 7), which draws the same twelve values as the same `.param`
+inside does.
+
+A name on the header and inside (`r0=1k` on the header, `.param r0=3k`
+inside): in ngspice 45 the inner value is the default (X2 and X4 draw
+333.333 uA, X1 and X3 their own 250 and 500 uA); in Xyce 7.10 the header's is
+(1 mA). A parameter the subcircuit declares nowhere is refused on an
+instance by ngspice 45 ("Mismatch: 0 formal but 1 actual params"), so every
+parameter an ngspice instance gives is one of the two kinds above.
+
+The Xyce grammar now says it: `hoist param from ngspice ltspice`. A
+subcircuit's parameter statements read from those two are written on its
+header, in order, a later value of a name replacing an earlier one, with one
+`oneway` info a file (the output reads back as header parameters). Xyce's
+own stay where they are. HSPICE and ESPice were not measured: theirs stay
+too, with one `ambiguous` warning a file. Spectre's and VACASK's
+`parameters` lines are read as the header already. A parameter inside a
+conditional block of the subcircuit is not moved.
+
+IHP SG13G2, `capacitors_mod.lib` to Xyce: three subcircuits change, 26
+parameter statements in all. `cap_cmim` was
+
+```text
+.subckt cap_cmim PLUS MINUS
+.param l=7u
+.param w=7u
+.param mm_ok=0
+.param sf=1u
+.param ic=1e10
+```
+
+and is `.subckt cap_cmim PLUS MINUS params: l=7u w=7u mm_ok=0 sf=1u
+ic=1e10`. A deck in its shape (`l`, `w`, `sf`, `ic` and `carea={1.5m*(l/sf)*(w/sf)*1p}`
+as `.param` lines inside, `C1 PLUS MINUS {carea}`), four instances giving
+nothing, `l=10u w=10u`, `l=20u`, nothing, each across a 1 V AC source,
+`.ac lin 1 1meg 1meg`; the imaginary part of the source currents:
+
+| | first | `l=10u w=10u` | `l=20u` | last |
+|---|---|---|---|---|
+| ngspice 45 | -4.61814e-7 | -9.42478e-7 | -1.31947e-6 | -4.61814e-7 |
+| Xyce 7.10, the translation before | -4.61814120e-7 | -9.42477796e-7 | -1.31946891e-6 | **-1.31946891e-6** |
+| Xyce 7.10, the translation now | -4.61814120e-7 | -9.42477796e-7 | -1.31946891e-6 | -4.61814120e-7 |
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

@@ -30,6 +30,12 @@ block subckt
   close  ".ends" [name]
 end
 
+# An instance sets only what the header declares. Given on an instance, a
+# .param inside the subcircuit is taken, and kept for the later instances
+# that give none (Xyce 7.10); ngspice 45 and LTspice 26.0.2 take it for that
+# instance alone, as they do a header parameter (docs/verification.md 4.14).
+hoist param from ngspice ltspice
+
 block libsection
   open   ".lib" name
   close  ".endl" [name]

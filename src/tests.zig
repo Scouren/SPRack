@@ -5098,3 +5098,50 @@ test "s3: a resistor model's NARROW or SHORT crossing between ngspice and Xyce s
         try testing.expect(!rq.contains(.warning, differs));
     }
 }
+
+// u1: a parameter a subcircuit defines inside its body, written for a
+// dialect whose instances set only what the header declares (`hoist param`).
+// Measured: docs/verification.md 4.14.
+
+test "u1: a subcircuit's inner parameters are written on the header where an instance sets only those" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const rr = "t\n.subckt rr a b\n.param r0=1k\nR1 a b {r0}\n.ends\n.end\n";
+    const src = "t\n.subckt rr a b\n.param r0=1k $ ohms\n.param k={2*r0}\nR1 a b {k}\n.ends\n" ++
+        ".subckt cc a b\n.param c0=1p\nC1 a b {c0}\n.ends\nV1 1 0 1\nX1 1 0 rr r0=4k\nX2 1 0 rr\n.op\n.end\n";
+    // Xyce: all of them, in order, the derived one too; one entry for the file.
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", src, &r);
+    try has(out, ".subckt rr a b params: r0=1k k={2*r0}\n* ohms\nR1 a b {k}\n.ends rr\n.subckt cc a b params: c0=1p\nC1");
+    try has(out, "X1 1 0 rr params: r0=4k\nX2 1 0 rr\n");
+    try reported(&r, .info, "subckt 'rr' and 1 more in this file: the parameters defined inside are written on the header, which reads back there; xyce gives an instance's value to that instance alone only for a parameter of the header");
+    try testing.expectEqual(1, r.countCode(.oneway));
+    try testing.expectEqual(0, r.count(.@"error") + r.count(.warning));
+    // Back in ngspice they are header parameters, per instance there too.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", out, &r2), ".subckt rr a b r0=1k k={2*r0}\n");
+    try testing.expectEqual(0, excuses(&r2));
+    // Where the header has the name too, the inner value is the default (ngspice 45).
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.subckt rr a b r0=1k w=2\n.param r0=3k\nR1 a b {r0*w}\n.ends\n.end\n", &r3), ".subckt rr a b params: r0=3k w=2\nR1");
+    // LTspice means the same by an inner parameter.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "xyce", rr, &r4), ".subckt rr a b params: r0=1k\nR1");
+    try testing.expectEqual(1, r4.countCode(.oneway));
+    // The targets that take an inner parameter per instance keep it inside.
+    for ([_][]const u8{ "ngspice", "ltspice" }) |to| {
+        var r5: ir.Report = .init(a);
+        try has(try tr(a, "ngspice", to, rr, &r5), ".subckt rr a b\n.param r0=1k\nR1");
+        try testing.expectEqual(0, excuses(&r5));
+    }
+    // So does Xyce one of its own.
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "xyce", rr, &r6), ".subckt rr a b\n.param r0=1k\nR1");
+    try testing.expectEqual(0, excuses(&r6));
+    // HSPICE is not measured: written as it was, and the report says so.
+    var r7: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\n.subckt rr a b\n.param r0=1k\nR1 a b r0\n.ends\n.end\n", &r7), ".subckt rr a b\n.param r0=1k\nR1");
+    try reported(&r7, .warning, "subckt 'rr': the parameters defined inside are written as they were; xyce gives an instance's value to that instance alone only for a parameter of the header, and what hspice does with one defined inside is not measured");
+    try testing.expectEqual(1, r7.countCode(.ambiguous));
+}

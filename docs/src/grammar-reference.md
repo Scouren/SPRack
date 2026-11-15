@@ -150,6 +150,13 @@ unique master : ...                # a name both a model and a subcircuit define
                                    # (in any file of a project): the model and
                                    # the devices that use it by their SPICE
                                    # letter are renamed (nch__m), an info
+hoist param from ngspice ltspice   # an instance sets only what a subcircuit's
+                                   # header declares here: a parameter
+                                   # statement inside one, read from a dialect
+                                   # measured to take it per instance, is
+                                   # written on the header (an `oneway` info,
+                                   # once a file); from any other dialect it
+                                   # stays, an `ambiguous` warning
 reserved vt temp : ...             # parameter names the simulator refuses
 requires dc-path error : ...       # a topology the simulator cannot solve, and
                                    # whether it is an error or a warning here:
