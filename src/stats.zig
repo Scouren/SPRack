@@ -38,9 +38,10 @@ fn hasFunction(g: *const Grammar, canon: []const u8) bool {
 
 pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
     var stmts = stmts_in;
+    var functions: usize = 0;
     // ponytail: HSPICE is the one dialect named here, as the home of the
     // `dev/gauss=` form; a grammar directive if a second one needs it.
-    if (devLots(g, source) and usesDevLot(stmts)) stmts = try devLot(arena, stmts, report);
+    if (devLots(g, source) and usesDevLot(stmts)) stmts = try devLot(arena, stmts, report, &functions);
     checkReserved(g, stmts, report);
     if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) {
         if (!usesRandom(stmts)) return stmts;
@@ -49,11 +50,17 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
         l.caveat();
         return out;
     }
-    if (hasFunction(g, "agauss")) {
-        if (!usesKind(stmts, .statistics)) return stmts;
-        return fold(arena, g, stmts, report);
-    }
+    if (hasFunction(g, "agauss") and usesKind(stmts, .statistics)) stmts = try fold(arena, g, stmts, report, &functions);
+    asFunctions(g, functions, report);
     return stmts;
+}
+
+/// One note for the file, where a PDK has thousands: `n` parameters whose
+/// variation (`dev/gauss=`, a `vary`) is now a random function in the
+/// definition, which is what `g` reads back.
+pub fn asFunctions(g: *const Grammar, n: usize, report: *ir.Report) void {
+    if (n == 0 or !hasFunction(g, "agauss")) return;
+    report.add(.info, .oneway, 0, "{d} parameter{s} varied by a random function in the definition, in place of a variation given separately; {s} reads back the function, not the variation", .{ n, if (n == 1) "" else "s", g.name });
 }
 
 /// Does `prepare` need every statement of the netlist at once for
@@ -127,11 +134,12 @@ pub fn usesDevLot(stmts: []const Stmt) bool {
 
 /// `p=nom dev/gauss=s` as `p=agauss(nom, s, 1)`, which the rest of this
 /// file and every dialect with agauss() understand.
-pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+/// `n` counts them, for `asFunctions`.
+pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report, n: *usize) Allocator.Error![]const Stmt {
     const out = try arena.dupe(Stmt, stmts);
     const pi = schema.slotIndex(.param, "params").?;
     for (out) |*st| {
-        if (st.body.len > 0) st.body = @constCast(try devLot(arena, st.body, report));
+        if (st.body.len > 0) st.body = @constCast(try devLot(arena, st.body, report, n));
         if (st.kind != .param or st.at(pi) != .params) continue;
         var ps: std.ArrayList(ir.Param) = .empty;
         var changed = false;
@@ -152,6 +160,7 @@ pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocat
                 .unif => try std.fmt.allocPrint(arena, "aunif({s}, {s})", .{ nom, s }),
             } };
             changed = true;
+            n.* += 1;
             report.add(.warning, .caveat, st.line, "{s}={s} on parameter '{s}': written as a random function in its definition, so it is drawn per instance inside a subcircuit and per run at the top level, whatever dev or lot said", .{ p.key, s, prev.key });
         }
         if (!changed) continue;
@@ -312,6 +321,8 @@ const Lower = struct {
     report: *ir.Report,
     g: *const Grammar,
     first_line: u32 = 0,
+    /// How many variations the statistics blocks made here hold.
+    varied: usize = 0,
     used: std.StringHashMapUnmanaged(void) = .empty,
     /// Set when the statements go away before the variations are written
     /// (`Stream`): where the variations are kept, `arena` otherwise.
@@ -327,6 +338,8 @@ const Lower = struct {
 
     fn caveat(l: *const Lower) void {
         l.report.add(.warning, .caveat, l.first_line, "agauss(), gauss(), aunif() and unif() are written as {s} statistics variations: outside a Monte Carlo analysis the parameters keep their nominal values, where ngspice draws a new sample on every run", .{l.g.name});
+        // One note for the file, where a PDK has thousands.
+        if (l.varied > 0) l.report.add(.info, .oneway, l.first_line, "{d} parameter{s} varied in a statistics block in place of a random function; {s} reads back the block, not the function", .{ l.varied, if (l.varied == 1) "" else "s", l.g.name });
     }
 
     /// Variations made for the list being lowered.
@@ -441,6 +454,7 @@ const Lower = struct {
     /// What `acc` holds, as the statements that end its list.
     fn variations(l: *Lower, acc: *const Acc, line: u32) Allocator.Error![]const Stmt {
         if (acc.process.items.len == 0 and acc.mismatch.items.len == 0) return &.{};
+        l.varied += acc.process.items.len + acc.mismatch.items.len;
         var all: std.ArrayList(Stmt) = .empty;
         if (acc.zeros.items.len > 0) {
             var ps = try ir.newStmt(l.arena, .param, line);
@@ -503,11 +517,11 @@ const Lower = struct {
 /// Process variations of parameters defined in the same list, as random
 /// functions in their definitions. Whatever is left keeps its statistics
 /// block, for the writer to report.
-fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Report, n: *usize) Allocator.Error![]const Stmt {
     var out: std.ArrayList(Stmt) = .empty;
     try out.appendSlice(arena, stmts);
     for (out.items) |*st| {
-        if (st.body.len > 0 and st.kind != .statistics) st.body = @constCast(try fold(arena, g, st.body, report));
+        if (st.body.len > 0 and st.kind != .statistics) st.body = @constCast(try fold(arena, g, st.body, report, n));
     }
     var i: usize = 0;
     while (i < out.items.len) {
@@ -524,7 +538,9 @@ fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Re
             }
             var kept: std.ArrayList(Stmt) = .empty;
             for (grp.body) |*v| {
-                if (v.kind != .vary or !try foldOne(arena, out.items, v, report)) try kept.append(arena, v.*);
+                if (v.kind != .vary or !try foldOne(arena, out.items, v, report)) {
+                    try kept.append(arena, v.*);
+                } else n.* += 1;
             }
             if (kept.items.len == 0) continue;
             var copy = grp;

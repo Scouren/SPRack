@@ -1520,9 +1520,7 @@ test "expressions: functions, operators and variables are mapped" {
     _ = try tr(a, "spectre", "ngspice", "// t\nparameters m=(3 ^ 5)\n", &r2);
     try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: ltspice, spectre");
     var r3: ir.Report = .init(a);
-    // Not the same read back, and nothing says so: Spectre says a random
-    // function as a statistics block, and reads it as one (`stats.zig`).
-    const st = try trx(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3, .{ .silent = true });
+    const st = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
     try clean(&r3);
     try has(st, "parameters vth=0.4\n");
     try has(st, "vary vth dist=gauss std=(0.01)/(3)\n");
@@ -3347,13 +3345,40 @@ test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     try reported(&r1, .warning, "dev/gauss=");
     try reported(&r1, .@"error", "parameter 'vt': Xyce keeps this name");
     // Into Spectre the variation becomes a statistics block.
-    // (Read back it is that block, not the dev/gauss it was: see `Skip`.)
     var r2: ir.Report = .init(a);
-    const sp = try trx(a, "ngspice", "spectre", src, &r2, .{ .silent = true });
+    const sp = try tr(a, "ngspice", "spectre", src, &r2);
     try has(sp, "vary czero dist=gauss std=0.1p\n");
     // HSPICE reads the form itself.
     var r3: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", src, &r3), "dev/gauss=0.1p");
+}
+
+test "statistics: a variation said the other way reads back that way, and one note for the file says so" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Random functions as a statistics block: the note is the only entry
+    // that explains the block read back (`tr` fails on a difference with none).
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)} tox={aunif(2n, 0.1n)}\n.subckt s a b\nR1 a b {gauss(1k, 0.1, 1)}\n.ends\n.end\n", &r1);
+    try reported(&r1, .info, "3 parameters varied in a statistics block in place of a random function; spectre reads back the block, not the function");
+    try testing.expectEqual(1, r1.countCode(.oneway));
+    // A statistics block as random functions.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "spectre", "ngspice", "// t\nparameters vth=0.4 tox=2n\nstatistics {\nprocess {\nvary vth dist=gauss std=0.01\nvary tox dist=unif N=0.1n\n}\n}\n", &r2);
+    try has(ng, ".param vth={agauss(0.4, 0.01, 1)} tox={aunif(2n, 0.1n)}\n");
+    try clean(&r2);
+    try reported(&r2, .info, "2 parameters varied by a random function in the definition, in place of a variation given separately; ngspice reads back the function, not the variation");
+    try testing.expectEqual(1, r2.countCode(.oneway));
+    // HSPICE's dev/gauss= as a random function.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param czero=1p dev/gauss=0.1p\nC1 a 0 {czero}\n.end\n", &r3);
+    try reported(&r3, .info, "1 parameter varied by a random function in the definition, in place of a variation given separately; xyce reads back the function, not the variation");
+    // Nothing varied, nothing said.
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\n.param vth=0.4\n.end\n", &r4);
+    _ = try tr(a, "spectre", "ngspice", "// t\nparameters vth=0.4\n", &r4);
+    try testing.expectEqual(0, r4.items.items.len);
 }
 
 test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {

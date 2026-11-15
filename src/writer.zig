@@ -2479,6 +2479,8 @@ pub const Stream = struct {
     wrapped: std.ArrayList(ir.Stmt) = .empty,
     refs: Refs = .{},
     lower: ?stats.Stream = null,
+    /// How many `dev/gauss=` are random functions now (`stats.asFunctions`).
+    functions: usize = 0,
 
     /// Everything before the first statement: title, header, boilerplate
     /// and the options the source's dialect assumes. In place: the writer
@@ -2620,7 +2622,7 @@ pub const Stream = struct {
         // `pzPorts`: what those would change makes the netlist be written
         // whole (`stream.zig`).
         w.report.phase = ir.Phase.devlot;
-        if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts)) stmts = try stats.devLot(a, stmts, w.report);
+        if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts)) stmts = try stats.devLot(a, stmts, w.report, &s.functions);
         w.report.phase = ir.Phase.stats;
         stats.checkReserved(g, stmts, w.report);
         if (s.lower) |*l| stmts = try l.group(a, stmts);
@@ -2655,10 +2657,9 @@ pub const Stream = struct {
         const w = &s.w;
         const g = w.g;
         const report = w.report;
-        if (s.lower) |*l| {
-            report.phase = ir.Phase.stats;
-            try s.last(try l.end(w.arena));
-        }
+        report.phase = ir.Phase.stats;
+        stats.asFunctions(g, s.functions, report);
+        if (s.lower) |*l| try s.last(try l.end(w.arena));
         report.phase = ir.Phase.write;
         for (g.wraps) |*wr| {
             // A control block runs in order (VACASK), so settings come before
