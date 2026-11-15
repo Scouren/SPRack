@@ -168,21 +168,21 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-150 files, 3 errors, 79 warnings
+150 files, 2 errors, 79 warnings
 ```
 
-Status 1: three lines of the library have no form in Xyce. Each error names
+Status 1: two lines of the library have no form in Xyce. Each error names
 its file and line, and says what is wrong:
 
 ```text
 pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
-pdks/sky130_fd_pr/cells/res_iso_pw/sky130_fd_pr__res_iso_pw.model.spice:18: error[invalid]: parameter 'vt': Xyce keeps this name for a variable of its own and refuses a parameter called so; rename it
 pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:33: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: sky130_fd_pr__res_generic_po r0 r1 sky130_fd_pr__res_generic_po__monte r = {r_tot} tc1r = {tc1} tc2r = {tc2}
 ```
 
-Two are lines of the library that are not ngspice syntax; one is a
-parameter name Xyce refuses. The rest of the tree is translated, and whether
-those three matter depends on the devices you use.
+Both are lines of the library that are not ngspice syntax. The rest of the
+tree is translated (a parameter named `vt`, which Xyce refuses, is written
+as `vt__p` with a note), and whether those two matter depends on the
+devices you use.
 
 ## With a manifest: sprack.PDK
 
@@ -285,7 +285,7 @@ except sprack.Unsupported as err:
 ```
 
 ```text
-7 errors
+2 errors
 error[untranslated]: pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:line 16: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
 ```
 
@@ -310,7 +310,7 @@ Mp (out in vdd vdd) sky130_fd_pr__pfet_01v8 w=1 l=0.15
 Mn (out in 0 0) sky130_fd_pr__nfet_01v8 w=0.5 l=0.15
 tran1 tran step=10p stop=8n
 
-7 errors in the report
+2 errors in the report
 ```
 
 `pdk.translate(dialect, strict=False)` does the translation alone and

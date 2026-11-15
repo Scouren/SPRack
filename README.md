@@ -241,20 +241,23 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 280 | 0 | 2 | 3 | 7 | 9 |
-| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 55 | 2 | 14 |
+| sky130 (ngspice) | 280 | 0 | 2 | 2 | 2 | 9 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 45 | 0 | 12 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
 | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
 
-Every error names a file and a line. They are: lines in the sky130
-repository that are not ngspice syntax; a sky130 parameter named `vt`, which
-Xyce refuses; HSPICE's `dev/gauss` repeated on one sky130 card, which Spectre
-takes as one parameter defined several times; flags on IHP instances that
-Spectre has no spelling for; conditional blocks and Verilog-A models, which
-Xyce does not have; BSIM-CMG, which ngspice has only as a Verilog-A model;
-and, for VACASK, BSIM-CMG again, the `pwr` function and instance parameters
-(a capacitor's `ic`) that its shipped modules do not have.
+Every error names a file and a line. What is left, and whose it is:
+
+- sky130 to every other target, 2: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses. Upstream: [issue 25](https://github.com/Scouren/SPRack/issues/25).
+- ASAP7 to ngspice and to VACASK, 24 each: BSIM-CMG, which neither has built in. Upstream: [issue 27](https://github.com/Scouren/SPRack/issues/27).
+- IHP to Xyce, 21: conditional blocks. Not yet translated.
+- IHP to Xyce, 16: the Verilog-A modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` (7 model cards) and their 9 instances. Not yet translated.
+- IHP to Xyce, 5: the NQS module of PSP103 (`pspnqs103va`). The target has no such thing: Xyce's PSP103 has no NQS.
+- IHP to Xyce, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off.
+- IHP to VACASK, 12: a capacitor's `ic=`. The target has no such thing: VACASK sets initial conditions on the analysis.
+- sky130 to VACASK, 6: the function `pwr`. Not yet translated.
+- sky130 to VACASK, 1: a capacitor given by a charge expression (`q=`). The target has no such thing.
 
 ## Tests
 
@@ -263,7 +266,7 @@ and, for VACASK, BSIM-CMG again, the `pwr` function and instance parameters
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 160 tests |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 173 tests |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 29 runs |
 | The Python package | `python/test_sprack.py` | 23 tests, 10 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |
