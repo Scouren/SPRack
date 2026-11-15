@@ -169,7 +169,9 @@ no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and wh
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
                                                  # (`negpow`: a minus after an
-                                                 # operator, before `**`)
+                                                 # operator, before `**`;
+                                                 # `minuspow`: any minus before
+                                                 # `**`; `andor`: `&&` and `||`)
 
 signals                            # how recordable things are written
   v = "v(%)"

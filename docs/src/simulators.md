@@ -27,7 +27,7 @@ xyce
 | `spectre` | Spectre's own language | checked by loading translations in the simulator; a `simulator lang=spice` section is read as HSPICE |
 | `hspice` | HSPICE | checked by loading translations in the simulator |
 | `espice` | ESPice | ngspice's dialect with ESPice's own cards, from its documentation |
-| `ltspice` | LTspice | written from knowledge of its syntax, with no LTspice to check against; the lines that leaves open are marked `assumed` in the file |
+| `ltspice` | LTspice | checked on LTspice 26.0.2 in batch mode, on decks written for the check |
 | `cdl` | CDL, the netlist of layout-versus-schematic checks | connectivity only: every source, analysis and control is an error that says so; no tool was run, and unsettled lines are marked `assumed` |
 
 The header of each file in `grammars/` says what it was written from, and

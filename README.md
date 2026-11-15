@@ -97,7 +97,7 @@ The same from Python (`PYTHONPATH=python`):
 | `spectre` | Spectre's own language | Spectre 25.10: every error-free translation of the corpus loaded (`tools/licensed_check.py`) |
 | `hspice` | HSPICE | HSPICE Y-2026.03: the same |
 | `espice` | ESPice (ngspice's dialect plus its own analyses) | ESPice's documentation and its maintainers' runs |
-| `ltspice` | LTspice | not yet: written without an LTspice to check against, and the lines that source does not settle are marked `assumed` in the grammar. LTspice 26.0.2 now runs here (`nix develop .#ltspice`) |
+| `ltspice` | LTspice | LTspice 26.0.2, run in batch mode on decks written for the check (`nix develop .#ltspice`): the tables, the `no` lines, source waveforms and topologies. Not checked: instance parameters, and MOS levels other than 1, 2, 3, 8/49 and 14/54. It runs one analysis a deck |
 | `cdl` | CDL, the connectivity netlist of LVS: no sources, analyses or controls | no tool; a few lines marked `assumed` |
 
 `sprack caps` prints which dialect can write which statement. Each grammar
@@ -232,7 +232,7 @@ it moves the version, tests, tags, and uploads the sdist and wheels to PyPI.
 |---|---|
 | Statement kinds | every kind has a rule, another statement that carries it, or a stated reason in every dialect (`sprack caps` shows no gap; a test keeps it so) |
 | Corpus | VAMS Conformance Suite, 969 decks, 9,670 translations: no crash, no difference the report does not explain |
-| Simulators | output loaded and compared in ngspice, Xyce and VACASK; loaded in Spectre and HSPICE; LTspice not yet checked |
+| Simulators | output loaded and compared in ngspice, Xyce and VACASK; loaded in Spectre and HSPICE; the LTspice grammar measured on LTspice 26.0.2 |
 | PDKs | five open PDKs translated whole (table below); inverters simulated in ngspice |
 | Python | every statement kind and slot reachable through the builder |
 | CI | tests on every push (Linux), wheels on Linux and macOS for CPython 3.10 and 3.13, corpus audit nightly |
@@ -379,8 +379,7 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   each subcircuit is summarised by which ports its body joins at DC, and
   by which it joins through voltage sources only, inductors only, or both;
   an instance stands for those paths in its parent, so a loop through
-  instances (`V1, X1(a,b), V2`) is found at any depth. LTspice states no
-  `requires` lines: its severities are unmeasured. A device whose DC behaviour
+  instances (`V1, X1(a,b), V2`) is found at any depth. A device whose DC behaviour
   depends on its model (behavioural sources, Verilog-A, transmission lines,
   cells defined in other files) is taken to join all its terminals, and the
   branches of a conditional all count, so it errs towards no alarm.
