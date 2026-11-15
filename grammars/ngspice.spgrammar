@@ -361,3 +361,7 @@ end
 # the last left them. Run in ngspice 45; read back, it is
 # a .control block, kept verbatim.
 write alter     = ".control" / ( "alterparam" keys ~"=" vals / )* "reset" / [ "option" { temp=temp } / ] "run" / ".endc"
+
+# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
+# (docs/verification.md 4.13).
+computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)

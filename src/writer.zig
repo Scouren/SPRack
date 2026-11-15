@@ -1038,6 +1038,24 @@ const Writer = struct {
                 }
             }
         }
+        // Parameters the two dialects' models were measured to compute with
+        // differently (`computes`).
+        if (!same) if (w.sourceGrammar(st)) |sg| for (w.g.computes) |*tc| {
+            if (!std.mem.eql(u8, tc.family, fam.atom)) continue;
+            const sc = for (sg.computes) |*c| {
+                if (std.mem.eql(u8, c.family, tc.family)) break c;
+            } else continue;
+            if (std.mem.eql(u8, sc.text, tc.text)) continue;
+            for (ps.items) |p| {
+                for (sc.keys) |k| {
+                    if (std.ascii.eqlIgnoreCase(k, p.key)) break;
+                } else continue;
+                w.report.add(.warning, .caveat, st.line, "model '{s}': {s} does not mean the same in the two: {s} computes {s}; {s} computes {s}. The card is copied as written", .{
+                    st.get("name").atom, p.key, sg.name, sc.text, w.g.name, tc.text,
+                });
+                break;
+            }
+        };
         const th = try expr.thresholds(a, w.g, fam.atom, ps.items, true);
         if (th.changed and !th.no_half) w.report.add(.warning, .caveat, st.line, "model '{s}': the threshold and hysteresis are written as on and off levels; {s} moves smoothly between them where SPICE switches with hysteresis", .{ st.get("name").atom, w.g.name });
         if (th.changed) for (th.params) |p| if (p.val == .expr and isLevel(w.g, p.key)) {

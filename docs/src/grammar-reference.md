@@ -175,6 +175,12 @@ noparam jfet level=2 error : ...   # a model parameter (with that value) the
                                    # family's model here refuses: not written, a loss;
                                    # error (the card is another model now, said card
                                    # by card) or warning (the same model, once a file)
+computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
+                                   # how the family's model here computes with
+                                   # these parameters, as measured: a card with
+                                   # one of them crossing to a dialect that
+                                   # says another formula is copied with a
+                                   # `caveat` stating both
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat

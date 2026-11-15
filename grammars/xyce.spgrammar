@@ -371,3 +371,7 @@ no alter : Xyce has no .alter; when every alter changes only parameters and the 
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+
+# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
+# (docs/verification.md 4.13).
+computes resistor narrow short : R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); its NARROW = n is NARROW = SHORT = n/2 of a model that takes each off twice

@@ -217,6 +217,11 @@ pub const Convert = struct {
 /// not written when a card of that family crosses into this dialect, and
 /// reported as a loss with the severity given (warning: the card still
 /// means the same model, said once per file; error: it does not, card by card).
+/// `computes resistor narrow short : formula`: how this dialect's model of
+/// the family computes with these parameters, as measured. A card carrying
+/// one of them that crosses to a dialect saying another formula is copied
+/// with a warning that states both.
+pub const Computes = struct { family: []const u8, keys: []const []const u8, text: []const u8 };
 pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
 
 pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
@@ -383,6 +388,7 @@ pub const Grammar = struct {
     requires: []const Require = &.{},
     switches: []const Switch = &.{},
     noparams: []const NoParam = &.{},
+    computes: []const Computes = &.{},
     inerts: []const Inert = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
@@ -1282,6 +1288,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var requires: []const Require = &.{};
     var switches: []const Switch = &.{};
     var noparams: []const NoParam = &.{};
+    var computes: []const Computes = &.{};
     var inerts: []const Inert = &.{};
 
     while (lines.next()) |line| {
@@ -1398,6 +1405,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 return c.fail(no, "threshold is `threshold family : on off = mid half`", .{});
             if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
             thresholds = try c.add(Threshold, thresholds, .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] });
+        } else if (std.mem.eql(u8, head, "computes")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "computes is `computes family key... : formula`", .{});
+            const e = try args(c, no, rest[0..colon]);
+            if (e.len < 2) return c.fail(no, "computes needs a model family and a parameter", .{});
+            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            computes = try c.add(Computes, computes, .{ .family = e[0], .keys = e[1..], .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "noparam")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] warning|error : text`", .{});
             const e = try args(c, no, rest[0..colon]);
@@ -1620,6 +1633,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .requires = requires,
         .switches = switches,
         .noparams = noparams,
+        .computes = computes,
         .inerts = inerts,
     };
 }

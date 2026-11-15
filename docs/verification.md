@@ -778,7 +778,7 @@ TAU1 = TAU2 = 1n, TD2 = 2n at a 1 ns step). HSPICE and Spectre were not
 measured and their grammars are unchanged: a source from them that leaves
 TD1 out is written as it was, with an `ambiguous` warning.
 
-### 4.13 A resistor model's NARROW and SHORT (s3, measured only)
+### 4.13 A resistor model's NARROW and SHORT (s3)
 
 `.model ... R RSH=1000` with NARROW and SHORT, a resistor of the model
 across a 1 V source, the current read back (ngspice `print`, Xyce `.print
@@ -797,9 +797,17 @@ So ngspice 45 computes RSH (L - 2 SHORT) / (W - 2 NARROW), and Xyce 7.10
 RSH (L - NARROW) / (W - NARROW), with no SHORT. A Xyce card with NARROW = n
 is the ngspice card with NARROW = SHORT = n/2 for every L and W, by
 substitution; an ngspice card has a Xyce form only when its SHORT equals
-its NARROW (Xyce NARROW twice that). VACASK's resistor was not measured.
-The translation does not yet say any of this: the card is copied with the
-general model caveat.
+its NARROW (Xyce NARROW twice that). VACASK's `sp_resistor`, the same six
+rows from the raw file: 0, -2.727272727e-4, -1.0e-4, -5.555555556e-4,
+-3.0e-4 and -4.545454545e-4 A, ngspice's formula.
+
+Each grammar says its formula in a `computes resistor narrow short` line.
+A card with NARROW or SHORT that crosses between two dialects whose lines
+differ (ngspice or VACASK and Xyce, either way) is copied with a `caveat`
+warning that states both formulas; between ngspice and VACASK, and to or
+from a dialect not measured (HSPICE, Spectre), nothing is added to the
+general model caveat. The card is not converted: the exact form exists one
+way only, and a model card's parameters have no `convert`.
 
 ---
 

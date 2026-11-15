@@ -5068,3 +5068,33 @@ test "s4: a Spectre condition keeps its two-character operators, whatever its fi
     const va = "t\nground 0\nparameters a=1 b=2\n@if a==1&&b<=2||b>=3\nR1 (p 0) resistor r=1k\n@elseif (a != 1) && (b >= 2)\nR1 (p 0) resistor r=2k\n@else\nR1 (p 0) resistor r=3k\n@end\n";
     try has(try tr(a, "vacask", "ngspice", va, &r3), "\n.if (a==1&&b<=2||b>=3)\nR1 p 0 1k\n.elseif ((a != 1) && (b >= 2))\n");
 }
+
+// s3: a resistor model's NARROW and SHORT. Measured: docs/verification.md 4.13.
+
+test "s3: a resistor model's NARROW or SHORT crossing between ngspice and Xyce states both formulas" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const deck = "t\n.model rm R RSH=1000 {s}\nR1 1 0 rm L=11u W=5u\nV1 1 0 1\n.op\n.end\n";
+    const ng = "ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)";
+    const xy = "xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT";
+    const differs = "does not mean the same in the two";
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{"NARROW=1u"}), &r), ".model rm r rsh=1000 narrow=1u\n");
+    try reported(&r, .warning, "model 'rm': narrow " ++ differs ++ ": " ++ ng ++ "; " ++ xy);
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, deck, .{"SHORT=1u"}), &r2);
+    try reported(&r2, .warning, "model 'rm': short " ++ differs);
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "xyce", "ngspice", try std.fmt.allocPrint(a, deck, .{"NARROW=1u"}), &r3);
+    try reported(&r3, .warning, "model 'rm': narrow " ++ differs ++ ": " ++ xy);
+    try reported(&r3, .warning, "; " ++ ng ++ ". The card is copied as written");
+    // VACASK computes as ngspice does; HSPICE is not measured; a card
+    // with neither parameter has nothing to say.
+    const quiet = [_][3][]const u8{ .{ "ngspice", "vacask", "NARROW=1u" }, .{ "ngspice", "hspice", "NARROW=1u" }, .{ "ngspice", "xyce", "TC1=0.01" } };
+    for (quiet) |q| {
+        var rq: ir.Report = .init(a);
+        _ = try tr(a, q[0], q[1], try std.fmt.allocPrint(a, deck, .{q[2]}), &rq);
+        try testing.expect(!rq.contains(.warning, differs));
+    }
+}

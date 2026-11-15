@@ -514,3 +514,7 @@ rerun alter
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+
+# A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
+# (docs/verification.md 4.13).
+computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
