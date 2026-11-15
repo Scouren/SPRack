@@ -662,7 +662,8 @@ class Circuit(_Scope):
 
     def write(self, path: str, dialect: str, *, strict: bool = True) -> Netlist:
         out = self.netlist(dialect, strict=strict)
-        with open(path, "w") as f:
+        # The same bytes on every platform, as the sprack command writes them.
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(out)
         return out
 
@@ -950,7 +951,7 @@ def _grammar_name(d: str) -> str:
     if not d.endswith(".spgrammar"):
         return d
     try:
-        with open(d) as f:
+        with open(d, encoding="utf-8") as f:
             for line in f:
                 words = line.split("#", 1)[0].split()
                 if len(words) == 2 and words[0] == "dialect":
@@ -961,7 +962,7 @@ def _grammar_name(d: str) -> str:
 
 
 def _cache_root() -> str:
-    return os.path.expanduser(os.environ.get("SPRACK_CACHE") or "~/.cache/sprack")
+    return os.path.normpath(os.path.expanduser(os.environ.get("SPRACK_CACHE") or "~/.cache/sprack"))
 
 
 def _sha1(path: str) -> str:
@@ -1060,6 +1061,23 @@ def _rmtree(path: str, tries: int = 3) -> bool:
 
 
 def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        # os.kill asks nothing on Windows: 0 is CTRL_C_EVENT there, and any
+        # other number ends the process. Open it and see if it has exited.
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        k32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = k32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            return ctypes.get_last_error() == 5  # access denied: exists, owned by someone else
+        try:
+            return k32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT: still running
+        finally:
+            k32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -1228,7 +1246,7 @@ def _manifests() -> dict[str, dict]:
     out = {}
     for fn in sorted(os.listdir(_PDK_DIR)):
         if fn.endswith(".json"):
-            with open(os.path.join(_PDK_DIR, fn)) as f:
+            with open(os.path.join(_PDK_DIR, fn), encoding="utf-8") as f:
                 m = json.load(f)
             for key in [m["name"], *m.get("aliases", [])]:
                 out[key.lower()] = m
@@ -1261,7 +1279,7 @@ class PDK:
             manifest = known[name.lower()]
         elif isinstance(manifest, str):
             at = os.path.dirname(os.path.abspath(manifest))
-            with open(manifest) as f:
+            with open(manifest, encoding="utf-8") as f:
                 manifest = json.load(f)
             # A grammar file it names is beside it, unless it says where.
             if str(manifest.get("dialect", "")).endswith(".spgrammar"):
@@ -1276,7 +1294,7 @@ class PDK:
         self.name: str = manifest["name"]
         self.dialect: str = _dialect(manifest["dialect"])
         self.prefix: str = manifest.get("prefix", "")
-        self.cache_dir = os.path.expanduser(cache_dir or os.environ.get("SPRACK_CACHE") or "~/.cache/sprack")
+        self.cache_dir = os.path.normpath(os.path.expanduser(cache_dir)) if cache_dir else _cache_root()
         self.root, self._vars = self._locate(root)
         self.corners: tuple[str, ...] = tuple(manifest["corners"])
         self.corner = corner or manifest.get("default_corner") or self.corners[0]
@@ -1358,7 +1376,7 @@ class PDK:
                 with open(os.path.join(base, cache), "w") as f:
                     json.dump(data, f)
             for path, section in self.entries():
-                has = [sec["name"] for sec in data["sections"] if sec["file"] == path]
+                has = [sec["name"] for sec in data["sections"] if os.path.normpath(sec["file"]) == path]
                 if section and section.lower() not in map(str.lower, has):
                     raise SprackError(f"{self.name}: corner {self.corner!r} names section {section!r} of {path}, which defines: {', '.join(has) or 'no sections'}")
             self._declared: dict = data["env"]
@@ -1418,7 +1436,7 @@ class PDK:
         out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
         summary = _cached(out, variables=self._defines())
         if summary is not None:
-            with open(os.path.join(out, "sprack.log")) as f:
+            with open(os.path.join(out, "sprack.log"), encoding="utf-8") as f:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
@@ -1426,7 +1444,7 @@ class PDK:
             summary = json.loads(text)
             # Kept while every file translated is unchanged.
             summary["files"] = _sources(out, summary["root"])
-            with open(os.path.join(out, "sprack.log"), "w") as f:
+            with open(os.path.join(out, "sprack.log"), "w", encoding="utf-8") as f:
                 f.write(log)
             with open(os.path.join(out, "sprack.json"), "w") as f:
                 json.dump(summary, f)

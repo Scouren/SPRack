@@ -161,7 +161,25 @@ def test_grammar_file():
         with open(bad, "w") as f:
             f.write('dialect bad\nlexer\nend\nrule op = ".op" zz\n')
         raises(ValueError, lambda: c.netlist(bad), f"{bad}:4: unknown slot 'zz' for kind 'op'")
-    raises(ValueError, lambda: c.netlist("/no/such.spgrammar"), "cannot read /no/such.spgrammar")
+    gone = os.path.abspath("/no/such.spgrammar")
+    raises(ValueError, lambda: c.netlist(gone), f"cannot read {gone}")
+
+
+def test_utf8_and_lf_on_every_platform():
+    # Whatever the platform's code page and line end: a netlist with a
+    # continuation line that reaches Spectre on Linux must not carry a CR.
+    import subprocess
+    c = sprack.Circuit("10 k\u03a9 divider")
+    c.R("1", "a", 0, "10k")
+    ng = c.netlist("ngspice")
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "tb.spice")
+        c.write(path, "ngspice")
+        assert open(path, "rb").read() == ng.encode() and "\u03a9" in ng
+        # Read as UTF-8 too, from a file and from standard input; the script escapes it.
+        for args, piped in (([path], None), ([], ng.encode())):
+            r = subprocess.run([sys.executable, "-m", "sprack", "--from", "ngspice", *args], input=piped, capture_output=True)
+            assert r.returncode == 0 and b'"10 k\\u03a9 divider"' in r.stdout, r
 
 
 def test_code():
@@ -262,7 +280,7 @@ def test_library_translated_on_the_fly():
             # Writers in parallel on an empty cache all get a whole copy.
             shutil.rmtree(libs)
             import concurrent.futures as cf, multiprocessing as mp
-            with cf.ProcessPoolExecutor(4, mp_context=mp.get_context("fork")) as pool:
+            with cf.ProcessPoolExecutor(4, mp_context=mp.get_context("spawn")) as pool:
                 outs = list(pool.map(_netlist_xyce, [c.statements] * 8))
             assert len(set(outs)) == 1 and outs[0] == _netlist_xyce(c.statements), set(outs)
             # The entry is whole and valid, and the call just made swept what
@@ -304,7 +322,7 @@ def test_library_of_a_grammar_file_dialect():
             for circuit in (c, sprack.read("t\n" + deck + ".end\n", mine)):
                 out = circuit.netlist("xyce")
                 (key,) = os.listdir(libs)
-                assert f'.lib "{libs}/{key}/tree/x.lib" tt\n' in unwrap(out), out
+                assert f'.lib "{os.path.join(libs, key, "tree", "x.lib")}" tt\n' in unwrap(out), out
                 assert not [e for e in out.report if "translate that file too" in e.message], out.report
             assert ".model nch nmos level=14" in open(os.path.join(libs, key, "tree", "x.lib")).read()
             # The copy is of that grammar's reading: another grammar, another copy.
@@ -717,7 +735,7 @@ def test_tiny_pdk_names_are_known_to_the_writer():
         assert "M1 a a 0 0 nch w=1u l=1u\nR3 a 0 rmod w=2u\n" in c.netlist("ngspice"), c.netlist("ngspice")
         del c.statements[-2:]
         # A netlist for the PDK's own dialect is the one it was.
-        assert c.netlist("ngspice") == f't\n.lib "{d}/m.lib" tt\nR1 a 0 rmod w=1u\nR2 a 0 nowhere w=1u\nR4 a 0 rm w=1u\nV1 a 0 dc {{twice(1)}}\n.op\n.end\n', c.netlist("ngspice")
+        assert c.netlist("ngspice") == f't\n.lib "{os.path.join(d, "m.lib")}" tt\nR1 a 0 rmod w=1u\nR2 a 0 nowhere w=1u\nR4 a 0 rm w=1u\nV1 a 0 dc {{twice(1)}}\n.op\n.end\n', c.netlist("ngspice")
     _tiny(body)
 
 
@@ -797,7 +815,7 @@ def test_tiny_pdk_dialect_is_resolved():
             c.cell("X1", "a", 0)
             c.V("1", "a", 0, 1)
             c.op()
-            return f'.lib "{d}/m.lib" tt\n' in unwrap(c.netlist(target))
+            return f'.lib "{os.path.join(d, "m.lib")}" tt\n' in unwrap(c.netlist(target))
         # A name in any case is the dialect, as everywhere else.
         pdk = make(manifest={**TINY, "dialect": "NGSPICE"})
         assert pdk.dialect == "ngspice" and own(pdk, "ngspice")
@@ -899,7 +917,7 @@ def test_netlist_leaves_the_circuit_as_it_is():
         before = copy.deepcopy(c.statements)
         out = unwrap(c.netlist("spectre", strict=False))
         # The translated copy and the renamed model are in the netlist only.
-        assert out.count(f'include "{os.environ["SPRACK_CACHE"]}/libs/') == 2 and f"{d}/both.lib" not in out, out
+        assert out.count(f'include "{os.path.join(os.environ["SPRACK_CACHE"], "libs", "")}') == 2 and f"{d}/both.lib" not in out, out
         assert "D1 (a b) dm__m\n" in out and "D2 (a 0) dm__m\n" in out and "D3 (a 0) pm__m\n" in out, out
         assert c.statements == before
     _with_cache(lambda cache: _tiny(body))
