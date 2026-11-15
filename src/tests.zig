@@ -3406,6 +3406,19 @@ test "statistics: the block's own parameters are a loss where its variations are
     }
 }
 
+test "JSON that is not a document reads as nothing; a problem inside one leaves the rest" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try testing.expect(try sprack.json.parseDocument(a, "{\"stmts\":", &r) == null);
+    try testing.expect(try sprack.json.parseDocument(a, "[]", &r) == null);
+    try testing.expectEqual(2, r.count(.@"error"));
+    const nl = (try sprack.json.parseDocument(a, "{\"stmts\":[{\"kind\":\"zener\"},{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1k\"}]}", &r)).?;
+    try testing.expectEqual(3, r.count(.@"error"));
+    try testing.expectEqual(1, countKind(nl, .resistor));
+}
+
 test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

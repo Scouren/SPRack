@@ -512,8 +512,6 @@ const Parser = struct {
     }
 };
 
-/// Parse the JSON form. Problems are reported, never fatal: what could be
-/// understood is returned.
 /// The strings of the array `obj[key]`; none where it is not one.
 fn strings(arena: Allocator, obj: J, key: []const u8) Allocator.Error![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
@@ -551,19 +549,27 @@ fn parseEnv(arena: Allocator, j: J) Allocator.Error!?*const ir.Env {
     return env;
 }
 
+/// Parse the JSON form. Problems are reported, never fatal: what could be
+/// understood is returned.
 pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allocator.Error!ir.Netlist {
+    return try parseDocument(arena, text, report) orelse .{};
+}
+
+/// As `parseNetlist`, but null when nothing was read at all: the text is
+/// not JSON, or its top level is not an object.
+pub fn parseDocument(arena: Allocator, text: []const u8, report: *ir.Report) Allocator.Error!?ir.Netlist {
     const root = std.json.parseFromSliceLeaky(J, arena, text, .{}) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
             report.add(.@"error", .invalid, 0, "not valid JSON: {s}", .{@errorName(err)});
             if (report.lost) return error.OutOfMemory;
-            return .{};
+            return null;
         },
     };
     if (root != .object) {
         report.add(.@"error", .invalid, 0, "the top level must be an object with 'stmts'", .{});
         if (report.lost) return error.OutOfMemory;
-        return .{};
+        return null;
     }
     var p: Parser = .{ .arena = arena, .report = report };
     var nl: ir.Netlist = .{ .dialect = "sprack" };

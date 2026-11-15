@@ -260,6 +260,14 @@ pub fn main(init: std.process.Init) !void {
         return out.flush();
     }
 
+    // JSON that is not a document at all: nothing was read, so nothing is
+    // written and no -o file is made.
+    const doc: ?ir.Netlist = if (std.mem.eql(u8, cmd, "write")) try sprack.json.parseDocument(arena, src, &report) orelse {
+        try report.print(err);
+        try err.flush();
+        std.process.exit(1);
+    } else null;
+
     // The result is streamed, not collected: a netlist can be very large.
     var file_buf: [64 * 1024]u8 = undefined;
     var dest_file: ?std.Io.File = null;
@@ -278,9 +286,8 @@ pub fn main(init: std.process.Init) !void {
     } else if (std.mem.eql(u8, cmd, "read")) {
         const nl = try sprack.read(arena, dialect(io, arena, a.from, "--from"), src, &report);
         try sprack.json.writeNetlist(result, &nl);
-    } else if (std.mem.eql(u8, cmd, "write")) {
-        const nl = try sprack.json.parseNetlist(arena, src, &report);
-        try sprack.write(arena, dialect(io, arena, a.to, "--to"), result, &nl, &report);
+    } else if (doc) |*nl| {
+        try sprack.write(arena, dialect(io, arena, a.to, "--to"), result, nl, &report);
     } else die(io, "unknown command '{s}'\n{s}", .{ cmd, usage });
     try result.flush();
     if (dest_file) |f| f.close(io);

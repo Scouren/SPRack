@@ -192,7 +192,17 @@ fn cliTests(c: Cli) void {
     const json = "{\"title\":\"t\",\"dialect\":\"ngspice\",\"stmts\":[{\"kind\":\"resistor\",\"line\":2,\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1e3\"},\n{\"kind\":\"tran\",\"line\":3,\"step\":\"1e-9\",\"stop\":\"1e-6\"}]}\n";
     c.run(&.{ "read", "--from", "ngspice" }, deck, 0).expectStdOutEqual(json);
     c.run(&.{ "write", "--to", "spectre" }, json, 0).expectStdOutEqual(spectre);
-    c.run(&.{ "write", "--to", "ngspice" }, "{\"stmts\":", 1).expectStdErrEqual("error[invalid]: not valid JSON: UnexpectedEndOfInput\n");
+    // JSON that is not a document: nothing was read, so nothing is written.
+    const cut = c.run(&.{ "write", "--to", "ngspice" }, "{\"stmts\":", 1);
+    cut.expectStdErrEqual("error[invalid]: not valid JSON: UnexpectedEndOfInput\n");
+    cut.expectStdOutEqual("");
+    const list = c.run(&.{ "write", "--to", "ngspice" }, "[]", 1);
+    list.expectStdErrEqual("error[invalid]: the top level must be an object with 'stmts'\n");
+    list.expectStdOutEqual("");
+    // A problem inside a document: what could be understood is written.
+    const inside = c.run(&.{ "write", "--to", "ngspice" }, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"zener\"}]}", 1);
+    inside.expectStdErrEqual("error[invalid]: line 1: unknown statement kind 'zener'\n");
+    inside.expectStdOutEqual("t\n.end\n");
 
     // audit: one TSV line; the circuit reads back the same (column 4).
     c.run(&.{ "audit", "--from", "ngspice", "--to", "spectre" }, deck, 0).expectStdOutEqual("-\t2\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t\n");
