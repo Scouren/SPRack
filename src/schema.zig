@@ -115,6 +115,13 @@ pub const Kind = enum(u8) {
     // b1: sweeps
     step,
     data,
+    // b2: statistics and structure
+    statistics,
+    statgroup,
+    vary,
+    correlate,
+    montecarlo,
+    library,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -169,7 +176,7 @@ const defs = [_]Def{
     // port's `[` and `]` are items of `nodes` of their own.
     .{ .xspice, .device, "name nodes:node* master:ident params:params" },
     .{ .instance, .device, "name nodes:node* master:ident params:params" },
-    .{ .subckt, .structure, "name ports:node* params:params" },
+    .{ .subckt, .structure, "name ports:node* params:params inline:atom" },
     .{ .libsection, .structure, "name" },
     // A conditional block. `cond_elif` and `cond_else` are markers inside
     // the body of a `cond_if`; what follows each belongs to that branch.
@@ -284,6 +291,23 @@ const defs = [_]Def{
     // A table of values, one column per name in `cols`, rows one after the
     // other in `values`; swept by `data=` on an analysis or a step.
     .{ .data, .structure, "name cols:ident* values:value*" },
+    // b2: statistics and structure
+    // Statistical variation: a block whose body holds `statgroup` blocks
+    // (and `correlate` statements); each group holds `vary` statements.
+    .{ .statistics, .structure, "params:params" },
+    // `process` varies once per run (SPICE: agauss in a top-level .param),
+    // `mismatch` once per instance (agauss inside a subcircuit).
+    .{ .statgroup, .structure, "scope:atom" },
+    // One varied parameter: `param`, or parameter `param` of model `model`
+    // (whose type word is `mtype`). `std` is the standard deviation (`rel`
+    // = yes: in percent of the nominal); `range` the half width of a
+    // uniform distribution.
+    .{ .vary, .structure, "param:ident model:ident mtype:ident dist:atom std:value range:value rel:atom params:params" },
+    .{ .correlate, .structure, "names:ident* cc:value params:params" },
+    // A Monte Carlo run of the analyses in its body.
+    .{ .montecarlo, .analysis, "name runs:value seed:value params:params" },
+    // A named group of library sections; nothing refers to the name.
+    .{ .library, .structure, "name" },
 };
 
 pub const kind_count = defs.len;

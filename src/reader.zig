@@ -274,7 +274,8 @@ const Matcher = struct {
     fn beforeEq(items: []const Node) bool {
         for (items) |n| {
             switch (n.tag) {
-                .glue, .drop => continue,
+                .glue => if (std.mem.eql(u8, n.text, "=")) return true else continue,
+                .drop => continue,
                 .lit => return std.mem.eql(u8, n.text, "="),
                 else => return false,
             }
@@ -1175,6 +1176,10 @@ const Reader = struct {
                 try out.append(self.arena, st);
                 continue :outer;
             }
+            if (try self.spreadAt(ti, line.no)) |st| {
+                try out.append(self.arena, st);
+                continue :outer;
+            }
             if (first.tag == .word) {
                 for (self.g.raws) |rb| {
                     if (!std.mem.eql(u8, first.text, rb.open)) continue;
@@ -1199,6 +1204,40 @@ const Reader = struct {
         }
         if (block) |b| self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
         return out.toOwnedSlice(self.arena);
+    }
+
+    /// `spread`: an analysis line that ends with the rule of a block kind
+    /// (`.tran 1n 1u sweep monte=30`) is that block around the analysis.
+    fn spreadAt(self: *Reader, ti: usize, line_no: u32) Allocator.Error!?ir.Stmt {
+        if (self.g.spreads.len == 0) return null;
+        var end = ti;
+        while (self.toks()[end].tag != .nl) end += 1;
+        for (self.g.rules) |*sr| {
+            if (sr.dir == .write or !self.g.isSpread(sr.kind)) continue;
+            var j = ti + 1;
+            while (j < end) : (j += 1) {
+                if (!try self.m.run(sr.kind, sr.pat, j)) continue;
+                var wrap = try self.m.build(line_no);
+                wrap.tail = self.toks()[end].text;
+                // The line without its suffix, read as a statement of its own.
+                const items = self.m.win.toks.items;
+                const cut = items[j];
+                items[j] = items[end];
+                items[j].text = "";
+                defer items[j] = cut;
+                for (self.g.rules) |*rule| {
+                    if (rule.dir == .write or schema.info(rule.kind).class != .analysis) continue;
+                    if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
+                    var st = try self.m.build(line_no);
+                    try self.canonStmt(&st);
+                    wrap.body = try self.arena.dupe(ir.Stmt, &.{st});
+                    self.ti = end + 1;
+                    return wrap;
+                }
+                return null;
+            }
+        }
+        return null;
     }
 
     /// Closed-set values to their canonical names, and the values this
@@ -1523,6 +1562,50 @@ fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error
     }
 }
 
+/// A binned model block (`model nch bsim4 { 1: ... }`) is the model cards
+/// `nch.1`, `nch.2`, ... of the SPICE dialects, each with the block's type.
+fn flattenBins(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
+    const ni = schema.slotIndex(.model, "name").?;
+    const ti = schema.slotIndex(.model, "type").?;
+    var i: usize = 0;
+    while (i < list.items.len) : (i += 1) {
+        const parent = list.items[i];
+        if (parent.kind != .model or parent.body.len == 0) continue;
+        const bins = parent.body;
+        for (bins) |*bin| {
+            if (bin.kind != .model or bin.get("name") != .atom) continue;
+            const label = std.mem.trimEnd(u8, bin.get("name").atom, ":");
+            try bin.set(arena, ni, .{ .atom = try std.fmt.allocPrint(arena, "{s}.{s}", .{ parent.get("name").atom, label }) });
+            try bin.set(arena, ti, parent.at(ti));
+            try mapModel(arena, g, bin, report);
+        }
+        _ = list.orderedRemove(i);
+        try list.insertSlice(arena, i, bins);
+        i += bins.len - 1;
+    }
+}
+
+/// A Monte Carlo statement with no body of its own (Xyce `.sampling`)
+/// runs every analysis of the netlist.
+fn gatherMonteCarlo(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
+    for (list.items) |st| {
+        if (st.kind == .montecarlo and st.body.len == 0) break;
+    } else return;
+    var body: std.ArrayList(ir.Stmt) = .empty;
+    var i: usize = 0;
+    while (i < list.items.len) {
+        if (schema.info(list.items[i].kind).class == .analysis and list.items[i].kind != .montecarlo) {
+            try body.append(arena, list.orderedRemove(i));
+        } else i += 1;
+    }
+    for (list.items) |*st| {
+        if (st.kind == .montecarlo and st.body.len == 0) {
+            st.body = try body.toOwnedSlice(arena);
+            break;
+        }
+    }
+}
+
 fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error![]ir.Stmt {
     // Edited in place: a copy of the top-level list would be as large as
     // every statement header in the netlist.
@@ -1530,6 +1613,8 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     for (list.items) |*st| {
         if (st.body.len > 0) st.body = try normalizeLists(g, arena, st.body, report);
     }
+    try flattenBins(g, arena, &list, report);
+    try gatherMonteCarlo(arena, &list);
     try expr.convert(arena, g, list.items, false);
     try undoMoves(g, arena, &list, report);
     try undoMerges(g, arena, &list);

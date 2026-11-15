@@ -255,9 +255,15 @@ pub const Env = struct {
                 try env.declared.put(arena, try std.ascii.allocLowerString(arena, own), {});
                 if (s.kind == .model) {
                     const fam = s.get("family");
-                    if (fam == .atom) {
-                        if (schema.familyKind(fam.atom)) |k| try env.models.put(arena, own, k);
-                    } else if (s.get("type") == .atom) try env.models.put(arena, own, .device);
+                    const kind: ?Kind = if (fam == .atom) schema.familyKind(fam.atom) else if (s.get("type") == .atom) .device else null;
+                    if (kind) |k| {
+                        try env.models.put(arena, own, k);
+                        if (binBase(own)) |base| {
+                            try env.models.put(arena, base, k);
+                            try env.declared.put(arena, base, {});
+                            try env.declared.put(arena, try std.ascii.allocLowerString(arena, base), {});
+                        }
+                    }
                 }
             }
             if (name == .atom and s.kind == .func) try env.funcs.put(arena, try std.ascii.allocLowerString(arena, name.atom), {});
@@ -577,16 +583,30 @@ pub fn resolveInstances(arena: Allocator, nl: *Netlist, env: ?*const Env) Alloca
     try retag(arena, nl.stmts, &models);
 }
 
+/// `nch` of the model name `nch.12`: SPICE bins a model by numbered
+/// cards, and an instance names the base.
+pub fn binBase(name: []const u8) ?[]const u8 {
+    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return null;
+    if (dot == 0 or dot + 1 == name.len) return null;
+    for (name[dot + 1 ..]) |c| if (!std.ascii.isDigit(c)) return null;
+    return name[0..dot];
+}
+
 fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind)) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .model) {
             const fam = s.get("family");
             const name = s.get("name");
+            var kind: ?Kind = null;
             if (fam == .atom and name == .atom) {
-                if (schema.familyKind(fam.atom)) |k| try out.put(arena, name.atom, k);
+                kind = schema.familyKind(fam.atom);
             } else if (name == .atom and s.get("type") == .atom) {
                 // A model type the tables do not know, typically a Verilog-A module.
-                try out.put(arena, name.atom, .device);
+                kind = .device;
+            }
+            if (kind) |k| {
+                try out.put(arena, name.atom, k);
+                if (binBase(name.atom)) |base| try out.put(arena, base, k);
             }
         }
         try collectModels(arena, s.body, out);

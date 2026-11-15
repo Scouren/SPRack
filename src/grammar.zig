@@ -305,6 +305,9 @@ pub const Grammar = struct {
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
+    /// `spread kind`: a block kind this dialect says by adding the kind's
+    /// rule to the end of each statement in its body (HSPICE `monte=`).
+    spreads: []const Kind = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -317,6 +320,11 @@ pub const Grammar = struct {
     pub fn paramsOf(g: *const Grammar, kind: Kind) ?[]const Spellings {
         for (g.params) |t| if (t.kind == kind) return t.names;
         return null;
+    }
+
+
+    pub fn isSpread(g: *const Grammar, kind: Kind) bool {
+        return std.mem.indexOfScalar(Kind, g.spreads, kind) != null;
     }
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
@@ -338,6 +346,16 @@ pub const Grammar = struct {
         for (g.rules) |r| if (r.kind == kind and r.dir != .read) return true;
         for (g.blocks) |b| if (b.kind == kind) return true;
         return false;
+    }
+
+    pub fn canWriteRule(g: *const Grammar, kind: Kind) bool {
+        for (g.rules) |r| if (r.kind == kind and r.dir != .read) return true;
+        return false;
+    }
+
+    pub fn blockOf(g: *const Grammar, kind: Kind) ?*const Block {
+        for (g.blocks) |*b| if (b.kind == kind) return b;
+        return null;
     }
 
     pub fn canRead(g: *const Grammar, kind: Kind) bool {
@@ -1141,6 +1159,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var fills: []const Fill = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
+    var spreads: []const Kind = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1368,6 +1387,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
             if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
             differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "spread")) {
+            spreads = try c.add(Kind, spreads, try kindOf(c, no, rest));
         } else if (std.mem.eql(u8, head, "no")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind : reason`", .{});
             absent = try c.add(Absent, absent, .{ .kind = try kindOf(c, no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] });
@@ -1403,6 +1424,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .fills = fills,
         .unique_param = unique_param,
         .unique_master = unique_master,
+        .spreads = spreads,
     };
 }
 
