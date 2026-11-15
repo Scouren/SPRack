@@ -2515,6 +2515,65 @@ test "verification: VACASK model families load their modules" {
     try testing.expect(std.mem.indexOf(u8, va, "mos1.osdi") == null);
 }
 
+// docs/verification.md section 9: every line written here was run in
+// ngspice 45, Xyce 7.10 or VACASK b2c1551 and the inductance read back.
+test "verification: an inductor's model between ngspice, Xyce and VACASK; a loss where no form is measured" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const ng =
+        \\t
+        \\I1 0 a dc 0 ac 1
+        \\L1 a 0 lmod 1m tc1=0.03
+        \\.model lmod l tc1=0.01
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", ng, &r1), "L1 a 0 lmod 1m tc1=0.03\n.model lmod l tc1=0.01\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", ng, &r2);
+    try has(va, "L1 (a 0) lmod l=1m tc1=0.03\nmodel lmod sp_inductor (tc1=0.01)\n");
+    try clean(&r2);
+
+    // Xyce takes the model on either side of the value, or the value by key,
+    // and the model card as `l` or `ind`.
+    inline for (.{ "L1 a 0 1m lmod", "L1 a 0 lmod 1m", "L1 a 0 lmod l=1m" }) |line| {
+        var r: ir.Report = .init(a);
+        const xy = "t\nI1 0 a dc 0 ac 1\n" ++ line ++ "\n.model lmod ind tc1=0.01\n.end\n";
+        try has(try tr(a, "xyce", "ngspice", xy, &r), "L1 a 0 lmod 1m\n.model lmod l tc1=0.01\n");
+        try clean(&r);
+    }
+
+    var r3: ir.Report = .init(a);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "vacask", "ngspice", va, &r3), "L1 a 0 lmod 1m tc1=0.03\n");
+    try has(try tr(a, "vacask", "xyce", va, &r4), "L1 a 0 lmod 1m tc1=0.03\n");
+    try clean(&r3);
+    try clean(&r4);
+
+    // The model alone gives the value in ngspice (`ind`) and VACASK; a Xyce
+    // instance must say it, so the model has nowhere to go there.
+    const alone = "t\nI1 0 a dc 0 ac 1\nL1 a 0 lmod\n.model lmod l ind=1m\n.end\n";
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", alone, &r5), "L1 (a 0) lmod\n");
+    try clean(&r5);
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", alone, &r6);
+    try reported(&r6, .@"error", "inductor.master = lmod has no spelling in xyce");
+
+    // LTspice 26.0.2 refuses the line and the card: neither is written.
+    var r7: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ltspice", ng, &r7), "L1 a 0 1m tc1=0.03\n");
+    try reported(&r7, .@"error", "inductor.master = lmod has no spelling in ltspice");
+    try reported(&r7, .@"error", "ltspice.spgrammar has no spelling for model family 'inductor'");
+
+    // No HSPICE here to measure a form in: the model is an error, not a guess.
+    var r8: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", ng, &r8), "L1 a 0 1m tc1=0.03\n");
+    try reported(&r8, .@"error", "inductor.master = lmod has no spelling in hspice");
+}
+
 // Each written form below was loaded in Spectre 25.10 or HSPICE Y-2026.03.
 
 test "verification: LTspice 26.0.2, what running it showed" {

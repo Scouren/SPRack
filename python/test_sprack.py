@@ -665,14 +665,27 @@ def test_tiny_pdk_model_cards():
         # The model is the device's model, also where a value could stand.
         c.rmod("R1", "a", 0, w="1u", l="10u")
         c.cmod("C1", "a", 0, w="1u", l="10u")
+        c.lmod("L1", "a", 0, "2n", tc1=0.01)
+        c.lmod("L2", "a", 0)
         c.nch("M1", "a", "a", 0, 0, w="1u", l="1u")
         c.cell("X1", "a", 0)
         c.V("1", "a", 0, 1)
         c.op()
-        assert "R1 a 0 rmod w=1u l=10u\nC1 a 0 cmod w=1u l=10u\nM1 a a 0 0 nch w=1u l=1u\nX1 a 0 cell\n" in c.netlist("ngspice")
+        assert ("R1 a 0 rmod w=1u l=10u\nC1 a 0 cmod w=1u l=10u\nL1 a 0 lmod 2n tc1=0.01\nL2 a 0 lmod\n"
+                "M1 a a 0 0 nch w=1u l=1u\nX1 a 0 cell\n") in c.netlist("ngspice")
         assert "R1 (a 0) rmod w=1u l=10u\nC1 (a 0) cmod w=1u l=10u\n" in c.netlist("spectre", strict=False)
-        raises(TypeError, lambda: c.lmod("L1", "a", 0), "lmod is a model card for kind 'inductor', which takes no model")
+        # An inductor's model has a measured form in ngspice, Xyce and VACASK only.
+        raises(sprack.Unsupported, lambda: c.netlist("spectre"), "inductor.master = lmod has no spelling in spectre")
     _tiny(body)
+
+    # A source's model (VACASK has them) holds no parameter: nothing to instantiate.
+    def sources(make, d):
+        with open(os.path.join(d, "m.lib"), "w") as f:
+            f.write("model vm vsource\nmodel im isource\n")
+        c = sprack.Circuit("t", pdk=make())
+        raises(TypeError, lambda: c.vm("V1", "a", 0), "vm is a model card for kind 'vsource', which takes no model: such a model holds no parameter")
+        raises(TypeError, lambda: c.im("I1", "a", 0), "im is a model card for kind 'isource', which takes no model")
+    _tiny(sources, dialect="vacask", corners={"tt": [["m.lib", None]]})
 
 
 def test_tiny_pdk_names_are_known_to_the_writer():

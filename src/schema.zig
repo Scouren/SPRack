@@ -153,7 +153,7 @@ const ns = " nodeset:params";
 const defs = [_]Def{
     .{ .resistor, .device, "name pos:node neg:node r:value master:ident params:params" },
     .{ .capacitor, .device, "name pos:node neg:node c:value master:ident params:params" },
-    .{ .inductor, .device, "name pos:node neg:node l:value params:params" },
+    .{ .inductor, .device, "name pos:node neg:node l:value master:ident params:params" },
     .{ .mutual, .device, "name l1:ref l2:ref k:value" },
     .{ .vsource, .device, source_spec },
     .{ .isource, .device, source_spec },

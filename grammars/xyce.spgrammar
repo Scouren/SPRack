@@ -58,6 +58,10 @@ rule  nodeset   = ".nodeset" { v(*)=values }
 rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
 rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+# The model may come before the value or after it, and the value after the
+# model may be `l=`; a line with a model and no value does not load.
+rule  inductor  = name~"L" pos neg master l {...params}
+read  inductor  = name~"L" pos neg [l] master { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
 # Xyce requires FREQ in SIN(); ngspice defaults it to 1/tstop, which a source
@@ -247,7 +251,7 @@ differs log10  : a negative argument is taken by its magnitude: log10(-100) is 2
 models
   resistor   = r
   capacitor  = c
-  inductor   = l
+  inductor   = l | ind
   diode      = d
   # Q levels: 1 Gummel-Poon, 11/12 VBIC, 23 FBH, 230/234 HICUM, 504/505 MEXTRAM (N_DEV_BJT.C:4705).
   bjt npn    = npn !level | npn level=1

@@ -978,3 +978,164 @@ Left open: `.lib file` with no section in an LTspice deck is read as the
 start of a section and reported as a block that is not closed; a seventh
 value of `sine` (a cycle count: `sine(0 1 1k 0 0 0 3)` stops after three)
 has no slot; the instance parameters of devices were not checked.
+
+## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
+
+Observed: every statement below is what the simulator did with a deck of
+a few lines written for the question. The deck is a 1 A AC current source
+into the inductor at 159.15494309 Hz, where 1 mH reads 1 V: `vm(a)` is the
+inductance in mH. A model with `tc1=0.01` doubles it at 127 degrees
+(nominal 27) and leaves it alone at 27, so a model that is used must show.
+Read back from `.print ac vm(a)` (ngspice, Xyce) and from the raw file
+(VACASK, which was also run at twice the frequency: twice each value
+below). LTspice was given a current ramp of 1 A per ms, `pwl(0 0 1m 1)`,
+and `.meas tran m find v(a) at=0.5m`: 1 V per mH, to 3 mV. "Refused"
+means the simulator named the line and ran nothing.
+
+### 9.1 ngspice and Xyce
+
+The card is `.model lmod l tc1=0.01` unless the row says otherwise.
+
+| line | card | degrees | ngspice 45 | Xyce 7.10 |
+|---|---|---|---|---|
+| `L1 a 0 1m` | none | 27 | 1.000 | 1.000 |
+| `L1 a 0 l=1m` | none | 27 | 1.000 | 1.000 (at 127) |
+| `L1 a 0 1m tc1=0.01` | none | 127 | 2.000 | 2.000 |
+| `L1 a 0 lmod 1m` | | 27 | 1.000 | 1.000 |
+| `L1 a 0 lmod 1m` | | 127 | 2.000 | 2.000 |
+| `L1 a 0 lmod 1m` | `.model lmod l(tc1=0.01)` | 127 | 2.000 | 2.000 |
+| `L1 a 0 lmod 1m tc1=0.03` | | 127 | 4.000 | 4.000 |
+| `L1 a 0 lmod 1m m=2` | | 27 | 0.500 | 0.500 |
+| `L1 a 0 lmod {lv}`, `.param lv=1m` | | 127 | 2.000 | 2.000 |
+| `L1 a 0 1m lmod` | | 127 | refused: "unknown parameter (lmod)" | 2.000 |
+| `L1 a 0 lmod l=1m` | | 127 | refused: "unknown parameter (l)" | 2.000 |
+| `L1 a 0 l=1m lmod` | | 127 | refused: "unknown parameter (lmod)" | refused: "Unrecognized parameter LMOD" |
+| `L1 a 0 lmod` | `.model lmod l ind=3m` | 27 | 3.000 | refused: "Could not find L parameter in instance", after "No model parameter IND found" |
+| `L1 a 0 lmod 1m` | `.model lmod l ind=3m` | 27 | 1.000 | not run |
+| `L1 a 0 lmod` | | 27 | 0.000 | refused: "Could not find L parameter in instance" |
+| `L1 a 0 lmod` | `.model lmod l l=3m` | 27 | not run | refused, the same |
+| `L1 a 0 lmod 1m` | `.model lmod l l=3` | 27 | not run | 3.000 |
+| `L1 a 0 lmod 1m` | `.model lmod l l=3m` | 27 | 1.000 | not run |
+| `L1 a 0 lmod 1m` | `.model lmod ind tc1=0.01` | 127 | refused: "unknown parameter (lmod)" | 2.000 |
+| `L1 a 0 lmod 1m` | `.model lmod r tc1=0.01` | 127 | refused | refused |
+| `L1 a 0 lmod 1m` | none | 127 | refused: "unknown parameter (lmod)" | refused: "Illegal value found for device L1 for parameter = L value = LMOD" |
+
+So in both the model stands between the nodes and the value, the card's
+type word is `l`, the model changes the result, and what the line says
+(`tc1`) wins over what the card says. They part in four places:
+
+* The value before the model, and `l=` after it, load in Xyce only.
+* A line with a model and no value takes the card's `ind` in ngspice (0 H
+  without one); Xyce refuses it whatever the card says.
+* Xyce also takes `ind` for the card's type word.
+* A card's `l` multiplies the line's value in Xyce (3 for 1 mH) and does
+  not in ngspice; `ind` is ngspice's alone.
+
+ngspice also takes the value after the model as a bare parameter name
+(`L1 a 0 lmod lv`: 2.000) and in quotes (`L1 a 0 lmod 'lv*2'`: 4.000);
+Xyce `L1 a 0 lmod {lv*2} tc1=0.03`: 8.000.
+
+### 9.2 VACASK
+
+With `load "spice/inductor.osdi"`. The card is `model lmod sp_inductor
+(tc1=0.01)` unless the row says otherwise.
+
+| line | card | degrees | read back |
+|---|---|---|---|
+| `L1 (a 0) inductor l=1m` | `model inductor sp_inductor` | 27 | 1 |
+| `L1 (a 0) lmod l=1m` | | 27 | 1 |
+| `L1 (a 0) lmod l=1m` | | 127 | 2 |
+| `L1 (a 0) lmod l=1m` | `model lmod sp_inductor tc1=0.01` | 127 | 2 |
+| `L1 (a 0) lmod l=1m tc1=0.03` | | 127 | 4 |
+| `L1 (a 0) lmod l=lv`, `parameters lv=1m` | | 127 | 2 |
+| `L1 (a 0) lmod l=1m $mfactor=2` | | 27 | 0.5 |
+| `L1 (a 0) lmod l=1m m=2` | | 27 | refused: "Parameter 'm' not found." |
+| `L1 (a 0) lmod` | `model lmod sp_inductor (ind=3m)` | 27 | 3 |
+| `L1 (a 0) lmod l=1m` | `model lmod sp_inductor (ind=3m)` | 27 | 1 |
+| `L1 (a 0) lmod` | | 27 | 0 |
+| `L1 (a 0) lmod l=1m` | `model lmod inductor (tc1=0.01)` | 127 | refused: "Device 'inductor' not found." |
+| `L1 (a 0) lmod l=1m` | none | 27 | refused: "Master 'lmod' not found." |
+
+The instance names its model where every VACASK instance does, the type
+word is the module, `sp_inductor`, and the card means what ngspice's does:
+`tc1` under the line's own, `ind` where the line gives no value.
+
+### 9.3 LTspice
+
+| line | card | degrees | LTspice 26.0.2 |
+|---|---|---|---|
+| `L1 a 0 1m` | none | 27 | 1.003 |
+| `L1 a 0 1m tc1=0.01` | none | 127 | 2.001 |
+| `L1 a 0 1m` | `.model lmod l tc1=0.01` | 127 | refused, at the card: "Expected model definition here." |
+| `L1 a 0 lmod 1m` | `.model lmod l tc1=0.01` | 127 | refused: "Unknown parameter", and the card as above |
+| `L1 a 0 1m lmod` | `.model lmod l tc1=0.01` | 127 | refused, the same two |
+| `L1 a 0 lmod` | `.model lmod l ind=3m` | 27 | refused, the same two |
+| `L1 a 0 1m model=lmod` | `.model lmod l tc1=0.01` | 27 | refused, the same two |
+| `L1 a 0 lmod 1m` | `.model lmod ind tc1=0.01` | 127 | refused, the same two |
+
+LTspice has no inductor model: the card is refused even when no line
+names it, and so is a model's name anywhere on the line.
+
+### 9.4 Voltage and current source models
+
+A source into 1k, `v(a)` read back; the question is whether a source can
+name a model and whether that model can hold anything.
+
+* ngspice 45: `V1 a 0 vm 2`, `V1 a 0 vm` and `V1 a 0 2 vm` with `.model vm
+  v dc=5` are refused ("unknown parameter (vm)"), as is `I1 0 a im 2m` with
+  `.model im i dc=5m`. A card no device names loads whatever its type word
+  says (`v`, `vsource`, `i`, `isource`, `zzz`: 2.000 from `V1 a 0 2` each
+  time), so a card that loads shows nothing.
+* Xyce 7.10: `V1 a 0 vm 2` and `V1 a 0 vm` are refused ("Invalid DC value
+  "vm" for device V1"), and `I1 0 a im 2m` likewise. `V1 a 0 2 vm` loads
+  and reads 2.000, and so does `V1 a 0 2 zzz` with no card: the word is
+  passed over. Cards of the five type words above load unused.
+* LTspice 26.0.2: `.model vm v dc=5` and `.model im i dc=5m` are refused
+  ("Expected model definition here."); `V1 a 0 vm 2`, `V1 a 0 2 vm` and
+  `I1 0 a im 2m` are refused ("Unknown parameter").
+* VACASK: `model vm vsource` with `V1 (a 0) vm dc=2` reads 2, and `model
+  im isource` with `I1 (0 a) im dc=2m` reads 2. `model vm vsource (dc=5)`,
+  `(type="dc")` and `(foo=1)`, and `model im isource (dc=5m)`, are refused
+  ("Parameter 'dc' not found." and so on).
+
+So only VACASK lets a source name a model, and that model is a name with
+no parameter. The vocabulary keeps no model for a source: a VACASK source
+of such a model is read as the source (the card an info, "only names a
+built-in vsource"), and the Python package refuses to make a device from
+such a card, saying so.
+
+### 9.5 What the grammars say, and whether a translation loads
+
+`inductor` has a `master` slot, placed as a resistor's and a capacitor's.
+ngspice: `L pos neg master [l]`. Xyce: the same with the value required,
+and it reads the value before the model and `l=` after it; its table
+reads `ind` as well as `l`. VACASK: `L (pos neg) master l=`, written, and
+read as any instance of a declared model is. LTspice: nothing.
+
+Each source deck run, translated, and the translation run:
+
+| source | read back | written | read back |
+|---|---|---|---|
+| ngspice `L1 a 0 lmod 1m tc1=0.03`, `.model lmod l tc1=0.01`, 127 degrees | 4.000 | Xyce `L1 a 0 lmod 1m tc1=0.03`, `.model lmod l tc1=0.01` | 4.000 |
+| | | VACASK `L1 (a 0) lmod l=1m tc1=0.03`, `model lmod sp_inductor (tc1=0.01)` | 4 |
+| ngspice `L1 a 0 lmod`, `.model lmod l ind=3m` | 3.000 | VACASK `L1 (a 0) lmod`, `model lmod sp_inductor (ind=3m)` | 3 |
+| | | Xyce `L1 a 0`, an error: `inductor.master = lmod has no spelling in xyce` | refused |
+| Xyce `L1 a 0 1m lmod`, `.model lmod ind tc1=0.01`, 127 degrees | 2.000 | ngspice `L1 a 0 lmod 1m`, `.model lmod l tc1=0.01` | 2.000 |
+| | | VACASK `L1 (a 0) lmod l=1m`, `model lmod sp_inductor (tc1=0.01)` | 2 |
+| VACASK `L1 (a 0) lmod l=1m $mfactor=2`, `model lmod sp_inductor (tc1=0.01)`, 127 degrees | 1 | ngspice `L1 a 0 lmod 1m m=2`, `.model lmod l tc1=0.01` | 1.000 |
+| | | Xyce, the same two lines | 1.000 |
+
+(The two decks written from VACASK got a `.print ac vm(a)` by hand: the
+VACASK deck has no such line to translate.)
+
+Into LTspice the line is written without its model, `L1 a 0 1m tc1=0.03`,
+with two errors: `inductor.master = lmod has no spelling in ltspice` and
+`ltspice.spgrammar has no spelling for model family 'inductor'`.
+
+Left open: there is no HSPICE, Spectre or ESPice here, so their grammars
+have no form for an inductor's model. Crossing into them it is the same
+`loss` error (their tables, older than this section, do write the card),
+and `L1 a 0 lmod 1m` in a deck of theirs is a line no rule understands. A
+Xyce line with a model and no value is read, though Xyce refuses it. The
+card's parameters are copied as written, with the standing caveat: a Xyce
+card's `l`, a multiplier there, means something else in ngspice.

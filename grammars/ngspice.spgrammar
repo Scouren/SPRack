@@ -74,6 +74,9 @@ rule  nodeset   = ".nodeset" { v(*)=values }
 rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
 rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+# The model comes before the value; `L1 a b 1m lmod` does not load, nor
+# does `l=` beside a model. Without a value the model's `ind` is taken.
+rule  inductor  = name~"L" pos neg master [l] {...params}
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )

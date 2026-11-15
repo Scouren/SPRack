@@ -484,8 +484,10 @@ class _Scope:
                 if key.lower() not in table:
                     raise TypeError(f"{dev['name']} is a {kind} of a {self._pdk.dialect} model card, which takes no parameter {key!r}; it takes: {', '.join(table)}")
         if "master" not in _slots(kind):
-            raise TypeError(f"{dev['name']} is a model card for kind {kind!r}, which takes no model in sprack's vocabulary")
-        # By keyword: positionally a resistor or capacitor takes its value there.
+            # A source's kind alone has no model slot: only VACASK lets a source
+            # name a model, and that model takes no parameter (docs/verification.md, 9.4).
+            raise TypeError(f"{dev['name']} is a model card for kind {kind!r}, which takes no model: such a model holds no parameter, so add the device itself, c.{kind}(...)")
+        # By keyword: positionally a resistor, capacitor or inductor takes its value there.
         return self.add(kind, str(name), *nodes, master=dev["name"], **params)
 
     # -- structure --------------------------------------------------------

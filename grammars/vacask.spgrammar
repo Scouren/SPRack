@@ -211,6 +211,7 @@ no qpss       : VACASK has no shooting quasi-periodic analysis; a multitone hb i
 # because any two-terminal instance would match them when reading.
 write resistor  = name "(" pos neg ")" master { r=r ...params }
 write capacitor = name "(" pos neg ")" master { c=c ...params }
+write inductor  = name "(" pos neg ")" master { l=l ...params }
 rule  resistor  = name "(" pos neg ")" "resistor" { r=r ...params }
 rule  capacitor = name "(" pos neg ")" "capacitor" { c=c ...params }
 rule  inductor  = name "(" pos neg ")" "inductor" { l=l ...params }
