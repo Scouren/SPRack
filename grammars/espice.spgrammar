@@ -15,7 +15,7 @@
 # - The model levels follow ESPice's tables (ngspice's, plus BSIM-CMG 72,
 #   BSIM-BULK 77 and PSP 103 at 1040).
 #
-# The ESPice HSPICE cards outside the vocabulary (.alter, .data, .lstb, ...)
+# The ESPice HSPICE cards outside the vocabulary (.lstb, ...)
 # and its own .pac, .pnoise, .pxf, .qpss, .envelope, .matex are not here;
 # they read as untranslated lines.
 
@@ -354,4 +354,7 @@ params jfet
   same area dtemp ic m off temp
 end
 # alter (c2)
-no alter : this grammar has no form for the .alter ESPice takes in HSPICE mode
+# ESPice reads HSPICE's .alter blocks: each reruns every analysis with its
+# lines on top of those of the alters before it, as in HSPICE.
+rule  alter     = ".alter" [name]
+read  alter     = ".alter" ...

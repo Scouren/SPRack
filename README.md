@@ -481,7 +481,7 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   analysis alone; VACASK, whose sweep belongs to the one analysis after it,
   has no `step`. Not in the vocabulary: Spectre's `paramset`, and `.data`
   read from files (`MER`, `LAM`).
-* Alters (`alter`, whose body is its edits): HSPICE `.alter`, Spectre
+* Alters (`alter`, whose body is its edits): HSPICE `.alter` (also ESPice's), Spectre
   `altergroup` and one-change `alter` statements, each a rerun of every
   analysis on top of the alters before it. Spectre gets the analyses again
   after each altergroup, and an altergroup cannot add an instance. VACASK

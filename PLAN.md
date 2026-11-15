@@ -122,7 +122,7 @@ Order, by deck count:
    loops, by step, points per decade or octave, points in all, or a list;
    kinds `step` (body: the analyses it repeats) and `data`; Spectre `sweep`
    blocks, `dc param=`, `values=`; VACASK sweeps.
-   *Done (c2):* kind `alter` (body: its edits, cumulative), HSPICE `.alter`,
+   *Done (c2):* kind `alter` (body: its edits, cumulative), HSPICE and ESPice `.alter`,
    Spectre `altergroup` and one-change `alter` both ways (`rerun alter`: the
    analyses are written again after each); VACASK `alter instance(...)` and
    ngspice `.control` `alterparam` runs, Xyce a `.step` over a `.data`
