@@ -115,6 +115,7 @@ implied noise ref = 0              # what the dialect assumes when it says nothi
 implied options temp = $tnom       # for options, over the whole netlist; a
                                    # translation states the ones the target
                                    # assumes otherwise (HSPICE's TNOM 25)
+implied vsource td1 = 0 wave=exp   # only where that slot holds that word
 enum options method : trap=trap gear=gear2      # canonical = this dialect's word
 move options.method -> tran.method # this dialect says it on another statement
 move options.delmax -> tran.maxstep oneway   # only when writing
@@ -136,6 +137,13 @@ invalid vsource rise=0 wave=pulse : ...  # left out (or 0) it means something
 default vsource rise=0 wave=pulse : tran.step  # left out (or 0) by a dialect
                                    # that means its default by that: written
                                    # out from the netlist's first .tran
+default vsource td2 wave=exp : td1 + tran.step  # counted from a slot of the
+                                   # statement itself
+default vsource td1 wave=exp : tran.step from ngspice espice  # only for a
+                                   # statement of a dialect measured to mean
+                                   # that (an error where the netlist has no
+                                   # .tran); from any other, an `ambiguous`
+                                   # warning unless an `invalid` line speaks
 unique param : ...                 # a parameter defined twice in one scope is
                                    # refused here: an error
 unique master : ...                # a name both a model and a subcircuit define

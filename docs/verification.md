@@ -740,6 +740,40 @@ the mismatch file), 21 are still errors: 12 choose the transistor's model
 by a parameter, 8 give `ic` in one branch only, 1 holds a device of another
 name and model in each branch.
 
+### 4.12 What an EXP source leaves out (s2)
+
+`EXP(0 1)`, `EXP(0 1 3n)`, `EXP(0 1 3n 0.5n)`, `EXP(0 1 3n 0.5n 6n)` and
+`EXP(0 1 3n 0.5n 6n 0.25n)`, each across 1k, with `.tran 2n 50n` and a
+largest step of 0.05 ns. TD1, TAU1, TD2 and TAU2 were fitted to every solver
+point of the waveform (ngspice `wrdata`, Xyce `.print tran`, the VACASK raw
+file); LTspice was read at 60 times through `.meas tran ... find v() at`.
+All four reproduce the six given values of the last source.
+
+| left out | ngspice 45 | Xyce 7.10 | LTspice 26.0.2 | VACASK |
+|---|---|---|---|---|
+| TD1 | the step (2 ns) | 0 | 0 | 0 (`delay`) |
+| TAU1 | the step | the step | 0: an instant rise | 0: the run stops (operating point, or "Timestep too small") |
+| TD2 | TD1 plus the step | TD1 plus the step | 0: the fall starts with the rise | refused: "td2 ... must be greater than 0"; it counts from `delay` |
+| TAU2 | the step | the step | 0: an instant fall | 0: "Timestep too small" |
+
+In LTspice `EXP(0 1)` and `EXP(0 1 3n)` stay at 0 V, `EXP(0 1 3n 0.5n)` is
+`-exp(-(t-3n)/0.5n)` from 3 ns on, and `EXP(0 1 3n 0.5n 6n)` rises as given
+and drops at 6 ns to that same curve.
+
+The grammars now say it: `implied vsource td1 = 0 wave=exp` in Xyce, LTspice
+and VACASK (read from them, the 0 is in the netlist; `exp(0 1 0)` in
+ngspice), and `default ... td1 wave=exp : tran.step from ngspice espice`
+(written into them, ngspice's step is said; `exp(0 1 1n)` in Xyce). LTspice
+also takes TAU1, TAU2 and `td1 + tran.step` for TD2 from ngspice, ESPice and
+Xyce, and has `invalid` lines for the three, so a source read from LTspice
+without them is an error. VACASK's TD2 is now written out as well
+(`delay=1n td2=1n` for `EXP(0 1)` at a 1 ns step), where it was an error.
+ESPice was not run here: it is listed with ngspice on the word of the
+Conformance Suite deck `netlist/tran/source_exp_defaults_ngspice` (TD1 =
+TAU1 = TAU2 = 1n, TD2 = 2n at a 1 ns step). HSPICE and Spectre were not
+measured and their grammars are unchanged: a source from them that leaves
+TD1 out is written as it was, with an `ambiguous` warning.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

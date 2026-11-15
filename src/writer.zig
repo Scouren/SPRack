@@ -119,10 +119,16 @@ const Emit = struct {
     }
 
     fn bound(e: *const Emit, idx: u8) bool {
+        return e.given(idx) and !e.isImplied(idx);
+    }
+
+    /// `bound`, or holding what this dialect assumes: left out where the
+    /// pattern can leave it out, written where a later value needs its
+    /// place (`exp(0 1 0 2n)`).
+    fn given(e: *const Emit, idx: u8) bool {
         if (idx >= schema.info(e.st.kind).slots.len) return false;
         if (idx < 64 and e.hide & (@as(u64, 1) << @intCast(idx)) != 0) return false;
         if (e.foreign and e.private(idx)) return false;
-        if (e.isImplied(idx)) return false;
         return e.present(idx);
     }
 
@@ -132,7 +138,12 @@ const Emit = struct {
         // An option the netlist sets is written even at the default: the
         // defaults are what `defaultOptions` compares, not what is said.
         if (e.st.kind == .options) return false;
-        const text = e.g.impliedOf(e.st.kind, idx) orelse return false;
+        const text = for (e.g.implied) |im| {
+            if (im.kind != e.st.kind or im.slot != idx) continue;
+            if (im.when_slot == grammar.no_slot) break im.text;
+            const c = e.st.at(im.when_slot);
+            if (c == .atom and std.mem.eql(u8, c.atom, im.when_atom)) break im.text;
+        } else return false;
         return switch (e.st.at(idx)) {
             .atom => |a| std.mem.eql(u8, a, text),
             .num => |n| n.exp10 == 0 and std.mem.eql(u8, n.digits(), text),
@@ -511,7 +522,7 @@ const Emit = struct {
                     try e.tok(try e.expandDefault(n.default));
                     return true;
                 }
-                if (!e.bound(n.slot)) {
+                if (!e.given(n.slot)) {
                     if (n.star) return true;
                     if (n.default.len == 0) {
                         if (e.why.len == 0) e.why = try e.arena.print("a statement without '{s}'", .{e.slot(n.slot).name});
@@ -1550,16 +1561,40 @@ const Writer = struct {
                 if (v != .none and !(f.zero and zero)) continue;
                 // A source dialect with a default of its own means that one.
                 if (w.sourceGrammar(st)) |sg| if (sg.checksSlot(f.kind, f.slot)) continue;
-                const from = firstValue(all, f.from, f.from_slot) orelse continue;
+                const sl = schema.info(f.kind).slots;
+                if (f.only.len > 0) {
+                    for (f.only) |d| {
+                        if (std.mem.eql(u8, d, w.sourceOf(st))) break;
+                    } else {
+                        // Nothing is assumed of a dialect not measured.
+                        if (!w.g.checksSlot(f.kind, f.slot)) w.report.add(.warning, .ambiguous, st.line, "{s}.{s} is not given: {s} takes its own default for it, and what {s} takes is not measured; written as it was", .{
+                            @tagName(f.kind), sl[f.slot].name, w.g.name, w.sourceOf(st),
+                        });
+                        continue;
+                    }
+                }
+                var from = firstValue(all, f.from, f.from_slot) orelse {
+                    if (f.only.len > 0) w.report.add(.@"error", .invalid, st.line, "{s}.{s} is not given: {s} means the {s}.{s} by that and {s} does not, and this netlist has no {s} to take it from", .{
+                        @tagName(f.kind), sl[f.slot].name, w.sourceOf(st), @tagName(f.from), schema.info(f.from).slots[f.from_slot].name, w.g.name, @tagName(f.from),
+                    });
+                    continue;
+                };
+                if (f.plus != grammar.no_slot) {
+                    // Counted from a value this statement does not have: the
+                    // `invalid` line speaks.
+                    if (cur.at(f.plus) == .none) continue;
+                    from = try expr.arith(w.arena, .add, cur.at(f.plus), from);
+                }
                 try cur.own(w.arena);
                 try cur.set(w.arena, f.slot, from);
                 changed = true;
-                const sl = schema.info(f.kind).slots;
                 var em = w.emitter(w.arena, st);
-                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
-                    @tagName(f.kind), sl[f.slot].name,       if (zero) "is 0" else "is not given",
-                    w.sourceOf(st),   @tagName(f.from),      schema.info(f.from).slots[f.from_slot].name,
-                    w.g.name,         try em.describe(from),
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means {s}{s}the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
+                    @tagName(f.kind),                                       sl[f.slot].name,
+                    if (zero) "is 0" else "is not given",                   w.sourceOf(st),
+                    if (f.plus != grammar.no_slot) sl[f.plus].name else "", if (f.plus != grammar.no_slot) " plus " else "",
+                    @tagName(f.from),                                       schema.info(f.from).slots[f.from_slot].name,
+                    w.g.name,                                               try em.describe(from),
                 });
             }
             if (changed) {

@@ -4879,3 +4879,53 @@ test "s1: a conditional block of the same statements is written once, with condi
         try reported(&rr, .@"error", try std.fmt.allocPrint(a, "Xyce has no conditional blocks in a netlist, and this block is not the same statements with other values in every branch: {s}. Dialects", .{c[1]}));
     }
 }
+
+// s2: what an EXP source leaves out. Measured: docs/verification.md 4.12.
+
+test "s2: an EXP source's left-out values are written out where the target means others" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 a 0 EXP(0 1)\nR1 a 0 1k\n.tran 1n 20n\n.end\n";
+    // ngspice's TD1 is the time step, Xyce's is 0; the other three agree.
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", src, &r), "V1 a 0 exp(0 1 1n)\n");
+    try reported(&r, .warning, "vsource.td1 is not given: ngspice means the tran.step by that, and xyce needs it said; wrote 1n");
+    try testing.expectEqual(1, r.countCode(.synthesized));
+    try testing.expectEqual(0, r.count(.@"error"));
+    // And back: Xyce's 0 is said.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", src, &r2), "V1 a 0 exp(0 1 0)\n");
+    try testing.expectEqual(0, r2.count(.@"error") + r2.countCode(.synthesized));
+    // A 0 that Xyce assumes is still written where a later value needs its place.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\nV1 a 0 EXP(0 1 0 2n)\nR1 a 0 1k\n.tran 1n 20n\n.end\n", &r3), "V1 a 0 exp(0 1 0 2n)\n");
+    try testing.expectEqual(0, r3.count(.@"error") + r3.countCode(.synthesized));
+    // LTspice assumes 0 for all four; TD2 counts from TD1.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ltspice", src, &r4), "V1 a 0 exp(0 1 1n 1n 2n 1n)\n");
+    try reported(&r4, .warning, "vsource.td2 is not given: ngspice means td1 plus the tran.step by that, and ltspice needs it said; wrote 2n");
+    try testing.expectEqual(0, r4.count(.@"error"));
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ltspice", src, &r5), "V1 a 0 exp(0 1 0 1n 1n 1n)\n");
+    // VACASK's delay is 0 and its td2 counts from the delay.
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", src, &r6), "V1 (a 0) vsource type=\"exp\" val0=0 val1=1 delay=1n td2=1n tau1=1n tau2=1n\n");
+    try testing.expectEqual(0, r6.count(.@"error"));
+    var r7: ir.Report = .init(a);
+    const va = "t\nground 0\nmodel vsource vsource\nV1 (a 0) vsource type=\"exp\" val0=0 val1=1 td2=3n tau1=1n tau2=1n\ncontrol\nanalysis tran1 tran step=1n stop=20n\nendc\n";
+    try has(try tr(a, "vacask", "ngspice", va, &r7), "V1 a 0 exp(0 1 0 1n 3n 1n)\n");
+    // What LTspice leaves out is an instant edge: no other dialect means that.
+    var r8: ir.Report = .init(a);
+    _ = try tr(a, "ltspice", "ngspice", src, &r8);
+    try reported(&r8, .@"error", "vsource.tau1 is not given: LTspice's default rise time constant is 0, an instant rise");
+    // Nothing in the netlist to take the step from.
+    var r9: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nV1 a 0 EXP(0 1)\nR1 a 0 1k\n.op\n.end\n", &r9);
+    try reported(&r9, .@"error", "vsource.td1 is not given: ngspice means the tran.step by that and xyce does not, and this netlist has no tran to take it from");
+    // HSPICE is not measured: written as it was, and the report says so.
+    var r10: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", src, &r10), "V1 a 0 exp(0 1)\n");
+    try reported(&r10, .warning, "vsource.td1 is not given: xyce takes its own default for it, and what hspice takes is not measured; written as it was");
+    try testing.expectEqual(0, r10.countCode(.synthesized));
+}

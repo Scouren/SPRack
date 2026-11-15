@@ -128,6 +128,14 @@ rule  four      = ".four" freq signals+
 rule  hb        = ".hb" freqs+
 
 implied noise ref = 0
+# What an EXP source leaves out, measured with `.tran 2n 50n` (Xyce 7.10):
+# TD1 is 0, TAU1 and TAU2 the step, TD2 TD1 plus the step. ngspice 45 is the
+# same but for TD1, the step there, as in ESPice (Conformance Suite,
+# netlist/tran/source_exp_defaults_ngspice).
+implied vsource td1 = 0 wave=exp
+implied isource td1 = 0 wave=exp
+default vsource td1 wave=exp : tran.step from ngspice espice
+default isource td1 wave=exp : tran.step from ngspice espice
 enum options method : trap=trap gear=gear trap=7 gear=8 bdf=gear
 enum dc var : temp=temp
 

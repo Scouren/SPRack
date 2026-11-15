@@ -246,6 +246,13 @@ pub const Fill = struct {
     when_atom: []const u8 = "",
     from: Kind,
     from_slot: u8,
+    /// `td1 + tran.step`: counted from that slot of the statement itself.
+    plus: u8 = no_slot,
+    /// `from ngspice espice`: only a statement of one of these dialects,
+    /// the ones measured to mean that default; and with nothing in the
+    /// netlist to take it from, an error. Empty: any dialect without an
+    /// `invalid` line of its own for the slot.
+    only: []const []const u8 = &.{},
 };
 
 /// Something a reader of the translated netlist should know when a slot
@@ -257,8 +264,9 @@ pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []co
 /// translation out of this dialect leaves it out with a note, not an error.
 pub const Inert = struct { kind: Kind, key: []const u8, text: []const u8 };
 
-/// A value the dialect assumes when the statement does not say it.
-pub const Implied = struct { kind: Kind, slot: u8, text: []const u8 };
+/// A value the dialect assumes when the statement does not say it;
+/// `wave=exp` after it: only where that atom slot holds that word.
+pub const Implied = struct { kind: Kind, slot: u8, text: []const u8, when_slot: u8 = no_slot, when_atom: []const u8 = "" };
 pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 /// How the dialect spells the values of a closed-set slot.
 pub const EnumMap = struct { kind: Kind, slot: u8, pairs: []const EnumPair };
@@ -1468,8 +1476,15 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const kind = try kindOf(c, no, ks[0]);
             const zero = std.mem.endsWith(u8, ks[1], "=0");
             const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
-            const fk, const fs = try dotted(c, no, std.mem.trim(u8, rest[colon + 3 ..], " \t"));
-            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs };
+            var to = try args(c, no, rest[colon + 3 ..]);
+            var plus: u8 = no_slot;
+            if (to.len > 2 and std.mem.eql(u8, to[1], "+")) {
+                plus = try slotNamed(c, no, kind, to[0]);
+                to = to[2..];
+            }
+            if (to.len == 0 or (to.len > 1 and (to.len == 2 or !std.mem.eql(u8, to[1], "from")))) return c.fail(no, "default takes `[slot +] kind.slot [from dialect...]`", .{});
+            const fk, const fs = try dotted(c, no, to[0]);
+            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs, .plus = plus, .only = if (to.len > 2) to[2..] else &.{} };
             if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
             fills = try c.add(Fill, fills, f);
         } else if (std.mem.eql(u8, head, "unique")) {
@@ -1484,9 +1499,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
             const a = try args(c, no, rest);
-            if (a.len != 4 or !std.mem.eql(u8, a[2], "=")) return c.fail(no, "implied is `implied kind slot = value`", .{});
+            if (a.len < 4 or a.len > 5 or !std.mem.eql(u8, a[2], "=")) return c.fail(no, "implied is `implied kind slot = value [slot=atom]`", .{});
             const kind, const slot = try kindSlot(c, no, a[0], a[1]);
-            implied = try c.add(Implied, implied, .{ .kind = kind, .slot = slot, .text = a[3] });
+            var im: Implied = .{ .kind = kind, .slot = slot, .text = a[3] };
+            if (a.len == 5) im.when_slot, im.when_atom = try condition(c, no, kind, a[4]);
+            implied = try c.add(Implied, implied, im);
         } else if (std.mem.eql(u8, head, "enum")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "enum is `enum kind slot : canonical=spelling ...`", .{});
             const ks = try args(c, no, rest[0..colon]);

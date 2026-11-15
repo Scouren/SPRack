@@ -1511,6 +1511,7 @@ const Reader = struct {
             // writer says a default the target does not share (`defaultOptions`).
             if (im.kind == .options) continue;
             if (im.kind != st.kind or vals[im.slot] != .none) continue;
+            if (im.when_slot != grammar.no_slot and (vals[im.when_slot] != .atom or !std.mem.eql(u8, vals[im.when_slot].atom, im.when_atom))) continue;
             vals[im.slot] = if (schema.info(st.kind).slots[im.slot].ty == .value)
                 (if (lexer.parseNumber(self.arena, &self.g.lex, im.text)) |n| Value{ .num = n } else Value{ .expr = im.text })
             else
