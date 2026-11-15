@@ -3249,3 +3249,24 @@ test "VACASK model cards: parameters the shipped modules refuse are a loss" {
     try reported(&report, .@"error", "model 'nj': level not written: sp_jfet1 is the level 1 JFET");
     try testing.expectEqual(2, report.count(.@"error"));
 }
+
+test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no place" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const src = "t\nR1 a 0 1k m=2 tc=1m\nC1 a 0 1n ic=0.5\nR2 a b 1k ac=2k\nM1 d g 0 0 nm w=1u l=1u m=3 sa=1u\n.model nm nmos level=1\n.end\n";
+    const va = try tr(a, "ngspice", "vacask", src, &report);
+    try has(va, "R1 (a 0) resistor r=1k $mfactor=2 tc=1m\n");
+    try has(va, "C1 (a 0) capacitor c=1n\n");
+    // An open table renames m and copies the rest.
+    try has(va, "M1 (d g 0 0) nm w=1u l=1u $mfactor=3 sa=1u\n");
+    try reported(&report, .@"error", "capacitor: 'ic=0.5' has no spelling in vacask");
+    try reported(&report, .@"error", "resistor: 'ac=2k' has no spelling in vacask");
+    try testing.expectEqual(2, report.count(.@"error"));
+    // And back: $mfactor is m again, where ngspice has a table and where it has none.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "vacask", "ngspice", va, &r2);
+    try has(ng, "R1 a 0 1k m=2 tc=1m\n");
+    try has(ng, "M1 d g 0 0 nm w=1u l=1u m=3 sa=1u\n");
+}

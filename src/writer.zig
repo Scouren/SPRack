@@ -973,12 +973,14 @@ const Writer = struct {
     /// each is renamed to the target's spelling, and one the target's
     /// device does not take is a loss, not copied. Null: nothing changes.
     fn instParams(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?ir.Stmt {
-        const table = w.g.paramsOf(st.kind) orelse return null;
         if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return null;
         const idx = schema.slotIndex(st.kind, "params") orelse return null;
         const v = st.at(idx);
         if (v != .params) return null;
         const from = if (w.sourceGrammar(st)) |sg| sg.paramsOf(st.kind) else null;
+        // Without a table here, the source's own spellings still go back to canonical names.
+        const open: []const grammar.Spellings = &.{.{ .canon = "...", .spellings = &.{"..."} }};
+        const table = w.g.paramsOf(st.kind) orelse if (from != null) open else return null;
         var em = w.emitter(a, st);
         var out: std.ArrayList(ir.Param) = .empty;
         var changed = false;
@@ -987,6 +989,16 @@ const Writer = struct {
             const entry = for (table) |*e| {
                 if (std.ascii.eqlIgnoreCase(e.canon, canon)) break e;
             } else {
+                // `same ...`: the table renames; what it does not list passes as written.
+                // In the canonical spelling, when the source's table had its own.
+                if (grammar.paramsOpen(table)) {
+                    try out.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(canon, p.key)) p.key else canon, .val = p.val });
+                    if (!std.ascii.eqlIgnoreCase(canon, p.key)) {
+                        w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, canon, w.g.name });
+                        changed = true;
+                    }
+                    continue;
+                }
                 const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
                 w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such instance parameter", .{
                     @tagName(st.kind), shown, w.g.name, @tagName(st.kind),

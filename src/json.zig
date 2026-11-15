@@ -186,6 +186,8 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
         first = true;
         for (grammars) |*g| {
             const table = g.paramsOf(info.kind) orelse continue;
+            // An open table checks nothing: no list to offer.
+            if (grammar.paramsOpen(table)) continue;
             if (!first) try w.writeByte(',');
             first = false;
             try str(w, g.name);

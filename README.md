@@ -407,7 +407,8 @@ no single rule holds everything, which is how `.options timeint ...` and
 A device's instance parameters that cross into a dialect with a `params`
 table for its kind are renamed to that dialect's spelling (an info
 `rename`); one its device does not take is a `loss` error and is not
-written. A kind without a table is not checked.
+written. A kind without a table is not checked, and neither is what a table
+ending in `same ...` leaves out: such a table only renames.
 
 Expressions are translated token by token: numbers, function names, simulator
 variables and the two operators that differ (`**`/`^` for power, `^` for

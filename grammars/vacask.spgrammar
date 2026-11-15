@@ -334,6 +334,47 @@ caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphas
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
 # docs/cmd-analysis-noise.md "Output": onoise, gain and n(...) per frequency.
 caveat noise out : VACASK writes the output noise as a power density with the power gain (input noise is onoise/gain) and no integrated totals; SPICE writes V/sqrt(Hz) spectra and the integrated noise
+# Instance parameters, by ngspice name. Every device takes $mfactor for m
+# (docs/cir-mfactor.md; "Parameter m was replaced with builtin Verilog-A
+# parameter $mfactor" in each devices/spice/*.va). The rest are the
+# type="instance" parameters of devices/spice/*.va and lib/devvisrc.cpp:27-72;
+# ic and off were removed from the modules ("Initial conditions should be set
+# via the simulator's initial conditions mechanism"), resistor ac has none.
+params resistor
+  same bv_max dtemp l scale tc2 tce temp w
+  tc1   = tc1 tc
+  noisy = noisy noise
+  m     = $mfactor
+end
+params capacitor
+  same bv_max dtemp l scale tc1 tc2 temp w
+  m = $mfactor
+end
+params inductor
+  same dtemp nt scale tc1 tc2 temp
+  m = $mfactor
+end
+params isource
+  m = $mfactor
+end
+params diode
+  same area dtemp l lm lp perim pj temp w wm wp
+  m = $mfactor
+end
+params bjt
+  same area areab areac dtemp temp
+  m = $mfactor
+end
+params jfet
+  same area dtemp temp
+  m = $mfactor
+end
+# MOSFET modules differ in their instance parameters (bsim4v8.va renames
+# some to instance_*); only m is renamed, the rest are copied as written.
+params mosfet
+  m = $mfactor
+  same ...
+end
 # Model parameters the shipped modules refuse ("Parameter ... not found").
 # devices/spice/bsim3v3.va has no version; bsim4v8.va:164 declares it a string.
 noparam bsim3 version : sp_bsim3v3 implements BSIM3 3.3.0 only and has no version parameter

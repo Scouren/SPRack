@@ -264,6 +264,12 @@ pub const Spellings = struct {
 /// from another dialect that the table lacks is a loss; a kind without a
 /// table is not checked.
 pub const ParamTable = struct { kind: Kind, names: []const Spellings };
+
+/// Does a `params` table end in `same ...`: unlisted parameters are not checked?
+pub fn paramsOpen(table: []const Spellings) bool {
+    for (table) |e| if (std.mem.eql(u8, e.canon, "...")) return true;
+    return false;
+}
 /// A function or operator this dialect spells like the others but
 /// evaluates differently (HSPICE `pow` truncates its exponent).
 pub const Differs = struct { canon: []const u8, text: []const u8 };
