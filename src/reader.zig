@@ -83,7 +83,9 @@ const Matcher = struct {
         if (t.f.key and !self.allow_key) return null;
         const cfg = &self.g.lex;
         switch (ty) {
-            .name, .node => return if (t.tag == .word and lexer.isNameLike(t.text)) .{ .atom = t.raw } else null,
+            // HSPICE `.meas dc "ia" ...` is the measurement ia: a label.
+            .name => return if ((t.tag == .word or (t.tag == .str and cfg.dquote_expr)) and lexer.isNameLike(t.text)) .{ .atom = if (t.tag == .str) t.text else t.raw } else null,
+            .node => return if (t.tag == .word and lexer.isNameLike(t.text)) .{ .atom = t.raw } else null,
             .ident, .ref => {
                 if (t.tag != .word or !lexer.isNameLike(t.text)) return null;
                 // A model or subcircuit name starts like a name, not like an operator.
@@ -104,7 +106,7 @@ const Matcher = struct {
                     return .{ .expr = t.raw };
                 },
                 .expr => return .{ .expr = t.text },
-                .str => return .{ .str = t.text },
+                .str => return (try self.quotedExpr(t, "")) orelse .{ .str = t.text },
                 else => return null,
             },
             .path => return switch (t.tag) {
@@ -186,8 +188,23 @@ const Matcher = struct {
         return .{ .v = .{ .atom = canon }, .n = n };
     }
 
+    /// A double-quoted value read as the expression it is where the dialect
+    /// says so (`quotes '"' expr-in-values`: HSPICE `.param t2="a^3"` is 8
+    /// with a=2). Null keeps it a string: a key the grammar names as a
+    /// file name (`rlgcfile=`), an empty pair of quotes.
+    fn quotedExpr(self: *const Matcher, t: Tok, key: []const u8) Allocator.Error!?Value {
+        const cfg = &self.g.lex;
+        if (!cfg.dquote_expr) return null;
+        for (cfg.dquote_strings) |k| if (std.ascii.eqlIgnoreCase(k, key)) return null;
+        const text = std.mem.trim(u8, t.text, " \t");
+        if (text.len == 0) return null;
+        const folded = if (cfg.case_sensitive) text else try std.ascii.allocLowerString(self.arena, text);
+        if (lexer.parseNumber(self.arena, cfg, folded)) |n| return .{ .num = n };
+        return .{ .expr = text };
+    }
+
     /// Value of an open-ended `key=value` parameter: take whatever is there.
-    fn anyValue(self: *const Matcher, t: Tok) Allocator.Error!?Value {
+    fn anyValue(self: *const Matcher, t: Tok, key: []const u8) Allocator.Error!?Value {
         switch (t.tag) {
             .word => {
                 if (self.number(t)) |n| return .{ .num = n };
@@ -199,7 +216,8 @@ const Matcher = struct {
             },
             // `version=3.3.0` read as an undelimited expression is a word, not arithmetic.
             .expr => return if (isVersion(t.text)) .{ .atom = t.text } else .{ .expr = t.text },
-            .str => return .{ .str = t.text },
+            // An unknown option keeps a string; a declared one is typed.
+            .str => return (if (self.kind == .options) null else try self.quotedExpr(t, key)) orelse .{ .str = t.text },
             .vec => return .{ .list = try self.vector(t.text) },
             else => return null,
         }
@@ -538,7 +556,7 @@ const Matcher = struct {
                             b += 1;
                         }
                         if (self.toks()[b].tag != .eq) break;
-                        const v = (try self.anyValue(self.toks()[b + 1])) orelse break;
+                        const v = (try self.anyValue(self.toks()[b + 1], "")) orelse break;
                         try self.log.append(self.arena, .{ .slot = entry.slot, .key = nt.raw, .val = v });
                         j = b + 2;
                         continue;
@@ -549,7 +567,7 @@ const Matcher = struct {
                     } else null) |entry| {
                         const vt = self.toks()[j + 1];
                         if (vt.tag != .word or vt.f.key) break;
-                        const v = (try self.anyValue(vt)) orelse break;
+                        const v = (try self.anyValue(vt, kt.text)) orelse break;
                         try self.log.append(self.arena, .{ .slot = entry.slot, .key = kt.raw, .val = v });
                         j += 2;
                         continue;
@@ -684,7 +702,7 @@ const Matcher = struct {
             return true;
         }
         const rs = rest_slot orelse return false;
-        const v = (try self.anyValue(vt)) orelse return false;
+        const v = (try self.anyValue(vt, key)) orelse return false;
         try self.log.append(self.arena, .{ .slot = rs, .key = key_raw, .val = v });
         return true;
     }

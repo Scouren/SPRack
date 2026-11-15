@@ -64,6 +64,12 @@ pub const LexCfg = struct {
     bare_after_eq: bool = false,
     /// A bare identifier may stand where a value is expected (`R1 a b rval`).
     ident_values: bool = false,
+    /// `quotes '"' expr-in-values`: a double-quoted value is an expression
+    /// (HSPICE), as a single-quoted one is; a path or label stays a string.
+    dquote_expr: bool = false,
+    /// `... except k1 k2`: parameters whose quoted value is still a string
+    /// (a file name, as HSPICE's `rlgcfile=`).
+    dquote_strings: []const []const u8 = &.{},
     /// Between the items of a written `[...]` vector.
     vector_sep: []const u8 = " ",
     /// First entry for an exponent is the one used when writing.
@@ -1070,6 +1076,14 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
             cfg.expr_delims = try c.add([2][]const u8, cfg.expr_delims, .{ a[1], a[2] });
         } else if (std.mem.eql(u8, key, "vectors") and n == 1) {
             cfg.vector_sep = if (std.mem.eql(u8, a[1], "comma")) ", " else " ";
+        } else if (std.mem.eql(u8, key, "quotes") and n >= 2 and std.mem.eql(u8, a[1], "\"")) {
+            if (std.mem.eql(u8, a[2], "expr-in-values")) {
+                cfg.dquote_expr = true;
+            } else if (!std.mem.eql(u8, a[2], "string")) return c.fail(lines.no, "quotes '\"' takes 'string' or 'expr-in-values'", .{});
+            if (n > 2) {
+                if (n == 3 or !std.mem.eql(u8, a[3], "except")) return c.fail(lines.no, "expected `except key...` after the quote rule", .{});
+                for (a[4..]) |x| cfg.dquote_strings = try c.add([]const u8, cfg.dquote_strings, try c.foldIf(!cfg.case_sensitive, x));
+            }
         } else if (std.mem.eql(u8, key, "values") and n == 1) {
             cfg.ident_values = std.mem.eql(u8, a[1], "idents");
         } else if (std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "readscale")) {

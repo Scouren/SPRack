@@ -32,6 +32,7 @@ lexer
   expr      "{" "}"
   expr      "'" "'"
   expr      after-equals
+  quotes    '"' expr-in-values   # .param t="a*3" and r="2*rv" are expressions; r1 n 0 "2*rv" is refused
   values    strict
   scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   oddscale  mil=25.4e-6

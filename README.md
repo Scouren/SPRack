@@ -292,6 +292,9 @@ compile error with the file and line.
       expr      "{" "}"                # expression delimiters, may repeat
       expr      bare                   # expressions need no delimiters (Spectre)
       expr      after-equals           # undelimited after "=" up to the next blank
+      quotes    '"' expr-in-values except rlgcfile   # "..." in a value slot is an
+                                       # expression, in a path or name slot a string;
+                                       # or: quotes '"' string (the default)
       values    strict                 # or: idents (a bare name may be a value)
       scale     meg=6 k=3 m=-3 u=-6    # suffix = power of ten; longest match wins
       readscale _=0 %=-2               # accepted when reading, never written

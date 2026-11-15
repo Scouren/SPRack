@@ -503,7 +503,7 @@ ngspice (`net_waves.zig`).
 `.DCVOLT v(p)=1` and `.DCVOLT q 2` both set the start of a UIC transient.
 `.FUNC` does not load (either argument spelling). A unary `!` loads
 (`'1k*(!0)'` is 1k); `'10 % 3'` does not. A double-quoted `.param
-t2="a^3"` is an expression (8 with a=2); this grammar reads it as a string.
+t2="a^3"` is an expression (8 with a=2); read as one since d3 (4.9).
 
 **ngspice 45.** `.options gshunt=1m` leaves 1 mA into 1k at 1 V in an
 operating point; `rshunt=1k` gives 0.5 V. `!` works in `.param`, instance
@@ -616,6 +616,48 @@ An exactly symmetric version of the two-stage deck has repeated roots;
 there ngspice reported one of the doubled poles (-3.01e8) as a zero, where
 Spectre agreed with the hand-worked answer. Not a translation
 matter; the deck above is unequal for that reason.
+
+### 4.9 Double quotes (d3)
+
+Where a double-quoted value is an expression and where a string. Each
+row a deck of a few lines written for it: a 1 V source across the
+resistor, its current read back (`.meas`, the `.print` column or the raw
+file). HSPICE Y-2026.03-SP2-1, Spectre 23.10, ngspice 45, Xyce 7.10, ESPice.
+
+| written | HSPICE | ngspice 45 | Xyce 7.10 | Spectre | ESPice |
+|---|---|---|---|---|---|
+| `.param a=2 t2="a^3"` (`a*3` elsewhere), used as `t2*1k` | 8k: expression | refused | refused | a string: 0 A as a number | 6k: expression |
+| `r1 a 0 "2*rv"`, rv=1k | 2k | refused (taken for a model name) | refused | no such form | refused |
+| `r1 a 0 r="2*rv"` | 2k | refused | refused (no number) | refused | 2k |
+| `"2 * rv"`, blanks inside | 2k | | | | |
+| `.model rmod r rsh="rv/10"`, l=10u w=1u | 1k | | | | |
+| subcircuit default `rv="3*rv0"`, instance `rv="2*rv0"` | 3k, 2k | | | | |
+| `v2 b 0 "vv*3"` and `dc="vv*3"`, vv=2 | 6 V both | | | | |
+| `.temp "tv*2"`, tv=50, tc1=0.01 | 100 degrees (1.75k) | | | | |
+| `.tran "st" "10*st"` | loads; a pulse at 2*st is seen by 9n | | | | |
+| `.meas dc ib param="ia*2"` | twice ia | | | | |
+| `.param n="4"` | 4 | | | | |
+| `.param s="abc"` | refused: abc is no parameter | | | | |
+| `.include "dir/inc-a.sp"`, `.lib "dir/lib.l" tt` | the files (5k, 9k) | | | | |
+| `.option search="sub"` then `.include "inc_b.sp"` | found in sub (7k) | | | | |
+| `.meas dc "ia" find ...` | the measurement ia | | | | |
+| `rlgcfile="line.rlgc"`, `tstonefile="m.s1p"` | the files, the same as unquoted | | | | |
+| `'3*"a"'` and `"3*'a'"` | both refused | | | | |
+
+So HSPICE reads `"..."` in a value as it reads `'...'`; the slot decides,
+not the quote. Each grammar says which: `quotes '"' expr-in-values except
+rlgcfile tstonefile` in HSPICE, `quotes '"' expr-in-values` in ESPice
+(read leniently: its positional refusal is not modelled), `quotes '"'
+string` in ngspice, Xyce and Spectre. Read as an expression, the value is
+written in the target's form (`{a**3}`, `'a**3'`, `a**3`). A path slot
+(`.include`, `.lib`, `.hdl`), an option not declared in the grammar and a
+key in the `except` list keep the string, written quoted; a `name` slot
+takes the quotes off.
+
+`hspice/hspice_expressions.sp` (Conformance Suite 9830a79c), translated
+to ngspice and to ESPice and run there: i(vdd) -1.66667e-4, i(v2)
+-1.25e-4, i(v3) -1e-3, i(v4) -2.5e-4, its `.expected.json` in both.
+Before, `t2` was written as the string `"a^3"`, which ngspice refuses.
 
 ---
 

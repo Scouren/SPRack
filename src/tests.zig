@@ -4086,3 +4086,56 @@ test "e1: statements all read in the target's dialect are not translated: no top
     _ = try writeAs(a, "espice", &nl, &report);
     try reported(&report, .@"error", "node 'x' has no DC path to ground");
 }
+
+test "d3: a double-quoted HSPICE value is an expression; a path or label stays a string" {
+    // Measured in HSPICE on decks written for it: `.param t2="a^3"` is 8
+    // with a=2, and `"2*rv"` is 2k as an instance, `r=`, subcircuit, model,
+    // source, `.temp` and `.meas param=` value; `.include`, `.lib` and
+    // `.option search` keep a path, `.meas "ia"` is the measurement ia, and
+    // `tstonefile=` / `rlgcfile=` take a file name quoted or not.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\.param a=2 t2="a^3" n="4"
+        \\.option search="sub"
+        \\.include "dir/inc-a.sp"
+        \\.temp "a*2"
+        \\.subckt ld n rv="3*a"
+        \\r1 n 0 rv
+        \\.ends ld
+        \\r1 n1 0 "2*a"
+        \\r2 n2 0 r="2 * a"
+        \\x1 n3 ld rv="2*a"
+        \\.model rmod r rsh="a/10"
+        \\.model smod s tstonefile="m.s1p"
+        \\v1 n1 0 "a*3"
+        \\.dc v1 1 1 1
+        \\.meas dc "ia" find i(v1) at=1
+        \\.meas dc ib param="ia*2"
+        \\.end
+        \\
+    ;
+    var r: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", src, &r);
+    try has(ng, ".param a=2 t2={a**3} n=4\n");
+    try has(ng, ".temp {a*2}\n");
+    try has(ng, ".include \"dir/inc-a.sp\"\n");
+    try has(ng, ".subckt ld n rv={3*a}\n");
+    try has(ng, "r1 n1 0 {2*a}\nr2 n2 0 {2 * a}\nx1 n3 ld rv={2*a}\n");
+    try has(ng, ".model rmod r rsh={a/10}\n.model smod s tstonefile=\"m.s1p\"\n");
+    try has(ng, "v1 n1 0 dc {a*3}\n");
+    try has(ng, ".meas dc ia find i(v1) at=1\n.meas dc ib param={ia*2}\n");
+    try testing.expectEqual(0, r.countCode(.untranslated));
+    var r2: ir.Report = .init(a);
+    const hs = try tr(a, "hspice", "hspice", src, &r2);
+    try has(hs, ".param a=2 t2='a**3' n=4\n");
+    try has(hs, ".option search=\"sub\"\n.include \"dir/inc-a.sp\"\n");
+    try has(hs, "r1 n1 0 '2*a'\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // ngspice 45, Xyce 7.10 and Spectre refuse a double-quoted value or
+    // keep it a string: there it stays one.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ngspice", "t\n.param t=\"a*3\"\n.end\n", &r3), ".param t=\"a*3\"\n");
+}

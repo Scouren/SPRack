@@ -28,6 +28,7 @@ lexer
   continue   trail "\"
   parens     token
   expr       bare
+  quotes     '"' string          # parameters t2="a*3" is a string (0 as a number); r="2*rv" is refused
   values     idents
   scale      M=6 T=12 G=9 k=3 K=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   readscale  _=0 %=-2 c=-2
