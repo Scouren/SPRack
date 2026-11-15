@@ -261,6 +261,9 @@ pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// A kind the simulator itself lacks, and why.
 pub const Absent = struct { kind: Kind, reason: []const u8 };
+/// `switch "simulator lang=spice" -> hspice`: from a line that starts with
+/// these words on, the file is in another dialect.
+pub const Switch = struct { words: []const u8, dialect: []const u8 };
 /// `reserved name ... : reason`: parameter names the simulator refuses.
 pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
 
@@ -311,6 +314,7 @@ pub const Grammar = struct {
     /// rule to the end of each statement in its body (HSPICE `monte=`).
     spreads: []const Kind = &.{},
     reserved: []const Reserved = &.{},
+    switches: []const Switch = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -1164,6 +1168,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var unique_master: []const u8 = "";
     var spreads: []const Kind = &.{};
     var reserved: []const Reserved = &.{};
+    var switches: []const Switch = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1391,6 +1396,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
             if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
             differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "switch")) {
+            const arrow = std.mem.indexOf(u8, rest, " -> ") orelse return c.fail(no, "switch is `switch \"words\" -> dialect`", .{});
+            const lits = try args(c, no, rest[0..arrow]);
+            if (lits.len != 1) return c.fail(no, "switch needs one quoted line start", .{});
+            switches = try c.add(Switch, switches, .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") });
         } else if (std.mem.eql(u8, head, "reserved")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
             reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
@@ -1433,6 +1443,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .unique_master = unique_master,
         .spreads = spreads,
         .reserved = reserved,
+        .switches = switches,
     };
 }
 
