@@ -189,7 +189,7 @@ library declares.
 A PDK is described by a small JSON manifest in `python/sprack/pdks/`: the
 dialect it is written in, where its entry files are, and which files and
 sections make up each corner. Nothing else about a PDK is built in; the device
-list comes from reading the libraries. Four manifests ship:
+list comes from reading the libraries. Five manifests ship:
 
 | name | written in | corners | devices found |
 |---|---|---|---|
@@ -197,6 +197,7 @@ list comes from reading the libraries. Four manifests ship:
 | `ihp-sg13g2` (`IHP`) | ngspice | tt ss ff sf fs | 35 subcircuits |
 | `ASAP7` | HSPICE | tt ff ss | 8 BSIM-CMG models |
 | `FreePDK45` | HSPICE | nom ff ss | 8 BSIM4 models |
+| `gf180mcuD` (`gf180mcu`) | ngspice | tt ss ff sf fs | 69 subcircuits, 13 model cards |
 
 When the target dialect is the one the PDK ships, the netlist references the
 PDK's own files. For any other dialect the whole library is translated once
@@ -215,9 +216,12 @@ Pass `manifest=` to use a PDK that has no manifest here.
   back the same), 20,000 randomly
   damaged netlists through every reader and writer, and a project with
   includes.
-* `python/test_sprack.py`: 12 tests, 5 of them against the four PDKs' real
-  model libraries.
-* The four PDKs, whole libraries translated:
+* `python/test_sprack.py`: 16 tests, 8 of them against the five PDKs' real
+  model libraries: the repositories, and sky130A and IHP as installed
+  (open_pdks' build of sky130A as ciel ships it; IHP with its OSDI models
+  built by openvaf-r). The GF180MCU, installed sky130A and IHP inverters are
+  simulated in ngspice, IHP in all five corners.
+* The five PDKs, whole libraries translated:
 
   | PDK, all corners | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
   |---|---|---|---|---|---|---|
@@ -225,6 +229,7 @@ Pass `manifest=` to use a PDK that has no manifest here.
   | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 53 | 214 | 276 |
   | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
   | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
+  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 133 | 0 |
 
   Every error names a file and a line. They are: two lines in the sky130
   repository that are not ngspice syntax; `gauss()` and `agauss()`,

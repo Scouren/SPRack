@@ -1,8 +1,11 @@
 """Tests for the Python package. Run: python3 test_sprack.py
 
-The PDK tests need the model libraries of the four PDKs. Point
+The PDK tests need the model libraries of the five PDKs. Point
 SPRACK_TEST_PDKS at a directory holding checkouts named sky130_fd_pr, ihp,
-asap7 and freepdk45; without it those tests are skipped and say so.
+asap7, freepdk45 and gf180mcu (nix build .#test-pdks), and
+SPRACK_TEST_PDKS_INSTALLED at installed sky130 and ihp trees
+(nix build .#test-pdks-installed; those tests also run ngspice). Without
+them those tests are skipped and say so.
 """
 import os, shutil, sys, tempfile, time, traceback
 
@@ -366,8 +369,86 @@ def test_pdk_sky130_library_on_the_fly():
     _with_cache(body)
 
 
+def test_pdk_gf180mcu():
+    p = pdk("gf180mcu", "gf180mcu")
+    assert p.name == "gf180mcuD" and p.dialect == "ngspice" and p.corners == ("tt", "ss", "ff", "sf", "fs")
+    assert {"nfet_03v3", "pfet_03v3", "nfet_06v0", "nfet_10v0_asym", "ppolyf_u", "cap_mim_2f0ff", "npn_10p00x10p00"} <= set(p.devices)
+    assert p.device("nfet_03v3")["family"] == "bsim4" and p.device("npn_10p00x10p00")["ports"] == ["c", "b", "e", "s"]
+    c = sprack.Circuit("gf180 inverter", pdk=p)
+    c.V("dd", "vdd", 0, 3.3)
+    c.V("in", "in", 0, 1.65)
+    c.pfet_03v3("Mp", "out", "in", "vdd", "vdd", w="2u", l="0.28u")
+    c.nfet_03v3("Mn", "out", "in", 0, 0, w="1u", l="0.28u")
+    c.op()
+    c.print_("dc", sprack.v("out"))
+    ng = unwrap(c.netlist("ngspice"))
+    m = f"{p.root}/models/ngspice"
+    assert f'.include "{m}/design.spice"\n.lib "{m}/sm141064.spice" typical\n' in ng and f'/smbb000149.spice" typical\n' in ng
+    assert ng.count(".lib ") == 7 and "Mn out in 0 0 nfet_03v3 w=1u l=0.28u\n" in ng
+    assert p.entries("sf")[1:3] == [(f"{m}/sm141064.spice", "sf"), (f"{m}/sm141064.spice", "bjt_typical")]
+    assert abs(ngspice_op(ng) - 0.468) < 0.005   # Xyce, on the translated library: 0.46826
+    # Xyce has agauss(); Spectre has no spelling for it.
+    xy = unwrap(c.netlist("xyce"))
+    assert f'.lib "{p.translate("xyce")}/sm141064.spice" typical\n' in xy
+    errs = p.library_errors("spectre")
+    assert len(errs) == 133 and all("agauss" in e.message for e in errs), str(errs)
+
+
+INSTALLED = os.environ.get("SPRACK_TEST_PDKS_INSTALLED", "")
+
+
+def ngspice_op(netlist):
+    """Run an .op netlist in ngspice; return v(out)."""
+    import re, subprocess
+    with tempfile.TemporaryDirectory() as d:
+        f = os.path.join(d, "tb.spice")
+        # ponytail: unwrap, as ngspice 45 takes no continuation line on .lib.
+        with open(f, "w") as fh:
+            fh.write(unwrap(netlist).replace(".end\n", ".control\nrun\nprint v(out)\n.endc\n.end\n"))
+        r = subprocess.run(["ngspice", "-b", f], capture_output=True, text=True)
+    m = re.search(r"^v\(out\) = (\S+)", r.stdout, re.M)
+    assert r.returncode == 0 and m, r.stdout + r.stderr
+    return float(m.group(1))
+
+
+def test_pdk_installed_sky130():
+    p = sprack.PDK("sky130A", root=os.path.join(INSTALLED, "sky130"), cache_dir=tempfile.mkdtemp(prefix="sprack-test-"))
+    assert p.entries() == [(f"{p.root}/sky130A/libs.tech/ngspice/sky130.lib.spice", "tt")]
+    nfet = p.device("nfet_01v8")
+    assert nfet["ports"] == ["d", "g", "s", "b"] and "/sky130A/libs.ref/sky130_fd_pr/spice/" in nfet["file"]
+    c = sprack.Circuit("sky130 inverter", pdk=p)
+    c.V("dd", "vdd", 0, 1.8)
+    c.V("in", "in", 0, 0.9)
+    c.pfet_01v8("Mp", "out", "in", "vdd", "vdd", w=1, l=0.15)
+    c.nfet_01v8("Mn", "out", "in", 0, 0, w=0.5, l=0.15)
+    c.op()
+    assert 0.1 < ngspice_op(c.netlist("ngspice")) < 1.7
+
+
+def test_pdk_installed_ihp():
+    def vout(corner):
+        p = sprack.PDK("ihp", root=os.path.join(INSTALLED, "ihp"), corner=corner, cache_dir=tempfile.mkdtemp(prefix="sprack-test-"))
+        c = sprack.Circuit("ihp inverter", pdk=p)
+        c.V("dd", "vdd", 0, 1.2)
+        c.V("in", "in", 0, 0.6)
+        c.sg13_lv_pmos("Mp", "out", "in", "vdd", "vdd", w="2u", l="0.13u")
+        c.sg13_lv_nmos("Mn", "out", "in", 0, 0, w="1u", l="0.13u")
+        c.rppd("R1", "out", "r", 0, w="0.5u", l="2u")
+        c.cap_cmim("C1", "r", 0, w="5u", l="5u")
+        c.op()
+        ng = c.netlist("ngspice")
+        # The OSDI objects IHP's .spiceinit loads: psp103 for the CMOS cards, psp103_nqs for the rf ones.
+        osdi = [s["path"] for s in p.statements("ngspice") if s["kind"] == "hdl"]
+        assert [os.path.basename(x) for x in osdi] == ["psp103.osdi", "psp103_nqs.osdi", "r3_cmc.osdi", "mosvar.osdi", "cap_cmomi.osdi", "cap_cmomf.osdi"]
+        assert all(x in unwrap(ng) for x in osdi)
+        return ngspice_op(ng)
+    v = {k: vout(k) for k in ("tt", "ss", "ff", "sf", "fs")}
+    # A slow n and fast p pull the output up; the reverse pulls it down.
+    assert v["fs"] < v["ss"] < v["tt"] < v["ff"] < v["sf"], v
+
+
 def test_pdk_errors():
-    raises(sprack.SprackError, lambda: sprack.PDK("tsmc28", root="/nowhere"), "no manifest for PDK 'tsmc28'; known: ASAP7, FreePDK45, ihp-sg13g2, sky130A")
+    raises(sprack.SprackError, lambda: sprack.PDK("tsmc28", root="/nowhere"), "no manifest for PDK 'tsmc28'; known: ASAP7, FreePDK45, gf180mcuD, ihp-sg13g2, sky130A")
     raises(sprack.SprackError, lambda: sprack.PDK("sky130A", root="/nowhere"), "no model library found", "sky130.lib.spice")
     if PDKS:
         raises(sprack.SprackError, lambda: sprack.PDK("ASAP7", root=os.path.join(PDKS, "asap7"), corner="fs"), "has no corner 'fs'; it has: tt, ff, ss")
@@ -377,6 +458,10 @@ if __name__ == "__main__":
     failed = skipped = 0
     for name, fn in list(globals().items()):
         if not name.startswith("test_"):
+            continue
+        if name.startswith("test_pdk_installed_") and not INSTALLED:
+            print(f"skip  {name} (set SPRACK_TEST_PDKS_INSTALLED)")
+            skipped += 1
             continue
         if name.startswith("test_pdk_") and name != "test_pdk_errors" and not PDKS:
             print(f"skip  {name} (set SPRACK_TEST_PDKS)")

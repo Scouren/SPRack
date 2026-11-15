@@ -91,6 +91,23 @@
         "type": "github"
       }
     },
+    "gf180mcu_fd_pr": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792400777,
+        "narHash": "sha256-U1+kW3dQEzd+tJMj97Xhwg4e/wmBfmxeTzsIrZVA+ds=",
+        "owner": "fossi-foundation",
+        "repo": "globalfoundries-pdk-libs-gf180mcu_fd_pr",
+        "rev": "5e4be8726e2ae8be099c4131f697a353d6457874",
+        "type": "github"
+      },
+      "original": {
+        "owner": "fossi-foundation",
+        "repo": "globalfoundries-pdk-libs-gf180mcu_fd_pr",
+        "rev": "5e4be8726e2ae8be099c4131f697a353d6457874",
+        "type": "github"
+      }
+    },
     "ihp": {
       "flake": false,
       "locked": {
@@ -129,6 +146,7 @@
         "conformance": "conformance",
         "flake-utils": "flake-utils",
         "freepdk45": "freepdk45",
+        "gf180mcu_fd_pr": "gf180mcu_fd_pr",
         "ihp": "ihp",
         "nixpkgs": "nixpkgs",
         "sky130_fd_pr": "sky130_fd_pr",

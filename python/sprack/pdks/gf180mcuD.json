@@ -1,0 +1,22 @@
+{
+  "name": "gf180mcuD",
+  "aliases": ["gf180mcu", "gf180", "gf180mcud"],
+  "about": "GlobalFoundries GF180MCU 180 nm, as installed by open_pdks (gf180mcuD; A to C ship the same models) or as the globalfoundries-pdk-libs-gf180mcu_fd_pr repository",
+  "dialect": "ngspice",
+  "env": ["PDK_ROOT"],
+  "layouts": [
+    {"probe": "gf180mcuD/libs.tech/ngspice/sm141064.ngspice", "vars": {"m": "gf180mcuD/libs.tech/ngspice", "x": "ngspice"}},
+    {"probe": "libs.tech/ngspice/sm141064.ngspice", "vars": {"m": "libs.tech/ngspice", "x": "ngspice"}},
+    {"probe": "models/ngspice/sm141064.spice", "vars": {"m": "models/ngspice", "x": "spice"}},
+    {"probe": "models/ngspice/sm141064.ngspice", "vars": {"m": "models/ngspice", "x": "ngspice"}}
+  ],
+  "corners": {
+    "tt": [["{m}/design.{x}", null], ["{m}/sm141064.{x}", "typical"], ["{m}/sm141064.{x}", "bjt_typical"], ["{m}/sm141064.{x}", "diode_typical"], ["{m}/sm141064.{x}", "res_typical"], ["{m}/sm141064.{x}", "mimcap_typical"], ["{m}/sm141064.{x}", "moscap_typical"], ["{m}/smbb000149.{x}", "typical"]],
+    "ss": [["{m}/design.{x}", null], ["{m}/sm141064.{x}", "ss"], ["{m}/sm141064.{x}", "bjt_ss"], ["{m}/sm141064.{x}", "diode_ss"], ["{m}/sm141064.{x}", "res_ss"], ["{m}/sm141064.{x}", "mimcap_ss"], ["{m}/sm141064.{x}", "moscap_ss"], ["{m}/smbb000149.{x}", "ss"]],
+    "ff": [["{m}/design.{x}", null], ["{m}/sm141064.{x}", "ff"], ["{m}/sm141064.{x}", "bjt_ff"], ["{m}/sm141064.{x}", "diode_ff"], ["{m}/sm141064.{x}", "res_ff"], ["{m}/sm141064.{x}", "mimcap_ff"], ["{m}/sm141064.{x}", "moscap_ff"], ["{m}/smbb000149.{x}", "ff"]],
+    "sf": [["{m}/design.{x}", null], ["{m}/sm141064.{x}", "sf"], ["{m}/sm141064.{x}", "bjt_typical"], ["{m}/sm141064.{x}", "diode_typical"], ["{m}/sm141064.{x}", "res_typical"], ["{m}/sm141064.{x}", "mimcap_typical"], ["{m}/sm141064.{x}", "moscap_typical"], ["{m}/smbb000149.{x}", "sf"]],
+    "fs": [["{m}/design.{x}", null], ["{m}/sm141064.{x}", "fs"], ["{m}/sm141064.{x}", "bjt_typical"], ["{m}/sm141064.{x}", "diode_typical"], ["{m}/sm141064.{x}", "res_typical"], ["{m}/sm141064.{x}", "mimcap_typical"], ["{m}/sm141064.{x}", "moscap_typical"], ["{m}/smbb000149.{x}", "fs"]]
+  },
+  "default_corner": "tt",
+  "prefix": ""
+}

@@ -28,10 +28,13 @@ jobs:
       - name: Zig tests
         run: nix develop .#ci --command zig build test
 
-      # The PDK checkouts alone; the verify shell would also build the simulators.
+      # The PDKs and ngspice alone; the verify shell would also build the
+      # other simulators.
       - name: Python tests
         run: |
           export SPRACK_TEST_PDKS=$(nix build .#test-pdks --no-link --print-out-paths)
+          export SPRACK_TEST_PDKS_INSTALLED=$(nix build .#test-pdks-installed --no-link --print-out-paths)
+          export PATH="$(nix build --inputs-from . nixpkgs#ngspice --no-link --print-out-paths)/bin:$PATH"
           nix develop .#ci --command sh -c 'zig build py && cd python && python3 test_sprack.py'
 
   wheel:

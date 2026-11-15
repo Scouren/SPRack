@@ -146,12 +146,12 @@ supported simulator defines.
 
 - [x] **7.1 `pyproject.toml` and a wheel (7.5).** Build it with `zig build py`
   and package the `.abi3.so`.
-- [ ] **7.2 Installed PDK layouts (7.1)** and the IHP corner map and `load`
+- [x] **7.2 Installed PDK layouts (7.1)** and the IHP corner map and `load`
   list (7.2), checked against IHP's documentation.
 - [ ] **7.3 Parameter check for model-card devices (7.3).**
 - [x] **7.4 CI matrix (7.4):** CPython 3.10 and 3.13, on Linux and macOS.
 - [x] **7.5 C API (7.7).** Add one test, or delete `src/capi.zig`.
-- [ ] **7.6 GF180MCU manifest (7.6).** Optional.
+- [x] **7.6 GF180MCU manifest (7.6).** Optional.
 
 ## Phase 8: engine and warts (5.1, 5.4–5.6, section 8)
 

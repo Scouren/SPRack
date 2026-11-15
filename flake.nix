@@ -28,6 +28,9 @@
     asap7.flake = false;
     freepdk45.url = "github:baichen318/FreePDK45";
     freepdk45.flake = false;
+    # fossi-foundation's fork is what open_pdks builds gf180mcu from; Google's is archived.
+    gf180mcu_fd_pr.url = "github:fossi-foundation/globalfoundries-pdk-libs-gf180mcu_fd_pr/5e4be8726e2ae8be099c4131f697a353d6457874";
+    gf180mcu_fd_pr.flake = false;
   };
 
   outputs =
@@ -50,12 +53,39 @@
 
         # The layout SPRACK_TEST_PDKS expects: each checkout's model paths only.
         testPdks = pkgs.runCommand "sprack-test-pdks" { } ''
-          mkdir -p $out/sky130_fd_pr $out/ihp/ihp-sg13g2/libs.tech $out/asap7 $out/freepdk45/FreePDK45/ncsu_basekit
+          mkdir -p $out/sky130_fd_pr $out/ihp/ihp-sg13g2/libs.tech $out/asap7 $out/freepdk45/FreePDK45/ncsu_basekit $out/gf180mcu/models
           ln -s ${inputs.sky130_fd_pr}/models ${inputs.sky130_fd_pr}/cells $out/sky130_fd_pr/
           ln -s ${inputs.ihp}/ihp-sg13g2/libs.tech/ngspice $out/ihp/ihp-sg13g2/libs.tech/
           ln -s ${inputs.asap7}/models $out/asap7/
           ln -s ${inputs.freepdk45}/FreePDK45/ncsu_basekit/models $out/freepdk45/FreePDK45/ncsu_basekit/
+          ln -s ${inputs.gf180mcu_fd_pr}/models/ngspice $out/gf180mcu/models/
         '';
+
+        # The layout SPRACK_TEST_PDKS_INSTALLED expects: PDKs as their
+        # installers leave them. sky130A is open_pdks' own build as ciel
+        # (volare's successor) ships it: the ngspice models and the cells they
+        # include. IHP's install is its checkout plus libs.tech/ngspice/osdi,
+        # built as ihp-sg13g2/libs.tech/verilog-a/openvaf-compile-va.sh does,
+        # so this needs openvaf-r, which only x86_64-linux has.
+        ciel =
+          asset: hash:
+          pkgs.fetchurl {
+            url = "https://github.com/fossi-foundation/ciel-releases/releases/download/sky130-e7a6777d157a9d94c7ac757457b9e4309e9e9000/${asset}.tar.zst";
+            inherit hash;
+          };
+        testPdksInstalled =
+          pkgs.runCommandCC "sprack-test-pdks-installed" { nativeBuildInputs = [ pkgs.zstd refPkgs.openvaf-r ]; }
+            ''
+              mkdir -p $out/sky130 $out/ihp/ihp-sg13g2/libs.tech/ngspice/osdi
+              tar --zstd -xf ${ciel "common" "sha256-AGM+pQrNtskgRL90Z6OpBIs9aFzZSJ5F6ljNgvjZmo0="} -C $out/sky130 sky130A/libs.tech/ngspice
+              tar --zstd -xf ${ciel "sky130_fd_pr" "sha256-GgumMkn9oWozdQil4xJr+lmMTn/auEMHg1PbPyYQhq8="} -C $out/sky130 sky130A/libs.ref/sky130_fd_pr/spice
+              ln -s ${inputs.ihp}/ihp-sg13g2/libs.tech/ngspice/models $out/ihp/ihp-sg13g2/libs.tech/ngspice/
+              cd ${inputs.ihp}/ihp-sg13g2/libs.tech/verilog-a
+              for va in psp103/psp103 psp103/psp103_nqs r3_cmc/r3_cmc mosvar/mosvar cap_cmomi/cap_cmomi cap_cmomf/cap_cmomf; do
+                openvaf-r -D__NGSPICE__ --target_cpu generic -o $out/ihp/ihp-sg13g2/libs.tech/ngspice/osdi/$(basename $va).osdi $va.va
+                test -f $out/ihp/ihp-sg13g2/libs.tech/ngspice/osdi/$(basename $va).osdi
+              done
+            '';
 
         # The Python package to ship (zig build bundle): $out/python/sprack/
         # with __init__.py, pdks/*.json and the extension, for one Zig target.
@@ -164,6 +194,11 @@
       {
         packages = bundles // {
           test-pdks = testPdks;
+        }
+        // nixpkgs.lib.optionalAttrs (refPkgs ? openvaf-r) {
+          test-pdks-installed = testPdksInstalled;
+        }
+        // {
           # This system's own bundle.
           python = bundles."python-${hostTarget}";
         }
@@ -189,6 +224,7 @@
               refPkgs.openvaf-r
             ];
             SPRACK_TEST_PDKS = testPdks;
+            SPRACK_TEST_PDKS_INSTALLED = testPdksInstalled;
             SPRACK_SUITE = conformance;
             inherit (ci) shellHook;
           };
