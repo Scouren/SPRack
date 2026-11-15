@@ -152,9 +152,13 @@ omitted vsource tau1 wave=exp : tran.step   # what this dialect itself means
                                    # (an error where the netlist has no
                                    # .tran); from a dialect with no line, an
                                    # `ambiguous` warning
-omitted vsource td1=0 wave=exp : tran.step  # left out or 0: a 0 crossing
+omitted vsource tau1=0 wave=exp : tran.step  # left out or 0: a 0 crossing
                                    # into this dialect cannot be said, an
                                    # error
+omitted vsource td1=0 wave=exp : tran.step zero 1e-18  # unless the line
+                                   # gives the smallest value measured to be
+                                   # taken as given: written for the 0, a
+                                   # `synthesized` warning
 omitted vsource tau2 wave=exp : tran.stop / 100 given td2  # holds where the
                                    # statement gives that slot; without it
                                    # the value plays no part

@@ -5341,12 +5341,13 @@ test "s2: an EXP source's left-out values are written out where the target means
     try reported(&r, .warning, "vsource.td1 is not given: ngspice means the tran.step by that, and xyce needs it said; wrote 1n");
     try testing.expectEqual(1, r.countCode(.synthesized));
     try testing.expectEqual(0, r.count(.@"error"));
-    // And back: Xyce's 0 is said, and ngspice reads a 0 as left out (y1).
+    // And back: Xyce's 0 is said by the smallest delay ngspice takes as
+    // given, where it reads a 0 as left out (y1).
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "xyce", "ngspice", src, &r2), "V1 a 0 exp(0 1 0)\n");
-    try reported(&r2, .@"error", "vsource.td1 is 0: ngspice reads a 0 there as not given and takes the tran.step for it; a 0 cannot be said");
-    try testing.expectEqual(1, r2.count(.@"error"));
-    try testing.expectEqual(0, r2.countCode(.synthesized));
+    try has(try tr(a, "xyce", "ngspice", src, &r2), "V1 a 0 exp(0 1 1a)\n");
+    try reported(&r2, .warning, "vsource.td1 is 0: ngspice reads a 0 there as not given and would take the tran.step; wrote 1a, which it takes as given");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    try testing.expectEqual(1, r2.countCode(.synthesized));
     // A 0 that Xyce assumes is still written where a later value needs its
     // place (HSPICE's TD1 is 0 too; a 0 in ngspice is its step, y1).
     var r3: ir.Report = .init(a);
@@ -5365,7 +5366,7 @@ test "s2: an EXP source's left-out values are written out where the target means
     try testing.expectEqual(0, r6.count(.@"error"));
     var r7: ir.Report = .init(a);
     const va = "t\nground 0\nmodel vsource vsource\nV1 (a 0) vsource type=\"exp\" val0=0 val1=1 td2=3n tau1=1n tau2=1n\ncontrol\nanalysis tran1 tran step=1n stop=20n\nendc\n";
-    try has(try tr(a, "vacask", "ngspice", va, &r7), "V1 a 0 exp(0 1 0 1n 3n 1n)\n");
+    try has(try tr(a, "vacask", "ngspice", va, &r7), "V1 a 0 exp(0 1 1a 1n 3n 1n)\n");
     // What LTspice leaves out is an instant edge: no other dialect means that.
     var r8: ir.Report = .init(a);
     _ = try tr(a, "ltspice", "ngspice", src, &r8);
@@ -5464,14 +5465,19 @@ test "y1: a 0 in an ngspice EXP source is a value left out" {
     // ESPice is not known to read a 0 so.
     var r1: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "espice", src, &r1), "V1 a 0 exp(0 1 2n 0.5n 4n 2n)\n");
-    // Into ngspice a 0 another dialect means cannot be said.
+    // Into ngspice a 0 delay is the smallest one it takes as given.
     var r2: ir.Report = .init(a);
-    _ = try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nV2 b 0 EXP(0 1)\nR1 a 0 1k\nR2 b 0 1k\n.tran 2n 50n\n.end\n", &r2);
-    try reported(&r2, .@"error", "vsource.td1 is 0: ngspice reads a 0 there as not given and takes the tran.step for it; a 0 cannot be said");
-    try testing.expectEqual(1, r2.count(.@"error"));
+    const out = try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nI2 0 b EXP(0 1)\nR1 a 0 1k\nR2 b 0 1k\n.tran 2n 50n\n.end\n", &r2);
+    try has(out, "V1 a 0 exp(0 1 3n 0.5n 50n)\n");
+    try has(out, "I2 0 b exp(0 1 1a 25n 50n)\n");
+    try reported(&r2, .warning, "isource.td1 is 0: ngspice reads a 0 there as not given and would take the tran.step; wrote 1a, which it takes as given");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // An instant edge has no ngspice form, and neither has a TD2 of 0.
     var r3: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nR1 a 0 1k\n.tran 2n 50n\n.end\n", &r3), "V1 a 0 exp(0 1 3n 0.5n 50n)\n");
-    try testing.expectEqual(0, r3.count(.@"error"));
+    _ = try tr(a, "xyce", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0 0 0)\nR1 a 0 1k\n.tran 2n 50n\n.end\n", &r3);
+    try reported(&r3, .@"error", "vsource.tau1 is 0: ngspice reads a 0 there as not given and takes the tran.step for it; a 0 cannot be said");
+    try reported(&r3, .@"error", "vsource.td2 is 0: ngspice reads a 0 there as not given and takes td1 plus the tran.step for it; a 0 cannot be said");
+    try testing.expectEqual(3, r3.count(.@"error"));
 }
 
 test "y1: HSPICE's step cap is .OPTION DELMAX, and a fourth .TRAN number is nothing" {

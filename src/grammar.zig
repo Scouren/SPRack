@@ -253,12 +253,13 @@ pub const Fill = struct {
     from_slot: u8,
 };
 
-/// `omitted kind slot[=0] [slot=atom] : formula [given slot]`: what this
+/// `omitted kind slot[=0] [slot=atom] : formula [given slot] [zero value]`: what this
 /// dialect itself means by a statement that leaves the slot out (or, with
 /// `=0`, gives it as zero), as measured. A statement crossing to a dialect
 /// whose line for the slot says another formula, or that has none, is
 /// written with the value of this one; a zero crossing into a dialect that
-/// reads it as left out is an error.
+/// reads it as left out is written as that dialect's `zero` value, or is an
+/// error where it has none.
 pub const Omitted = struct {
     kind: Kind,
     slot: u8,
@@ -268,6 +269,10 @@ pub const Omitted = struct {
     /// `given td2`: the formula holds where the statement gives that slot;
     /// without it the value plays no part (an EXP source that never falls).
     given: u8 = no_slot,
+    /// `zero 1e-18`: what is written for a zero crossing into this dialect,
+    /// the smallest value measured to be taken as given. Without it such a
+    /// zero cannot be said.
+    zero_as: []const u8 = "",
     /// The formula as written, blanks apart: two dialects' lines are
     /// compared by it.
     text: []const u8,
@@ -1530,7 +1535,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
             fills = try c.add(Fill, fills, f);
         } else if (std.mem.eql(u8, head, "omitted")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "omitted is `omitted kind slot[=0] [slot=atom] : formula [given slot]`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "omitted is `omitted kind slot[=0] [slot=atom] : formula [given slot] [zero value]`", .{});
             const ks = try args(c, no, rest[0..colon]);
             if (ks.len < 2 or ks.len > 3) return c.fail(no, "omitted needs a kind, a slot and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
@@ -1538,6 +1543,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var text = std.mem.trim(u8, rest[colon + 3 ..], " \t");
             var o: Omitted = .{ .kind = kind, .slot = try slotNamed(c, no, kind, if (zero) ks[1][0 .. ks[1].len - 2] else ks[1]), .zero = zero, .text = "", .terms = &.{} };
             if (ks.len == 3) o.when_slot, o.when_atom = try condition(c, no, kind, ks[2]);
+            if (std.mem.lastIndexOf(u8, text, " zero ")) |at| {
+                if (!zero) return c.fail(no, "`zero value` needs the slot written `slot=0`", .{});
+                o.zero_as = std.mem.trim(u8, text[at + 6 ..], " \t");
+                text = std.mem.trim(u8, text[0..at], " \t");
+            }
             if (std.mem.lastIndexOf(u8, text, " given ")) |at| {
                 o.given = try slotNamed(c, no, kind, std.mem.trim(u8, text[at + 7 ..], " \t"));
                 text = std.mem.trim(u8, text[0..at], " \t");

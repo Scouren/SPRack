@@ -147,8 +147,11 @@ implied options tnom = 27
 implied options temp = 27
 # What an EXP source means by a value left out, or given as 0, which ngspice
 # reads as left out (measured in ngspice 45: docs/verification.md 4.12, 4.18).
-omitted vsource td1=0 wave=exp : tran.step
-omitted isource td1=0 wave=exp : tran.step
+# A TD1 of 1e-18 is taken as given (measured at `.tran 2n 50n` and
+# `.tran 1u 1m`: the curve of a TD1 of 0), so that is written for a 0 delay
+# crossing in. A TAU1, TD2 or TAU2 of 0 has no ngspice form.
+omitted vsource td1=0 wave=exp : tran.step zero 1e-18
+omitted isource td1=0 wave=exp : tran.step zero 1e-18
 omitted vsource tau1=0 wave=exp : tran.step
 omitted isource tau1=0 wave=exp : tran.step
 omitted vsource td2=0 wave=exp : td1 + tran.step

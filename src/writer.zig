@@ -1821,7 +1821,8 @@ const Writer = struct {
     /// The `omitted` lines of both dialects, for a statement crossing from
     /// `sg`'s into this one: a value it leaves to `sg`'s default is written
     /// out where this dialect means another by leaving it out (or says
-    /// nothing), and a zero this dialect reads as left out cannot be said.
+    /// nothing), and a zero this dialect reads as left out is written as
+    /// the line's `zero` value, or cannot be said.
     fn omitted(w: *Writer, sg: ?*const Grammar, st: *const ir.Stmt, cur: *ir.Stmt, all: []const ir.Stmt) Allocator.Error!bool {
         var changed = false;
         const sl = schema.info(st.kind).slots;
@@ -1855,8 +1856,20 @@ const Writer = struct {
             const v = cur.at(t.slot);
             const theirs = if (sg) |s| omittedLine(s, st, t.slot) else null;
             if (t.zero and isZero(v) and !(theirs != null and theirs.?.zero)) {
-                w.report.add(.@"error", .invalid, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and takes {s} for it; a 0 cannot be said", .{
-                    @tagName(st.kind), sl[t.slot].name, w.g.name, try omittedPhrase(w.arena, t),
+                const what = try omittedPhrase(w.arena, t);
+                if (t.zero_as.len == 0) {
+                    w.report.add(.@"error", .invalid, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and takes {s} for it; a 0 cannot be said", .{
+                        @tagName(st.kind), sl[t.slot].name, w.g.name, what,
+                    });
+                    continue;
+                }
+                const tiny: Value = if (lexer.parseNumber(w.arena, &w.g.lex, t.zero_as)) |n| .{ .num = n } else .{ .expr = t.zero_as };
+                try cur.own(w.arena);
+                try cur.set(w.arena, t.slot, tiny);
+                changed = true;
+                var em = w.emitter(w.arena, st);
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and would take {s}; wrote {s}, which it takes as given", .{
+                    @tagName(st.kind), sl[t.slot].name, w.g.name, what, try em.describe(tiny),
                 });
             } else if (v == .none and theirs == null and !(sg != null and sg.?.checksSlot(st.kind, t.slot))) {
                 // Nothing is assumed of a dialect that does not say.

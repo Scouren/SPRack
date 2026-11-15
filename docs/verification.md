@@ -1123,6 +1123,15 @@ So ngspice reads a 0 in any of the four as left out. Xyce takes it as 0:
 `EXP(0 1 3n 0.5n 0)` and `EXP(0 1 3n 0.5n 6n 0)`, each alone, stop with
 "Time step too small" (at 3 ns, 3 ns and 6 ns).
 
+The 1e-18 does not depend on the step: in ngspice 45 with `.tran 1u 1m`,
+`EXP(0 1 1e-18 0.1m 0.5m 0.1m)` is on the TD1 = 0 curve (9.99e-15; 9.92e-03
+from the curve of a TD1 of 1 us) and `EXP(0 1 0 0.1m 0.5m 0.1m)` on the
+curve of a TD1 of 1 us (0). A TD2 of 1e-18 is not the same thing:
+`EXP(0 1 3n 0.5n 1e-18 0.25n)` at `.tran 2n 50n 0 0.05n` is 1.00 from the
+default curve (TD2 = 5n, which `EXP(0 1 3n 0.5n 0 0.25n)` is on to 7.77e-16)
+and 1.00 from a fall counted from 0, so it is taken as given but what a TD2
+before TD1 does was not fitted, and no dialect's 0 there is known to mean it.
+
 **HSPICE's fourth `.TRAN` number.** `EXP(0 1 3n 0.3n)` across 1k; the exact
 curve is 0.565402, 0.811124, 0.964326 at the three times.
 
@@ -1150,8 +1159,10 @@ TD2 neither HSPICE nor Spectre has is written as the stop, a time at which
 nothing falls within the run, and its TAU2 is left to the target, where it
 plays no part (LTspice and VACASK, which cannot leave it out, keep their
 `invalid` error). With no `.tran` in the netlist the crossing is an error.
-A 0 crossing into ngspice (Xyce's, LTspice's, VACASK's, HSPICE's and
-Spectre's TD1 among them) is an error: ngspice cannot say it. HSPICE writes
+A TD1 of 0 crossing into ngspice (Xyce's, LTspice's, VACASK's, HSPICE's and
+Spectre's) is written as 1e-18 with a `synthesized` warning (`omitted
+vsource td1=0 wave=exp : tran.step zero 1e-18`; `exp(0 1 1a)`); a TAU1, TD2
+or TAU2 of 0 crossing in is an error: ngspice cannot say it. HSPICE writes
 a largest step as `.option delmax=` (`move tran.maxstep -> options.delmax
 oneway`), every other dialect reads DELMAX as its `.tran` largest step, and
 a fourth `.TRAN` number read from an HSPICE deck that is no second segment
@@ -1171,22 +1182,46 @@ edge.
 | ngspice > Xyce | 5.96e-03 | 5.79e-03 | 2.26e-02 | 2.26e-02 | 4.23e-02 | 0 |
 | ngspice > LTspice | 5.98e-03 | 5.98e-03 | 2.33e-02 | 2.33e-02 | 4.52e-02 | 0 |
 | ngspice > VACASK | 5.98e-03 | 5.98e-03 | 2.33e-02 | 2.33e-02 | 4.52e-02 | 1: `tran.start = 0` |
-| Xyce > ngspice | 6.21e-01 | 5.89e-03 | 2.30e-02 | 2.30e-02 | 4.23e-02 | 1: the first source's TD1 is 0 |
+| Xyce > ngspice | 6.54e-04 | 5.89e-03 | 2.30e-02 | 2.30e-02 | 4.23e-02 | 0 |
 | Xyce > LTspice | 5.33e-03 | 7.67e-04 | 7.67e-04 | 6.93e-04 | 2.93e-03 | 0 |
 | Xyce > VACASK | 5.33e-03 | 7.67e-04 | 7.67e-04 | 4.84e-04 | 2.93e-03 | 1: `tran.start = 0` |
-| LTspice > ngspice | 6.26e-01 | 6.26e-01 | 1.00e+00 | 8.83e-01 | 4.52e-02 | 10: every value left out, and the TD1 of 0 |
+| LTspice > ngspice | 6.26e-01 | 6.26e-01 | 1.00e+00 | 8.83e-01 | 4.52e-02 | 9: every value left out |
 | LTspice > Xyce | 6.27e-01 | 6.31e-01 | 1.00e+00 | 8.83e-01 | 2.93e-03 | 9: every value left out |
 | LTspice > VACASK | | | | | | 19; VACASK refuses the translation |
-| VACASK > ngspice | 9.70e-01 | | | | 4.52e-02 | 1: the first source's delay is 0 |
+| VACASK > ngspice | 4.52e-02 | | | | 4.52e-02 | 0 |
 | VACASK > Xyce | 4.82e-03 | | | | 4.82e-03 | 0 |
 | VACASK > LTspice | 5.83e-05 | | | | 2.09e-04 | 0 |
 
 Every difference above the fifth column's is a source with an error in the
-report. Before this change Xyce > ngspice and VACASK > ngspice had none: the
-0 was written and ngspice took its step. The same seven-source deck of zeros
-from ngspice (each 0 written as ngspice's value) differs from its
-translation by at most 4.20e-02 in Xyce and 4.52e-02 in LTspice and VACASK,
-the fully given source's own difference.
+report. Before this change Xyce > ngspice and VACASK > ngspice wrote the 0
+and ngspice took its step (6.21e-01 and 9.70e-01 on the first source, with
+no entry); they are `exp(0 1 1a)` and `exp(0 1 1a 0.5n 6n 0.25n)` now. The
+same seven-source deck of zeros from ngspice (each 0 written as ngspice's
+value) differs from its translation by at most 4.20e-02 in Xyce and 4.52e-02
+in LTspice and VACASK, the fully given source's own difference.
+
+**The translation from ngspice run in HSPICE Y-2026.03-SP2-1 and Spectre
+25.10.** The five-source deck as translated (`exp(0 1 2n 2n 4n 2n)`,
+`exp(0 1 3n 2n 5n 2n)`, `exp(0 1 3n 0.5n 5n 2n)`, `exp(0 1 3n 0.5n 6n 2n)`,
+`exp(0 1 3n 0.5n 6n 0.25n)`; HSPICE `.option tnom=27 delmax=0.05n` and
+`.tran 2n 50n start=0`, Spectre `tran step=2n stop=50n start=0
+maxstep=0.05n`), read at 2.5n, 3.5n, 4.5n, 5.5n, 6.5n, 8n and 20n. Both runs
+end with 0 errors and 0 warnings.
+
+| source | the curves ngspice means | Spectre | HSPICE |
+|---|---|---|---|
+| 1 | 0.221199 0.527633 0.492296 0.298593 0.181106 0.085548 0.000212 | 0.221199 0.527633 0.492296 0.298593 0.181106 0.085548 0.000212 | 221.1408m 527.6021m 492.3100m 298.6078m 181.1151m 85.5527m 212.0640u |
+| 2 | 0 0.221199 0.527633 0.492296 0.298593 0.141045 0.000350 | 0.000000 0.221199 0.527633 0.492296 0.298593 0.141045 0.000350 | 0 221.1475m 527.6200m 492.3210m 298.6083m 141.0526m 349.6344u |
+| 3 | 0 0.632121 0.950213 0.772063 0.471455 0.223085 0.000553 | 0.000000 0.632121 0.950213 0.772063 0.471455 0.223085 0.000553 | 0 631.7333m 950.1907m 772.0969m 471.4787m 223.0964m 553.1134u |
+| 4 | 0 0.632121 0.950213 0.993262 0.777889 0.367834 0.000912 | 0.000000 0.632121 0.950213 0.993262 0.777889 0.367834 0.000912 | 0 631.7333m 950.1907m 993.2565m 777.9290m 367.8533m 911.9299u |
+| 5 | 0 0.632121 0.950213 0.993262 0.134423 0.000290 0 | 0.000000 0.632121 0.950213 0.993262 0.134423 0.000290 -0.000000 | 0 631.7333m 950.1907m 993.2565m 134.8934m 291.1910u -1.7125f |
+
+Spectre is the expected value to the six digits everywhere; HSPICE is within
+5e-4 (its measure interpolates between points 0.05 ns apart). The step-cap
+deck (`EXP(0 1 3n 0.3n)` from ngspice at `.tran 2n 50n 0 0.05n`: `.option
+tnom=27 delmax=0.05n`, `exp(0 1 3n 0.3n 5n 2n)`, `.tran 2n 50n start=0`) ends
+in HSPICE with 0 errors and 0 warnings and reads 564.6303m, 810.7891m and
+964.2627m at 3.25n, 3.5n and 4n (exact curve 0.565402, 0.811124, 0.964326).
 
 ## 5. Enum spellings (6.5): integration method
 
