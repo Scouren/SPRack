@@ -163,8 +163,8 @@ caveat isource mdi : ESPice limits the SFFM modulation index to the carrier over
 no xspice : ESPice has no XSPICE code models; a digital block is a Verilog design loaded with .verilog and instantiated with an N card
 # analyses (b3). ESPice reads these HSPICE cards as HSPICE writes them
 # (docs/using/dialects.md). Its own .pac, .pnoise, .pxf, .qpss, .envelope,
-# .matex and .acxf cards are not here (PLAN.md: ESPice-only syntax is out
-# of scope), so the shooting forms have no rule.
+# .matex and .acxf cards are not here (ESPice-only syntax is out of scope),
+# so the shooting forms have no rule.
 rule  pac        = engine:".hbac"=hb ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  pnoise     = engine:".hbnoise"=hb "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  pxf        = engine:".hbxf"=hb "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop

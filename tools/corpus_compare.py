@@ -1,8 +1,10 @@
-"""Gate a corpus audit against a committed baseline.
+"""Gate a corpus audit against the committed baseline.
 
-Usage: python3 -I corpus_compare.py <baseline.tsv> <new.tsv>
+Usage: python3 -I corpus_compare.py <baseline> <new.tsv> [--update]
 Fails if any run is SILENT (as corpus_summary.py counts it), or if crashes
-or the error count for any target rise against the baseline.
+or the error count for any target rise against the baseline. The baseline is
+a summary: `runs`, `crashes` and each target's error count, one per line.
+`--update` rewrites it from <new.tsv> when the gate passes.
 """
 import sys, csv, collections
 
@@ -20,7 +22,12 @@ def tally(path):
     return len(rows), len(rows) - len(ok), errors, silent
 
 
-base_runs, base_crash, base_err, _ = tally(sys.argv[1])
+def summary(path):
+    vals = dict(line.split("\t") for line in open(path).read().splitlines() if line)
+    return int(vals.pop("runs")), int(vals.pop("crashes")), collections.Counter({k: int(v) for k, v in vals.items()})
+
+
+base_runs, base_crash, base_err = summary(sys.argv[1])
 runs, crash, err, silent = tally(sys.argv[2])
 fail = []
 print(f"runs {base_runs} -> {runs}; crashes {base_crash} -> {crash}; SILENT {len(silent)}")
@@ -37,4 +44,7 @@ for t in sorted(set(base_err) | set(err)):
         fail.append(f"errors to {t} rose")
 if fail:
     sys.exit("FAIL: " + "; ".join(fail))
+if "--update" in sys.argv[3:]:
+    with open(sys.argv[1], "w") as f:
+        f.write(f"runs\t{runs}\ncrashes\t{crash}\n" + "".join(f"{t}\t{err[t]}\n" for t in sorted(err)))
 print("ok")

@@ -9,7 +9,7 @@
     # zls master tracks Zig master; built with the same Zig as the shell.
     zls.url = "github:zigtools/zls";
     zls.inputs.nixpkgs.follows = "nixpkgs";
-    # The audited corpus (tests/, see conformance-suite-audit.tsv) and the
+    # The audited corpus (tests/, see tools/corpus-baseline.tsv) and the
     # reference simulators vacask and openvaf-r.
     # git+https, not github: GitHub's tarball of one commit gave ESPice two NAR hashes.
     conformance.url = "git+https://github.com/Scouren/Conformance-Suite?ref=main&rev=4d565dd4e7ca6e7304a3619031df6c17846ae1f1";

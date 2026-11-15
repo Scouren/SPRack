@@ -30,7 +30,7 @@ jobs:
             zig build -Doptimize=ReleaseSafe &&
             python3 -I tools/corpus_audit.py zig-out/bin/sprack "$SPRACK_SUITE/tests" out.tsv ngspice,hspice &&
             python3 -I tools/corpus_summary.py out.tsv &&
-            python3 -I tools/corpus_compare.py conformance-suite-audit.tsv out.tsv'
+            python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv out.tsv'
 
       # Translates each deck to VACASK and runs upstream vacask on it. The
       # verify shell builds VACASK and its OSDI models from source.

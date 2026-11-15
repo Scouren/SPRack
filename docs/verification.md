@@ -1,4 +1,4 @@
-# Grammar verification (PLAN.md Phase 2, handoff 6.1-6.5)
+# Grammar verification
 
 Research only: no grammar was edited. Each claim gets a verdict
 (**correct**, **wrong**, **unclear**), the correct value when wrong, and a

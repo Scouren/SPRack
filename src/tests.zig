@@ -2707,11 +2707,10 @@ test "sim check: a switch's threshold and hysteresis become Xyce's on and off le
 }
 
 // ---------------------------------------------------------------------------
-// Gaps found by translating a proprietary HSPICE model library (see
-// docs/pdk-gaps.md). Every deck here is synthetic: it reproduces the
-// shape of what the library does, with made-up names and values. Each test
-// states the behaviour wanted and is skipped until the fix lands; the HSPICE
-// and Spectre grammar fixes wait for the phase 6 rebase.
+// Gaps found by translating a proprietary HSPICE model library. Every deck
+// here is synthetic: it reproduces the shape of what the library does, with
+// made-up names and values. Each test states the behaviour wanted; all of
+// them are fixed and run.
 
 fn anyMsgHasAll(report: *const ir.Report, needles: []const []const u8) bool {
     for (report.items.items) |d| {
