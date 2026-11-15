@@ -2584,6 +2584,36 @@ test "statistics: Spectre blocks, SPICE random functions, HSPICE variation" {
     try reported(&r6, .@"error", "vary.model = rm has no spelling in spectre");
 }
 
+test "Spectre: a simulator lang=spice section is read as HSPICE" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\// t
+        \\simulator lang=spectre
+        \\r0 (a 0) resistor r=1k
+        \\simulator lang=spice
+        \\.param rv=2k
+        \\R1 a b 'rv*2'
+        \\simulator lang=spectre
+        \\r2 (b 0) resistor r=3k
+        \\
+    ;
+    var r1: ir.Report = .init(a);
+    const ng = try tr(a, "spectre", "ngspice", src, &r1);
+    try clean(&r1);
+    try has(ng, "r0 a 0 1k\n.param rv=2k\nR1 a b {rv*2}\nr2 b 0 3k\n");
+    var r2: ir.Report = .init(a);
+    const sp = try tr(a, "spectre", "spectre", src, &r2);
+    try clean(&r2);
+    try has(sp, "r0 (a 0) resistor r=1k\nparameters rv=2k\nR1 (a b) resistor r=rv*2\nr2 (b 0) resistor r=3k\n");
+    // Line numbers are the file's.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spice\n.bogus x\n", &r3);
+    try reported(&r3, .@"error", "no hspice rule understood this line");
+    try testing.expectEqual(@as(u32, 3), r3.items.items[0].line);
+}
+
 test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

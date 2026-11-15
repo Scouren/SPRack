@@ -163,6 +163,9 @@ write ctlsrc    = name~"E" "(" pos neg cpos#1 cneg#1 ")" form:"pvcvs"=poly -dim 
 write ctlsrc    = name~"G" "(" pos neg cpos#1 cneg#1 ")" form:"pvccs"=poly -dim { coeffs=[coeffs]! }
 rule  instance  = name ["("] nodes+ [")"] master {...params}
 
+switch "simulator lang=spice" -> hspice
+switch "simulator lang=spectre" -> spectre
+
 # statistics
 block statistics
   open   "statistics" "{"
