@@ -4062,7 +4062,8 @@ test "e1: a deck with no analysis reports no topology; the analyses a rule lists
     const island = "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.tran 1n 10n\n.end\n";
     try testing.expectEqual(0, (try topo(a, "espice", island)).items.items.len);
     try reported(&(try topo(a, "vacask", island)), .@"error", "node 'x' has no DC path to ground");
-    // ESPice refuses an unbalanced current cutset in every analysis.
+    // ESPice refuses an unbalanced current cutset in every analysis that
+    // solves an operating point (f514173f): a transient without UIC too.
     try reported(&(try topo(a, "espice", "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n.tran 1n 10n\n.end\n")), .@"error", "node 'a' has no DC path to ground");
     // A loop needs only some analysis.
     try reported(&(try topo(a, "espice", "t\nV1 a 0 1\nV2 a 0 1\n.tran 1n 10n\n.end\n")), .@"error", "V1, V2 form a loop of voltage sources");
@@ -4159,4 +4160,21 @@ test "g1: Spectre's != is written with blanks; one global line" {
     // Without a global statement the preamble stays.
     var r3: ir.Report = .init(a);
     try has(try tr(a, "hspice", "spectre", "t\nr1 a 0 1k\n.end\n", &r3), "insensitive=yes\nglobal 0\n");
+}
+
+// h1: ESPice f514173f (PR #267): a current cutset is refused by every
+// analysis that solves an operating point (grammars/espice.spgrammar).
+
+test "h1: an ESPice current cutset follows its own requires line: not under a UIC transient" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const cut = "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n";
+    try testing.expectEqual(0, (try topo(a, "espice", cut ++ ".tran 1n 10n uic\n.end\n")).items.items.len);
+    try reported(&(try topo(a, "espice", cut ++ ".op\n.end\n")), .@"error", "node 'a' has no DC path to ground: only I1, C1 reach it, which conduct no DC there, and the currents of the sources into it must balance; ESPice refuses it in every analysis that solves an operating point");
+    try reported(&(try topo(a, "espice", cut ++ ".tran 1n 10n\n.end\n")), .@"error", "its transient too unless UIC");
+    // A UIC transient beside an operating point: the operating point refuses it.
+    try reported(&(try topo(a, "espice", cut ++ ".tran 1n 10n uic\n.op\n.end\n")), .@"error", "node 'a' has no DC path to ground");
+    // A grammar with no cutset line reports it under its dc-path rule.
+    try reported(&(try topo(a, "hspice", cut ++ ".tran 1n 10n\n.end\n")), .warning, "the currents of the sources into it must balance; HSPICE solves it");
 }

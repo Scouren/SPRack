@@ -398,7 +398,9 @@ no single rule holds everything, which is how `.options timeint ...` and
     requires dc-path error : ...       # a topology the simulator cannot solve, and
                                        # whether it is an error or a warning here:
                                        # dc-path (nodes no DC path reaches ground),
-                                       # no-vloop, no-vlloop, no-lloop (a loop of
+                                       # cutset (such nodes fed by a current
+                                       # source; without it, dc-path with any
+                                       # analysis), no-vloop, no-vlloop, no-lloop (a loop of
                                        # voltage sources, of sources and inductors,
                                        # of inductors). An `invalid` entry naming
                                        # the nodes or elements; src/topology.zig
@@ -532,8 +534,10 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   dialects, not on a deck written back in its own (read in it, or built in
   Python from `code` blocks all of it). A deck with no analysis, a cell
   netlisted on its own, gets no report; a rule that lists analyses fires
-  only where one of them is present, except that an island fed by a
-  current source is reported with any analysis. It does not flatten:
+  only where one of them is present. An island fed by a current source
+  follows the grammar's `cutset` rule, or, with none, is reported with any
+  analysis. A deck whose every analysis is a UIC transient needs no DC
+  path, and only a loop of voltage sources is reported in it. It does not flatten:
   each subcircuit is summarised by which ports its body joins at DC, and
   by which it joins through voltage sources only, inductors only, or both;
   an instance stands for those paths in its parent, so a loop through

@@ -301,8 +301,10 @@ pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
 /// A circuit topology the simulator cannot solve (`src/topology.zig`):
 /// nodes with no DC path to ground, or a loop of voltage sources only, of
-/// voltage sources and inductors, or of inductors only.
-pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop" };
+/// voltage sources and inductors, or of inductors only. `cutset` is such an
+/// island fed by a current source; with no line for it, the dc-path rule
+/// reports it with any analysis.
+pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop", cutset };
 /// `requires dc-path error [op dc ac] : reason`: such a topology is reported
 /// here, an error when the simulator fails on it, a warning when it solves it
 /// its own way. Only in a netlist with one of `analyses` (`tran`: one without
@@ -1530,7 +1532,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (lits.len != 1) return c.fail(no, "switch needs one quoted line start", .{});
             switches = try c.add(Switch, switches, .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") });
         } else if (std.mem.eql(u8, head, "requires")) {
-            const usage = "requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`";
+            const usage = "requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`";
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, usage, .{});
             var it = std.mem.tokenizeAny(u8, rest[0..colon], " \t[]");
             const what = std.meta.stringToEnum(Topo, it.next() orelse "") orelse return c.fail(no, usage, .{});
@@ -1671,7 +1673,7 @@ test "a broken grammar at run time names the file and line" {
         .{ .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n", .msg = "x/bad.spgrammar:4: missing ']' in pattern" },
         .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
         .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
-        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
+        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
         .{ .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n", .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis" },
     };
     for (cases) |cs| {

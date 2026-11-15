@@ -357,14 +357,19 @@ fn list(arena: Allocator, names: []const []const u8, total: usize, quote: bool) 
 /// Report the nodes of `sc` that reach neither ground nor a port, and the
 /// loops among its voltage sources and inductors.
 fn finish(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8) Allocator.Error!void {
-    // An unbalanced current into an island fails every analysis that solves
-    // DC (ESPice's transient too): reported whichever analyses there are.
-    if (cx.anyRule(.@"dc-path")) |rq| if (!cx.no_op) try islands(cx, sc, stmts, ports, label, rq, cx.rule(.@"dc-path") != null);
+    if (!cx.no_op) {
+        const dc = cx.rule(.@"dc-path");
+        // An island fed by a current source follows its own `cutset` rule;
+        // with none, the dc-path one with any analysis.
+        const cut = if (cx.anyRule(.cutset) != null) cx.rule(.cutset) else cx.anyRule(.@"dc-path");
+        if (dc != null or cut != null) try islands(cx, sc, stmts, ports, label, dc, cut);
+    }
     if (sc.edges.items.len > 0) try loops(cx, sc, label);
 }
 
-/// With `listed` false, only islands fed by a current source are reported.
-fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8, rq: grammar.Require, listed: bool) Allocator.Error!void {
+/// An island fed by a current source is reported under `cut`, any other
+/// under `dc`; a null rule reports none.
+fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8, dc: ?grammar.Require, cut: ?grammar.Require) Allocator.Error!void {
     const n = sc.names.items.len;
     const reach = try cx.gpa.alloc(bool, n);
     defer cx.gpa.free(reach);
@@ -394,7 +399,7 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
     if (found.count() == 0) return;
     try crossings(cx, sc, stmts, &found);
     for (found.values()) |*isl| {
-        if (!listed and !isl.current) continue;
+        const rq = (if (isl.current) cut else dc) orelse continue;
         var names: [max_names][]const u8 = undefined;
         const shown = @min(isl.n, max_names);
         for (isl.nodes[0..shown], 0..) |x, i| names[i] = sc.names.items[x];
@@ -415,7 +420,7 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
             rq.reason,
         });
     }
-    if (more > 0 and listed) cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, more, rq.reason });
+    if (more > 0) if (dc) |rq| cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, more, rq.reason });
 }
 
 /// Name, for each island, the devices that cross its boundary: they

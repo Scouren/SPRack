@@ -372,13 +372,16 @@ read  alter     = ".alter" ...
 # Measured on decks written for it (ESPice, Nov 2026): a capacitor-only
 # island makes the operating point, DC sweep and AC analysis refuse
 # (FloatingNode); a transient solves it as ngspice does (0.25 V on a 1p:3p
-# divider). An unbalanced current cutset is refused everywhere. A loop of
-# voltage sources, consistent or not, or of a source and an inductor, is
-# refused, even with UIC. One of inductors only is solved, the current
-# split evenly whatever the inductances (ngspice splits 1u:3u otherwise).
-# dc-path lists every analysis that solves DC but the transient; an island
-# fed by a current source is reported with any analysis (src/topology.zig).
+# divider). A loop of voltage sources, consistent or not, is refused, even
+# with UIC. One of inductors only is solved, the current split evenly
+# whatever the inductances (ngspice splits 1u:3u otherwise).
+# Since ESPice f514173f (PR #267, Nov 2026; from its maintainers' report,
+# not measured here): an unbalanced current cutset, and a loop of sources
+# and inductors, are refused by every analysis that solves an operating
+# point, that is all but a UIC transient (`tran` below is one without UIC).
+# dc-path lists every analysis that solves DC but the transient.
 requires dc-path   error   [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise] : ESPice's operating point, DC sweep and AC analysis refuse it (FloatingNode), where its transient and ngspice divide the charge among the capacitors
+requires cutset    error   [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : ESPice refuses it in every analysis that solves an operating point, its transient too unless UIC
 requires no-vloop  error   : ESPice refuses it
 requires no-vlloop error   : ESPice refuses it, where ngspice gets through with its transient operating point
 requires no-lloop  warning : ESPice solves it, but splits the current around the loop evenly whatever the inductances
