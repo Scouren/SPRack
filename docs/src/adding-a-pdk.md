@@ -194,6 +194,11 @@ for corner in pdk.corners:
     print(corner, len(one.devices), "devices")
 ```
 
+```text
+tt 4 devices
+ff 4 devices
+```
+
 The device list and the translated copies are cached under the PDK's name
 (see [The cache](pdks.md#the-cache)). The cache follows the manifest: a
 change to its `dialect`, `corners` or `define`, or to any file the libraries
