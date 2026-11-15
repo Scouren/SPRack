@@ -1,0 +1,3 @@
+# The same bytes in a checkout on every platform: a wheel packs these files
+# and the extension embeds the grammars, whatever host builds them.
+* text=auto eol=lf
