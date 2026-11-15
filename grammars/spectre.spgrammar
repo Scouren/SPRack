@@ -136,8 +136,8 @@ rule  mutual    = name "mutual_inductor" { coupling=k ind1=l1 ind2=l2 }
 # type=dc is the default and says nothing; read it and move on.
 read  vsource   = name ["("] pos neg [")"] "vsource" { type==dc dc=dc mag=acmag phase=acphase ...params }
 read  isource   = name ["("] pos neg [")"] "isource" { type==dc dc=dc mag=acmag phase=acphase ...params }
-rule  vsource   = name ["("] pos neg [")"] "vsource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
-rule  isource   = name ["("] pos neg [")"] "isource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
+rule  vsource   = name ["("] pos neg [")"] "vsource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] pacmag=pacmag fundname="fundname" ...params }
+rule  isource   = name ["("] pos neg [")"] "isource" { dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] pacmag=pacmag fundname="fundname" ...params }
 rule  bsource   = name ["("] pos neg [")"] "bsource" { v=v i=i ...params }
 rule  vcvs      = name ["("] pos neg cpos cneg [")"] "vcvs" { gain=gain }
 rule  vccs      = name ["("] pos neg cpos cneg [")"] "vccs" { gm=gm }
@@ -151,7 +151,7 @@ rule  cswitch   = name ["("] pos neg [")"] master { probe=vsrc! region=state }
 # Each form below was loaded in Spectre 25.10.
 rule  relay     = name ["("] pos neg cpos cneg [")"] "relay" {...params}
 # A port is a source with a series resistance and a port number.
-rule  vsource   = name ["("] pos neg [")"] "port" { num=portnum! r=z0 dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] ...params }
+rule  vsource   = name ["("] pos neg [")"] "port" { num=portnum! r=z0 dc=dc mag=acmag phase=acphase type=wave val0=val0 val1=val1 delay=delay rise=rise fall=fall width=width period=period sinedc=sinedc ampl=ampl freq=freq damp=damp sinephase=sphase td1=td1 tau1=tau1 td2=td2 tau2=tau2 wave=[pwl] pacmag=pacmag fundname="fundname" ...params }
 # A one-input polynomial is pvcvs or pvccs with the coefficients as a list.
 # The master says which; a SPICE source says it by its letter, so these
 # forms are written only.

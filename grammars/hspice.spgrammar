@@ -77,6 +77,7 @@ rule  capacitor = name~"C" pos neg [c] { c=c ...params }
 rule  capacitor = name~"C" pos neg master [c] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
+read  mutual    = name~"K" l1 l2 { k=k! }
 # The waveform of a V or I source; vsource and isource share these slots.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl val0 fsig freq [delay] ~")" | wave:"pat" ~"(" val1 val0 delay rise fall width bits+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}

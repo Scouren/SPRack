@@ -294,6 +294,7 @@ compile error with the file and line.
 ### Statements
 
     rule  tran = ".tran" step stop [ start [maxstep] ] [ skip_dc:"uic"=yes ]
+    write bjt[hicum2] = ...            # only for an instance whose model is of that family
     read  include = ".inc" path        # this form is only read
     write save = ".probe" signals+     # this form is only written
 
@@ -311,6 +312,7 @@ compile error with the file and line.
     needs resistor ... end             # lines written once if the kind is used
     wrap "control" "endc" : op dc tran # these kinds are collected into one block
     raw ".control" ".endc"             # kept verbatim, never translated
+    raw "embed" ">>>FILE" : reason     # and why no other dialect can take it
 
 A `define` names a pattern fragment; `<name>` in a later rule, block line or
 define stands for it. It is parsed where it is used, so its slot names are
@@ -328,17 +330,17 @@ no single rule holds everything, which is how `.options timeint ...` and
 |---|---|
 | `"lit"` | a literal word |
 | `~"("` | a literal glued to its neighbours when written (`v(out)`) |
-| `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot |
+| `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot; `slot#n` as many items as slot `n` holds |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
 | `path!` | a path written without quotes when it has no blank |
 | `slot?default` | written when the slot is empty; `$other` and `$#` expand |
-| `slot:"lit"=atom` | the literal stands for a value of an atom slot; a trailing `?` writes it even when the slot is unset |
+| `slot:"lit"=atom` | the literal stands for a value of an atom slot (or a number in a value slot); a trailing `?` writes it even when the slot is unset |
 | `slot...` | the rest of the line as text, or as one expression for a value slot |
 | `-slot` | when writing, deliberately not written (a `caveat` says why) |
 | `_` | any one word |
 | `[ ... ]` | optional |
 | `( a \| b )` | alternatives |
-| `( ... )*` `( ... )+` | the group repeated, zero or more / one or more times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
+| `( ... )*` `( ... )+` `( ... )#n` | the group repeated, zero or more / one or more / exactly slot `n` times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
 | `<name>` | the pattern of a `define`, as if written here |
 | `/` | the statement continues on the next line |
 | `{ k=slot k="slot" k=[slot] k==lit k=slot! k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, tagged, `v(node)=value`, and everything else. `...rest?` also takes bare flags |

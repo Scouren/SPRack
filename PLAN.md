@@ -140,10 +140,29 @@ Order, by deck count:
      `.trannoise tstep tstop`, `.hbac ... f0 K` and `.hbosc v(osc) f0 K`
      forms, which HSPICE refuses. ESPice's own `.pss` and `.stb` rules were
      already in its grammar and stay.
-3. [ ] **Devices (4.3):** P, O, Y and W lines; `poly`/`table`/`laplace` sources.
-4. [ ] **Source forms (4.4)** and **output forms (4.5).**
+3. [x] **Devices (4.3):** P, O, Y and W lines; `poly`/`table`/`laplace` sources.
+   *Done (b4):* `lossyline` (ngspice/ESPice O, Y, P by model family; Xyce O;
+   HSPICE W with RLGC), `ctlsrc` (POLY, TABLE, LAPLACE, POLE, VCR, VCCAP;
+   Spectre pvcvs/pvccs for one input, written only), Spectre `relay` and
+   `port`, HSPICE P ports, Xyce HICUM's fifth node through `rule bjt[hicum2]`.
+   *Out of scope:* Xyce `YTRANSLINE` (no lumped-line form here; Xyce's O is
+   the lossy line), Spectre's lossy lines (`mtline` takes no SPICE line
+   cards), TABLE in HSPICE (none of the SPICE spellings load), LAPLACE in
+   ngspice and Xyce (both reject the coefficient form).
+4. [x] **Source forms (4.4)** and **output forms (4.5).**
+   *Done (b4):* pulse count, trnoise, trrandom, ngspice AM with phases (the
+   old mapping used HSPICE's order), HSPICE AM and PAT, `ac` alone, `dc=`;
+   nested and negated probes, `#branch`, terminal currents, `.measure` in
+   slots with text as the fallback (ambiguous across dialects).
+   *Out of scope:* `pwl file=` (ESPice refuses it; ngspice and HSPICE do not
+   load it), HSPICE LFSR (its tap list is bracketed, which the HSPICE lexer
+   here does not read), PAT with inline repeats (`b1011 r=1 rb=2`).
 5. [ ] **Spectre structure (4.6).** `statistics` blocks come first: they are the 179 IHP errors.
-6. [ ] **VACASK control language (4.7).**
+6. [x] **VACASK control language (4.7).** `print`, `postprocess`, `abort`,
+   `elaborate` are `simctl` statements in the control block; every other
+   dialect has a `no simctl` line saying why. An `embed` block written
+   elsewhere is an error giving the reason. `print stats` has no exact
+   SPICE equivalent (`.options acct` prints different statistics).
 
 **Stop rule.** If an item in the 4–6-deck tail turns out to be ESPice-only
 syntax rather than a real simulator's, mark it out of scope instead of

@@ -127,7 +127,9 @@ const source_spec = "name pos:node neg:node dc:value acmag:value acphase:value w
     // b4: a pulse train's count, the arguments of the noise and random
     // sources (trnoise, trrandom), a pattern's bit strings (PAT), and the
     // modulation phase of AM (the carrier's is sphase).
-    "count:value wargs:value* bits:atom* mphase:value params:params";
+    // Spectre: the periodic AC magnitude (pac) and the fundamental a source
+    // belongs to (pss, hb).
+    "count:value wargs:value* bits:atom* mphase:value pacmag:value fundname:atom params:params";
 
 const sweep_spec = "sweep:atom points:value fstart:value fstop:value";
 

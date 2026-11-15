@@ -2176,9 +2176,6 @@ test "gap: an unquoted function call is a value in an HSPICE .param" {
 }
 
 test "gap: HSPICE coupling written with k=" {
-    // gap: hspice reader. `K1 L1 L2 k=0.5` is untranslated; only the
-    // positional coupling value is read.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2441,6 +2438,7 @@ test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stabil
     var r8: ir.Report = .init(a);
     _ = try tr(a, "hspice", "spectre", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2\n", &r8);
     try reported(&r8, .@"error", "Spectre runs transient noise as parameters of the tran analysis");
+}
 
 test "a rule that depends on the model's family: Xyce HICUM's thermal node" {
     var arena_state: Arena = .init(testing.allocator);

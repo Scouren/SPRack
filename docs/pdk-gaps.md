@@ -6,7 +6,7 @@ is reproduced by a synthetic deck in `src/tests.zig` (tests named `gap: ...`,
 skipped until fixed).
 
 1. An unquoted function call as a `.param` value (`a=agauss(0,1,3)`).
-2. Coupling written `K1 L1 L2 k=value`.
+2. Coupling written `K1 L1 L2 k=value`. Fixed: the HSPICE grammar reads `k=`.
 3. Several function definitions in one `.param`, or definitions next to values.
 4. A `$` comment after a `\`-continued expression.
 5. ngspice `.func` with several arguments needs commas.
