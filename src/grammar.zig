@@ -335,6 +335,11 @@ const C = struct {
     /// File named in messages; empty means `<dialect>.spgrammar`.
     file: []const u8,
     name: []const u8 = "?",
+    /// Lists `add` grew with room to spare, by address: appending to one
+    /// of them again fills the room instead of copying.
+    grown: std.AutoHashMapUnmanaged(usize, Grown) = .empty,
+
+    const Grown = struct { len: usize, cap: usize };
 
     fn fail(c: *C, line: u32, comptime fmt: []const u8, a: anytype) Error {
         if (@inComptime()) {
@@ -349,16 +354,26 @@ const C = struct {
         return error.BadGrammar;
     }
 
-    /// `list` with `item` appended.
-    // ponytail: copies the list on every append at run time, O(n^2) in the
-    // longest list (a few hundred rules); grow geometrically if a grammar
-    // ever gets large enough to show in the compile time.
+    /// `list` with `item` appended. At run time a list grows geometrically:
+    /// copying it on every append made a long line cost O(n^2) memory, and
+    /// a mutated grammar of 6 KB took more than 1 GB.
     fn add(c: *C, comptime T: type, list: []const T, item: T) Error![]const T {
         if (@inComptime()) return list ++ &[_]T{item};
-        const out = try c.gpa.alloc(T, list.len + 1);
-        @memcpy(out[0..list.len], list);
-        out[list.len] = item;
-        return out;
+        if (list.len > 0) if (c.grown.getPtr(@intFromPtr(list.ptr))) |g| {
+            // Only the newest slice of a list may take the room after it;
+            // an older, shorter slice of the same list is copied.
+            if (g.len == list.len and g.len < g.cap) {
+                const out = @constCast(list.ptr)[0 .. list.len + 1];
+                out[list.len] = item;
+                g.len += 1;
+                return out;
+            }
+        };
+        const buf = try c.gpa.alloc(T, @max(4, 2 * list.len));
+        @memcpy(buf[0..list.len], list);
+        buf[list.len] = item;
+        try c.grown.put(c.gpa, @intFromPtr(buf.ptr), .{ .len = list.len + 1, .cap = buf.len });
+        return buf[0 .. list.len + 1];
     }
 
     fn cat(c: *C, a: []const u8, b: []const u8) Error![]const u8 {

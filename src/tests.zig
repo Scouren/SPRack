@@ -1350,6 +1350,30 @@ test "fuzz: mutated grammars are refused with a diagnostic" {
     }
 }
 
+test "fuzz: long grammar lists compile in linear memory" {
+    // A pattern of 3000 words, and 2000 function names on 100 lines, once
+    // took O(n^2) memory: about 600 MB and 60 MB here.
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    const buf = try testing.allocator.alloc(u8, 4 << 20);
+    defer testing.allocator.free(buf);
+    for (0..2) |case| {
+        src.clearRetainingCapacity();
+        try src.appendSlice(testing.allocator, "dialect x\nlexer\nend\n");
+        if (case == 0) {
+            try src.appendSlice(testing.allocator, "rule resistor = name~\"R\" pos neg r");
+            for (0..3000) |_| try src.appendSlice(testing.allocator, " \"x\"");
+        } else {
+            try src.appendSlice(testing.allocator, "functions\n");
+            for (0..100) |_| try src.appendSlice(testing.allocator, "  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh\n");
+            try src.appendSlice(testing.allocator, "end\n");
+        }
+        var fba: std.heap.FixedBufferAllocator = .init(buf);
+        var diag: sprack.grammar.Diag = .{};
+        _ = try sprack.grammar.compile(fba.allocator(), src.items, "f.spgrammar", &diag);
+    }
+}
+
 // The tests below reproduce, in small, what running the VAMS Conformance
 // Suite decks through the translator turned up.
 
