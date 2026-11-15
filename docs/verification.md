@@ -960,6 +960,19 @@ The translation with the old name put back stops with the two messages
 above. `time` is not renamed: in an expression the word is the variable in
 every dialect, so a parameter of that name stays an error.
 
+### 4.12 Instance parameters a PDK gives (r1)
+
+What the instance parameters behind the PDK errors do in ngspice 45, and
+whether the target has them. Xyce 7.10 and VACASK as in section 0; no
+Spectre or HSPICE was run for this.
+
+| parameter | ngspice 45 | target | grammar |
+|---|---|---|---|
+| capacitor `scale=3` (model `cj=1.5m cjsw=40p`, `l=10u w=10u`, 1 V AC at 1 MHz) | 2.857593 uA against 0.952531 uA without: the capacitance times 3. `m=3` gives the same 2.857593 uA, `m=2 scale=3` 5.715185 uA | Xyce: `scale=3` is `Unrecognized parameter SCALE for device C1`; `m=3` gives 2.85759268 uA (0.952530893 uA without) | Xyce `params capacitor`: `scale>0 = m`. Both on one instance is an error: the table cannot write their product |
+| diode `off` (0.8 V through 100 ohms, `is=1e-14 n=1.05 rs=2 area=2`) | 1.23893 mA and 0.6761068 V on the diode with and without it, at `reltol=1e-9` (at the default tolerance the sixth digit differs: another starting point, the same solution) | VACASK: `Parameter 'off' not found`. Spectre warns on it (4.5) | ngspice `inert diode off`: left out with a note where the target's diode has none |
+| capacitor `ic=0.5` (1 n, charged from 1 V through 1 k) | without `uic` the node starts at 1 V with or without it; with `uic` it starts at 0.5 V (0 V without `ic`), 0.524385 V at 50 ns against 0.048770 V | VACASK: `Parameter 'ic' not found`; it sets initial conditions on the analysis, not on a device | stays an error for VACASK |
+| capacitor `q='...'`, a charge as an expression of its own voltage | a nonlinear capacitor | VACASK: `Parameter 'q' not found`; it has no behavioural device | stays an error for VACASK |
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

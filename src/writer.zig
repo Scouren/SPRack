@@ -1187,6 +1187,8 @@ const Writer = struct {
         const table = w.g.paramsOf(st.kind) orelse if (from != null) open else return null;
         var em = w.emitter(a, st);
         var out: std.ArrayList(ir.Param) = .empty;
+        // The spellings parameters of other names were written under.
+        var renamed: std.ArrayList([]const u8) = .empty;
         var changed = false;
         for (v.params) |p| {
             const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
@@ -1204,7 +1206,10 @@ const Writer = struct {
                     continue;
                 }
                 const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
-                w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such instance parameter", .{
+                if (em.inert(p.key)) |why| {
+                    // A loss all the same: the statement reads back without it.
+                    w.report.add(.info, .loss, st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(st.kind), shown, why });
+                } else w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such instance parameter", .{
                     @tagName(st.kind), shown, w.g.name, @tagName(st.kind),
                 });
                 changed = true;
@@ -1215,15 +1220,28 @@ const Writer = struct {
                     @tagName(st.kind), p.key, try em.describe(p.val), w.g.name, entry.canon,
                 });
             }
-            for (entry.spellings) |sp| {
-                if (std.ascii.eqlIgnoreCase(sp, p.key)) break;
-            } else {
-                w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, entry.spellings[0], w.g.name });
-                try out.append(a, .{ .key = entry.spellings[0], .val = p.val });
+            const same = for (entry.spellings) |sp| {
+                if (std.ascii.eqlIgnoreCase(sp, p.key)) break true;
+            } else false;
+            const key = if (same) p.key else entry.spellings[0];
+            // Two parameters this dialect says with one name (a capacitor's
+            // `scale` and `m` in Xyce): their product has no place here.
+            const clash = if (same) for (renamed.items) |k| {
+                if (std.ascii.eqlIgnoreCase(k, key)) break true;
+            } else false else for (out.items) |o| {
+                if (std.ascii.eqlIgnoreCase(o.key, key)) break true;
+            } else false;
+            if (clash) {
+                w.report.add(.@"error", .loss, st.line, "{s}: '{s}={s}' is '{s}' in {s}, which the instance gives as well", .{ @tagName(st.kind), p.key, try em.describe(p.val), key, w.g.name });
                 changed = true;
                 continue;
             }
-            try out.append(a, p);
+            if (!same) {
+                w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, key, w.g.name });
+                try renamed.append(a, key);
+                changed = true;
+            }
+            try out.append(a, .{ .key = key, .val = p.val });
         }
         if (!changed) return null;
         var copy = st.*;

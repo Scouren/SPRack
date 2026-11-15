@@ -3921,7 +3921,8 @@ test "instance parameters: renamed for the target, a loss where its device lacks
     var r2: ir.Report = .init(a);
     const sp = try tr(a, "ngspice", "spectre", src, &r2);
     try has(sp, "R1 (a b) resistor r=1k ac=2k isnoisy=0 m=-2 tc1=1m\n");
-    try reported(&r2, .@"error", "diode: 'off' has no spelling in spectre");
+    // OFF changes no result (`inert diode off`): a note, not an error.
+    try reported(&r2, .info, "diode: 'off' is not written");
     // A model name after the nodes is no flag: Q1 has a thermal node.
     try has(sp, "Q1 (c b e s1 t) qm dtemp=1\n");
 
@@ -4883,6 +4884,44 @@ test "r1: a parameter named like a variable Xyce keeps is renamed where it is de
         try has(aw.written(), want);
     }
     try testing.expectEqual(0, r4.count(.@"error"));
+}
+
+test "r1: an instance parameter the target says under another name, or that changes no result" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice's capacitor scale multiplies the capacitance as m does, and
+    // Xyce has only m (docs/verification.md 4.12).
+    const cap = "t\n.model cm c cj=1.5m cjsw=40p\nV1 a 0 dc 0 ac 1\nC1 a 0 cm l=10u w=10u ";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", cap ++ "scale=3\n.end\n", &r1), "C1 a 0 cm l=10u w=10u m=3\n");
+    try reported(&r1, .info, "capacitor: the instance parameter 'scale' is spelled 'm' in xyce");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    // Both on one instance: their product is not something the table can say.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", cap ++ "m=2 scale=3\n.end\n", &r2), "C1 a 0 cm l=10u w=10u m=2\n");
+    try reported(&r2, .@"error", "capacitor: 'scale=3' is 'm' in xyce, which the instance gives as well");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", cap ++ "scale=3 m=2\n.end\n", &r3), "C1 a 0 cm l=10u w=10u m=3\n");
+    try reported(&r3, .@"error", "capacitor: 'm=2' is 'm' in xyce, which the instance gives as well");
+    // Xyce's own m is still m.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", "t\nV1 a 0 1\nC1 a 0 1p m=3\n.end\n", &r4), "C1 a 0 1p m=3\n");
+    // A diode's OFF only starts the operating-point iteration elsewhere:
+    // left out, with a note, where the target's diode has none.
+    const dio = "t\n.model dm d is=1e-14\nV1 a 0 0.8\nR1 a k 100\nD1 k 0 dm off area=2\n.op\n.end\n";
+    inline for (.{ "spectre", "vacask" }) |to| {
+        var r: ir.Report = .init(a);
+        try has(try tr(a, "ngspice", to, dio, &r), "D1 (k 0) dm area=2\n");
+        try reported(&r, .info, "diode: 'off' is not written: OFF only sets where ngspice starts the operating-point iteration");
+        try testing.expectEqual(0, r.count(.@"error"));
+    }
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", dio, &r5), "D1 k 0 dm area=2 off\n");
+    // VACASK has no initial condition on a device: that stays an error.
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nC1 a 0 1n ic=0.5\n.end\n", &r6);
+    try reported(&r6, .@"error", "capacitor: 'ic=0.5' has no spelling in vacask");
 }
 
 test "r1: a model in another file of a project decides its instances' form" {

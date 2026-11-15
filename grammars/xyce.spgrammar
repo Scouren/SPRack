@@ -355,6 +355,8 @@ params resistor
 end
 params capacitor
   same dtemp ic l m>0 q tc1 tc2 temp w
+  # ngspice's scale multiplies the capacitance, as m does; Xyce has no scale.
+  scale>0 = m
 end
 params inductor
   same dtemp ic m>0 tc1 tc2 temp

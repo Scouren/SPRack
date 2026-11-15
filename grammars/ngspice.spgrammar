@@ -183,6 +183,7 @@ requires no-vlloop warning : ngspice solves it only through its transient operat
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit
+inert diode off : OFF only sets where ngspice starts the operating-point iteration; the solution is the same
 caveat hdl path=*.va : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
 caveat model type=*psp103va : ngspice has PSP103 only as a compiled Verilog-A module; the deck must load psp103.osdi with pre_osdi
 
