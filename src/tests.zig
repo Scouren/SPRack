@@ -3356,17 +3356,18 @@ test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     // it, in a subcircuit (per instance) and at the top level (per run).
     const two = "t\n.param a=1 dev/gauss=0.1 b=2 dev/gauss=0.2\n.subckt s p n\n.param\n+ x=1k dev/gauss=10\n+ y=2 dev/gauss=0.2\nR1 p n {x*y}\n.ends\nX1 p 0 s\nR2 p 0 {a*b}\n.end\n";
     var r5: ir.Report = .init(a);
-    const sp2 = try trx(a, "ngspice", "spectre", two, &r5, .{ .silent = true });
+    const sp2 = try tr(a, "ngspice", "spectre", two, &r5);
     try has(sp2, "vary a dist=gauss std=0.1\nvary b dist=gauss std=0.2\n");
     try has(sp2, "parameters x=((1k + 10*sprack_rv_s_x)) y=((2 + 0.2*sprack_rv_s_y))\n");
     try has(sp2, "mismatch {\nvary sprack_rv_s_x dist=gauss std=1\nvary sprack_rv_s_y dist=gauss std=1\n}\n");
     try testing.expectEqual(0, r5.count(.@"error"));
     var r6: ir.Report = .init(a);
-    try has(try trx(a, "ngspice", "xyce", two, &r6, .{ .silent = true }), ".param x={agauss(1k, 10, 1)} y={agauss(2, 0.2, 1)}\n");
+    // For Xyce the subcircuit's own parameters go on its header (`hoist param`).
+    try has(try tr(a, "ngspice", "xyce", two, &r6), ".subckt s p n params: x={agauss(1k, 10, 1)} y={agauss(2, 0.2, 1)}\n");
     try testing.expectEqual(0, r6.count(.@"error"));
     // A parameter given twice is still told, with variations between.
     var r7: ir.Report = .init(a);
-    _ = try trx(a, "ngspice", "spectre", "t\n.param a=1 dev/gauss=0.1 a=2 dev/gauss=0.2\nR1 p 0 {a}\n.end\n", &r7, .{ .silent = true });
+    _ = try tr(a, "ngspice", "spectre", "t\n.param a=1 dev/gauss=0.1 a=2 dev/gauss=0.2\nR1 p 0 {a}\n.end\n", &r7);
     try reported(&r7, .@"error", "parameter 'a' is defined twice");
 }
 
@@ -4856,7 +4857,7 @@ test "r1: a parameter named like a variable Xyce keeps is renamed where it is de
     defer arena_state.deinit();
     const a = arena_state.allocator();
     // Xyce refuses `.param vt=` and a subcircuit parameter `vt`
-    // (docs/verification.md 4.11). A node and a model parameter of the name
+    // (docs/verification.md 4.15). A node and a model parameter of the name
     // are not the parameter.
     const src = "t\n.param vt=3.5m Temp=2 vt__p=1\n.func f(vt,b) {vt*b}\n.subckt s a b vt=1 w=1\nr1 a b {vt*w}\nr3 a b r=vt\n.ends\n" ++
         "X1 a 0 s vt=2 w={vt}\nB1 a 0 v={v(vt)*vt+temp+f(1,2)}\nV1 vt 0 1\n.model sm sw vt=0.5 vh=0.1\nS1 a 0 vt 0 sm\n.op\n.end\n";
@@ -4902,7 +4903,7 @@ test "r1: an instance parameter the target says under another name, or that chan
     defer arena_state.deinit();
     const a = arena_state.allocator();
     // ngspice's capacitor scale multiplies the capacitance as m does, and
-    // Xyce has only m (docs/verification.md 4.12).
+    // Xyce has only m (docs/verification.md 4.16).
     const cap = "t\n.model cm c cj=1.5m cjsw=40p\nV1 a 0 dc 0 ac 1\nC1 a 0 cm l=10u w=10u ";
     var r1: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "xyce", cap ++ "scale=3\n.end\n", &r1), "C1 a 0 cm l=10u w=10u m=3\n");

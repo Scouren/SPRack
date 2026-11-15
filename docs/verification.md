@@ -957,7 +957,7 @@ nothing, `l=10u w=10u`, `l=20u`, nothing, each across a 1 V AC source,
 
 ---
 
-### 4.11 A parameter named like a variable of Xyce (r1)
+### 4.15 A parameter named like a variable of Xyce (r1)
 
 Xyce 7.10 stops on a parameter called `vt`: `.param vt=3.5m` gives
 `Parameter name VT is a reserved variable name and is not permitted`, and
@@ -981,7 +981,7 @@ The translation with the old name put back stops with the two messages
 above. `time` is not renamed: in an expression the word is the variable in
 every dialect, so a parameter of that name stays an error.
 
-### 4.12 Instance parameters a PDK gives (r1)
+### 4.16 Instance parameters a PDK gives (r1)
 
 What the instance parameters behind the PDK errors do in ngspice 45, and
 whether the target has them. Xyce 7.10 and VACASK as in section 0; no
