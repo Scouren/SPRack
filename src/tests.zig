@@ -1356,6 +1356,29 @@ test "fuzz: mutated grammars are refused with a diagnostic" {
     }
 }
 
+test "fuzz: deeply nested grammar groups are refused, not a stack overflow" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // 5000 `[` overflowed the stack; a chain of defines recurses the same way.
+    for (0..2) |case| {
+        var src: std.ArrayList(u8) = .empty;
+        try src.appendSlice(a, "dialect x\nlexer\nend\n");
+        if (case == 0) {
+            try src.appendSlice(a, "rule resistor = name pos neg r");
+            for (0..5000) |_| try src.appendSlice(a, " [");
+            try src.append(a, '\n');
+        } else {
+            try src.appendSlice(a, "define d0 = r\n");
+            for (1..5000) |i| try src.print(a, "define d{d} = <d{d}>\n", .{ i, i - 1 });
+            try src.appendSlice(a, "rule resistor = name pos neg <d4999>\n");
+        }
+        var diag: sprack.grammar.Diag = .{};
+        try testing.expectError(error.BadGrammar, sprack.grammar.compile(a, src.items, "f.spgrammar", &diag));
+        try has(diag.msg, "groups nested more than 100 deep");
+    }
+}
+
 test "fuzz: a model or device without a name is reported, not written" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

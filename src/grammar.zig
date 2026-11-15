@@ -477,6 +477,11 @@ const P = struct {
     defs: []const Def = &.{},
     /// Inside a repeated group: list slots are taken one item at a time.
     in_rep: bool = false,
+    /// Groups and defines open around `p.i`. Each is a level of recursion,
+    /// so a mutated grammar of a few thousand `(` overflowed the stack.
+    depth: u32 = 0,
+
+    const max_depth = 100;
 
     fn err(p: *P, comptime fmt: []const u8, a: anytype) Error {
         if (@inComptime()) return p.c.fail(p.line, fmt ++ " in pattern `{s}`", a ++ .{p.s});
@@ -540,6 +545,9 @@ const P = struct {
     }
 
     fn seq(p: *P) Error![]const Node {
+        if (p.depth == max_depth) return p.err("groups nested more than {d} deep", .{max_depth});
+        p.depth += 1;
+        defer p.depth -= 1;
         var out: []const Node = &.{};
         while (true) {
             p.ws();
@@ -563,7 +571,7 @@ const P = struct {
         for (p.defs, 0..) |d, di| {
             if (!std.mem.eql(u8, d.name, name)) continue;
             // A define sees only the ones before it, so it cannot refer to itself.
-            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .c = p.c, .line = p.line, .defs = p.defs[0..di] };
+            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .c = p.c, .line = p.line, .defs = p.defs[0..di], .depth = p.depth };
             const out = try sub.seq();
             if (sub.i < sub.s.len) return sub.err("unexpected '{c}'", .{sub.s[sub.i]});
             return out;
