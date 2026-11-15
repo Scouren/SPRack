@@ -644,6 +644,25 @@ def test_tiny_pdk_model_cards():
     _tiny(body)
 
 
+def test_tiny_pdk_manifest():
+    def body(make, d):
+        # A manifest says what it lacks, and what one needs.
+        raises(sprack.SprackError, lambda: make(manifest={"name": "tiny", "layouts": [{}]}),
+               "the manifest for PDK 'tiny' lacks dialect, corners, probe (of a layout); a manifest needs: name, dialect, layouts, corners")
+        # With no `env`, the root is $PDK_ROOT, as the message says.
+        old = os.environ.pop("PDK_ROOT", None)
+        try:
+            raises(sprack.SprackError, lambda: make(root=None), "tiny: give root=, or set $PDK_ROOT")
+            os.environ["PDK_ROOT"] = d
+            assert make(root=None).root == d
+            raises(sprack.SprackError, lambda: make(root=None, manifest={**TINY, "env": ["TINY_ROOT"]}), "set $TINY_ROOT")
+        finally:
+            os.environ.pop("PDK_ROOT", None)
+            if old is not None:
+                os.environ["PDK_ROOT"] = old
+    _tiny(body)
+
+
 def test_tiny_pdk_library_is_not_foreign():
     def body(make, d):
         # Also for a circuit in another dialect's terms than the PDK's.

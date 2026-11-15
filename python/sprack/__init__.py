@@ -1187,6 +1187,12 @@ class PDK:
         elif isinstance(manifest, str):
             with open(manifest) as f:
                 manifest = json.load(f)
+        need = ("name", "dialect", "layouts", "corners")
+        missing = [k for k in need if not manifest.get(k)]
+        if any("probe" not in layout for layout in manifest.get("layouts") or []):
+            missing.append("probe (of a layout)")
+        if missing:
+            raise SprackError(f"the manifest for PDK {name!r} lacks {', '.join(missing)}; a manifest needs: {', '.join(need)}, and each layout a probe")
         self.manifest: dict = manifest
         self.name: str = manifest["name"]
         self.dialect: str = manifest["dialect"]
@@ -1205,9 +1211,10 @@ class PDK:
 
     def _locate(self, root: str | None) -> tuple[str, dict]:
         m = self.manifest
-        candidates = [root] if root else [os.environ[v] for v in m.get("env", []) if os.environ.get(v)]
+        env = m.get("env", ["PDK_ROOT"])
+        candidates = [root] if root else [os.environ[v] for v in env if os.environ.get(v)]
         if not candidates:
-            raise SprackError(f"{self.name}: give root=, or set ${' or $'.join(m.get('env', ['PDK_ROOT']))}")
+            raise SprackError(f"{self.name}: give root=, or set ${' or $'.join(env)}")
         tried = []
         for cand in candidates:
             base = os.path.abspath(os.path.expanduser(cand))
