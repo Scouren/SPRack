@@ -1808,8 +1808,15 @@ fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Al
 /// the one `sg` assumes (`implied options tnom = 25`; `$temp` is another
 /// option's value).
 fn optionValue(arena: Allocator, sg: *const Grammar, stmts: []const ir.Stmt, slot: u8, depth: u8) ?Value {
-    if (firstValue(stmts, .options, slot)) |v| return v;
+    if (topValue(stmts, slot)) |v| return v;
     return impliedValue(arena, sg, sg, stmts, slot, depth);
+}
+
+/// An option the netlist itself sets: not one in a body (an `.alter`
+/// changes it for its own run only).
+fn topValue(stmts: []const ir.Stmt, slot: u8) ?Value {
+    for (stmts) |*s| if (s.kind == .options and s.at(slot) != .none) return s.at(slot);
+    return null;
 }
 
 /// What `g` assumes for an option, with a `$other` read in the netlist of `sg`.
@@ -1834,7 +1841,7 @@ pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist
     var st = try ir.newStmt(arena, .options, 0);
     var any = false;
     for (sg.implied) |im| {
-        if (im.kind != .options or firstValue(nl.stmts, .options, im.slot) != null) continue;
+        if (im.kind != .options or topValue(nl.stmts, im.slot) != null) continue;
         const want = optionValue(arena, sg, nl.stmts, im.slot, 0) orelse continue;
         if (impliedValue(arena, g, sg, nl.stmts, im.slot, 0)) |have| if (have.eql(want)) continue;
         try st.set(arena, im.slot, want);
@@ -1917,8 +1924,21 @@ pub fn write(
             if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, filled);
         };
     }
-    const gathered = try ir.gatherSteps(arena, filled);
+    var gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
+    // Before the alters are laid out, so a run that changes no temperature
+    // is at the source's.
+    if (try defaultOptions(arena, g, nl)) |d| {
+        var names: std.ArrayList(u8) = .empty;
+        for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
+            try names.print(arena, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
+        };
+        report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
+        const list = try arena.alloc(ir.Stmt, gathered.len + 1);
+        list[0] = d;
+        @memcpy(list[1..], gathered);
+        gathered = list;
+    }
     var stmts = try w.applyMoves(try alter.prepare(arena, g, gathered, report));
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
@@ -1929,17 +1949,6 @@ pub fn write(
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
     stmts = try pzPorts(arena, g, stmts, report);
     stmts = try idleCeilings(arena, stmts, report);
-    if (try defaultOptions(arena, g, nl)) |d| {
-        var names: std.ArrayList(u8) = .empty;
-        for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
-            try names.print(arena, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
-        };
-        report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
-        const list = try arena.alloc(ir.Stmt, stmts.len + 1);
-        list[0] = d;
-        @memcpy(list[1..], stmts);
-        stmts = list;
-    }
     var n_analyses: usize = 0;
     for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {
         n_analyses += 1;

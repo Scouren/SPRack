@@ -1167,6 +1167,8 @@ const Reader = struct {
             for (self.g.blocks) |*b| {
                 if (!try self.m.run(b.kind, b.open, ti)) continue;
                 var st = try self.m.build(line.no);
+                // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
+                if (st.kind == .tran and !numericSegments(&st)) continue;
                 st.tail = self.toks()[self.m.end].text;
                 if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
                 self.ti = self.m.end + 1;
@@ -1181,6 +1183,8 @@ const Reader = struct {
                 // but does not translate; it stops later rules from misreading it.
                 if (rule.kind == .@"opaque") break;
                 var st = try self.m.build(line.no);
+                // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
+                if (st.kind == .tran and !numericSegments(&st)) continue;
                 st.tail = self.toks()[self.m.end].text;
                 if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
                 if (st.kind == .model) try mapModel(self.arena, self.g, &st, self.report);
@@ -1891,6 +1895,21 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
         try st.set(arena, ti, items[items.len - 1]);
         report.add(.warning, .caveat, st.line, "tran: a multi-segment .tran is one run to its last stop at its smallest step; the output is no longer sampled per segment", .{});
     }
+}
+
+fn numericSegments(st: *const ir.Stmt) bool {
+    const v = st.at(schema.slotIndex(.tran, "segments").?);
+    if (v != .list) return true;
+    for (v.list, 0..) |it, i| {
+        if (it == .num) continue;
+        const last = i + 1 == v.list.len;
+        const word: []const u8 = switch (it) {
+            .atom, .expr, .str => |x| x,
+            else => "",
+        };
+        if (!(last and std.ascii.eqlIgnoreCase(word, "uic"))) return false;
+    }
+    return true;
 }
 
 /// A `.measure` that names no analysis (HSPICE) measures the last analysis

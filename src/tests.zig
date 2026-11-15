@@ -3333,12 +3333,13 @@ test "c2 alter: reruns with cumulative edits, in each dialect's form" {
     // ESPice reads HSPICE's .alter blocks.
     try has(try sameBack(a, "hspice", "espice", src, &r), ".op\n.alter one\n.param ra=3k\n.alter two\n.temp 75\n");
     // Spectre runs analyses where they stand: each altergroup is followed by them.
-    try has(try sameBack(a, "hspice", "spectre", src, &r), "op1 dc\none altergroup {\nparameters ra=3k\n}\nop2 dc\ntwo altergroup {\nsprackOptions1 options temp=75\n}\nop3 dc\n");
+    try has(try sameBack(a, "hspice", "spectre", src, &r), "op1 dc\none altergroup {\nparameters ra=3k\n}\nop2 dc\ntwo altergroup {\nsprackOptions2 options temp=75\n}\nop3 dc\n");
     try clean(&r);
     // Xyce: a .step over a table, a row for the netlist and one per alter.
     var r1: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "xyce", src, &r1), ".data alters ra temp 1k 27 3k 27 3k 75\n.enddata\n.step data=alters\n.op\n");
-    try reported(&r1, .warning, "its run is written at 27 degrees");
+    try has(try tr(a, "hspice", "xyce", src, &r1), ".data alters ra temp 1k 25 3k 25 3k 75\n.enddata\n.step data=alters\n.op\n");
+    // HSPICE runs at 25 when it says nothing (the default options, c4).
+    try reported(&r1, .warning, "hspice assumes other defaults for temp, tnom than xyce does");
     try testing.expect(!r1.hasErrors());
     // VACASK's control block runs in order; ngspice reruns from .control.
     var r2: ir.Report = .init(a);
