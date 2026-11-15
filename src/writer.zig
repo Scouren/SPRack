@@ -787,6 +787,9 @@ const Emit = struct {
 const Writer = struct {
     g: *const Grammar,
     arena: Allocator,
+    /// What outlives the statement being written (`arena` is the same
+    /// unless the netlist is written as a stream).
+    perm: Allocator,
     out: *std.Io.Writer,
     report: *ir.Report,
     caps: ?*const Caps,
@@ -812,6 +815,8 @@ const Writer = struct {
     /// Model cards whose parameters were copied by name: one caveat per
     /// file, naming the first, not one per card (sky130 has thousands).
     copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 = "", source: []const u8 = "", line: u32 = 0 } = .{},
+    /// Written as a stream, the instances that references name (`Refs`).
+    refs: ?*Refs = null,
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -1017,7 +1022,7 @@ const Writer = struct {
         if (th.no_half) w.report.add(.@"error", .loss, st.line, "model '{s}': a switch with no hysteresis has no {s} form; its on and off levels would be equal", .{ st.get("name").atom, w.g.name });
         try out.set(a, schema.slotIndex(.model, "params").?, if (th.params.len > 0) .{ .params = th.params } else .none);
         if (!same and st.get("params") == .params) {
-            if (w.copied.n == 0) w.copied = .{ .name = st.get("name").atom, .family = fam.atom, .source = w.sourceOf(st), .line = st.line };
+            if (w.copied.n == 0) w.copied = .{ .name = try w.perm.dupe(u8, st.get("name").atom), .family = fam.atom, .source = w.sourceOf(st), .line = st.line };
             w.copied.n += 1;
         }
         return out;
@@ -1420,10 +1425,14 @@ const Writer = struct {
             // the temperature in another, under the same spelling.
             for (schema.info(st.kind).slots, 0..) |sl, i| {
                 if (sl.ty != .ref or st.at(i) != .atom) continue;
-                if (w.instances.contains(st.at(i).atom)) continue;
+                if (w.refs) |r| {
+                    if (r.found.contains(st.at(i).atom)) continue;
+                } else if (w.instances.contains(st.at(i).atom)) continue;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a device in this netlist; if {s} means a parameter by it, {s} has to be told so in its own way", .{
                     @tagName(st.kind), sl.name, st.at(i).atom, w.sourceOf(st), w.g.name,
                 });
+                // A device of the name may still come.
+                if (w.refs) |r| try r.pending.append(w.perm, .{ .at = w.report.items.items.len - 1, .name = try w.perm.dupe(u8, st.at(i).atom) });
             }
         }
         if (e.foreign and w.g.lex.ident_values and (st.kind == .resistor or st.kind == .capacitor)) {
@@ -1576,12 +1585,20 @@ fn firstValue(stmts: []const ir.Stmt, kind: Kind, slot: u8) ?Value {
 fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
     var seen: ir.CaselessSet = .empty;
     defer seen.deinit(ir.big);
+    try uniqueParamsIn(stmts, &seen, null, report, g);
+}
+
+/// `seen`: the names the scope defined before `stmts`; with `keep`, each
+/// new one is kept, as `stmts` go away before the scope ends.
+fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.body.len > 0) try uniqueParams(s.body, report, g);
         if (s.kind != .param or s.get("params") != .params) continue;
         for (s.get("params").params) |p| {
             const gop = try seen.getOrPut(ir.big, p.key);
-            if (gop.found_existing) report.add(.@"error", .invalid, s.line, "parameter '{s}' is defined twice in one scope; {s}", .{ p.key, g.unique_param });
+            if (gop.found_existing) report.add(.@"error", .invalid, s.line, "parameter '{s}' is defined twice in one scope; {s}", .{ p.key, g.unique_param }) else if (keep) |k| {
+                gop.key_ptr.* = try k.text(p.key);
+            }
         }
     }
 }
@@ -1596,7 +1613,14 @@ const CaselessMap = std.HashMapUnmanaged([]const u8, []const u8, ir.Caseless, st
 pub fn masterRenames(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env) Allocator.Error!CaselessMap {
     var models: ir.CaselessSet = .empty;
     var subckts: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts);
+    try collectMasters(arena, stmts, &models, &subckts, null);
+    return renamesOf(arena, &models, &subckts, env);
+}
+
+/// `masterRenames` for the models and subcircuits `collectMasters` found.
+fn renamesOf(arena: Allocator, models_in: *const ir.CaselessSet, subckts_in: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap {
+    var models = try models_in.clone(arena);
+    var subckts = try subckts_in.clone(arena);
     var taken: ir.CaselessSet = .empty;
     if (env) |e| {
         var it = e.models.keyIterator();
@@ -1621,15 +1645,16 @@ pub fn masterRenames(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.E
     return out;
 }
 
-fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet) Allocator.Error!void {
+/// With `src`, a name not in it is copied (the statements go away).
+fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
     for (stmts) |*s| {
         const n = s.get("name");
         if (n == .atom) {
-            if (s.kind == .subckt) try subckts.put(arena, n.atom, {});
+            if (s.kind == .subckt) try ir.putName(subckts, arena, src, n.atom);
             // `nch.1`, `nch.2`: bins of the model `nch`.
-            if (s.kind == .model) try models.put(arena, ir.binBase(n.atom) orelse n.atom, {});
+            if (s.kind == .model) try ir.putName(models, arena, src, ir.binBase(n.atom) orelse n.atom);
         }
-        try collectMasters(arena, s.body, models, subckts);
+        try collectMasters(arena, s.body, models, subckts, src);
     }
 }
 
@@ -1657,7 +1682,9 @@ fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told
                 try cur.own(w.arena);
                 try cur.set(w.arena, si, .{ .atom = try std.mem.concat(w.arena, u8, &.{ new, old[base.len..] }) });
                 changed = true;
-                if (!(try told.getOrPut(w.arena, base)).found_existing) {
+                const gop = try told.getOrPut(w.perm, base);
+                if (!gop.found_existing) {
+                    gop.key_ptr.* = try w.perm.dupe(u8, base);
                     w.report.add(.info, .rename, st.line, "'{s}' names both a model and a subcircuit: the model is written as '{s}', and so is every device that uses it as a model; {s}", .{ base, new, w.g.unique_master });
                 }
             }
@@ -1676,7 +1703,7 @@ fn uniqueMasters(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env, 
     var models: ir.CaselessSet = .empty;
     var subckts: ir.CaselessSet = .empty;
     var told: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts);
+    try collectMasters(arena, stmts, &models, &subckts, null);
     if (env) |e| {
         var it = e.models.keyIterator();
         while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
@@ -1692,7 +1719,9 @@ fn clashes(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, su
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
         const m = s.get("master");
         if (m != .atom or !models.contains(m.atom) or !subckts.contains(m.atom)) continue;
-        if ((try told.getOrPut(arena, m.atom)).found_existing) continue;
+        const gop = try told.getOrPut(arena, m.atom);
+        if (gop.found_existing) continue;
+        gop.key_ptr.* = try arena.dupe(u8, m.atom);
         report.add(.@"error", .invalid, s.line, "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}", .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master });
     }
 }
@@ -1774,7 +1803,8 @@ const CaseMaps = struct {
 /// Nodes, instances and definitions are separate name spaces: a source
 /// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
 /// instances are its own scope; definitions are shared by all scopes.
-fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8) Allocator.Error!void {
+/// With `keep`, names are kept: the statements go away first.
+fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8, keep: ?ir.Keep) Allocator.Error!void {
     for (stmts) |*s| {
         const scoped = s.kind == .subckt;
         var inner: CaseMaps = .{ .definitions = seen.definitions };
@@ -1806,11 +1836,13 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
                     report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different names in the source but the same name in {s}, which ignores case", .{
                         gop.key_ptr.*, v.atom, target,
                     });
-                    gop.key_ptr.* = v.atom;
-                }
+                    gop.key_ptr.* = if (keep) |k| try k.text(v.atom) else v.atom;
+                } else if (!gop.found_existing) if (keep) |k| {
+                    gop.key_ptr.* = try k.text(v.atom);
+                };
             }
         }
-        try checkCase(s.body, maps, report, target);
+        try checkCase(s.body, maps, report, target, keep);
     }
 }
 
@@ -2096,6 +2128,7 @@ pub fn write(
     var w: Writer = .{
         .g = g,
         .arena = arena,
+        .perm = arena,
         .out = out,
         .report = report,
         .caps = caps,
@@ -2107,7 +2140,7 @@ pub fn write(
     const nl = &nl_own;
 
     try collectDeclared(arena, nl.stmts, &w.declared);
-    try ir.collectFamilies(arena, nl.stmts, &w.families);
+    try ir.collectFamilies(arena, nl.stmts, &w.families, null);
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
@@ -2124,7 +2157,7 @@ pub fn write(
     if (!g.lex.case_sensitive or fold_header) {
         var seen: CaseMaps = .{};
         defer seen.deinit();
-        try checkCase(nl.stmts, &seen, report, g.name);
+        try checkCase(nl.stmts, &seen, report, g.name, null);
     }
     // An included file is not a netlist: it has no title of its own, must
     // not end the simulation, and leaves the boilerplate to the top file.
@@ -2226,3 +2259,338 @@ pub fn write(
         });
     }
 }
+
+// ------------------------------------------------------------- streaming
+
+/// The references a netlist read as a stream makes (`.dc X`, `F1 a b X`):
+/// every name in a reference slot, gathered before writing, and those of
+/// them a device has been met with so far.
+pub const Refs = struct {
+    wanted: ir.CaselessSet = .empty,
+    found: ir.CaselessSet = .empty,
+    /// Entries saying a name is no device, made before such a device came.
+    pending: std.ArrayList(struct { at: usize, name: []const u8 }) = .empty,
+
+    /// Every name in a reference slot of `stmts`.
+    pub fn want(r: *Refs, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+        for (stmts) |*s| {
+            for (schema.info(s.kind).slots, 0..) |sl, i| {
+                if (sl.ty == .ref and s.at(i) == .atom) try ir.putName(&r.wanted, k.perm, k.src, s.at(i).atom);
+            }
+            try r.want(k, s.body);
+        }
+    }
+
+    /// The devices of `stmts` whose names are wanted.
+    fn add(r: *Refs, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+        if (r.wanted.count() == 0) return;
+        for (stmts) |*s| {
+            if (schema.info(s.kind).class == .device and s.get("name") == .atom and r.wanted.contains(s.get("name").atom))
+                try ir.putName(&r.found, k.perm, k.src, s.get("name").atom);
+            try r.add(k, s.body);
+        }
+    }
+
+    /// Withdraw the entries a device met later answers.
+    fn settle(r: *Refs, report: *ir.Report) void {
+        var drop = r.pending.items;
+        var n: usize = 0;
+        var j: usize = 0;
+        for (report.items.items, 0..) |d, i| {
+            if (j < drop.len and drop[j].at == i) {
+                defer j += 1;
+                if (r.found.contains(drop[j].name)) continue;
+            }
+            report.items.items[n] = d;
+            n += 1;
+        }
+        report.items.shrinkRetainingCapacity(n);
+        drop = &.{};
+    }
+};
+
+/// What writing needs to know of the whole netlist before its first
+/// statement, when the statements come one at a time (`stream.zig`
+/// gathers it in a pass of its own). Names are in `perm` or the source.
+pub const Survey = struct {
+    title: []const u8 = "",
+    dialect: []const u8,
+    library: bool = false,
+    folds_case: bool = false,
+    declared: std.StringHashMapUnmanaged(void) = .empty,
+    families: std.StringHashMapUnmanaged([]const u8) = .empty,
+    funcs: expr.Funcs = .empty,
+    used: [schema.kind_count]bool = @splat(false),
+    fams: [schema.families.len]bool = @splat(false),
+    models: ir.CaselessSet = .empty,
+    subckts: ir.CaselessSet = .empty,
+    /// One statement per `default` source the target's grammar names,
+    /// holding the first value of it in the netlist.
+    fill_from: std.ArrayList(ir.Stmt) = .empty,
+    /// The top-level option statements.
+    options: std.ArrayList(ir.Stmt) = .empty,
+    /// Top-level analyses.
+    analyses: usize = 0,
+    /// Two names differing only by case may be in it: the check runs.
+    check_case: bool = true,
+    facts: topology.Facts = .{},
+    globals: std.ArrayList([]const u8) = .empty,
+    refs: Refs = .{},
+
+    /// Learn what `stmts`, the next top-level statements, hold.
+    pub fn add(sv: *Survey, g: *const Grammar, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+        const a = k.perm;
+        try collectDeclared(a, stmts, &sv.declared);
+        try ir.collectFamilies(a, stmts, &sv.families, k.src);
+        try collectFuncs(a, stmts, &sv.funcs);
+        markUsed(stmts, &sv.used);
+        ir.markFamilies(stmts, &sv.fams);
+        try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
+        for (g.fills) |f| {
+            for (sv.fill_from.items) |*s| {
+                if (s.kind == f.from and s.at(f.from_slot) != .none) break;
+            } else if (firstValue(stmts, f.from, f.from_slot)) |v| {
+                var st = try ir.newStmt(a, f.from, 0);
+                try st.set(a, f.from_slot, try ir.cloneValue(k, v));
+                try sv.fill_from.append(a, st);
+            }
+        }
+        for (stmts) |*s| {
+            if (s.kind == .options) try sv.options.append(a, try ir.cloneStmt(k, s));
+            if (schema.info(s.kind).class == .analysis and s.kind != .alter) sv.analyses += 1;
+        }
+        sv.facts.add(stmts);
+        try sv.addGlobals(k, stmts);
+        try sv.refs.want(k, stmts);
+    }
+
+    fn addGlobals(sv: *Survey, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+        for (stmts) |*s| {
+            if (s.kind == .global and s.get("nodes") == .list) {
+                for (s.get("nodes").list) |v| if (v == .atom) try sv.globals.append(k.perm, try k.text(v.atom));
+            }
+            try sv.addGlobals(k, s.body);
+        }
+    }
+};
+
+/// A netlist written as it is read: `group` is given the top-level
+/// statements a few at a time, as the reader makes them, and each pass of
+/// `write` runs on them before the next come. What the passes need of the
+/// whole netlist is in the `Survey`; constructs whose passes need the
+/// statements themselves are written whole instead (`stream.zig` says
+/// which). Report entries come in pass order once `stream.zig` sorts them.
+pub const Stream = struct {
+    w: Writer,
+    nl: ir.Netlist,
+    keep: ir.Keep,
+    foreign: bool,
+    case: bool = false,
+    seen: CaseMaps = .{},
+    params: ir.CaselessSet = .empty,
+    renames: CaselessMap = .empty,
+    told: ir.CaselessSet = .empty,
+    models: ir.CaselessSet = .empty,
+    subckts: ir.CaselessSet = .empty,
+    clashed: ir.CaselessSet = .empty,
+    topo: ?topology.Stream = null,
+    fill_from: []const ir.Stmt = &.{},
+    source: ?*const Grammar = null,
+    analyses: usize = 0,
+    wrapped: std.ArrayList(ir.Stmt) = .empty,
+    refs: Refs = .{},
+
+    /// Everything before the first statement: title, header, boilerplate
+    /// and the options the source's dialect assumes. In place: the writer
+    /// points into it.
+    pub fn begin(s: *Stream, g: *const Grammar, k: ir.Keep, out: *std.Io.Writer, sv: *Survey, report: *ir.Report, caps: ?*const Caps, env: ?*const ir.Env) Writer.Error!void {
+        const perm = k.perm;
+        s.* = .{
+            .w = .{ .g = g, .arena = perm, .perm = perm, .out = out, .report = report, .caps = caps, .source = sv.dialect, .scratch = .init(ir.big) },
+            .nl = .{ .title = sv.title, .dialect = sv.dialect, .library = sv.library, .folds_case = sv.folds_case },
+            .keep = k,
+            .foreign = !std.mem.eql(u8, sv.dialect, g.name),
+            .fill_from = sv.fill_from.items,
+            .analyses = sv.analyses,
+            .refs = sv.refs,
+        };
+        const w = &s.w;
+        w.refs = &s.refs;
+        const nl = &s.nl;
+        w.declared = sv.declared;
+        w.families = sv.families;
+        w.funcs = sv.funcs;
+        if (env) |e| {
+            var it = e.declared.keyIterator();
+            while (it.next()) |n| try w.declared.put(perm, try std.ascii.allocLowerString(perm, n.*), {});
+            var fi = e.funcs.keyIterator();
+            while (fi.next()) |n| try w.funcs.put(perm, n.*, {});
+        }
+        const fold_header = g.header_folded.len > 0 and (nl.folds_case or
+            if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
+        s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;
+        if (g.lex.title and !nl.library) {
+            try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0) nl.title else "untitled" });
+        }
+        for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
+        if (!nl.library) {
+            for (g.preamble) |l| try w.line(l);
+            var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
+            for (&used, sv.used) |*u, x| u.* = u.* or x;
+            var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
+            for (&fams, sv.fams) |*f, x| f.* = f.* or x;
+            for (g.needs) |n| {
+                if (n.family.len > 0) {
+                    const fi = for (schema.families, 0..) |f, i| {
+                        if (std.mem.eql(u8, f.name, n.family)) break i;
+                    } else unreachable;
+                    if (!fams[fi]) continue;
+                } else if (!used[@backingInt(n.kind)]) continue;
+                for (n.lines) |l| try w.line(l);
+            }
+        }
+        if (s.foreign and g.unique_master.len > 0) {
+            s.renames = try renamesOf(perm, &sv.models, &sv.subckts, env);
+            // What `uniqueMasters` finds after the renames.
+            var it = sv.models.keyIterator();
+            while (it.next()) |m| try s.models.put(perm, s.renames.get(m.*) orelse m.*, {});
+            try s.subckts.ensureUnusedCapacity(perm, sv.subckts.count());
+            var si = sv.subckts.keyIterator();
+            while (si.next()) |n| try s.subckts.put(perm, n.*, {});
+            if (env) |e| {
+                var mi = e.models.keyIterator();
+                while (mi.next()) |m| try s.models.put(perm, ir.binBase(m.*) orelse m.*, {});
+                var ei = e.subckts.keyIterator();
+                while (ei.next()) |n| try s.subckts.put(perm, n.*, {});
+            }
+        }
+        if (!std.mem.eql(u8, nl.dialect, g.name))
+            s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items);
+        if (caps) |c| for (c.grammars) |*sg| {
+            if (std.mem.eql(u8, sg.name, nl.dialect)) s.source = sg;
+        };
+        var opts = nl.*;
+        opts.stmts = sv.options.items;
+        report.phase = ir.Phase.options;
+        if (try defaultOptions(perm, g, &opts)) |d| {
+            var names: std.ArrayList(u8) = .empty;
+            for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
+                try names.print(perm, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
+            };
+            report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
+            const one = try perm.dupe(ir.Stmt, &.{d});
+            try s.tail(one);
+        }
+    }
+
+    /// The next top-level statements, read and resolved; made in `arena`,
+    /// which may be freed once this returns.
+    pub fn group(s: *Stream, arena: Allocator, stmts_in: []ir.Stmt) Writer.Error!void {
+        const w = &s.w;
+        const g = w.g;
+        const report = w.report;
+        w.arena = arena;
+        defer w.arena = s.keep.perm;
+        var stmts = stmts_in;
+        try s.refs.add(s.keep, stmts);
+        report.phase = ir.Phase.case;
+        if (s.case) try checkCase(stmts, &s.seen, report, g.name, s.keep);
+        if (s.foreign) {
+            report.phase = ir.Phase.params;
+            if (g.unique_param.len > 0) try uniqueParamsIn(stmts, &s.params, s.keep, report, g);
+            if (g.unique_master.len > 0) {
+                report.phase = ir.Phase.renames;
+                if (s.renames.count() > 0) stmts = try renameMasters(w, stmts, &s.renames, &s.told);
+                report.phase = ir.Phase.masters;
+                try clashes(s.keep.perm, stmts, &s.models, &s.subckts, &s.clashed, report, g);
+            }
+        }
+        report.phase = ir.Phase.topology;
+        if (s.topo) |*t| try t.group(stmts);
+        report.phase = ir.Phase.fill;
+        const filled = if (g.fills.len > 0) try w.fill(stmts, s.fill_from) else stmts;
+        if (s.foreign) {
+            report.phase = ir.Phase.checks;
+            try w.check(g, filled);
+            report.phase = ir.Phase.checks_source;
+            if (s.source) |sg| try w.check(sg, filled);
+        }
+        try s.tail(filled);
+    }
+
+    /// The passes after the options are laid out, and the writing itself.
+    fn tail(s: *Stream, in: []const ir.Stmt) Writer.Error!void {
+        const w = &s.w;
+        const g = w.g;
+        const a = w.arena;
+        var stmts = in;
+        if (g.converts.len > 0 and anyConverted(g, stmts)) {
+            const list = try a.dupe(ir.Stmt, stmts);
+            try expr.convert(a, g, list, true);
+            stmts = list;
+        }
+        if (g.blockOf(.model) != null) stmts = try groupBins(a, stmts);
+        // What `stats.prepare` and `pzPorts` would change makes the netlist
+        // be written whole (`stream.zig`): here they only check.
+        w.report.phase = ir.Phase.stats;
+        stats.checkReserved(g, stmts, w.report);
+        w.report.phase = ir.Phase.ceilings;
+        stmts = try idleCeilings(a, stmts, w.report);
+        w.report.phase = ir.Phase.write;
+        for (stmts) |*st| {
+            if (g.wrapOf(st.kind) != null) {
+                try s.wrapped.append(s.keep.perm, try ir.cloneStmt(s.keep, st));
+                continue;
+            }
+            s.sole(st);
+            try w.stmt(st);
+        }
+    }
+
+    fn sole(s: *Stream, st: *const ir.Stmt) void {
+        if (s.analyses == 1 and schema.info(st.kind).class == .analysis and st.kind != .alter) s.w.sole = st;
+    }
+
+    /// Everything after the last statement. `rescan` gives the topology
+    /// check every group again when the top level has islands:
+    /// `rescan.run(*topology.Stream)`.
+    pub fn end(s: *Stream, rescan: anytype) Writer.Error!void {
+        const w = &s.w;
+        const g = w.g;
+        const report = w.report;
+        report.phase = ir.Phase.write;
+        for (g.wraps) |*wr| {
+            // A control block runs in order (VACASK), so settings come before
+            // every analysis: SPICE applies them wherever they stand.
+            var any = false;
+            for ([_]bool{ false, true }) |analyses| for (s.wrapped.items) |*st| {
+                if (g.wrapOf(st.kind) != wr or (schema.info(st.kind).class == .analysis) != analyses) continue;
+                if (!any) try w.line(wr.open);
+                any = true;
+                s.sole(st);
+                try w.stmt(st);
+            };
+            if (any) try w.line(wr.close);
+        }
+        if (g.lex.end_marker.len > 0 and !s.nl.library) try w.line(g.lex.end_marker);
+        report.phase = ir.Phase.caveat;
+        const cp = w.copied;
+        if (cp.n == 1) {
+            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
+                cp.name, cp.family, cp.source, g.name, g.name,
+            });
+        } else if (cp.n > 1) {
+            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: {s} and {s} ship different implementations and versions of these models; parameters were copied as written, check them against {s}", .{
+                cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
+            });
+        }
+        if (s.topo) |*t| {
+            report.phase = ir.Phase.topology;
+            if (try t.islands()) try rescan.run(t);
+            try t.end();
+        }
+        s.refs.settle(report);
+        s.seen.deinit();
+        s.w.scratch.deinit();
+    }
+};

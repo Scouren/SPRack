@@ -198,6 +198,69 @@ pub fn keepText(perm: Allocator, src: []const u8, s: []const u8) Allocator.Error
     return perm.dupe(u8, s);
 }
 
+/// Where names go that must outlive the statements they were read from.
+pub const Keep = struct {
+    perm: Allocator,
+    src: []const u8,
+
+    pub fn text(k: Keep, s: []const u8) Allocator.Error![]const u8 {
+        return keepText(k.perm, k.src, s);
+    }
+};
+
+/// A copy of `v` that shares nothing with the statement it came from but
+/// the netlist's own text.
+pub fn cloneValue(k: Keep, v: Value) Allocator.Error!Value {
+    return switch (v) {
+        .none => .none,
+        .atom => |x| .{ .atom = try k.text(x) },
+        .expr => |x| .{ .expr = try k.text(x) },
+        .str => |x| .{ .str = try k.text(x) },
+        .num => |n| .{ .num = .init(try k.text(n.digits()), n.exp10) },
+        .list => |l| blk: {
+            const out = try k.perm.alloc(Value, l.len);
+            for (l, out) |x, *y| y.* = try cloneValue(k, x);
+            break :blk .{ .list = out };
+        },
+        .params => |ps| blk: {
+            const out = try k.perm.alloc(Param, ps.len);
+            for (ps, out) |x, *y| y.* = .{ .key = try k.text(x.key), .val = try cloneValue(k, x.val) };
+            break :blk .{ .params = out };
+        },
+    };
+}
+
+/// A copy of `st`, its body included, as `cloneValue`.
+pub fn cloneStmt(k: Keep, st: *const Stmt) Allocator.Error!Stmt {
+    var out = st.*;
+    const vals = try k.perm.alloc(Value, st.values().len);
+    for (st.values(), vals) |x, *y| y.* = try cloneValue(k, x);
+    out.bound = vals.ptr;
+    out.raw = try k.text(st.raw);
+    out.tail = try k.text(st.tail);
+    const body = try k.perm.alloc(Stmt, st.body.len);
+    for (st.body, body) |*x, *y| y.* = try cloneStmt(k, x);
+    out.body = body;
+    return out;
+}
+
+/// Add `name` to `set`; with `src`, a name new to it is kept (`keepText`).
+pub fn putName(set: anytype, arena: Allocator, src: ?[]const u8, name: []const u8) Allocator.Error!void {
+    const gop = try set.getOrPut(arena, name);
+    if (!gop.found_existing) if (src) |t| {
+        gop.key_ptr.* = try keepText(arena, t, name);
+    };
+}
+
+/// As `putName`, for a map: the value is set whether the name is new or not.
+pub fn putValue(map: anytype, arena: Allocator, src: ?[]const u8, name: []const u8, v: anytype) Allocator.Error!void {
+    const gop = try map.getOrPut(arena, name);
+    if (!gop.found_existing) if (src) |t| {
+        gop.key_ptr.* = try keepText(arena, t, name);
+    };
+    gop.value_ptr.* = v;
+}
+
 /// Hashes and compares names as an ASCII case-folding dialect reads them.
 pub const Caseless = struct {
     pub fn hash(_: Caseless, s: []const u8) u64 {
@@ -219,6 +282,85 @@ pub const Caseless = struct {
 /// A set of names that ignores case. Each key is the spelling it was first
 /// added with, so no lower-cased copy is ever made.
 pub const CaselessSet = std.HashMapUnmanaged([]const u8, void, Caseless, std.hash_map.default_max_load_percentage);
+
+/// A set of names that ignores case, as `CaselessSet`, at 9 bytes a name
+/// rather than 17: each is kept as its offset and length in `src` (the
+/// netlist's text), or, when it is not there, as an index into `copies`.
+/// Each key is the spelling it was first added with.
+pub const NameSet = struct {
+    src: []const u8,
+    /// Where names not in `src` are copied.
+    perm: Allocator,
+    copies: std.ArrayList([]const u8) = .empty,
+    map: std.HashMapUnmanaged(u64, void, Ctx, std.hash_map.default_max_load_percentage) = .empty,
+
+    const copied: u64 = 1 << 63;
+
+    const Ctx = struct {
+        set: *const NameSet,
+        pub fn hash(c: Ctx, r: u64) u64 {
+            return Caseless.hash(.{}, c.set.text(r));
+        }
+        pub fn eql(_: Ctx, a: u64, b: u64) bool {
+            return a == b;
+        }
+    };
+
+    const ByName = struct {
+        set: *const NameSet,
+        pub fn hash(_: ByName, name: []const u8) u64 {
+            return Caseless.hash(.{}, name);
+        }
+        pub fn eql(c: ByName, name: []const u8, r: u64) bool {
+            return std.ascii.eqlIgnoreCase(name, c.set.text(r));
+        }
+    };
+
+    fn text(set: *const NameSet, r: u64) []const u8 {
+        if (r & copied != 0) return set.copies.items[@intCast(r & ~copied)];
+        const off: usize = @intCast(r >> 24);
+        return set.src[off..][0..@intCast(r & 0xffffff)];
+    }
+
+    pub fn count(set: *const NameSet) usize {
+        return set.map.count();
+    }
+
+    pub fn getKey(set: *const NameSet, name: []const u8) ?[]const u8 {
+        const r = set.map.getKeyAdapted(name, ByName{ .set = set }) orelse return null;
+        return set.text(r);
+    }
+
+    pub fn contains(set: *const NameSet, name: []const u8) bool {
+        return set.map.containsAdapted(name, ByName{ .set = set });
+    }
+
+    /// Add `name` unless a spelling of it is there.
+    pub fn put(set: *NameSet, name: []const u8) Allocator.Error!void {
+        const gop = try set.map.getOrPutContextAdapted(ir_big(), name, ByName{ .set = set }, Ctx{ .set = set });
+        if (gop.found_existing) return;
+        const p = @intFromPtr(name.ptr);
+        const lo = @intFromPtr(set.src.ptr);
+        if (p >= lo and p + name.len <= lo + set.src.len and name.len < 1 << 24) {
+            gop.key_ptr.* = (@as(u64, p - lo) << 24) | name.len;
+        } else {
+            gop.key_ptr.* = copied | set.copies.items.len;
+            set.copies.append(ir_big(), try set.perm.dupe(u8, name)) catch |e| {
+                set.map.removeByPtr(gop.key_ptr);
+                return e;
+            };
+        }
+    }
+
+    pub fn deinit(set: *NameSet) void {
+        set.map.deinit(ir_big());
+        set.copies.deinit(ir_big());
+    }
+};
+
+fn ir_big() Allocator {
+    return big;
+}
 
 /// Note the model families that model cards in `stmts` (and their bodies) use.
 pub fn markFamilies(stmts: []const Stmt, out: *[schema.families.len]bool) void {
@@ -494,6 +636,33 @@ pub const Code = enum {
     ambiguous,
 };
 
+/// The passes of a translation that report, in the order a netlist read
+/// and written whole runs them (`Report.phase`).
+pub const Phase = struct {
+    pub const read: u8 = 0;
+    pub const finish: u8 = 1;
+    pub const bodies: u8 = 2;
+    pub const bins: u8 = 3;
+    pub const segments: u8 = 4;
+    pub const kinds: u8 = 5;
+    /// `sprack project`'s rewriting of include paths.
+    pub const project: u8 = 6;
+    pub const case: u8 = 7;
+    pub const params: u8 = 8;
+    pub const renames: u8 = 9;
+    pub const masters: u8 = 10;
+    pub const topology: u8 = 11;
+    pub const fill: u8 = 12;
+    pub const checks: u8 = 13;
+    pub const checks_source: u8 = 14;
+    pub const options: u8 = 15;
+    pub const stats: u8 = 16;
+    pub const pz: u8 = 17;
+    pub const ceilings: u8 = 18;
+    pub const write: u8 = 19;
+    pub const caveat: u8 = 20;
+};
+
 /// `phase`: the pass that made the entry (`Report.phase`).
 pub const Diag = struct { sev: Severity, code: Code, line: u32, msg: []const u8, phase: u8 = 0 };
 
@@ -507,12 +676,15 @@ pub const Report = struct {
     /// pass order; a stream runs every pass on one statement at a time and
     /// sorts by this at the end (`sortPhases`) to give the same order.
     phase: u8 = 0,
+    /// A pass whose entries another makes again: nothing is recorded.
+    mute: bool = false,
 
     pub fn init(arena: Allocator) Report {
         return .{ .arena = arena };
     }
 
     pub fn add(r: *Report, sev: Severity, code: Code, line: u32, comptime fmt: []const u8, args: anytype) void {
+        if (r.mute) return;
         const msg = r.arena.print(fmt, args) catch return;
         r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase }) catch {};
     }
@@ -570,22 +742,23 @@ pub fn checkModelKinds(arena: Allocator, nl: *const Netlist, report: *Report, en
     }
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
     var subckts: CaselessSet = .empty;
-    try collectModels(arena, nl.stmts, &models, &subckts);
-    try collectFamilies(arena, nl.stmts, &names);
+    try collectModels(arena, nl.stmts, &models, &subckts, null);
+    try collectFamilies(arena, nl.stmts, &names, null);
     if (models.count() == 0) return;
     try checkKinds(nl.stmts, &models, &names, report);
 }
 
-pub fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
+/// Model name to family. With `src`, a name not in it is copied.
+pub fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged([]const u8), src: ?[]const u8) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .model and s.get("family") == .atom and s.get("name") == .atom) {
-            try out.put(arena, s.get("name").atom, s.get("family").atom);
+            try putValue(out, arena, src, s.get("name").atom, s.get("family").atom);
         }
-        try collectFamilies(arena, s.body, out);
+        try collectFamilies(arena, s.body, out, src);
     }
 }
 
-fn checkKinds(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(Kind), names: *const std.StringHashMapUnmanaged([]const u8), report: *Report) Allocator.Error!void {
+pub fn checkKinds(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(Kind), names: *const std.StringHashMapUnmanaged([]const u8), report: *Report) Allocator.Error!void {
     for (stmts) |*s| {
         try checkKinds(s.body, models, names, report);
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
@@ -643,7 +816,7 @@ pub fn resolveInstances(arena: Allocator, nl: *Netlist, env: ?*const Env) Alloca
         var si = e.subckts.keyIterator();
         while (si.next()) |k| try subckts.put(arena, k.*, {});
     }
-    try collectModels(arena, nl.stmts, &models, &subckts);
+    try collectModels(arena, nl.stmts, &models, &subckts, null);
     if (models.count() == 0) return;
     try retag(arena, nl.stmts, &models, &subckts);
 }
@@ -657,9 +830,10 @@ pub fn binBase(name: []const u8) ?[]const u8 {
     return name[0..dot];
 }
 
-fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind), subckts: *CaselessSet) Allocator.Error!void {
+/// With `src`, a name not in it is copied (the statements go away).
+pub fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind), subckts: *CaselessSet, src: ?[]const u8) Allocator.Error!void {
     for (stmts) |*s| {
-        if (s.kind == .subckt and s.get("name") == .atom) try subckts.put(arena, s.get("name").atom, {});
+        if (s.kind == .subckt and s.get("name") == .atom) try putName(subckts, arena, src, s.get("name").atom);
         if (s.kind == .model) {
             const fam = s.get("family");
             const name = s.get("name");
@@ -671,15 +845,15 @@ fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapU
                 kind = .device;
             }
             if (kind) |k| {
-                try out.put(arena, name.atom, k);
-                if (binBase(name.atom)) |base| try out.put(arena, base, k);
+                try putValue(out, arena, src, name.atom, k);
+                if (binBase(name.atom)) |base| try putValue(out, arena, src, base, k);
             }
         }
-        try collectModels(arena, s.body, out, subckts);
+        try collectModels(arena, s.body, out, subckts, src);
     }
 }
 
-fn sameSlots(a: Kind, b: Kind) bool {
+pub fn sameSlots(a: Kind, b: Kind) bool {
     const x = schema.info(a).slots;
     const y = schema.info(b).slots;
     if (x.len != y.len) return false;
@@ -687,7 +861,7 @@ fn sameSlots(a: Kind, b: Kind) bool {
     return true;
 }
 
-fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind), subckts: *const CaselessSet) Allocator.Error!void {
+pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind), subckts: *const CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
         try retag(arena, s.body, models, subckts);
         // One element letter, two device kinds told apart by the model
@@ -848,7 +1022,7 @@ fn foldSteps(arena: Allocator, stmts: []Stmt) Allocator.Error!void {
     }
 }
 
-fn hasSweep(stmts: []const Stmt) bool {
+pub fn hasSweep(stmts: []const Stmt) bool {
     for (stmts) |*s| if (s.kind == .dc or s.kind == .step or hasSweep(s.body)) return true;
     return false;
 }

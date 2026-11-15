@@ -207,6 +207,8 @@ pub fn main(init: std.process.Init) !void {
         break :blk try in_file.interface.allocRemaining(arena, .unlimited);
     };
     var report: ir.Report = .init(arena);
+    // Read and write whole, never as a stream: to compare the two.
+    const whole = init.environ_map.get("SPRACK_WHOLE") != null;
 
     if (std.mem.eql(u8, cmd, "audit")) {
         // Translate, read our own output back with the target's reader, and
@@ -214,9 +216,12 @@ pub fn main(init: std.process.Init) !void {
         // report says why.
         const gf = dialect(io, arena, a.from, "--from");
         const gt = dialect(io, arena, a.to, "--to");
-        const nl = try sprack.read(arena, gf, src, &report);
+        // Its entries are made again by the translation.
+        var read_report: ir.Report = .{ .arena = arena, .mute = true };
+        const nl = try sprack.read(arena, gf, src, &read_report);
+        // The text is translated as `translate` does, a statement at a time.
         var aw: std.Io.Writer.Allocating = .init(arena);
-        try sprack.write(arena, gt, &aw.writer, &nl, &report);
+        _ = try sprack.stream.translate(arena, gf, gt, src, &aw.writer, &report, &sprack.caps, .{ .whole = whole });
         var report_back: ir.Report = .init(arena);
         const back = try sprack.read(arena, gt, aw.written(), &report_back);
 
@@ -253,8 +258,8 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, cmd, "translate")) {
         const gf = dialect(io, arena, a.from, "--from");
         const gt = dialect(io, arena, a.to, "--to");
-        const nl = try sprack.read(arena, gf, src, &report);
-        try sprack.write(arena, gt, result, &nl, &report);
+        const why = try sprack.stream.translate(arena, gf, gt, src, result, &report, &sprack.caps, .{ .whole = whole });
+        if (why) |w| if (init.environ_map.get("SPRACK_STREAM_WHY") != null) try err.print("sprack: read whole: {s}\n", .{w});
     } else if (std.mem.eql(u8, cmd, "read")) {
         const nl = try sprack.read(arena, dialect(io, arena, a.from, "--from"), src, &report);
         try sprack.json.writeNetlist(result, &nl);

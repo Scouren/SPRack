@@ -18,6 +18,7 @@ const schema = @import("schema.zig");
 const ir = @import("ir.zig");
 const reader = @import("reader.zig");
 const writer = @import("writer.zig");
+const stream = @import("stream.zig");
 const json = @import("json.zig");
 
 const Allocator = std.mem.Allocator;
@@ -403,6 +404,46 @@ const Run = struct {
         }
     }
 
+    /// Where the copy of `path` goes; its directory is made.
+    fn outPath(r: *Run, a: Allocator, root_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+        const rel = try relative(a, root_dir, path);
+        const out_path = try std.fmt.allocPrint(a, "{s}/{s}", .{ r.opts.out_dir, rel });
+        std.Io.Dir.cwd().createDirPath(r.io, dirOf(out_path)) catch {};
+        return out_path;
+    }
+
+    const Includes = struct { r: *Run, dir: []const u8 };
+
+    fn includes(ctx: *anyopaque, a: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
+        const in: *Includes = @ptrCast(@alignCast(ctx));
+        try in.r.rewriteIncludes(in.dir, stmts, a, report);
+    }
+
+    fn translateFile(r: *Run, a: Allocator, path: []const u8, root_dir: []const u8, text: []const u8, report: *ir.Report, library: bool) (Allocator.Error || Writer.Error)!void {
+        const out_path = try r.outPath(a, root_dir, path);
+        var buf: [64 * 1024]u8 = undefined;
+        var discard: Writer.Discarding = .init(&buf);
+        const file: ?std.Io.File = std.Io.Dir.cwd().createFile(r.io, out_path, .{}) catch null;
+        defer if (file) |f| f.close(r.io);
+        var fw: std.Io.File.Writer = undefined;
+        if (file) |f| fw = f.writer(r.io, &buf);
+        const out: *Writer = if (file != null) &fw.interface else &discard.writer;
+        var in: Includes = .{ .r = r, .dir = dirOf(path) };
+        const ok = if (stream.translate(a, r.opts.from, r.opts.to.?, text, out, report, r.opts.caps, .{
+            .env = &r.env,
+            .library = library,
+            .hook = .{ .ctx = &in, .run = includes },
+        })) |_| true else |e| switch (e) {
+            error.WriteFailed => false,
+            else => |x| return x,
+        };
+        var failed = file == null or !ok;
+        if (!failed) out.flush() catch {
+            failed = true;
+        };
+        if (failed) r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+    }
+
     fn readFile(r: *Run, path: []const u8, a: Allocator) ?[]const u8 {
         return std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .unlimited) catch null;
     }
@@ -479,21 +520,24 @@ const Run = struct {
             const scratch = scratch_state.allocator();
             const text = r.readFile(path, scratch) orelse continue;
             var report: ir.Report = .init(scratch);
-            var nl = try reader.read(r.opts.from, scratch, text, &report, .{ .env = &r.env, .library = r.opts.library or index >= r.opts.tops.len });
+            const library = r.opts.library or index >= r.opts.tops.len;
             r.sum.files += 1;
-            if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
-            if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
-            if (r.opts.to) |gt| {
-                try r.rewriteIncludes(dirOf(path), nl.stmts, scratch, &report);
-                var aw: Writer.Allocating = .init(scratch);
-                try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
-                const rel = try relative(scratch, root_dir, path);
-                const out_path = try std.fmt.allocPrint(scratch, "{s}/{s}", .{ r.opts.out_dir, rel });
-                const cwd = std.Io.Dir.cwd();
-                cwd.createDirPath(r.io, dirOf(out_path)) catch {};
-                cwd.writeFile(r.io, .{ .sub_path = out_path, .data = aw.written() }) catch {
-                    r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
-                };
+            if (r.opts.to != null and r.opts.catalog == null) {
+                // Translated a statement at a time, straight into the copy.
+                try r.translateFile(scratch, path, root_dir, text, &report, library);
+            } else {
+                var nl = try reader.read(r.opts.from, scratch, text, &report, .{ .env = &r.env, .library = library });
+                if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
+                if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
+                if (r.opts.to) |gt| {
+                    try r.rewriteIncludes(dirOf(path), nl.stmts, scratch, &report);
+                    var aw: Writer.Allocating = .init(scratch);
+                    try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
+                    const out_path = try r.outPath(scratch, root_dir, path);
+                    std.Io.Dir.cwd().writeFile(r.io, .{ .sub_path = out_path, .data = aw.written() }) catch {
+                        r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+                    };
+                }
             }
             for (report.items.items) |d| {
                 // Within a project the other files are translated too.

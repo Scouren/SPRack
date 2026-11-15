@@ -57,6 +57,15 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
     return stmts;
 }
 
+/// Would `prepare` change `stmts`, rather than only check them? Then it
+/// needs every statement of the netlist at once.
+pub fn changes(g: *const Grammar, source: []const u8, stmts: []const Stmt) bool {
+    if (!std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice") and usesDevLot(stmts)) return true;
+    if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) return usesRandom(stmts);
+    if (hasFunction(g, "agauss")) return usesKind(stmts, .statistics);
+    return false;
+}
+
 /// HSPICE's `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run),
 /// or `/unif`: an entry of its own after the parameter it varies.
 fn devLotKey(key: []const u8) ?enum { gauss, unif } {
@@ -117,7 +126,7 @@ fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocator.E
 
 /// A parameter named like a variable the target keeps for itself (Xyce
 /// `vt`, `temp`) is refused there.
-fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report) void {
+pub fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report) void {
     if (g.reserved.len == 0) return;
     for (stmts) |*s| {
         checkReserved(g, s.body, report);

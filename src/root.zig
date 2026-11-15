@@ -18,6 +18,7 @@ pub const json = @import("json.zig");
 pub const project = @import("project.zig");
 pub const stats = @import("stats.zig");
 pub const alter = @import("alter.zig");
+pub const stream = @import("stream.zig");
 
 const Allocator = std.mem.Allocator;
 pub const Grammar = grammar.Grammar;
@@ -192,8 +193,7 @@ pub fn translate(
 ) TranslateError!void {
     const gf = find(from) orelse return error.UnknownDialect;
     const gt = find(to) orelse return error.UnknownDialect;
-    const nl = try reader.read(gf, arena, src, report, .{});
-    try writer.write(gt, arena, out, &nl, report, &caps, null);
+    _ = try stream.translate(arena, gf, gt, src, out, report, &caps, .{});
 }
 
 /// Convenience for tests and bindings: translate into a fresh buffer.
@@ -213,5 +213,6 @@ test {
     _ = project;
     _ = stats;
     _ = alter;
+    _ = stream;
     _ = @import("tests.zig");
 }

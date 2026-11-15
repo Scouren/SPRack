@@ -26,8 +26,40 @@ const Stmt = ir.Stmt;
 const Value = ir.Value;
 const Topo = grammar.Topo;
 
-const NodeMap = std.HashMapUnmanaged([]const u8, u32, ir.Caseless, std.hash_map.default_max_load_percentage);
-const StmtMap = std.HashMapUnmanaged([]const u8, *const Stmt, ir.Caseless, std.hash_map.default_max_load_percentage);
+/// A scope's nodes by name, as indices into its `names`: a netlist may
+/// have millions of nodes.
+const NodeMap = std.HashMapUnmanaged(u32, void, NodeCtx, std.hash_map.default_max_load_percentage);
+
+const NodeCtx = struct {
+    names: []const []const u8,
+
+    pub fn hash(c: NodeCtx, i: u32) u64 {
+        return ir.Caseless.hash(.{}, c.names[i]);
+    }
+
+    pub fn eql(_: NodeCtx, a: u32, b: u32) bool {
+        return a == b;
+    }
+};
+
+const ByName = struct {
+    names: []const []const u8,
+
+    pub fn hash(_: ByName, name: []const u8) u64 {
+        return ir.Caseless.hash(.{}, name);
+    }
+
+    pub fn eql(c: ByName, name: []const u8, i: u32) bool {
+        return std.ascii.eqlIgnoreCase(name, c.names[i]);
+    }
+};
+/// Each subcircuit by name: the first definition of it.
+const DefMap = std.HashMapUnmanaged([]const u8, *Def, ir.Caseless, std.hash_map.default_max_load_percentage);
+
+/// `known`: summarized, or being summarized (`sum` null until done; it
+/// stays null for a body this check cannot read). `stmt` goes away once
+/// summarized when the netlist is read as a stream.
+const Def = struct { stmt: ?*const Stmt, known: bool = false, sum: ?Summary = null };
 
 /// Islands and loops reported per scope; the rest are counted.
 const max_reports = 20;
@@ -43,8 +75,9 @@ const grounded = std.math.maxInt(u32);
 const Summary = struct { dc: []const u32, edges: []const PortEdge };
 const PortEdge = struct { a: u32, b: u32, kind: Mix };
 
-/// A voltage source or inductor, or an instance's path of them.
-const Edge = struct { a: u32, b: u32, s: *const Stmt, kind: Mix };
+/// A voltage source or inductor, or an instance's path of them: its name,
+/// line, and whether it is an instance.
+const Edge = struct { a: u32, b: u32, name: []const u8, line: u32, inst: bool, kind: Mix };
 const Term = struct { node: u32, conducts: bool };
 
 /// Union-find over the node indices of one scope.
@@ -106,10 +139,11 @@ const Cx = struct {
     arena: Allocator,
     g: *const grammar.Grammar,
     report: *ir.Report,
-    subckts: StmtMap = .empty,
+    subckts: DefMap = .empty,
     globals: ir.CaselessSet = .empty,
-    /// A subcircuit being summarized maps to null, so recursion stops.
-    done: std.AutoHashMapUnmanaged(*const Stmt, ?Summary) = .empty,
+    /// The netlist's text: a name in it needs no copy to outlive its
+    /// statement. Null: the whole netlist is at hand, nothing is copied.
+    src: ?[]const u8 = null,
     /// Every analysis skips the DC solve (UIC): nothing needs a DC path.
     no_op: bool = false,
     /// The analyses present; `tran` only for one that solves DC first.
@@ -127,6 +161,12 @@ const Cx = struct {
     fn anyRule(cx: *const Cx, what: Topo) ?grammar.Require {
         for (cx.g.requires) |r| if (r.what == what) return r;
         return null;
+    }
+
+    /// A name read from a statement, as long as the check needs it.
+    fn keep(cx: *const Cx, name: []const u8) Allocator.Error![]const u8 {
+        const src = cx.src orelse return name;
+        return ir.keepText(cx.arena, src, name);
     }
 };
 
@@ -147,11 +187,12 @@ fn node(cx: *Cx, sc: *Scope, v: Value, line: u32) Allocator.Error!?u32 {
     const name = nodeName(v) orelse return null;
     if (std.mem.eql(u8, name, "[") or std.mem.eql(u8, name, "]")) return null;
     if (isGround(name)) return 0;
-    const gop = try sc.map.getOrPut(cx.gpa, name);
-    if (gop.found_existing) return gop.value_ptr.*;
+    const names = sc.names.items;
+    const gop = try sc.map.getOrPutContextAdapted(cx.gpa, name, ByName{ .names = names }, NodeCtx{ .names = names });
+    if (gop.found_existing) return gop.key_ptr.*;
     const i: u32 = @intCast(sc.names.items.len);
-    gop.value_ptr.* = i;
-    try sc.names.append(cx.gpa, name);
+    gop.key_ptr.* = i;
+    try sc.names.append(cx.gpa, try cx.keep(name));
     try sc.lines.append(cx.gpa, line);
     try sc.dc.up.append(cx.gpa, i);
     // A global node is the top level's: take it as grounded.
@@ -199,7 +240,7 @@ fn terms(cx: *Cx, sc: *Scope, s: *const Stmt, add: bool) Allocator.Error![]const
 fn lookup(sc: *const Scope, v: Value) ?u32 {
     const name = nodeName(v) orelse return null;
     if (isGround(name)) return 0;
-    return sc.map.get(name);
+    return sc.map.getKeyAdapted(name, ByName{ .names = sc.names.items });
 }
 
 fn instanceSummary(cx: *Cx, s: *const Stmt) Allocator.Error!?Summary {
@@ -243,7 +284,7 @@ fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!
             for (su.edges) |pe| {
                 if (pe.a >= ts.len or (pe.b != grounded and pe.b >= ts.len)) continue;
                 const b = if (pe.b == grounded) 0 else ts[pe.b].node;
-                try sc.edges.append(cx.gpa, .{ .a = ts[pe.a].node, .b = b, .s = s, .kind = pe.kind });
+                try sc.edges.append(cx.gpa, try edgeOf(cx, ts[pe.a].node, b, s, pe.kind));
             }
             continue;
         }
@@ -256,14 +297,21 @@ fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!
         };
         if (ts.len < 2 or !ts[0].conducts or !ts[1].conducts) continue;
         if (!try fresh(cx, sc, s)) continue;
-        try sc.edges.append(cx.gpa, .{ .a = ts[0].node, .b = ts[1].node, .s = s, .kind = kind });
+        try sc.edges.append(cx.gpa, try edgeOf(cx, ts[0].node, ts[1].node, s, kind));
     }
+}
+
+fn edgeOf(cx: *Cx, a: u32, b: u32, s: *const Stmt, kind: Mix) Allocator.Error!Edge {
+    return .{ .a = a, .b = b, .name = try cx.keep(nodeName(s.get("name")) orelse "?"), .line = s.line, .inst = s.kind == .instance, .kind = kind };
 }
 
 /// False for a second definition of a name already in `sc.edges` (an `.alter`).
 fn fresh(cx: *Cx, sc: *Scope, s: *const Stmt) Allocator.Error!bool {
     const name = nodeName(s.get("name")) orelse return true;
-    return (try sc.edge_names.fetchPut(cx.gpa, name, {})) == null;
+    const gop = try sc.edge_names.getOrPut(cx.gpa, name);
+    if (gop.found_existing) return false;
+    gop.key_ptr.* = try cx.keep(name);
+    return true;
 }
 
 /// The port pairs the body of `sc` joins by voltage sources, inductors or
@@ -308,9 +356,10 @@ fn portEdges(cx: *Cx, sc: *Scope, idx: []const u32) Allocator.Error![]const Port
     return out.items;
 }
 
-fn summarize(cx: *Cx, def: *const Stmt) Allocator.Error!?Summary {
-    if (cx.done.get(def)) |known| return known;
-    try cx.done.put(cx.gpa, def, null);
+fn summarize(cx: *Cx, d: *Def) Allocator.Error!?Summary {
+    if (d.known) return d.sum;
+    d.known = true;
+    const def = d.stmt.?;
     var sc = try newScope(cx);
     defer sc.deinit(cx.gpa);
     const ports = def.get("ports");
@@ -330,7 +379,7 @@ fn summarize(cx: *Cx, def: *const Stmt) Allocator.Error!?Summary {
     const sum: Summary = .{ .dc = group, .edges = try portEdges(cx, &sc, idx) };
     const label = try cx.arena.print("subcircuit '{s}': ", .{nodeName(def.get("name")) orelse "?"});
     try finish(cx, &sc, def.body, idx, label);
-    try cx.done.put(cx.gpa, def, sum);
+    d.sum = sum;
     return sum;
 }
 
@@ -358,27 +407,38 @@ fn list(arena: Allocator, names: []const []const u8, total: usize, quote: bool) 
 /// Report the nodes of `sc` that reach neither ground nor a port, and the
 /// loops among its voltage sources and inductors.
 fn finish(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8) Allocator.Error!void {
-    if (!cx.no_op) {
-        const dc = cx.rule(.@"dc-path");
-        // An island fed by a current source follows its own `cutset` rule;
-        // with none, the dc-path one with any analysis.
-        const cut = if (cx.anyRule(.cutset) != null) cx.rule(.cutset) else cx.anyRule(.@"dc-path");
-        if (dc != null or cut != null) try islands(cx, sc, stmts, ports, label, dc, cut);
-    }
-    if (sc.edges.items.len > 0) try loops(cx, sc, label);
+    var isl: Islands = .{};
+    defer isl.found.deinit(cx.gpa);
+    if (try findIslands(cx, sc, ports, &isl)) try crossings(cx, sc, stmts, &isl.found);
+    try finishFound(cx, sc, &isl, label);
 }
 
-/// An island fed by a current source is reported under `cut`, any other
-/// under `dc`; a null rule reports none.
-fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8, dc: ?grammar.Require, cut: ?grammar.Require) Allocator.Error!void {
+/// The islands of `sc`, while the devices crossing their boundary are
+/// still to be named (`crossings`); then the report. An island fed by a
+/// current source is reported under `cut`, any other under `dc`; a null
+/// rule reports none.
+const Islands = struct {
+    found: std.AutoArrayHashMapUnmanaged(u32, Island) = .empty,
+    more: usize = 0,
+    dc: ?grammar.Require = null,
+    cut: ?grammar.Require = null,
+};
+
+/// True when there are islands to report, whose crossings are wanted.
+fn findIslands(cx: *Cx, sc: *Scope, ports: []const u32, out: *Islands) Allocator.Error!bool {
+    if (cx.no_op) return false;
+    out.dc = cx.rule(.@"dc-path");
+    // An island fed by a current source follows its own `cutset` rule;
+    // with none, the dc-path one with any analysis.
+    out.cut = if (cx.anyRule(.cutset) != null) cx.rule(.cutset) else cx.anyRule(.@"dc-path");
+    if (out.dc == null and out.cut == null) return false;
     const n = sc.names.items.len;
     const reach = try cx.gpa.alloc(bool, n);
     defer cx.gpa.free(reach);
     @memset(reach, false);
     reach[sc.dc.find(0)] = true;
     for (ports) |p| reach[sc.dc.find(p)] = true;
-    var found: std.AutoArrayHashMapUnmanaged(u32, Island) = .empty;
-    defer found.deinit(cx.gpa);
+    const found = &out.found;
     var more: usize = 0;
     for (1..n) |i| {
         const r = sc.dc.find(@intCast(i));
@@ -397,10 +457,18 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
         if (isl.n < max_names) isl.nodes[isl.n] = @intCast(i);
         isl.n += 1;
     }
-    if (found.count() == 0) return;
-    try crossings(cx, sc, stmts, &found);
-    for (found.values()) |*isl| {
-        const rq = (if (isl.current) cut else dc) orelse continue;
+    out.more = more;
+    return found.count() > 0;
+}
+
+fn finishFound(cx: *Cx, sc: *Scope, out: *Islands, label: []const u8) Allocator.Error!void {
+    try reportIslands(cx, sc, out, label);
+    if (sc.edges.items.len > 0) try loops(cx, sc, label);
+}
+
+fn reportIslands(cx: *Cx, sc: *Scope, out: *Islands, label: []const u8) Allocator.Error!void {
+    for (out.found.values()) |*isl| {
+        const rq = (if (isl.current) out.cut else out.dc) orelse continue;
         var names: [max_names][]const u8 = undefined;
         const shown = @min(isl.n, max_names);
         for (isl.nodes[0..shown], 0..) |x, i| names[i] = sc.names.items[x];
@@ -421,7 +489,7 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
             rq.reason,
         });
     }
-    if (more > 0) if (dc) |rq| cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, more, rq.reason });
+    if (out.more > 0) if (out.dc) |rq| cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, out.more, rq.reason });
 }
 
 /// Name, for each island, the devices that cross its boundary: they
@@ -493,7 +561,7 @@ fn loops(cx: *Cx, sc: *Scope, label: []const u8) Allocator.Error!void {
         var names: std.ArrayList([]const u8) = .empty;
         try path(cx, sc, sc.edges.items[0..k], m, e.a, e.b, &names);
         try names.append(cx.arena, try edgeName(cx, sc, e));
-        cx.report.add(if (rq.err) .@"error" else .warning, .invalid, e.s.line, "{s}{s} form a loop of {s} through '{s}' and '{s}'; {s}", .{
+        cx.report.add(if (rq.err) .@"error" else .warning, .invalid, e.line, "{s}{s} form a loop of {s} through '{s}' and '{s}'; {s}", .{
             label,
             try list(cx.arena, names.items, names.items.len, false),
             switch (m) {
@@ -543,45 +611,129 @@ fn path(cx: *Cx, sc: *const Scope, edges: []const Edge, m: Mix, from: u32, to: u
 
 /// An element's name; an instance's with the nodes its path joins, `X1(a,b)`.
 fn edgeName(cx: *Cx, sc: *const Scope, e: Edge) Allocator.Error![]const u8 {
-    const name = nodeName(e.s.get("name")) orelse "?";
-    if (e.s.kind != .instance) return name;
-    return cx.arena.print("{s}({s},{s})", .{ name, sc.names.items[e.a], sc.names.items[e.b] });
+    if (!e.inst) return e.name;
+    return cx.arena.print("{s}({s},{s})", .{ e.name, sc.names.items[e.a], sc.names.items[e.b] });
 }
 
-fn collect(cx: *Cx, stmts: []const Stmt) Allocator.Error!void {
+/// Adds the subcircuits `stmts` define to `cx.subckts`, each new one to
+/// `defs` too, and its global nodes to `cx.globals`.
+fn collect(cx: *Cx, stmts: []const Stmt, defs: *std.ArrayList(*Def)) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .subckt) {
             if (nodeName(s.get("name"))) |name| {
                 const gop = try cx.subckts.getOrPut(cx.gpa, name);
-                if (!gop.found_existing) gop.value_ptr.* = s;
+                if (!gop.found_existing) {
+                    gop.key_ptr.* = try cx.keep(name);
+                    const d = try cx.arena.create(Def);
+                    d.* = .{ .stmt = s };
+                    gop.value_ptr.* = d;
+                    try defs.append(cx.gpa, d);
+                }
             }
         }
         if (s.kind == .global and s.get("nodes") == .list) {
-            for (s.get("nodes").list) |v| if (nodeName(v)) |name| try cx.globals.put(cx.gpa, name, {});
+            for (s.get("nodes").list) |v| if (nodeName(v)) |name| {
+                const gop = try cx.globals.getOrPut(cx.gpa, name);
+                if (!gop.found_existing) gop.key_ptr.* = try cx.keep(name);
+            };
         }
-        try collect(cx, s.body);
+        try collect(cx, s.body, defs);
     }
 }
 
-/// Marks the analyses in `stmts` in `cx.has` (a transient with UIC is not
-/// `tran`); sets `any` for each, and clears `cx.no_op` for each but such a
-/// transient.
-fn analyses(cx: *Cx, stmts: []const Stmt, any: *bool) void {
-    for (stmts) |*s| {
-        if (s.kind == .subckt) continue;
-        analyses(cx, s.body, any);
-        if (schema.info(s.kind).class != .analysis) continue;
-        switch (s.kind) {
-            .step, .montecarlo, .alter => continue,
-            else => {},
+/// Summarize, in the order written, the definitions `collect` found.
+fn summarizeAll(cx: *Cx, defs: []*Def) Allocator.Error!void {
+    std.mem.sortUnstable(*Def, defs, {}, struct {
+        fn lt(_: void, a: *Def, b: *Def) bool {
+            return a.stmt.?.line < b.stmt.?.line;
         }
-        any.* = true;
-        const uic = s.get("skip_dc");
-        if (s.kind == .tran and uic == .atom and std.mem.eql(u8, uic.atom, "yes")) continue;
-        cx.no_op = false;
-        cx.has[@backingInt(s.kind)] = true;
-    }
+    }.lt);
+    for (defs) |d| _ = try summarize(cx, d);
 }
+
+/// What the analyses of a netlist say about the check: whether there is
+/// one, whether every one skips the DC solve, and which there are.
+pub const Facts = struct {
+    any: bool = false,
+    /// Every analysis skips the DC solve (UIC): nothing needs a DC path.
+    no_op: bool = true,
+    /// The analyses present; `tran` only for one that solves DC first.
+    has: [schema.kind_count]bool = @splat(false),
+
+    /// Marks the analyses in `stmts` (a transient with UIC is not `tran`).
+    pub fn add(f: *Facts, stmts: []const Stmt) void {
+        for (stmts) |*s| {
+            if (s.kind == .subckt) continue;
+            f.add(s.body);
+            if (schema.info(s.kind).class != .analysis) continue;
+            switch (s.kind) {
+                .step, .montecarlo, .alter => continue,
+                else => {},
+            }
+            f.any = true;
+            const uic = s.get("skip_dc");
+            if (s.kind == .tran and uic == .atom and std.mem.eql(u8, uic.atom, "yes")) continue;
+            f.no_op = false;
+            f.has[@backingInt(s.kind)] = true;
+        }
+    }
+};
+
+/// The check run on a netlist read as a stream, a few statements at a time
+/// that go away after (`group`). Subcircuits are summarized as they come,
+/// so an instance may come after the definition of what it instantiates,
+/// never before; the top level is walked as it comes. Its islands need
+/// their crossings, so the statements again, before `end` reports them.
+pub const Stream = struct {
+    cx: Cx,
+    top: Scope,
+    defs: std.ArrayList(*Def) = .empty,
+    library: bool,
+    isl: Islands = .{},
+
+    /// Null when `g` requires nothing, or the netlist has no analysis.
+    /// `globals`: every node the netlist's `.global` lines name.
+    pub fn init(gpa: Allocator, arena: Allocator, g: *const grammar.Grammar, report: *ir.Report, src: []const u8, library: bool, facts: Facts, globals: []const []const u8) Allocator.Error!?Stream {
+        if (g.requires.len == 0 or !facts.any) return null;
+        var cx: Cx = .{ .gpa = gpa, .arena = arena, .g = g, .report = report, .src = src, .no_op = facts.no_op, .has = facts.has };
+        for (globals) |n| try cx.globals.put(gpa, try cx.keep(n), {});
+        return .{ .cx = cx, .top = try newScope(&cx), .library = library };
+    }
+
+    pub fn group(s: *Stream, stmts: []const Stmt) Allocator.Error!void {
+        s.defs.clearRetainingCapacity();
+        try collect(&s.cx, stmts, &s.defs);
+        try summarizeAll(&s.cx, s.defs.items);
+        for (s.defs.items) |d| d.stmt = null;
+        if (!s.library) try walk(&s.cx, &s.top, stmts, false);
+    }
+
+    /// After the last group: true when the top level has islands, whose
+    /// crossings `cross` must then be given every group again.
+    pub fn islands(s: *Stream) Allocator.Error!bool {
+        if (s.library or s.top.unread) return false;
+        return findIslands(&s.cx, &s.top, &.{}, &s.isl);
+    }
+
+    pub fn cross(s: *Stream, stmts: []const Stmt) Allocator.Error!void {
+        try crossings(&s.cx, &s.top, stmts, &s.isl.found);
+    }
+
+    pub fn end(s: *Stream) Allocator.Error!void {
+        defer s.deinit();
+        if (s.library or s.top.unread) return;
+        try finishFound(&s.cx, &s.top, &s.isl, "");
+    }
+
+    fn deinit(s: *Stream) void {
+        const gpa = s.cx.gpa;
+        s.isl.found.deinit(gpa);
+        s.top.deinit(gpa);
+        s.defs.deinit(gpa);
+        s.cx.subckts.deinit(gpa);
+        s.cx.globals.deinit(gpa);
+    }
+};
 
 /// Report what of the netlist's topology `g` says its simulator cannot
 /// solve. Tables go to `gpa` and are freed; messages to `arena`.
@@ -590,24 +742,17 @@ pub fn check(gpa: Allocator, arena: Allocator, nl: *const ir.Netlist, g: *const 
     var cx: Cx = .{ .gpa = gpa, .arena = arena, .g = g, .report = report };
     defer cx.subckts.deinit(gpa);
     defer cx.globals.deinit(gpa);
-    defer cx.done.deinit(gpa);
-    var any = false;
-    cx.no_op = true;
-    analyses(&cx, nl.stmts, &any);
+    var facts: Facts = .{};
+    facts.add(nl.stmts);
+    cx.no_op = facts.no_op;
+    cx.has = facts.has;
     // A cell netlisted on its own: how it will be used is not known.
-    if (!any) return;
-    try collect(&cx, nl.stmts);
+    if (!facts.any) return;
     // Every definition, in the order written; instances reuse the summary.
-    var it = cx.subckts.valueIterator();
-    var defs: std.ArrayList(*const Stmt) = .empty;
+    var defs: std.ArrayList(*Def) = .empty;
     defer defs.deinit(gpa);
-    while (it.next()) |d| try defs.append(gpa, d.*);
-    std.mem.sortUnstable(*const Stmt, defs.items, {}, struct {
-        fn lt(_: void, a: *const Stmt, b: *const Stmt) bool {
-            return a.line < b.line;
-        }
-    }.lt);
-    for (defs.items) |d| _ = try summarize(&cx, d);
+    try collect(&cx, nl.stmts, &defs);
+    try summarizeAll(&cx, defs.items);
     // A library's top level is a fragment of some other netlist's.
     if (nl.library) return;
     var sc = try newScope(&cx);

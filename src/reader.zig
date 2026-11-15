@@ -49,6 +49,20 @@ const Matcher = struct {
     const max_stack = 1 << 20;
 
     fn run(self: *Matcher, kind: Kind, pat: []const Node, ti: usize) Allocator.Error!bool {
+        // A pattern whose first item cannot take this token fails at once,
+        // as `m` would find (most rules start with a keyword or a letter).
+        if (pat.len > 0) {
+            const n = pat[0];
+            const t = self.toks()[ti];
+            switch (n.tag) {
+                .lit => if (!litMatches(n, t)) return false,
+                .cap => if (n.prefix.len > 0 and !n.star and !n.plus and n.count == grammar.no_slot and n.slot != grammar.wild_slot) {
+                    const ty = schema.info(kind).slots[n.slot].ty;
+                    if (ty != .value and ty != .signal and !std.mem.startsWith(u8, t.text, n.prefix)) return false;
+                },
+                else => {},
+            }
+        }
         self.kind = kind;
         self.log.clearRetainingCapacity();
         self.stack_top = @frameAddress();
@@ -931,10 +945,15 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
 ///
 /// Only names that appear capitalised somewhere are stored. A netlist written
 /// entirely in lower case, as large generated ones are, costs nothing here.
+pub const Needed = struct { set: ir.CaselessSet = .empty, failed: bool = false };
+
 const Spelling = struct {
     const Map = std.StringHashMapUnmanaged([]const u8);
     /// The capitalised spelling of each name, found by any spelling.
-    mixed: ir.CaselessSet = .empty,
+    mixed: ir.NameSet,
+    /// While set, the names of `mixed` some lookup was answered with a
+    /// spelling other than the one it would fall back to (`prune`).
+    needed: ?*Needed = null,
     /// Lower-cased names of the parameters the netlist itself defines.
     /// Built-in parameter names (`w`, `l`, `tc1`) are not in it and are
     /// written in lower case, which is what a case-sensitive target expects.
@@ -1039,19 +1058,44 @@ const Spelling = struct {
     fn learn(sp: *Spelling, name: []const u8) Allocator.Error!void {
         for (name) |c| {
             if (!std.ascii.isUpper(c)) continue;
-            const gop = try sp.mixed.getOrPut(ir.big, name);
-            if (!gop.found_existing) gop.key_ptr.* = try sp.keep(name);
-            return;
+            return sp.mixed.put(name);
         }
     }
 
     fn deinit(sp: *Spelling) void {
-        sp.mixed.deinit(ir.big);
+        sp.mixed.deinit();
     }
 
     fn spell(sp: *const Spelling, raw: []const u8) []const u8 {
         if (sp.mixed.count() == 0 or raw.len > 256) return raw;
-        return sp.mixed.getKey(raw) orelse raw;
+        return sp.lookup(raw, raw);
+    }
+
+    /// The capitalised spelling of `name`, else `fallback`.
+    fn lookup(sp: *const Spelling, name: []const u8, fallback: []const u8) []const u8 {
+        const k = sp.mixed.getKey(name) orelse return fallback;
+        if (sp.needed) |n| if (!std.mem.eql(u8, k, fallback)) {
+            n.set.put(ir.big, k, {}) catch {
+                n.failed = true;
+            };
+        };
+        return k;
+    }
+
+    /// Keep only the names `needed` recorded: a pass that reads the same
+    /// statements again gets the same answers from the smaller table.
+    fn prune(sp: *Spelling) void {
+        const n = sp.needed orelse return;
+        sp.needed = null;
+        if (n.failed) return;
+        var small: ir.NameSet = .{ .src = sp.src, .perm = sp.perm };
+        var it = n.set.keyIterator();
+        while (it.next()) |k| small.put(k.*) catch {
+            small.deinit();
+            return;
+        };
+        sp.mixed.deinit();
+        sp.mixed = small;
     }
 
     fn atom(sp: *const Spelling, v: Value) Value {
@@ -1108,7 +1152,7 @@ const Spelling = struct {
                             // A subcircuit's parameter, which may be defined
                             // in another file: spelled as the source does.
                             const low = try lowered(arena, p.key);
-                            p.key = sp.params.get(low) orelse sp.mixed.getKey(low) orelse p.key;
+                            p.key = sp.params.get(low) orelse sp.lookup(low, p.key);
                         } else p.key = sp.params.get(try lowered(arena, p.key)) orelse try lowered(arena, p.key);
                     }
                 },
@@ -1121,7 +1165,7 @@ const Spelling = struct {
     fn identifier(sp: *const Spelling, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 {
         const low = try lowered(arena, word);
         if (is_call) return low;
-        return sp.params.get(low) orelse sp.mixed.getKey(low) orelse low;
+        return sp.params.get(low) orelse sp.lookup(low, low);
     }
 
     fn signal(sp: *const Spelling, arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
@@ -2031,12 +2075,21 @@ fn numericSegments(st: *const ir.Stmt) bool {
 /// A `.measure` that names no analysis (HSPICE) measures the last analysis
 /// of the netlist.
 fn measureAnalysis(arena: Allocator, list: []ir.Stmt) Allocator.Error!void {
-    const ai = schema.slotIndex(.measure, "analysis").?;
-    var last: ?[]const u8 = null;
+    return measureWith(arena, list, lastAnalysis(list, null));
+}
+
+/// The last analysis a `.measure` may measure, of `list` and after `before`.
+pub fn lastAnalysis(list: []const ir.Stmt, before: ?[]const u8) ?[]const u8 {
+    var last = before;
     for (list) |st| switch (st.kind) {
         .tran, .ac, .dc => last = @tagName(st.kind),
         else => {},
     };
+    return last;
+}
+
+fn measureWith(arena: Allocator, list: []ir.Stmt, last: ?[]const u8) Allocator.Error!void {
+    const ai = schema.slotIndex(.measure, "analysis").?;
     const name = last orelse return;
     for (list) |*st| {
         if (st.kind == .measure and st.at(ai) == .none) try st.set(arena, ai, .{ .atom = name });
@@ -2179,7 +2232,7 @@ pub const Source = struct {
         s.r = .{
             .g = g,
             .arena = perm,
-            .spell = .{ .perm = perm, .src = src },
+            .spell = .{ .perm = perm, .src = src, .mixed = .{ .src = src, .perm = perm } },
             .lines = &s.lines,
             .report = report,
             .boiler = boiler.items,
@@ -2213,7 +2266,107 @@ pub const Source = struct {
         s.r.m.arena = arena;
         s.r.m.log = .empty;
     }
+
+    /// The next top-level statements: one, with the comment lines before
+    /// it, or the several statements of one line. False at the end.
+    pub fn next(s: *Source, out: *std.ArrayList(ir.Stmt)) Allocator.Error!bool {
+        while (true) {
+            const n = out.items.len;
+            switch (try s.r.step(null, null, out)) {
+                .eof => return false,
+                .closed => unreachable,
+                .more => if (out.items.len > n) return true,
+            }
+        }
+    }
+
+    /// Done with every statement read so far: the lines they came from go.
+    pub fn between(s: *Source) void {
+        s.win.drop(s.r.ti);
+        s.r.ti = 0;
+        s.lines.recycle();
+    }
+
+    /// The spelling a case-folding reader gives every name of its class:
+    /// two names that both have it are the same text.
+    pub fn canonical(s: *const Source, name: []const u8) bool {
+        if (s.r.spell.mixed.getKey(name)) |k| return std.mem.eql(u8, k, name);
+        for (name) |c| if (std.ascii.isUpper(c)) return false;
+        return true;
+    }
+
+    /// Record, until `prune`, which names of the spelling table answer a
+    /// lookup with a spelling of their own.
+    pub fn watchSpelling(s: *Source, needed: *Needed) void {
+        s.r.spell.needed = needed;
+    }
+
+    /// Keep only the names `watchSpelling` recorded; the others answered
+    /// every lookup with what it falls back to. Kept whole if the record
+    /// could not be made.
+    pub fn pruneSpelling(s: *Source) void {
+        s.r.spell.prune();
+    }
+
+    /// Parameters first defined in a pass after the first (a line split in
+    /// two, `splitAt`), which respell names in statements before them.
+    pub fn paramCount(s: *const Source) usize {
+        return s.r.spell.params.count();
+    }
+
+    /// The passes `read` runs over the whole netlist that need nothing but
+    /// the statements `next` gave, run on them. `last`: the netlist's last
+    /// analysis (`lastAnalysis`), which a `.measure` naming none measures.
+    pub fn finishGroup(s: *Source, list: *std.ArrayList(ir.Stmt), report: *ir.Report, last: ?[]const u8) Allocator.Error!void {
+        const r = &s.r;
+        const g = r.g;
+        const arena = r.arena;
+        report.phase = ir.Phase.finish;
+        try r.finish(list.items);
+        report.phase = ir.Phase.bodies;
+        for (list.items) |*st| {
+            if (st.body.len > 0) st.body = try normalizeLists(g, arena, st.body, report);
+        }
+        report.phase = ir.Phase.bins;
+        try flattenBins(g, arena, list, report);
+        report.phase = ir.Phase.segments;
+        try foldSegments(arena, list.items, report);
+        try measureWith(arena, list.items, last);
+        try expr.convert(arena, g, list.items, false);
+    }
 };
+
+/// What resolving instances and checking model kinds need of the whole
+/// netlist (`ir.resolveInstances`, `ir.checkModelKinds`).
+pub const Tables = struct {
+    models: std.StringHashMapUnmanaged(Kind) = .empty,
+    subckts: ir.CaselessSet = .empty,
+    families: std.StringHashMapUnmanaged([]const u8) = .empty,
+
+    pub fn init(arena: Allocator, env: ?*const ir.Env) Allocator.Error!Tables {
+        var t: Tables = .{};
+        if (env) |e| {
+            var it = e.models.iterator();
+            while (it.next()) |kv| try t.models.put(arena, kv.key_ptr.*, kv.value_ptr.*);
+            var si = e.subckts.keyIterator();
+            while (si.next()) |k| try t.subckts.put(arena, k.*, {});
+        }
+        return t;
+    }
+
+    pub fn add(t: *Tables, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+        try ir.collectModels(k.perm, stmts, &t.models, &t.subckts, k.src);
+        try ir.collectFamilies(k.perm, stmts, &t.families, k.src);
+    }
+};
+
+/// The passes `read` ends with, on the statements `Source.next` gave.
+pub fn resolveGroup(g: *const Grammar, arena: Allocator, list: []ir.Stmt, t: *const Tables, report: *ir.Report) Allocator.Error!void {
+    if (t.models.count() > 0) try ir.retag(arena, list, &t.models, &t.subckts);
+    try rebindParams(g, arena, list);
+    report.phase = ir.Phase.kinds;
+    if (t.models.count() > 0) try ir.checkKinds(list, &t.models, &t.families, report);
+}
 
 fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!ir.Netlist {
     const env = opts.env;
