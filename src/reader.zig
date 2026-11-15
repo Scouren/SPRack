@@ -116,10 +116,13 @@ const Matcher = struct {
         if (t.f.key) return null;
         if (t.tag == .expr) return .{ .v = .{ .expr = t.text }, .n = 1 };
         if (t.tag != .word) return null;
+        // `-i(vc)`: a signal negated is an expression.
+        const neg = t.raw.len > 1 and t.raw[0] == '-';
         var text: std.ArrayList(u8) = .empty;
-        try text.appendSlice(self.arena, t.raw);
+        try text.appendSlice(self.arena, if (neg) t.raw[1..] else t.raw);
         var n: usize = 1;
         if (t.f.call) {
+            // Calls may nest (`db(i(vm))`); at most three names per call.
             const tokens = !self.g.lex.parens_are_space;
             var j = ti + 1;
             if (tokens) {
@@ -127,24 +130,40 @@ const Matcher = struct {
                 j += 1;
             }
             try text.append(self.arena, '(');
+            var depth: usize = 1;
             var count: usize = 0;
-            while (true) : (j += 1) {
+            while (depth > 0) : (j += 1) {
                 const a = self.toks()[j];
-                if (a.tag != .word or a.f.key or count == 3) return null;
+                if (tokens and a.tag == .rparen) {
+                    try text.append(self.arena, ')');
+                    depth -= 1;
+                    continue;
+                }
+                // `v(a)=0.5`: the `=` after the call marks its last name a key.
+                const closes = if (tokens) self.toks()[j + 1].tag == .rparen else a.closes > 0;
+                if (a.tag != .word or (a.f.key and !closes) or count == 3 or j - ti > 12) return null;
                 if (count > 0) try text.append(self.arena, ',');
                 try text.appendSlice(self.arena, a.raw);
                 count += 1;
-                if (tokens) {
-                    if (self.toks()[j + 1].tag == .rparen) {
+                if (a.f.call) {
+                    if (tokens) {
+                        if (self.toks()[j + 1].tag != .lparen) return null;
                         j += 1;
-                        break;
                     }
-                } else if (a.closes > 0) break;
+                    try text.append(self.arena, '(');
+                    depth += 1;
+                    count = 0;
+                }
+                if (!tokens) for (0..a.closes) |_| {
+                    if (depth == 0) break;
+                    try text.append(self.arena, ')');
+                    depth -= 1;
+                };
             }
-            try text.append(self.arena, ')');
-            n = j - ti + 1;
+            n = j - ti;
         }
         const canon = (try signalCanon(self.arena, self.g, text.items)) orelse return null;
+        if (neg) return .{ .v = .{ .expr = try std.mem.concat(self.arena, u8, &.{ "-", canon }) }, .n = n };
         return .{ .v = .{ .atom = canon }, .n = n };
     }
 
@@ -300,7 +319,8 @@ const Matcher = struct {
             },
             .taglit => {
                 if (!litMatches(node, t)) return false;
-                try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = node.atom } });
+                const num = if (self.slot(node.slot).ty == .value) lexer.parseNumber(self.arena, &self.g.lex, node.atom) else null;
+                try self.log.append(self.arena, .{ .slot = node.slot, .val = if (num) |n| .{ .num = n } else .{ .atom = node.atom } });
                 if (try self.m(rest, ti + 1, k)) return true;
                 self.log.shrinkRetainingCapacity(mark);
                 return false;
@@ -324,6 +344,19 @@ const Matcher = struct {
                 }
                 self.allow_key = beforeEq(rest);
                 defer self.allow_key = false;
+                if (node.count != grammar.no_slot) {
+                    const want = self.countOf(node.count) orelse return false;
+                    for (0..want) |i| {
+                        const v = (try self.capOne(node, self.toks()[ti + i])) orelse {
+                            self.log.shrinkRetainingCapacity(mark);
+                            return false;
+                        };
+                        try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
+                    }
+                    if (try self.m(rest, ti + want, k)) return true;
+                    self.log.shrinkRetainingCapacity(mark);
+                    return false;
+                }
                 if (node.star or node.plus) {
                     // Greedy, then give tokens back one at a time.
                     var n: usize = 0;
@@ -378,7 +411,19 @@ const Matcher = struct {
                 const c: Cont = .{ .items = rest, .next = k };
                 return self.m(node.kids, ti, &c);
             },
-            .rep => {
+            .rep => if (node.count != grammar.no_slot) {
+                // Exactly as many passes as the count says: written out.
+                const want = self.countOf(node.count) orelse return false;
+                var seq: std.ArrayList(Node) = .empty;
+                for (0..want) |i| {
+                    if (i > 0) try seq.appendSlice(self.arena, node.sep);
+                    try seq.appendSlice(self.arena, node.kids);
+                }
+                const c: Cont = .{ .items = rest, .next = k };
+                if (try self.m(seq.items, ti, &c)) return true;
+                self.log.shrinkRetainingCapacity(mark);
+                return false;
+            } else {
                 // Greedy: one more pass, then this node again; else stop
                 // here. `star` on the node marks a pass already taken, so
                 // the next one starts with the separator.
@@ -439,6 +484,17 @@ const Matcher = struct {
                         if (vt.tag == .nl or vt.tag == .eq) break;
                         if (!try self.bagEntry(node, kt.text, kt.raw, vt)) break;
                         j += 3;
+                        // `R=0.2 0 0.2`: the numbers after one open-ended
+                        // key are its matrix (CPL and RLGC line models).
+                        const last = &self.log.items[self.log.items.len - 1];
+                        if (last.key.len > 0 and last.val == .num and self.toks()[j].tag == .word and !self.toks()[j].f.key and self.number(self.toks()[j]) != null) {
+                            var matrix: std.ArrayList(Value) = .empty;
+                            try matrix.append(self.arena, last.val);
+                            while (self.toks()[j].tag == .word and !self.toks()[j].f.key) : (j += 1) {
+                                try matrix.append(self.arena, .{ .num = self.number(self.toks()[j]) orelse break });
+                            }
+                            last.val = .{ .list = matrix.items };
+                        }
                         continue;
                     }
                     if (kt.f.call) {
@@ -489,6 +545,21 @@ const Matcher = struct {
                 return false;
             },
         }
+    }
+
+    /// The count captured earlier in this match for `#slot`; at most 64.
+    fn countOf(self: *const Matcher, want: u8) ?usize {
+        var i = self.log.items.len;
+        while (i > 0) {
+            i -= 1;
+            const c = self.log.items[i];
+            if (c.slot != want or c.key.len > 0) continue;
+            if (c.val != .num) return null;
+            const f = c.val.num.toFloat();
+            if (!(f >= 1 and f <= 64 and f == @floor(f))) return null;
+            return @intFromFloat(f);
+        }
+        return null;
     }
 
     /// The end of a run of tokens, balanced in parentheses, that stops at an
@@ -630,11 +701,16 @@ fn valueIsText(arena: Allocator, g: *const Grammar, v: Value, text: []const u8) 
             const want = lexer.parseNumber(arena, &g.lex, text) orelse break :blk false;
             break :blk n.toFloat() == want.toFloat();
         },
-        .atom => |s| std.mem.eql(u8, s, text),
-        .expr => |s| std.mem.eql(u8, s, text),
-        .str => |s| std.mem.eql(u8, s, text),
+        .atom => |s| sameText(g, s, text),
+        .expr => |s| sameText(g, s, text),
+        .str => |s| sameText(g, s, text),
         else => false,
     };
+}
+
+/// `modeltype=RLGC` is `rlgc` where case does not matter.
+fn sameText(g: *const Grammar, a: []const u8, b: []const u8) bool {
+    return if (g.lex.case_sensitive) std.mem.eql(u8, a, b) else std.ascii.eqlIgnoreCase(a, b);
 }
 
 /// Replace a dialect's model spelling (`nmos level=54`) with the canonical
@@ -646,7 +722,15 @@ fn matchTemplate(tmpl: []const u8, folded: []const u8, raw: []const u8, args: *[
     if (!std.mem.startsWith(u8, folded, head)) return null;
     var pos = head.len;
     var n: usize = 0;
-    while (it.next()) |lit| {
+    var seen: usize = 0;
+    while (it.next()) |whole| {
+        // `%2`: the second name, where this dialect gives them in another order.
+        var lit = whole;
+        var at = n;
+        if (lit.len > 0 and lit[0] >= '1' and lit[0] <= '3') {
+            at = lit[0] - '1';
+            lit = lit[1..];
+        }
         const last = it.peek() == null;
         const end = if (last) blk: {
             if (folded.len < pos + lit.len or !std.mem.endsWith(u8, folded[pos..], lit)) return null;
@@ -654,11 +738,12 @@ fn matchTemplate(tmpl: []const u8, folded: []const u8, raw: []const u8, args: *[
         } else std.mem.indexOfPos(u8, folded, pos, lit) orelse return null;
         if (end <= pos or n == args.len) return null;
         if (std.mem.indexOfAny(u8, raw[pos..end], "(), \t") != null) return null;
-        args[n] = raw[pos..end];
+        args[at] = raw[pos..end];
+        seen = @max(seen, at + 1);
         n += 1;
         pos = end + lit.len;
     }
-    return if (pos == folded.len) n else null;
+    return if (pos == folded.len and seen == n) n else null;
 }
 
 /// The canonical spelling of a signal written in this dialect, or null if
@@ -667,6 +752,8 @@ pub fn signalCanon(arena: Allocator, g: *const Grammar, text: []const u8) Alloca
     const folded = if (g.lex.case_sensitive) text else try std.ascii.allocLowerString(arena, text);
     var args: [3][]const u8 = undefined;
     for (g.signals) |sf| {
+        // An expression is told by its syntax, not by a template.
+        if (std.mem.eql(u8, sf.form, "expr")) continue;
         const n = matchTemplate(sf.template, folded, text, &args) orelse continue;
         if (std.mem.eql(u8, sf.form, "all")) return "all";
         const name = if (std.mem.eql(u8, sf.form, "vdiff")) "v" else sf.form;

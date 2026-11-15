@@ -143,6 +143,9 @@ pub const Node = struct {
     bare: bool = false,
     /// `signals#1`: a list slot that this form holds exactly one item of.
     one: bool = false,
+    /// `vsrcs#dim`, `( cpos cneg )#dim`: as many items, or passes, as the
+    /// number captured earlier in slot `count`.
+    count: u8 = no_slot,
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
     /// Separator of a repeated group: none, or one `lit` or `glue` node.
@@ -163,7 +166,8 @@ pub const Block = struct {
 /// (VACASK's `control` ... `endc`). Transparent to the IR.
 pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Kind };
 /// A region in a different language, kept verbatim (ngspice `.control`).
-pub const RawBlock = struct { open: []const u8, close: []const u8 };
+/// `reason`: why no other dialect can take it (`raw "embed" ">>>FILE" : ...`).
+pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []const u8 = "" };
 /// Boilerplate this dialect needs when a kind, or a model of a family, is
 /// used (VACASK `load`).
 pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const []const u8 };
@@ -178,7 +182,7 @@ pub const Convert = struct {
     when_atom: []const u8 = "",
     dst: u8,
     src: u8,
-    op: enum { copy, sub, add, recip } = .copy,
+    op: enum { copy, sub, add, recip, mul, div } = .copy,
     /// The other operand of `-` or `+`: a slot, or else a number.
     arg_slot: u8 = no_slot,
     arg_num: []const u8 = "",
@@ -555,7 +559,7 @@ const P = struct {
                 '(' => depth += 1,
                 ')' => {
                     depth -= 1;
-                    if (depth == 0) return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+');
+                    if (depth == 0) return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+' or p.s[j + 1] == '#');
                 },
                 else => {},
             }
@@ -594,8 +598,9 @@ const P = struct {
                 const group: Node = .{ .tag = .alt, .kids = alts };
                 if (!rep) return group;
                 // `( ... )*` or `( ... )+`, a separator glued on: `( ... )*","`.
-                var n: Node = .{ .tag = .rep, .plus = p.peek() == '+', .kids = try p.c.add(Node, &.{}, group) };
+                var n: Node = .{ .tag = .rep, .plus = p.peek() != '*', .kids = try p.c.add(Node, &.{}, group) };
                 p.i += 1;
+                if (p.s[p.i - 1] == '#') n.count = try p.countSlot();
                 if (p.quoted()) {
                     n.sep = try p.c.add(Node, &.{}, .{ .tag = .lit, .text = try p.lit(try p.string()) });
                 } else if (p.peek() == '~') {
@@ -649,7 +654,9 @@ const P = struct {
                 atom = try p.ident();
             }
             const slot = try p.slotOf(name);
-            if (p.slotInfo(slot).ty != .atom) return p.err("tagged literal needs an atom slot, '{s}' is not one", .{name});
+            // On a value slot (`acmag:"ac"=1`) the literal stands for a number.
+            const vty = p.slotInfo(slot).ty;
+            if (vty != .atom and !(vty == .value and !p.slotInfo(slot).list)) return p.err("tagged literal needs an atom slot, '{s}' is not one", .{name});
             if (p.in_rep and !p.slotInfo(slot).list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
             var soft = false;
             if (p.peek() == '?') {
@@ -685,10 +692,14 @@ const P = struct {
                 },
                 '#' => {
                     p.i += 1;
-                    if (p.peek() != '1') return p.err("expected '#1' after '{s}'", .{name});
-                    p.i += 1;
-                    if (n.slot == wild_slot or !p.slotInfo(n.slot).list) return p.err("'{s}#1' needs a list slot", .{name});
-                    n.one = true;
+                    if (n.slot == wild_slot or !p.slotInfo(n.slot).list) return p.err("'{s}#' needs a list slot", .{name});
+                    if (p.peek() == '1') {
+                        p.i += 1;
+                        n.one = true;
+                    } else {
+                        n.count = try p.countSlot();
+                        n.plus = true;
+                    }
                 },
                 else => break,
             }
@@ -703,6 +714,15 @@ const P = struct {
             if (si.ty == .params or si.ty == .text) return p.err("slot '{s}' cannot be captured as a single token", .{name});
         }
         return n;
+    }
+
+    /// The slot after `#` that holds a count: a single value.
+    fn countSlot(p: *P) Error!u8 {
+        const name = try p.ident();
+        const slot = try p.slotOf(name);
+        const si = p.slotInfo(slot);
+        if (si.ty != .value or si.list) return p.err("'#{s}' needs a value slot holding a count", .{name});
+        return slot;
     }
 
     fn bag(p: *P) Error!Node {
@@ -1049,11 +1069,13 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .kinds = kinds,
             });
         } else if (std.mem.eql(u8, head, "raw")) {
-            const lits = try args(c, no, rest);
-            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\"`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ");
+            const lits = try args(c, no, if (colon) |k| rest[0..k] else rest);
+            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\" [: reason]`", .{});
             raws = try c.add(RawBlock, raws, .{
                 .open = try c.foldIf(fold, lits[0]),
                 .close = try c.foldIf(fold, lits[1]),
+                .reason = if (colon) |k| rest[k + 3 ..] else "",
             });
         } else if (std.mem.eql(u8, head, "block")) {
             const kind = try kindOf(c, no, rest);
@@ -1130,8 +1152,13 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 cv.op = .recip;
                 cv.src = try slotNamed(c, no, kind, e[4]);
                 if (cv.src != cv.dst) return c.fail(no, "`a = 1 / b` needs a and b to be the same slot", .{});
-            } else if (e.len == 5 and (std.mem.eql(u8, e[3], "-") or std.mem.eql(u8, e[3], "+"))) {
-                cv.op = if (e[3][0] == '-') .sub else .add;
+            } else if (e.len == 5 and e[3].len == 1 and std.mem.indexOfScalar(u8, "-+*/", e[3][0]) != null) {
+                cv.op = switch (e[3][0]) {
+                    '-' => .sub,
+                    '+' => .add,
+                    '*' => .mul,
+                    else => .div,
+                };
                 cv.src = try slotNamed(c, no, kind, e[2]);
                 if (cv.src != cv.dst) return c.fail(no, "`a = b - c` needs a and b to be the same slot", .{});
                 if (schema.slotIndex(kind, e[4])) |si| {
@@ -1140,7 +1167,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     _ = try parseDecimal(c, no, e[4]);
                     cv.arg_num = e[4];
                 }
-            } else return c.fail(no, "expected `a = b`, `a = a - c`, `a = a + c` or `a = 1 / a`", .{});
+            } else return c.fail(no, "expected `a = b`, `a = a - c`, `a = a + c`, `a = a * c`, `a = a / c` or `a = 1 / a`", .{});
             converts = try c.add(Convert, converts, cv);
         } else if (std.mem.eql(u8, head, "invalid")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "invalid is `invalid kind slot[=0] [slot=atom] : text`", .{});

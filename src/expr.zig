@@ -288,7 +288,7 @@ fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
     };
 }
 
-pub const Op = enum { add, sub, recip };
+pub const Op = enum { add, sub, recip, mul, div };
 
 /// `a + b`, `a - b` or `1 / a`, exact when both are plain numbers (and, for
 /// `1 / a`, when `a` is a power of ten); otherwise a canonical expression.
@@ -301,6 +301,25 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
             var k: i32 = 0;
             while (m >= 10 and @rem(m, 10) == 0) : (k += 1) m = @divExact(m, 10);
             if (m == 1) return .{ .num = .init(if (x[0] < 0) "-1" else "1", -(x[1] + k)) };
+        },
+        .mul => if (da != null and db != null) exact: {
+            var m = std.math.mul(i128, da.?[0], db.?[0]) catch break :exact;
+            var ex = da.?[1] + db.?[1];
+            while (m != 0 and @rem(m, 10) == 0) : (ex += 1) m = @divExact(m, 10);
+            while (m != 0 and @mod(ex, 3) != 0) : (ex -= 1) m *= 10;
+            return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), ex) };
+        },
+        // Exact only by a power of ten.
+        .div => if (da != null and db != null) exact: {
+            var d = db.?[0];
+            var k: i32 = 0;
+            while (d != 0 and @rem(d, 10) == 0) : (k += 1) d = @divExact(d, 10);
+            if (d != 1 and d != -1) break :exact;
+            var m = da.?[0] * d;
+            var ex = da.?[1] - db.?[1] - k;
+            while (m != 0 and @rem(m, 10) == 0) : (ex += 1) m = @divExact(m, 10);
+            while (m != 0 and @mod(ex, 3) != 0) : (ex -= 1) m *= 10;
+            return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), ex) };
         },
         .add, .sub => if (da != null and db != null) exact: {
             const e = @min(da.?[1], db.?[1]);
@@ -319,6 +338,8 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
         .recip => try std.fmt.allocPrint(arena, "1/({s})", .{ta}),
         .add => try std.fmt.allocPrint(arena, "{s} + ({s})", .{ ta, try canonText(arena, b) }),
         .sub => try std.fmt.allocPrint(arena, "{s} - ({s})", .{ ta, try canonText(arena, b) }),
+        .mul => try std.fmt.allocPrint(arena, "({s}) * ({s})", .{ ta, try canonText(arena, b) }),
+        .div => try std.fmt.allocPrint(arena, "({s}) / ({s})", .{ ta, try canonText(arena, b) }),
     } };
 }
 
@@ -407,6 +428,7 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
                 .recip => try arith(arena, .recip, v, .none),
                 // A missing operand counts as zero: nothing to do.
                 .sub, .add => if (arg == .none) continue else try arith(arena, if ((cv.op == .sub) == forward) .sub else .add, v, arg),
+                .mul, .div => if (arg == .none) continue else try arith(arena, if ((cv.op == .mul) == forward) .mul else .div, v, arg),
             };
             if (!copied) {
                 try st.own(arena);

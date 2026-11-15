@@ -372,6 +372,12 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
                 } else if (depth == 0 and (ch == ' ' or ch == '\t')) break;
             }
             var run = text[i..j];
+            // `= (0,0) (1,2)`: a comma at the top level of the parentheses
+            // makes a list (a TABLE's pairs), not an expression.
+            if (!cfg.bare_expr and run.len > 0 and run[0] == '(' and topComma(run)) {
+                after_eq = false;
+                continue;
+            }
             i = j;
             // `(a + b)` and `a + b` are the same expression; writers add the
             // parentheses only to protect the blanks.
@@ -404,6 +410,17 @@ fn tokenizeLine(arena: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text:
         toks.items[toks.items.len - 1].f.call = j < text.len and text[j] == '(';
         i = j;
     }
+}
+
+fn topComma(run: []const u8) bool {
+    var depth: usize = 0;
+    for (run) |ch| switch (ch) {
+        '(' => depth += 1,
+        ')' => depth -|= 1,
+        ',' => if (depth == 1) return true,
+        else => {},
+    };
+    return false;
 }
 
 /// Join physical lines into logical ones and find the end marker. Tokens

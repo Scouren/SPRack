@@ -256,13 +256,21 @@ const Emit = struct {
             if (!std.mem.eql(u8, sf.form, form)) continue;
             var out: std.ArrayList(u8) = .empty;
             var k: usize = 0;
-            for (sf.template) |c| {
+            var i: usize = 0;
+            while (i < sf.template.len) : (i += 1) {
+                const c = sf.template[i];
                 if (c != '%') {
                     try out.append(e.arena, c);
-                } else if (k < n) {
-                    try out.appendSlice(e.arena, args[k]);
-                    k += 1;
+                    continue;
                 }
+                // `%2`: that name, not the next one.
+                var at = k;
+                if (i + 1 < sf.template.len and sf.template[i + 1] >= '1' and sf.template[i + 1] <= '3') {
+                    at = sf.template[i + 1] - '1';
+                    i += 1;
+                }
+                if (at < n) try out.appendSlice(e.arena, args[at]);
+                k += 1;
             }
             if (k == n) return out.items;
         }
@@ -299,6 +307,28 @@ const Emit = struct {
                         return null;
                     };
                     try out.appendSlice(e.arena, t);
+                } else if (it == .expr) {
+                    // `expr = "par('%')"` says how; where expressions have no
+                    // delimiters nothing tells one from a node name.
+                    const tmpl = for (e.g.signals) |sf| {
+                        if (std.mem.eql(u8, sf.form, "expr")) break sf.template;
+                    } else "";
+                    if (tmpl.len == 0 and e.g.lex.bare_expr) {
+                        e.why = try e.arena.print("the signal expression {s}", .{it.expr});
+                        return null;
+                    }
+                    if (tmpl.len == 0) {
+                        try out.appendSlice(e.arena, try e.valueText(it, false));
+                    } else {
+                        var problems: std.ArrayList(expr.Problem) = .empty;
+                        const body = try expr.write(e.arena, e.g, it.expr, e.funcs, e.foreign, &problems);
+                        if (problems.items.len > 0) {
+                            e.why = try e.arena.print("the signal expression {s}", .{it.expr});
+                            return null;
+                        }
+                        const pct = std.mem.indexOfScalar(u8, tmpl, '%').?;
+                        try out.print(e.arena, "{s}{s}{s}", .{ tmpl[0..pct], body, tmpl[pct + 1 ..] });
+                    }
                 } else try out.appendSlice(e.arena, try e.valueText(it, false));
             }
             return out.items;
@@ -366,6 +396,17 @@ const Emit = struct {
                 .lit, .glue, .nl, .drop => {},
             }
         }
+        return false;
+    }
+
+    /// `#slot`: the list must have as many items as that slot says.
+    fn counted(e: *Emit, n: Node, have: usize) Allocator.Error!bool {
+        if (n.count == grammar.no_slot) return true;
+        const c = e.st.at(n.count);
+        if (c == .num and c.num.toFloat() == @as(f64, @floatFromInt(have))) return true;
+        // No count given (a dialect that never says it): one item, as `dim?1` writes.
+        if (c == .none and have == 1) return true;
+        if (e.why.len == 0) e.why = try e.arena.print("{d} items where '{s}' says {s}", .{ have, e.slot(n.count).name, try e.describe(c) });
         return false;
     }
 
@@ -452,6 +493,7 @@ const Emit = struct {
                     }
                     return true;
                 }
+                if (n.count != grammar.no_slot and !try e.counted(n, if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1)) return false;
                 if (n.one and (e.st.at(n.slot) != .list or e.st.at(n.slot).list.len != 1)) {
                     if (e.why.len == 0) e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
                     return false;
@@ -512,6 +554,7 @@ const Emit = struct {
                 // As many passes as the longest list in the group has items.
                 var passes: usize = 0;
                 e.passCount(n.kids, &passes);
+                if (!try e.counted(n, passes)) return false;
                 if (passes == 0 and n.plus) {
                     if (e.why.len == 0) e.why = "a statement without the repeated items";
                     return false;
@@ -536,8 +579,9 @@ const Emit = struct {
                                     continue;
                                 }
                                 e.checkNumber(p);
+                                // Without a vector syntax, a matrix is the numbers after its key.
                                 const vt = if (p.val == .list)
-                                    try e.arena.print("[{s}]", .{try e.vectorText(p.val)})
+                                    if (e.g.lex.bare_expr) try e.arena.print("[{s}]", .{try e.vectorText(p.val)}) else try e.vectorText(p.val)
                                 else
                                     try e.valueText(p.val, false);
                                 if (b.form == .call) {
@@ -926,6 +970,15 @@ const Writer = struct {
         }
         if (st.kind == .@"opaque") {
             if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return w.lineTail(st.raw, st.tail);
+            // A region the source grammar keeps verbatim, and says why.
+            if (w.caps) |c| for (c.grammars) |*sg| {
+                if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
+                for (sg.raws) |rb| {
+                    if (rb.reason.len == 0 or !std.mem.startsWith(u8, st.raw, rb.open)) continue;
+                    w.report.add(.@"error", .unsupported, st.line, "'{s}' cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), w.g.name, rb.reason });
+                    return w.comment(try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}));
+                }
+            };
             w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this line; it is in the output only as a comment: {s}", .{
                 w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'),
             });
