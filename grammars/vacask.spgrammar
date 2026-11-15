@@ -496,3 +496,7 @@ caveat noise points : VACASK counts points per decade with no rounding tolerance
 # (run in b2c1551). Only parameters and the temperature are written so.
 write alter     = [ "alter" 'instance("__topinst__")' ( keys ~"=" vals )* / ] [ "options" { temp=temp } ]
 rerun alter
+
+# Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
+implied options tnom = 27
+implied options temp = 27

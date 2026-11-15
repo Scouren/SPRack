@@ -288,10 +288,12 @@ variables
   temper = temp
 end
 
+# Measured in Spectre: a unary ! loads (1k*(!0) is 1k); 10%3 is refused.
 operators
   pow "**"
   xor "^"
   ternary "?"
+  not "!"
 end
 
 models
@@ -395,3 +397,7 @@ block alter
   close  "}"
 end
 rerun alter
+
+# Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
+implied options tnom = 27
+implied options temp = 27

@@ -543,6 +543,17 @@ const Matcher = struct {
                         j = b + 2;
                         continue;
                     }
+                    // `n1 1`: a bare key and its value, where the bag takes them.
+                    if (for (node.bag) |e| {
+                        if (e.form == .call and e.bare_pairs) break e;
+                    } else null) |entry| {
+                        const vt = self.toks()[j + 1];
+                        if (vt.tag != .word or vt.f.key) break;
+                        const v = (try self.anyValue(vt)) orelse break;
+                        try self.log.append(self.arena, .{ .slot = entry.slot, .key = kt.raw, .val = v });
+                        j += 2;
+                        continue;
+                    }
                     // A bare word is a flag where the bag accepts flags.
                     const flags = for (node.bag) |e| {
                         if (e.form == .rest and e.flags) break e;
@@ -1335,6 +1346,9 @@ const Reader = struct {
             vals[e.slot] = .{ .atom = hit };
         }
         for (self.g.implied) |im| {
+            // Options hold for the whole netlist, not per statement: the
+            // writer says a default the target does not share (`defaultOptions`).
+            if (im.kind == .options) continue;
             if (im.kind != st.kind or vals[im.slot] != .none) continue;
             vals[im.slot] = if (schema.info(st.kind).slots[im.slot].ty == .value)
                 (if (lexer.parseNumber(self.arena, &self.g.lex, im.text)) |n| Value{ .num = n } else Value{ .expr = im.text })
@@ -1351,7 +1365,7 @@ const Reader = struct {
                 const names: expr.Resolver = if (self.g.lex.case_sensitive) .{} else .{ .ctx = &self.spell, .func = resolveName };
                 const canon = try expr.read(self.arena, self.g, e, names, &problems);
                 for (problems.items) |pb| {
-                    self.report.add(.warning, .invalid, line, "expression '{s}': {s} is not an operator the {s} grammar lists; copied as written", .{ e, pb.text, self.g.name });
+                    self.report.add(.@"error", .invalid, line, "expression '{s}': {s} is not an operator the {s} grammar lists; copied as written", .{ e, pb.text, self.g.name });
                 }
                 return .{ .expr = canon };
             },
@@ -1552,6 +1566,7 @@ fn isBound(v: Value) bool {
 /// value. Reading puts it back where the canonical IR keeps it.
 fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
     for (g.moves) |mv| {
+        if (mv.oneway) continue;
         var i: usize = 0;
         while (i < list.items.len) : (i += 1) {
             const st = &list.items[i];
@@ -1825,6 +1840,69 @@ fn namedAs(st: *const ir.Stmt, name: []const u8) bool {
     return st.get("name") == .atom and std.mem.eql(u8, st.get("name").atom, name);
 }
 
+/// A multi-segment `.tran tstep1 tstop1 tstep2 tstop2 ...` (HSPICE) runs to
+/// the last stop. No other dialect has segments, so it is read as one run to
+/// that stop at the smallest step.
+fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
+    const seg = schema.slotIndex(.tran, "segments").?;
+    const si = schema.slotIndex(.tran, "step").?;
+    const ti = schema.slotIndex(.tran, "stop").?;
+    for (list) |*st| {
+        if (st.kind != .tran or st.at(seg) != .list) continue;
+        var items = st.at(seg).list;
+        try st.set(arena, seg, .none);
+        // The pairs take a trailing UIC with them.
+        const last: []const u8 = if (items.len == 0) "" else switch (items[items.len - 1]) {
+            .atom, .expr, .str => |x| x,
+            else => "",
+        };
+        if (std.ascii.eqlIgnoreCase(last, "uic")) {
+            items = items[0 .. items.len - 1];
+            try st.set(arena, schema.slotIndex(.tran, "skip_dc").?, .{ .atom = "yes" });
+        }
+        if (items.len % 2 != 0) {
+            report.add(.@"error", .invalid, st.line, "tran: the segments of a multi-segment .tran come in step and stop pairs; {d} values follow the first pair (a start time is START= here)", .{items.len});
+            continue;
+        }
+        var step = st.at(si);
+        var stop = st.at(ti);
+        var i: usize = 0;
+        while (i < items.len) : (i += 2) {
+            if (step != .num or stop != .num or items[i] != .num or items[i + 1] != .num) {
+                report.add(.@"error", .invalid, st.line, "tran: a multi-segment .tran with an expression in it has no smallest step and last stop to run to", .{});
+                break;
+            }
+            if (items[i + 1].num.toFloat() <= stop.num.toFloat()) {
+                report.add(.@"error", .invalid, st.line, "tran: the stops of a multi-segment .tran rise, and {e} does not follow {e} (`tstep tstop tstart tmax` is ngspice's form; a start time is START= here)", .{
+                    items[i + 1].num.toFloat(), stop.num.toFloat(),
+                });
+                break;
+            }
+            stop = items[i + 1];
+            if (items[i].num.toFloat() < step.num.toFloat()) step = items[i];
+        } else {
+            try st.set(arena, si, step);
+            try st.set(arena, ti, items[items.len - 1]);
+            report.add(.warning, .caveat, st.line, "tran: a multi-segment .tran is one run to its last stop at its smallest step; the output is no longer sampled per segment", .{});
+        }
+    }
+}
+
+/// A `.measure` that names no analysis (HSPICE) measures the last analysis
+/// of the netlist.
+fn measureAnalysis(arena: Allocator, list: []ir.Stmt) Allocator.Error!void {
+    const ai = schema.slotIndex(.measure, "analysis").?;
+    var last: ?[]const u8 = null;
+    for (list) |st| switch (st.kind) {
+        .tran, .ac, .dc => last = @tagName(st.kind),
+        else => {},
+    };
+    const name = last orelse return;
+    for (list) |*st| {
+        if (st.kind == .measure and st.at(ai) == .none) try st.set(arena, ai, .{ .atom = name });
+    }
+}
+
 fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error![]ir.Stmt {
     // Edited in place: a copy of the top-level list would be as large as
     // every statement header in the netlist.
@@ -1834,6 +1912,8 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     }
     try flattenBins(g, arena, &list, report);
     try gatherMonteCarlo(arena, &list);
+    try foldSegments(arena, list.items, report);
+    try measureAnalysis(arena, list.items);
     try gatherAlters(g, arena, &list, report);
     try expr.convert(arena, g, list.items, false);
     try undoMoves(g, arena, &list, report);

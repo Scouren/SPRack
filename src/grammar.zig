@@ -122,6 +122,9 @@ pub const BagEntry = struct {
     required: bool = false,
     /// On a `...rest` entry: bare words are accepted as value-less flags.
     flags: bool = false,
+    /// `v(*)=slot+`: bare `key value` pairs are read into the slot too
+    /// (HSPICE `.dcvolt n1 1`).
+    bare_pairs: bool = false,
     /// `maxstep=maxstep?$step`: written, from another dialect's statement
     /// only, when the slot is empty; `$slot` expands.
     default: []const u8 = "",
@@ -244,7 +247,8 @@ pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 /// How the dialect spells the values of a closed-set slot.
 pub const EnumMap = struct { kind: Kind, slot: u8, pairs: []const EnumPair };
 /// The dialect says this value on a different statement.
-pub const Move = struct { from: Kind, from_slot: u8, to: Kind, to_slot: u8 };
+/// `oneway`: only written; reading leaves the value where this dialect put it.
+pub const Move = struct { from: Kind, from_slot: u8, to: Kind, to_slot: u8, oneway: bool = false };
 /// `merge ac -> noise`: what this dialect writes as two statements is one.
 /// When reading, an `into` statement takes the slots it lacks from the
 /// nearest `from` statement before it, and absorbs that statement when only
@@ -920,6 +924,10 @@ const P = struct {
                 p.i += 4;
                 e.form = .call;
                 e.slot = try p.slotOf(try p.ident());
+                if (p.peek() == '+') {
+                    p.i += 1;
+                    e.bare_pairs = true;
+                }
                 if (p.slotInfo(e.slot).ty != .params) return p.err("'key(*)=' needs a params slot", .{});
                 entries = try p.c.add(BagEntry, entries, e);
                 continue;
@@ -1443,10 +1451,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             enums = try c.add(EnumMap, enums, .{ .kind = kind, .slot = slot, .pairs = pairs });
         } else if (std.mem.eql(u8, head, "move")) {
             const a = try args(c, no, rest);
-            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "move is `move kind.slot -> kind.slot`", .{});
+            const oneway = a.len == 4 and std.mem.eql(u8, a[3], "oneway");
+            if ((a.len != 3 and !oneway) or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "move is `move kind.slot -> kind.slot [oneway]`", .{});
             const fk, const fs = try dotted(c, no, a[0]);
             const tk, const ts = try dotted(c, no, a[2]);
-            moves = try c.add(Move, moves, .{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts });
+            moves = try c.add(Move, moves, .{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts, .oneway = oneway });
         } else if (std.mem.eql(u8, head, "merge")) {
             const a = try args(c, no, rest);
             if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "merge is `merge kind -> kind`", .{});

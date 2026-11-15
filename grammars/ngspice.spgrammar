@@ -63,8 +63,8 @@ rule  model     = ".model" name type {...params?}
 rule  hdl       = ".control" / "pre_osdi" path! / ".endc"
 
 rule  options   = ".temp" temp
-rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
-read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
+read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
 rule  save      = ".save" signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 rule  ic        = ".ic" { v(*)=values }
@@ -75,7 +75,7 @@ rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
@@ -135,6 +135,18 @@ implied noise ref = 0
 implied tf ref = 0
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
+# Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
+implied options tnom = 27
+implied options temp = 27
+# ngspice has no step-ceiling option; HSPICE's DELMAX is the .tran maximum step.
+move options.delmax -> tran.maxstep oneway
+# ngspice's own gshunt does not load the nodes in an operating point
+# (measured: 1 mA into 1k stayed 1 V); rshunt does, as a resistance.
+convert options : gshunt = 1 / gshunt
+# SFFM(VO VA FM MDI FC [TD [PHASEM [PHASEC]]]): the modulating frequency is
+# third and the carrier fifth, the reverse of HSPICE and Xyce (measured).
+caveat vsource mdi : ngspice limits the SFFM modulation index to the carrier over the modulating frequency
+caveat isource mdi : ngspice limits the SFFM modulation index to the carrier over the modulating frequency
 
 no hb  : ngspice has no harmonic-balance analysis
 no pss : ngspice's .pss is an experimental oscillator analysis with a different meaning; there is no driven periodic steady state
@@ -223,12 +235,15 @@ end
 operators
   pow "**" "^"
   ternary "?"
+  not "!"
+  mod "%"
 end
 
 # Measured with ngspice 45 on decks written for it (.param and a B source).
 differs pow    : a negative base loses its sign, in .param and B sources alike: (-2)**3 is 8
 differs pwr    : in .param the sign of a negative base is dropped (pwr(-2,3) is 8); B sources keep it (-8)
 differs int    : only .param expressions have int(); a B source refuses it
+differs mod    : only .param expressions have %; a B source refuses it
 differs negpow : in .param a minus right after another operator binds before the power: 1+-2**2 is 5, not -3
 
 models
@@ -294,9 +309,11 @@ rule  ctlsrc    = name~"G" pos neg form:"table" expr "=" ( ~"(" xs ~"," ys ~")" 
 # them are translated; anything else is carried as text.
 rule  measure   = ( ".meas" | ".measure" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
 rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
-rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"find"=find | op:"deriv"=deriv ) out { at=at! }
-rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"when"=when | op:"deriv"=deriv out "when" ) when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out { at=at! }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"when"=when when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
 rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ ) out { from=from to=to }
+# ngspice 45 parses DERIV and ERR but measures neither ("currently not
+# supported", com_measure2.c), so a derivative has no form here.
 rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" expr
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated

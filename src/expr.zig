@@ -138,6 +138,11 @@ pub fn read(
             i += b.len;
             continue;
         }
+        // Unary not and modulo, where this dialect lists neither (the
+        // listed spellings were taken above).
+        if (c == '%' or (c == '!' and !(i + 1 < src.len and src[i + 1] == '='))) {
+            try problems.append(arena, .{ .kind = .operator, .text = src[i .. i + 1] });
+        }
         if (c == '^' or std.mem.startsWith(u8, src[i..], "**")) {
             const n: usize = if (c == '^') 1 else 2;
             try problems.append(arena, .{ .kind = .operator, .text = src[i .. i + n] });
@@ -266,6 +271,11 @@ pub fn write(
             continue;
         }
         if (c == '^' and foreign) try problems.append(arena, .{ .kind = .operator, .text = "^" });
+        // A `%` glued to a number is the number's suffix (`30%`), not a modulo.
+        if (foreign and ((c == '%' and !prev_word) or (c == '!' and !(i + 1 < text.len and text[i + 1] == '=')))) {
+            const canon = if (c == '%') "mod" else "not";
+            if (spellingOf(g.operators, canon) == null) try problems.append(arena, .{ .kind = .operator, .text = canon });
+        }
         w.writeByte(c) catch return error.OutOfMemory;
         i += 1;
     }
@@ -485,6 +495,7 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "pow") and std.mem.indexOf(u8, text, canon_pow) != null) return true;
     if (std.mem.eql(u8, name, "xor") and std.mem.indexOf(u8, text, canon_xor) != null) return true;
     if (std.mem.eql(u8, name, "ternary")) return nested(text, '?');
+    if (std.mem.eql(u8, name, "mod")) return nested(text, '%');
     if (std.mem.eql(u8, name, "negpow")) return negPow(text);
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {

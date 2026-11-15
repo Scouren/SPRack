@@ -226,7 +226,7 @@ pub fn main(init: std.process.Init) !void {
             if (a.files.items.len > 0) a.files.items[0] else "-",
             ir.countStmts(nl.stmts, null),
             ir.countStmts(nl.stmts, .@"opaque"),
-            @intFromBool(ir.sameCircuit(&nl, &back)),
+            @intFromBool(try sprack.sameTranslation(arena, gt, &nl, &back)),
             report.count(.@"error"),
         });
         inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .caveat, .rename, .cosmetic, .invalid, .ambiguous, .oneway }) |code| {

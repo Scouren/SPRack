@@ -470,6 +470,48 @@ gives the same charge as `tr=tf=1n` (10.94 nC both), so zero means the time
 step, as in ngspice (11.0 nC at step 1 ns, 12.0 nC at 2 ns). Spectre refuses
 `rise=0`; left out, the charge is 10.08 nC, a default far below a 1 ns step.
 
+### 4.7 Defaults and HSPICE spellings (c4)
+
+Each value read from a deck written for it, run in the simulator named.
+
+**TNOM and TEMP defaults.** A 1 V source across a 1k resistor with
+`tc1=0.01`: with the TNOM set to 0 the current gives the default TEMP; with
+TEMP set to 100 it gives the default TNOM.
+
+| dialect | TNOM | TEMP | note |
+|---|---|---|---|
+| ngspice 45 | 27 | 27 | |
+| ESPice (ngspice dialect) | 27 | 27 | |
+| Xyce 7.10 | 27 | 27 | |
+| VACASK | 27 | 27 | `sp_resistor` |
+| Spectre | 27 | 27 | |
+| HSPICE | 25 | TNOM | `.OPTION TNOM=0` with no `.TEMP` ran at 0 (the `temper` column) |
+
+These are the `implied options` lines; LTspice and CDL have none, so a
+translation into LTspice always states both.
+
+**SFFM.** ngspice 45 is `SFFM(VO VA FM MDI FC TD PHASEM PHASEC)`
+(`vsrcload.c`: the modulating frequency third, the carrier fifth, MDI 90
+when left out and cut to FC/FM). Measured: `sffm(0 1 10meg 0 1meg)` is
+sin(2 pi 1M t). HSPICE and Xyce are `SFFM(VO VA FC MDI FS)`: Xyce matches
+sin(2 pi 10M t + 0.5 sin(2 pi 1M t)) to the printed digits; HSPICE to its
+print step; HSPICE's MDI is 0 when left out and FS 1/TSTOP. ESPice follows
+ngspice (`net_waves.zig`).
+
+**HSPICE.** `.OPTION GSHUNT= CSHUNT= DELMAX=` load; 1 mA into 1k with
+`gshunt=1m` and `cshunt=1n` settles at 0.5 V. `.PARAMETERS` is `.PARAM`.
+`.DCVOLT v(p)=1` and `.DCVOLT q 2` both set the start of a UIC transient.
+`.FUNC` does not load (either argument spelling). A unary `!` loads
+(`'1k*(!0)'` is 1k); `'10 % 3'` does not. A double-quoted `.param
+t2="a^3"` is an expression (8 with a=2); this grammar reads it as a string.
+
+**ngspice 45.** `.options gshunt=1m` leaves 1 mA into 1k at 1 V in an
+operating point; `rshunt=1k` gives 0.5 V. `!` works in `.param`, instance
+braces and B sources; `%` in `.param` (10 % 3 is 1) but not in a B source.
+`.meas ... deriv` and `err1`/`err2` print "currently not supported"
+(`com_measure2.c`). Xyce refuses a unary `!`. Spectre takes `!` and refuses
+`10%3`. ESPice takes both `!` and `%` in its ngspice dialect.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

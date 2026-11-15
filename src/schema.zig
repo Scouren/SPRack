@@ -195,8 +195,12 @@ const defs = [_]Def{
     // A digital Verilog design, loaded as source (ESPice's `.verilog`).
     .{ .verilog, .structure, "path:path" },
     // `package` is for dialects that file options under headings (Xyce).
+    // `gshunt` and `cshunt` load every node to ground; `delmax` caps the
+    // transient step where `.tran` gives none; `search` is where an include
+    // not found beside the file is looked up (HSPICE).
     .{ .options, .control, "package:atom reltol:value abstol:value vntol:value gmin:value temp:value tnom:value " ++
-        "scale:value method:atom maxord:value chgtol:value trtol:value params:params" },
+        "scale:value method:atom maxord:value chgtol:value trtol:value params:params " ++
+        "gshunt:value cshunt:value delmax:value search:path" },
     .{ .save, .control, "signals:signal*" },
     // `style` tells a table (.print) from a plot (.plot) from a probe (.probe).
     .{ .print, .control, "style:atom analysis:atom signals:signal* params:params" },
@@ -227,7 +231,9 @@ const defs = [_]Def{
     // `values` holds the one frequency of a sweep whose start and stop are equal
     // where the dialect writes it so (a `convert`).
     .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns ++ " values:value*" },
-    .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns },
+    // `segments`: the step and stop pairs after the first of a multi-segment
+    // HSPICE .TRAN; the reader folds them into step and stop, so no writer sees them.
+    .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns ++ " segments:value*" },
     // `interval`: a noise summary every this many frequency points.
     .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " interval:value params:params" ++ ns ++ " values:value*" },
     .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns },
@@ -414,7 +420,7 @@ pub const variables = [_][]const u8{ "temper", "time", "hertz" };
 /// Operators that are not spelled the same everywhere.
 /// `negpow` has no spelling: it names, for `differs`, a minus right after
 /// another operator before a power (`1+-2**2`).
-pub const operators = [_][]const u8{ "pow", "xor", "ternary", "negpow" };
+pub const operators = [_][]const u8{ "pow", "xor", "ternary", "negpow", "not", "mod" };
 
 /// Signal forms a `signals` section may spell.
 pub const signal_forms = [_][]const u8{

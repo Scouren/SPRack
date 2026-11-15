@@ -150,6 +150,9 @@ const Run = struct {
     /// The sections to follow; null: all of them.
     wanted: ?ir.CaselessSet = null,
     skipped: std.ArrayList(Skipped) = .empty,
+    /// Directories an include not found beside its file is looked up in
+    /// (HSPICE `.option search='dir'`), absolute.
+    search: std.ArrayList([]const u8) = .empty,
 
     /// A section not followed (yet): what following it would reach.
     const Skipped = struct { path: []const u8, name: []const u8, refs: []const Ref, released: bool = false };
@@ -204,6 +207,30 @@ const Run = struct {
         return out.items;
     }
 
+    /// The file an include names: beside the including file, else in the
+    /// first search directory that has it.
+    fn locate(r: *Run, scratch: Allocator, dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+        const p = try r.expand(scratch, path);
+        const here = try resolve(scratch, dir, p);
+        if (r.search.items.len == 0 or std.fs.path.isAbsolute(p) or exists(r, here)) return here;
+        for (r.search.items) |sd| {
+            const there = try resolve(scratch, sd, p);
+            if (exists(r, there)) return there;
+        }
+        return here;
+    }
+
+    fn exists(r: *Run, path: []const u8) bool {
+        return if (std.Io.Dir.cwd().access(r.io, path, .{})) |_| true else |_| false;
+    }
+
+    fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void {
+        if (st.kind != .options or st.get("search") != .str) return;
+        const sd = try resolve(r.arena, dir, try r.expand(r.arena, st.get("search").str));
+        for (r.search.items) |x| if (std.mem.eql(u8, x, sd)) return;
+        try r.search.append(r.arena, sd);
+    }
+
     fn sectionOf(st: *const ir.Stmt) []const u8 {
         const v = st.get("section");
         return if (v == .atom) v.atom else "";
@@ -229,12 +256,13 @@ const Run = struct {
                     continue;
                 };
             }
+            try r.noteSearch(dir, st);
             if (pathOf(st)) |p| {
-                try r.enqueue(try resolve(scratch, dir, try r.expand(scratch, p)));
+                try r.enqueue(try r.locate(scratch, dir, p));
                 if (st.kind == .lib) try r.want(sectionOf(st));
             }
             if (st.kind == .hdl and st.get("path") == .str) {
-                const target = try resolve(scratch, dir, try r.expand(scratch, st.get("path").str));
+                const target = try r.locate(scratch, dir, st.get("path").str);
                 for (r.hdls.items) |h| {
                     if (std.mem.eql(u8, h, target)) break;
                 } else try r.hdls.append(r.arena, try r.arena.dupe(u8, target));
@@ -247,7 +275,7 @@ const Run = struct {
     fn collectRefs(r: *Run, dir: []const u8, stmts: []const ir.Stmt, scratch: Allocator, out: *std.ArrayList(Ref)) Allocator.Error!void {
         for (stmts) |*st| {
             if (pathOf(st)) |p| try out.append(r.arena, .{
-                .path = try r.arena.dupe(u8, try resolve(scratch, dir, try r.expand(scratch, p))),
+                .path = try r.arena.dupe(u8, try r.locate(scratch, dir, p)),
                 .section = try r.arena.dupe(u8, if (st.kind == .lib) sectionOf(st) else ""),
             });
             try r.collectRefs(dir, st.body, scratch, out);
@@ -269,11 +297,18 @@ const Run = struct {
         }
     }
 
-    fn rewriteIncludes(r: *Run, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator) Allocator.Error!void {
+    fn rewriteIncludes(r: *Run, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report) Allocator.Error!void {
         for (stmts) |*st| {
+            // Every include is rewritten to the copy it resolved to, so the
+            // search directories are no longer needed.
+            if (st.kind == .options and st.get("search") != .none) {
+                try st.own(scratch);
+                try st.set(scratch, schema.slotIndex(.options, "search").?, .none);
+                report.add(.info, .cosmetic, st.line, "options.search: the includes it finds are written as paths to their translated copies", .{});
+            }
             const p = pathOf(st) orelse if (st.kind == .hdl and st.get("path") == .str) st.get("path").str else null;
             if (p) |path| {
-                const target = try resolve(scratch, dir, try r.expand(scratch, path));
+                const target = try r.locate(scratch, dir, path);
                 try st.own(scratch);
                 try st.set(scratch, schema.slotIndex(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
                 // The section as the file that defines it spells it.
@@ -284,7 +319,7 @@ const Run = struct {
                     }
                 }
             }
-            try r.rewriteIncludes(dir, st.body, scratch);
+            try r.rewriteIncludes(dir, st.body, scratch, report);
         }
     }
 
@@ -432,7 +467,7 @@ const Run = struct {
             if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
             if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
             if (r.opts.to) |gt| {
-                try r.rewriteIncludes(dirOf(path), nl.stmts, scratch);
+                try r.rewriteIncludes(dirOf(path), nl.stmts, scratch, &report);
                 var aw: Writer.Allocating = .init(scratch);
                 try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
                 const rel = try relative(scratch, root_dir, path);

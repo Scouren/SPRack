@@ -353,3 +353,7 @@ params jfet
 end
 # alter (c2)
 no alter : Xyce has no .alter; when every alter changes only parameters and the temperature the runs are written as a .step over a .data table, a row per run
+
+# Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
+implied options tnom = 27
+implied options temp = 27

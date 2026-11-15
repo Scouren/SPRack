@@ -155,6 +155,18 @@ pub fn write(arena: Allocator, g: *const Grammar, out: *std.Io.Writer, nl: *cons
     return writer.write(g, arena, out, nl, report, &caps, null);
 }
 
+/// `back`, a translation of `src` into `g` read back, is the same circuit,
+/// counting the options `g` was given because `src`'s dialect assumes other
+/// defaults (`writer.defaultOptions`).
+pub fn sameTranslation(arena: Allocator, g: *const Grammar, src: *const ir.Netlist, back: *const ir.Netlist) Allocator.Error!bool {
+    const d = try writer.defaultOptions(arena, g, src) orelse return ir.sameCircuit(src, back);
+    var with = src.*;
+    with.stmts = try arena.alloc(ir.Stmt, src.stmts.len + 1);
+    with.stmts[0] = d;
+    @memcpy(with.stmts[1..], src.stmts);
+    return ir.sameCircuit(&with, back);
+}
+
 /// As `read` and `write`, for one file of a project: `env` holds the names
 /// the project's other files declare.
 pub fn readIn(arena: Allocator, g: *const Grammar, src: []const u8, report: *ir.Report, env: ?*const ir.Env) Allocator.Error!ir.Netlist {

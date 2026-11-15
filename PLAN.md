@@ -229,6 +229,15 @@ supported simulator defines.
   mismatches -> 79. Left: a loop that runs through a subcircuit instance
   is not seen; ESPice and LTspice state no `requires` (not measured).
 
+- [x] **6.2 HSPICE reader gaps from ESPice (c4).** Per-dialect TNOM/TEMP
+  defaults (`implied options`, written where the target's differ), SFFM
+  order in ngspice/ESPice, GSHUNT/CSHUNT/DELMAX, `.DCVOLT`, `.PZ v(out) src`
+  as ngspice node pairs, multi-segment `.TRAN`, `.OPTION SEARCH` in
+  `sprack project`, `.PARAMETERS`, `!` and `%` by dialect, `.MEASURE`
+  without an analysis, ESPice `.noise` interval (`docs/verification.md`
+  4.7). Left: HSPICE double-quoted expressions, `.MEASURE ERR1/ERR2`,
+  HSPICE option aliases (ABSV, RELV, ABSI, GMINDC, METHOD=BDF, POST).
+
 ## Phase 7: Python and PDKs (section 7)
 
 - [x] **7.1 `pyproject.toml` and a wheel (7.5).** Build it with `zig build py`

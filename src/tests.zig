@@ -368,14 +368,17 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
             const back = try readAs(a, to, text, &report2);
             try testing.expectEqual(0, countKind(back, .@"opaque"));
             // VACASK is given SPICE's step cap explicitly (a `synthesized` warning).
-            if (report.countCode(.synthesized) > 0) for (back.stmts, src_nl.stmts) |*b, s| {
-                const mi = schema.slotIndex(.tran, "maxstep").?;
-                if (b.kind == .tran and s.kind == .tran and s.at(mi) == .none) {
+            const mi = schema.slotIndex(.tran, "maxstep").?;
+            const src_tran = for (src_nl.stmts) |s| {
+                if (s.kind == .tran) break s;
+            } else null;
+            if (report.countCode(.synthesized) > 0) for (back.stmts) |*b| {
+                if (b.kind == .tran and src_tran != null and src_tran.?.at(mi) == .none) {
                     try b.own(a);
                     try b.set(a, mi, .none);
                 }
             };
-            try testing.expect(ir.sameCircuit(&src_nl, &back));
+            try testing.expect(try sprack.sameTranslation(a, gt, &src_nl, &back));
         }
     }
 }
@@ -774,7 +777,8 @@ test "sources: every waveform, and what each target can say" {
 
     // Frequency modulation exists in the SPICE family only.
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "ngspice", "hspice", "t\nV1 a 0 SFFM(0 1 20k 5 1k)\n.end\n", &r2), "V1 a 0 sffm(0 1 20k 5 1k)\n");
+    // ngspice puts the modulating frequency third and the carrier fifth.
+    try has(try tr(a, "ngspice", "hspice", "t\nV1 a 0 SFFM(0 1 20k 5 1k)\n.end\n", &r2), "V1 a 0 sffm(0 1 1k 5 20k)\n");
     try clean(&r2);
     _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 SFFM(0 1 20k 5 1k)\n.end\n", &r2);
     try reported(&r2, .@"error", "vsource.wave = sffm has no spelling in spectre");
@@ -1549,9 +1553,9 @@ test "corpus: things that would otherwise change meaning without a word" {
 
     // Parentheses added to protect blanks are not part of the expression.
     var r4: ir.Report = .init(a);
-    const nl = try readAs(a, "ngspice", "t\nR1 a 0 '10 % 3'\n.end\n", &r4);
+    const nl = try readAs(a, "ngspice", "t\nR1 a 0 '10 - 3'\n.end\n", &r4);
     const sp = try writeAs(a, "spectre", &nl, &r4);
-    try has(sp, "R1 (a 0) resistor r=(10 % 3)\n");
+    try has(sp, "R1 (a 0) resistor r=(10 - 3)\n");
     const back = try readAs(a, "spectre", sp, &r4);
     try testing.expect(ir.sameCircuit(&nl, &back));
 
@@ -1873,7 +1877,7 @@ test "verification: VACASK sources: sine phase, exp origin, pwl, fm, and SPICE d
     // td2 counts from delay in VACASK.
     try has(va, "Vb (b 0) vsource type=\"exp\" val0=0 val1=1 delay=100n td2=900n tau1=200n tau2=300n\n");
     try has(va, "Vc (c 0) vsource type=\"pwl\" wave=[0, 0, 1u, 1]\n");
-    try has(va, "Vd (d 0) vsource type=\"fm\" sinedc=0 ampl=1 freq=2M modindex=3 modfreq=200k\n");
+    try has(va, "Vd (d 0) vsource type=\"fm\" sinedc=0 ampl=1 freq=200k modindex=3 modfreq=2M\n");
     try clean(&r1);
     // And back, exactly.
     var r2: ir.Report = .init(a);
@@ -3020,7 +3024,7 @@ fn sameBack(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const
     const nl = try readAs(a, from, src, report);
     const out = try writeAs(a, to, &nl, report);
     const back = try readAs(a, to, out, report);
-    if (!ir.sameCircuit(&nl, &back)) {
+    if (!try sprack.sameTranslation(a, sprack.find(to).?, &nl, &back)) {
         std.debug.print("\n--- not the same circuit read back from {s}:\n{s}\n", .{ to, out });
         return error.TestNotSame;
     }
@@ -3525,4 +3529,214 @@ test "topology: no alarm where the netlist does not say enough" {
             return error.TestUnexpectedReport;
         }
     }
+}
+
+// c4: HSPICE-reader gaps from the ESPice project
+
+test "c4: a dialect's default TNOM and TEMP are written where the target's differ" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // HSPICE: TNOM 25, and the circuit at TNOM. ngspice: 27 and 27.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nV1 a 0 1\nR1 a 0 1k tc1=0.01\n.temp 125\n.op\n.end\n", &r1), ".options tnom=25\n");
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "espice", "t\nI1 0 a 1m\nD1 a 0 dm\n.model dm d\n.op\n.end\n", &r2);
+    try has(ng, ".options temp=25 tnom=25\n");
+    try reported(&r2, .warning, "hspice assumes other defaults for temp, tnom than espice does");
+    // TEMP follows a TNOM the deck sets.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.option tnom=50\nV1 a 0 1\n.op\n.end\n", &r3), ".temp 50\n");
+    // The other way: TNOM 27 is said; TEMP then follows it in HSPICE.
+    var r4: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", "t\nV1 a 0 1\n.op\n.end\n", &r4);
+    try has(hs, ".option tnom=27\n");
+    try testing.expect(std.mem.indexOf(u8, hs, ".temp") == null);
+    // Same defaults, nothing written; a library file gets none.
+    var r5: ir.Report = .init(a);
+    try testing.expect(std.mem.indexOf(u8, try tr(a, "ngspice", "xyce", "t\nV1 a 0 1\n.op\n.end\n", &r5), ".options") == null);
+    try clean(&r1);
+    try clean(&r4);
+    var r6: ir.Report = .init(a);
+    _ = try sameBack(a, "hspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n", &r6);
+}
+
+test "c4: SFFM argument order, HSPICE and Xyce against ngspice and ESPice" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // HSPICE SFFM(VO VA FC MDI FS); ngspice SFFM(VO VA FM MDI FC), MDI 90 when left out.
+    for ([_][]const u8{ "ngspice", "espice" }) |to| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, "hspice", to, "t\nv1 a 0 sffm(0 1 10meg 0.5 1meg)\nv2 b 0 sffm(0 1 10meg)\n.tran 1n 2u\n.end\n", &r);
+        try has(out, "v1 a 0 sffm(0 1 1meg 0.5 10meg)\n");
+        try has(out, "v2 b 0 sffm(0 1 0 0 10meg)\n");
+        try reported(&r, .warning, "limits the SFFM modulation index");
+    }
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\nv1 a 0 sffm(0 1 10meg 0.5 1meg)\n.end\n", &r2), "v1 a 0 sffm(0 1 10meg 0.5 1meg)\n");
+}
+
+test "c4: gshunt, cshunt and delmax" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.option gshunt=1m cshunt=1n delmax=50n\ni1 0 a pwl(0 0 1p 1m)\nr1 a 0 1k\n.tran 1u 8u\n.end\n";
+    // ngspice: gshunt loads nothing at an operating point; rshunt does.
+    // No step-ceiling option: the .tran maximum step.
+    var r1: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", src, &r1);
+    try has(ng, "rshunt=1k cshunt=1n");
+    try has(ng, ".tran 1u 8u 0 50n\n");
+    try clean(&r1);
+    try reported(&r1, .info, "options.delmax is written as tran.maxstep");
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "espice", src, &r2), "gshunt=1m cshunt=1n delmax=50n");
+    try clean(&r2);
+}
+
+test "c4: .dcvolt in both spellings is the initial condition" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "hspice", "ngspice", "t\nc1 a 0 1n\nc2 b 0 1n\n.dcvolt v(a)=1\n.dcvolt b 2\n.tran 10n 5u uic\n.end\n", &r);
+    try has(out, ".ic v(a)=1\n");
+    try has(out, ".ic v(b)=2\n");
+    try clean(&r);
+}
+
+test "c4: HSPICE .pz output and source as ngspice node pairs" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nvin in 0 dc 0 ac 1\nr1 in out 1k\nc1 out 0 1n\n.pz v(out) vin\n.end\n";
+    for ([_][]const u8{ "ngspice", "espice" }) |to| {
+        var r: ir.Report = .init(a);
+        try has(try tr(a, "hspice", to, src, &r), ".pz in 0 out 0 vol pz\n");
+        try clean(&r);
+    }
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nib 0 in 1m\nr1 in 0 1k\n.pz v(in,0) ib\n.end\n", &r2), ".pz 0 in in 0 cur pz\n");
+    // HSPICE to HSPICE and Spectre keep the source.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", src, &r3), "iprobe=vin");
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\nr1 in out 1k\n.pz v(out) vx\n.end\n", &r4);
+    try reported(&r4, .@"error", "no voltage or current source 'vx'");
+}
+
+test "c4: a multi-segment .tran runs to its last stop at its smallest step" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "hspice", "ngspice", "t\nr1 a 0 1k\n.tran 0.1n 10n 1n 40n\n.end\n", &r);
+    try has(out, ".tran 0.1n 40n\n");
+    try reported(&r, .warning, "multi-segment .tran is one run to its last stop");
+    try clean(&r);
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 1n\n.end\n", &r2);
+    try testing.expect(r2.count(.@"error") > 0);
+    // ngspice's tstart and tmax are no segments: refused, not folded.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.tran 10n 1m 0 10n uic\n.end\n", &r3);
+    try reported(&r3, .@"error", "the stops of a multi-segment .tran rise");
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 2n 40n uic\n.end\n", &r4), ".tran 1n 40n uic\n");
+    // A `%` glued to a number is its suffix, not a modulo.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", "t\nr1 a 0 r={2k%3}\n.end\n", &r5);
+    try testing.expect(!r5.contains(.@"error", "operator 'mod'"));
+}
+
+test "c4: .option search finds includes in sprack project" {
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.createDirPath(io, "in/dir");
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/top.sp", .data = "t\n.option search='dir'\n.include 'div.inc'\n.lib 'c.lib' tt\nv1 a 0 1\n.op\n.end\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/dir/div.inc", .data = "r1 a b 1k\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/dir/c.lib", .data = ".lib tt\nr2 b 0 3k\n.endl tt\n" });
+    var log: std.Io.Writer.Allocating = .init(a);
+    const sum = try sprack.project.run(io, testing.allocator, .{
+        .from = sprack.find("hspice").?,
+        .to = sprack.find("ngspice").?,
+        .tops = &.{try std.fmt.allocPrint(a, "{s}/in/top.sp", .{base})},
+        .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
+        .log = &log.writer,
+    });
+    try testing.expectEqual(0, sum.errors);
+    const top = try tmp.dir.readFileAlloc(io, "out/top.sp", a, .unlimited);
+    try has(top, ".include \"dir/div.inc\"\n");
+    try has(top, ".lib \"dir/c.lib\" tt\n");
+    try testing.expect(std.mem.indexOf(u8, top, "search") == null);
+    _ = try tmp.dir.readFileAlloc(io, "out/dir/div.inc", a, .unlimited);
+    // A single-file translation cannot resolve it: reported, not dropped.
+    var r: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.option search='dir'\n.end\n", &r);
+    try reported(&r, .@"error", "options.search");
+}
+
+test "c4: .parameters is .param in HSPICE" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.parameters a=2 b=3\n.end\n", &r), ".param a=2 b=3\n");
+    try clean(&r);
+}
+
+test "c4: unary ! and % are written only where the target has them" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // HSPICE refuses `%` (measured): an error on reading.
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\nv1 a 0 1\nr1 a 0 '10 % 3'\n.end\n", &r1);
+    try reported(&r1, .@"error", "% is not an operator the hspice grammar lists");
+    // HSPICE, ngspice, ESPice and Spectre take a unary `!`; Xyce refuses it.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nr1 a 0 '1k*(!0)'\n.end\n", &r2), "r1 a 0 {1k*(!0)}\n");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\nr1 a 0 '1k*(!0)'\n.end\n", &r3);
+    try reported(&r3, .@"error", "operator 'not' has no spelling in xyce");
+    // `!=` is a comparison, not a not.
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\n.param t='(2!=3)'\n.end\n", &r4);
+    try clean(&r4);
+    // ngspice's % (in .param) has no spelling in Spectre, which refuses it.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\n.param q={10 % 3}\n.end\n", &r5);
+    try reported(&r5, .@"error", "operator 'mod' has no spelling in spectre");
+}
+
+test "c4: a .measure that names no analysis measures the last one" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "hspice", "espice", "t\nr1 a 0 1k\n.tran 10n 5u\n.measure t50 when v(out)=0.5\n.measure tran slope derivative v(out) at=1u\n.end\n", &r);
+    try has(out, ".meas tran t50 when v(out)=0.5\n");
+    try has(out, ".meas tran slope deriv v(out) at=1u\n");
+    try clean(&r);
+    // ngspice 45 measures no derivative.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.tran 10n 5u\n.measure tran slope deriv v(out) at=1u\n.end\n", &r2);
+    try testing.expect(r2.count(.@"error") > 0);
+}
+
+test "c4: ESPice .noise takes the summary interval" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "hspice", "espice", "t\nvin in 0 ac 1\nr1 in out 1k\n.ac dec 10 1 1meg\n.noise v(out) vin 1\n.end\n", &r);
+    try has(out, ".noise v(out) vin dec 10 1 1meg 1\n");
+    try clean(&r);
 }

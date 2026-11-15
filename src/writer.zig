@@ -128,6 +128,9 @@ const Emit = struct {
     /// The slot holds exactly what this dialect assumes when nothing is
     /// said, so there is no need to say it.
     fn isImplied(e: *const Emit, idx: u8) bool {
+        // An option the netlist sets is written even at the default: the
+        // defaults are what `defaultOptions` compares, not what is said.
+        if (e.st.kind == .options) return false;
         const text = e.g.impliedOf(e.st.kind, idx) orelse return false;
         return switch (e.st.at(idx)) {
             .atom => |a| std.mem.eql(u8, a, text),
@@ -1490,6 +1493,9 @@ const Writer = struct {
                     moved = true;
                 }
                 if (moved) try emptied.append(w.arena, .{ src, mv.from_slot });
+                if (moved and mv.oneway) w.report.add(.info, .oneway, src.line, "{s}.{s} is written as {s}.{s}, which reads back there", .{
+                    @tagName(mv.from), schema.info(mv.from).slots[mv.from_slot].name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name,
+                });
             }
         }
         for (emptied.items) |em| {
@@ -1716,6 +1722,108 @@ fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allo
     }
 }
 
+fn mentions(nodes: []const Node, slot: u8) bool {
+    for (nodes) |n| {
+        if (n.slot == slot or mentions(n.kids, slot)) return true;
+        for (n.bag) |b| if (b.slot == slot) return true;
+    }
+    return false;
+}
+
+/// A pole-zero analysis given as an output and a source (HSPICE `.pz v(out)
+/// vin`) for a dialect that names the input and output node pairs: the
+/// input is the source's own nodes, `vol` for a voltage source and `cur` for
+/// a current source, and both poles and zeros are found.
+fn pzPorts(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+    const src_i = schema.slotIndex(.pz, "src").?;
+    var list: ?[]ir.Stmt = null;
+    for (stmts, 0..) |*st, k| {
+        if (st.kind != .pz or st.at(src_i) != .atom or st.get("in_pos") != .none) continue;
+        const takes_src = for (g.rules) |r| {
+            if (r.kind == .pz and r.dir != .read and mentions(r.pat, src_i)) break true;
+        } else false;
+        if (takes_src) continue;
+        const name = st.at(src_i).atom;
+        const dev = for (stmts) |*d| {
+            if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and std.ascii.eqlIgnoreCase(d.get("name").atom, name)) break d;
+        } else {
+            report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its nodes, and no voltage or current source '{s}' is in this file to take them from", .{ g.name, name });
+            continue;
+        };
+        var args: [3][]const u8 = undefined;
+        const out = st.get("out");
+        const text: ?[]const u8 = switch (out) {
+            .expr, .atom, .str => |x| x,
+            else => null,
+        };
+        const form, const n = (if (text) |t| reader.signalParts(t, &args) else null) orelse {
+            report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
+            continue;
+        };
+        if (!(std.mem.eql(u8, form, "v") or std.mem.eql(u8, form, "vdiff")) or n == 0) {
+            report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
+            continue;
+        }
+        const l = list orelse blk: {
+            list = try arena.dupe(ir.Stmt, stmts);
+            break :blk list.?;
+        };
+        const p = &l[k];
+        try p.own(arena);
+        try p.set(arena, schema.slotIndex(.pz, "in_pos").?, dev.get("pos"));
+        try p.set(arena, schema.slotIndex(.pz, "in_neg").?, dev.get("neg"));
+        try p.set(arena, schema.slotIndex(.pz, "out_pos").?, .{ .atom = args[0] });
+        try p.set(arena, schema.slotIndex(.pz, "out_neg").?, .{ .atom = if (n > 1) args[1] else "0" });
+        try p.set(arena, schema.slotIndex(.pz, "transfer").?, .{ .atom = if (dev.kind == .vsource) "vol" else "cur" });
+        try p.set(arena, schema.slotIndex(.pz, "find").?, .{ .atom = "pz" });
+        try p.set(arena, src_i, .none);
+        try p.set(arena, schema.slotIndex(.pz, "out").?, .none);
+        report.add(.info, .oneway, st.line, "pz: the input is source {s}'s nodes and the output v({s}{s}{s}), as {s} names them", .{
+            name, args[0], if (n > 1) "," else "", if (n > 1) args[1] else "", g.name,
+        });
+    }
+    return list orelse stmts;
+}
+
+/// An option's value in a netlist of dialect `sg`: the one it sets, else
+/// the one `sg` assumes (`implied options tnom = 25`; `$temp` is another
+/// option's value).
+fn optionValue(arena: Allocator, sg: *const Grammar, stmts: []const ir.Stmt, slot: u8, depth: u8) ?Value {
+    if (firstValue(stmts, .options, slot)) |v| return v;
+    return impliedValue(arena, sg, sg, stmts, slot, depth);
+}
+
+/// What `g` assumes for an option, with a `$other` read in the netlist of `sg`.
+fn impliedValue(arena: Allocator, g: *const Grammar, sg: *const Grammar, stmts: []const ir.Stmt, slot: u8, depth: u8) ?Value {
+    const text = g.impliedOf(.options, slot) orelse return null;
+    if (text.len > 1 and text[0] == '$') {
+        const other = schema.slotIndex(.options, text[1..]) orelse return null;
+        return if (depth < 4) optionValue(arena, sg, stmts, @intCast(other), depth + 1) else null;
+    }
+    const n = lexer.parseNumber(arena, &g.lex, text) orelse return .{ .atom = text };
+    return .{ .num = n };
+}
+
+/// The options the netlist's own dialect assumes and `g` does not (HSPICE's
+/// TNOM of 25 against ngspice's 27), as one statement to write at the top;
+/// null when there are none. An option set anywhere in the netlist is left
+/// to that statement.
+// ponytail: an option set only in an included file is not seen here; pass it via ir.Env if that matters.
+pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist) Allocator.Error!?ir.Stmt {
+    if (nl.library or std.mem.eql(u8, nl.dialect, g.name) or !g.canWrite(.options)) return null;
+    const sg = sprack.find(nl.dialect) orelse return null;
+    var st = try ir.newStmt(arena, .options, 0);
+    var any = false;
+    for (sg.implied) |im| {
+        if (im.kind != .options or firstValue(nl.stmts, .options, im.slot) != null) continue;
+        const want = optionValue(arena, sg, nl.stmts, im.slot, 0) orelse continue;
+        if (impliedValue(arena, g, sg, nl.stmts, im.slot, 0)) |have| if (have.eql(want)) continue;
+        try st.set(arena, im.slot, want);
+        any = true;
+    }
+    return if (any) st else null;
+}
+
 pub fn write(
     g: *const Grammar,
     arena: Allocator,
@@ -1800,6 +1908,18 @@ pub fn write(
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
+    stmts = try pzPorts(arena, g, stmts, report);
+    if (try defaultOptions(arena, g, nl)) |d| {
+        var names: std.ArrayList(u8) = .empty;
+        for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
+            try names.print(arena, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
+        };
+        report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
+        const list = try arena.alloc(ir.Stmt, stmts.len + 1);
+        list[0] = d;
+        @memcpy(list[1..], stmts);
+        stmts = list;
+    }
     var n_analyses: usize = 0;
     for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {
         n_analyses += 1;

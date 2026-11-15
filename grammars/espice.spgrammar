@@ -73,8 +73,8 @@ rule  hdl       = ".hdl" path
 rule  verilog   = ".verilog" path
 
 rule  options   = ".temp" temp
-rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
-read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol ...params? }
+rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
+read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
 rule  save      = ".save" signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 rule  ic        = ".ic" { v(*)=values }
@@ -85,7 +85,7 @@ rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
 rule  inductor  = name~"L" pos neg [l] { l=l ...params }
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
@@ -137,7 +137,7 @@ read  dc        = ".dc" <what> { start=start! stop=stop! step=step! }
 rule  dc        = ".dc" { data=data! }
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
-rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [interval]
 rule  pz        = ".pz" in_pos in_neg out_pos out_neg ( transfer:"cur" | transfer:"vol" ) ( find:"pol" | find:"zer" | find:"pz" )
 rule  sens      = ".sens" out
 rule  disto     = ".disto" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [f2overf1]
@@ -152,6 +152,13 @@ implied noise ref = 0
 implied tf ref = 0
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
+# Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
+implied options tnom = 27
+implied options temp = 27
+# SFFM(VO VA FM MDI FC [TD [PHASEM [PHASEC]]]): the modulating frequency is
+# third and the carrier fifth, the reverse of HSPICE and Xyce (measured).
+caveat vsource mdi : ESPice limits the SFFM modulation index to the carrier over the modulating frequency
+caveat isource mdi : ESPice limits the SFFM modulation index to the carrier over the modulating frequency
 no xspice : ESPice has no XSPICE code models; a digital block is a Verilog design loaded with .verilog and instantiated with an N card
 # analyses (b3). ESPice reads these HSPICE cards as HSPICE writes them
 # (docs/using/dialects.md). Its own .pac, .pnoise, .pxf, .qpss, .envelope,
@@ -235,6 +242,8 @@ end
 operators
   pow "**" "^"
   ternary "?"
+  not "!"
+  mod "%"
 end
 
 # As ngspice: measured with ngspice 45 on decks written for it (.param and a B source).
