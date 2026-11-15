@@ -527,7 +527,7 @@ def test_pdk_installed_sky130_combined():
     def body(cache):
         for d in ("spectre", "xyce", "hspice"):
             errs = nfet(lib).netlist(d, strict=False).report.errors
-            bad = [e for e in errs if e.code in ("untranslated", "unsupported") and "/parameters_" in e.file]
+            bad = [e for e in errs if e.code in ("untranslated", "unsupported") and "/parameters" in e.file]
             assert not bad, "\n".join(map(str, bad))
         native = ngspice_op(nfet(lib).netlist("ngspice"))
         copy, _ = sprack._library_copy(lib, "ngspice", "ngspice")

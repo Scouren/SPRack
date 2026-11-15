@@ -412,6 +412,14 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
             }
             continue;
         }
+        // `x = '-1*y' + z = 2`: a continuation mark left inside a line;
+        // ngspice reads it as a blank (x = -3, z = 2).
+        if (c == '+' and std.mem.eql(u8, cfg.cont_lead, "+") and (i + 1 == text.len or text[i + 1] == ' ' or text[i + 1] == '\t') and
+            toks.items.len > line_start and toks.items[toks.items.len - 1].f.val)
+        {
+            i += 1;
+            continue;
+        }
         if (!cfg.parens_are_space and (c == '(' or c == ')')) {
             try pushTok(list_gpa, toks, if (c == '(') .lparen else .rparen, text[i .. i + 1], text[i .. i + 1], lno);
             i += 1;
@@ -450,7 +458,8 @@ fn isOperator(c: u8) bool {
 }
 
 /// `{a} + b`, `{a}*{b}`, `a + {b}`: a delimited expression joined to more
-/// by an operator outside the delimiters, as one expression. ngspice 45
+/// by an operator outside the delimiters, as one expression; and `a + b`
+/// after `=` where an undelimited expression may stand. ngspice 45
 /// takes such a line (when it takes it at all) as the delimiters dropped
 /// and the rest kept: `{1+1}*3` is 4, not 6. Null when the value is not
 /// such a join.
@@ -461,6 +470,7 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
     var delimited = false;
     var op_outside = false;
     var last_op = false;
+    var spaced = false;
     scan: while (i < text.len) {
         for (cfg.expr_delims) |d| {
             if (!std.mem.startsWith(u8, text[i..], d[0])) continue;
@@ -476,12 +486,17 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
             var j = i;
             while (j < text.len and (text[j] == ' ' or text[j] == '\t')) j += 1;
             // Past the blanks the expression goes on only after or before an operator.
+            if (j < text.len and text[j] == '=' and spaced) return null;
             if (j == text.len or !(last_op or isOperator(text[j]))) break;
             try out.append(arena, ' ');
+            spaced = true;
             i = j;
             continue;
         }
-        if (depth == 0 and (c == ',' or c == '=')) break;
+        if (depth == 0 and c == ',') break;
+        // `x = '-1*y' + z = 2`: the `+` stands between two parameters
+        // (ngspice reads x = -3 and z = 2), not in an expression.
+        if (depth == 0 and c == '=') return null;
         if (c == '(') depth += 1;
         if (c == ')') {
             if (depth == 0) break;
@@ -492,7 +507,9 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
         try out.append(arena, c);
         i += 1;
     }
-    if (!delimited or !op_outside) return null;
+    // Undelimited, `0.0 + mc*agauss(0,1,1)` is one only where a bare
+    // expression may follow `=`, and only with blanks in it.
+    if (!op_outside or !(delimited or (cfg.bare_after_eq and spaced))) return null;
     return .{ .text = std.mem.trim(u8, out.items, " "), .end = i };
 }
 

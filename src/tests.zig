@@ -3999,6 +3999,14 @@ test "c6: a delimited expression joined to more by an operator is one expression
     var r2: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", src, &r2), ".param b='2*cf' c='1 + cf' d='1+1*3' e='cf'\n");
     try testing.expectEqual(0, r2.countCode(.untranslated));
+    // Undelimited where a bare expression may follow `=`; a sign alone is a number.
+    var r3: ir.Report = .init(a);
+    const ng3 = try tr(a, "ngspice", "ngspice", "t\n.param p = 0.0 + mc*agauss(0,1.0,1)\n.param q = 1 r=-2 s = -3\n.end\n", &r3);
+    try has(ng3, ".param p={0.0 + mc*agauss(0,1.0,1)}\n");
+    try has(ng3, ".param q=1 r=-2 s=-3\n");
+    // A stray `+` between two parameters joins nothing.
+    try has(try tr(a, "ngspice", "ngspice", "t\n.param x = '-1*y' + z = '0 - 2.5'\n.end\n", &r3), ".param x={-1*y} z={0 - 2.5}\n");
+    try testing.expectEqual(0, r3.count(.@"error"));
 }
 
 test "c6: a model renamed for Spectre across the files of a project" {
