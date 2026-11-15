@@ -73,8 +73,8 @@ rule  hdl       = ".hdl" path
 rule  verilog   = ".verilog" path
 
 rule  options   = ".temp" temp
-rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
-read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
+rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
+read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax ...params? }
 rule  save      = ".save" signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 rule  ic        = ".ic" { v(*)=values }
@@ -150,7 +150,7 @@ read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
 
 implied noise ref = 0
 implied tf ref = 0
-enum options method : trap=trap gear=gear
+enum options method : trap=trap gear=gear bdf=gear
 enum dc var : temp=temp
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27

@@ -653,6 +653,14 @@ const Matcher = struct {
                 continue;
             }
             if (e.form == .call or !std.mem.eql(u8, e.key, key)) continue;
+            if (e.also) {
+                // `reli=reltol+`: the same value again is the one slot said twice.
+                const v = (try self.toValue(self.slot(e.slot).ty, vt)) orelse continue;
+                for (self.log.items) |c| {
+                    if (c.slot == e.slot and c.key.len == 0 and c.val.eql(v)) return true;
+                }
+                continue;
+            }
             switch (e.form) {
                 .fixed => if (!std.mem.eql(u8, vt.raw, e.fixed)) return false,
                 .plain => {
@@ -712,6 +720,21 @@ const Matcher = struct {
             }
         }
         try st.store(self.arena, vals);
+    }
+
+    /// A one-value slot two keys of the last match gave different values
+    /// (HSPICE RELV and RELTOL are one option): the last is kept. Checked
+    /// for options, where aliases are; a device line read in the wrong
+    /// dialect would trip it with no use.
+    fn clash(self: *const Matcher) ?u8 {
+        const slots = schema.info(self.kind).slots;
+        for (self.log.items, 0..) |a, i| {
+            if (a.key.len > 0 or slots[a.slot].list or slots[a.slot].ty == .params) continue;
+            for (self.log.items[i + 1 ..]) |b| {
+                if (b.slot == a.slot and b.key.len == 0 and !b.val.eql(a.val)) return a.slot;
+            }
+        }
+        return null;
     }
 
     fn build(self: *const Matcher, line: u32) Allocator.Error!ir.Stmt {
@@ -1185,6 +1208,9 @@ const Reader = struct {
                 var st = try self.m.build(line.no);
                 // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
                 if (st.kind == .tran and !numericSegments(&st)) continue;
+                if (st.kind == .options) if (self.m.clash()) |sl| self.report.add(.@"error", .loss, line.no, "{s}.{s} is given twice with different values, by two keys {s} reads as one; the last is kept", .{
+                    @tagName(st.kind), schema.info(st.kind).slots[sl].name, self.g.name,
+                });
                 st.tail = self.toks()[self.m.end].text;
                 if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
                 if (st.kind == .model) try mapModel(self.arena, self.g, &st, self.report);

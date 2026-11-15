@@ -125,6 +125,10 @@ pub const BagEntry = struct {
     /// `v(*)=slot+`: bare `key value` pairs are read into the slot too
     /// (HSPICE `.dcvolt n1 1`).
     bare_pairs: bool = false,
+    /// `gmindc=gmin+`: only written, from another dialect's statement, and
+    /// after another key has written the slot (HSPICE says one SPICE gmin
+    /// as GMIN and GMINDC). Read, it takes only a repeat of the slot's value.
+    also: bool = false,
     /// `maxstep=maxstep?$step`: written, from another dialect's statement
     /// only, when the slot is empty; `$slot` expands.
     default: []const u8 = "",
@@ -239,7 +243,11 @@ pub const Fill = struct {
 /// Something a reader of the translated netlist should know when a slot
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
 /// `caveat hdl path=*.osdi : ...` holds only where the value ends so.
-pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 = "" };
+/// `read`: said when a translation reads this dialect, not writes it.
+pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 = "", read: bool = false };
+/// `inert options post : why`: a parameter that changes no result here; a
+/// translation out of this dialect leaves it out with a note, not an error.
+pub const Inert = struct { kind: Kind, key: []const u8, text: []const u8 };
 
 /// A value the dialect assumes when the statement does not say it.
 pub const Implied = struct { kind: Kind, slot: u8, text: []const u8 };
@@ -352,6 +360,7 @@ pub const Grammar = struct {
     requires: []const Require = &.{},
     switches: []const Switch = &.{},
     noparams: []const NoParam = &.{},
+    inerts: []const Inert = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -965,7 +974,13 @@ const P = struct {
                     p.i += 1;
                     if (!p.slotInfo(e.slot).list) return p.err("'[slot]' needs a list slot", .{});
                 },
-                else => e.slot = try p.slotOf(try p.ident()),
+                else => {
+                    e.slot = try p.slotOf(try p.ident());
+                    if (p.peek() == '+') {
+                        p.i += 1;
+                        e.also = true;
+                    }
+                },
             }
             if (p.peek() == '!') {
                 p.i += 1;
@@ -1235,6 +1250,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var requires: []const Require = &.{};
     var switches: []const Switch = &.{};
     var noparams: []const NoParam = &.{};
+    var inerts: []const Inert = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1331,11 +1347,18 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             defs = try c.add(Def, defs, .{ .name = dname, .text = rest[eq + 3 ..] });
         } else if (std.mem.eql(u8, head, "caveat")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "caveat is `caveat kind slot : text`", .{});
-            const ks = try args(c, no, rest[0..colon]);
+            const all = try args(c, no, rest[0..colon]);
+            const read = all.len > 0 and std.mem.eql(u8, all[0], "read");
+            const ks = all[@intFromBool(read)..];
             if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
             const star = std.mem.indexOf(u8, ks[1], "=*");
             const kind, const slot = try kindSlot(c, no, ks[0], if (star) |k| ks[1][0..k] else ks[1]);
-            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k| ks[1][k + 2 ..] else "" });
+            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k| ks[1][k + 2 ..] else "", .read = read });
+        } else if (std.mem.eql(u8, head, "inert")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "inert is `inert kind key : text`", .{});
+            const e = try args(c, no, rest[0..colon]);
+            if (e.len != 2) return c.fail(no, "inert needs a kind and a parameter", .{});
+            inerts = try c.add(Inert, inerts, .{ .kind = try kindOf(c, no, e[0]), .key = e[1], .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))
@@ -1544,6 +1567,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .requires = requires,
         .switches = switches,
         .noparams = noparams,
+        .inerts = inerts,
     };
 }
 

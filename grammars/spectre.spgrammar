@@ -87,7 +87,7 @@ rule  lib       = "include" path { section=section }
 rule  model     = "model" name type {...params}
 rule  hdl       = "ahdl_include" path
 
-rule  options   = _?sprackOptions$# "options" { reltol=reltol iabstol=abstol vabstol=vntol gmin=gmin temp=temp tnom=tnom scale=scale ...params }
+rule  options   = _?sprackOptions$# "options" { reltol=reltol iabstol=abstol vabstol=vntol gmin=gmin gmin=gmindc temp=temp tnom=tnom scale=scale ...params }
 rule  save      = "save" signals+
 # No print statement: what a SPICE deck prints is saved instead.
 write print     = "save" -style -analysis signals+
@@ -212,7 +212,7 @@ end
 rule  model     = name {...params}
 
 move options.method -> tran.method
-enum tran method : trap=trap gear=gear2 euler=euler
+enum tran method : trap=trap gear=gear2 euler=euler bdf=gear2
 enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 implied noise ref = 0

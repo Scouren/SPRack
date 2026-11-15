@@ -512,6 +512,56 @@ braces and B sources; `%` in `.param` (10 % 3 is 1) but not in a B source.
 (`com_measure2.c`). Xyce refuses a unary `!`. Spectre takes `!` and refuses
 `10%3`. ESPice takes both `!` and `%` in its ngspice dialect.
 
+**HSPICE tolerances, GMINDC, BDF and POST (c5).** Four decks, each run
+with one option changed and read back through `.measure` (HSPICE, ten
+digits), `.measure` (ngspice 45, Xyce 7.10, ESPice), a PSF file (Spectre)
+or the raw file (VACASK).
+
+- *gmin.* 1 V through 1G into a reverse diode (`is=1e-20`), an
+  operating point and a 10 us transient; V(a) is 0.999 V with the default
+  gmin and 0.5 V with 1 nS across the junction. HSPICE: `gmindc=1e-9`
+  gives 0.5 at t=0 and 0.999 at 5 us; `gmin=1e-9` gives 0.999 at t=0 and
+  0.5 at 5 us; both give 0.5 throughout. So GMINDC is the DC and
+  operating-point gmin and GMIN the transient one. ngspice, ESPice, Xyce
+  (`.options device gmin=`), Spectre and VACASK each give 0.5 in both with
+  one `gmin=1e-9`. Mapping: GMINDC reads into its own slot, written as
+  `gmin` elsewhere with a caveat; HSPICE GMIN keeps its reading as gmin,
+  now with a caveat; another dialect's gmin is written into HSPICE as
+  both `gmin=` and `gmindc=`, which is exact. Different GMIN and GMINDC
+  values cannot both be said in one gmin: an error.
+- *ABSV, RELV, ABSI.* A 5 V source, 10 ohm and three diodes in series,
+  operating point. HSPICE, with RELI=1 and ABSI=1 so that only the voltage
+  test stops Newton: `absv=1` and `vntol=1` give the same V(a) to ten
+  digits (2.3896202016, against 2.3813462420 without), and so do `relv=1`
+  and `reltol=1` (2.3813462523). With the current tolerances left at their
+  defaults, `reltol=1` moves nothing: HSPICE's RELTOL is RELV, voltages
+  only, and RELI is the current one. A diode on a stepped source gave the
+  same for ABSI against ABSTOL (a crossing time of 1.743061974 us for both,
+  1.743719900 us without). ngspice and ESPice: `reltol=1` alone moves the
+  operating point (2.410726 against 2.396933 in ngspice), as much as
+  `reltol=1 abstol=1`; `vntol=1` or `abstol=1` alone moves nothing,
+  together they do. So ngspice's reltol bounds currents as well as
+  voltages, and Spectre's (`reltol=0.9` alone moves it) likewise. Mapping:
+  ABSV is vntol and ABSI is abstol, plain; RELV is reltol with a caveat,
+  and a reltol from another dialect is written into HSPICE as `reltol=`
+  and `reli=`. RELI is read only where it repeats RELTOL; a value of its
+  own has no counterpart and stays an error.
+- *METHOD=BDF.* A 1 uH, 1 nF tank started at 1 V, run 20 us (100
+  periods) with the step held to 10 ns; the largest V over the last
+  microsecond. HSPICE: TRAP 0.10, GEAR 0.0051, GEAR with MAXORD=1 0,
+  BDF 0.777 (MAXORD 1 or 2 changes nothing). ngspice 45 at the same
+  step: trap 0.997, gear 0.022, gear with maxord=1 0, and maxord 3 to 6
+  changes nothing. BDF is a higher-order method than any of them; the
+  closest form elsewhere is gear (gear2 in Spectre and VACASK), with a
+  caveat that it damps far more.
+- *POST.* The tolerance deck with and without `post` gives the same
+  measurements to ten digits. It is dropped crossing out of HSPICE with an
+  info note (`inert options post`).
+
+The ESPice suite's `hspice/gshunt.sp` (all six options at once) now
+translates with no error to ngspice and ESPice, and both give the
+oracle's 0.5 V.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method
@@ -521,7 +571,7 @@ braces and B sources; `%` in `.param` (10 % 3 is 1) but not in a B source.
 | ngspice | `trap=trap gear=gear` | correct | `src/spicelib/analysis/cktsopt.c:141-146` (`trap` matches as a prefix, `gear` exactly; anything else is `E_METHOD`) |
 | Xyce | `trap=trap gear=gear trap=7 gear=8` | correct | `doc/Reference_Guide/timetbl.tex:19-23` ("trap or 7", "gear or 8"; trap is the default) |
 | VACASK | `trap=trap gear=gear2 euler=euler` | correct | `lib/coretran.cpp:585-591`; `docs/cmd-options-tran.md` |
-| HSPICE | `trap=trap gear=gear` | correct | observed: `.option method=trap`, `method=gear` and `method=bdf` each load with a `.tran` |
+| HSPICE | `trap=trap gear=gear bdf=bdf` | correct | observed: `.option method=trap`, `method=gear` and `method=bdf` each load with a `.tran`; BDF is a method of its own (4.7), written elsewhere as gear (`bdf=gear`, `bdf=gear2`) |
 | Spectre | `trap gear2 euler` | correct | observed: `tran stop=1m method=trap`, `method=gear2` and `method=euler` each load and run |
 
 ---

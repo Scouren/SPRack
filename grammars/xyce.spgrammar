@@ -47,7 +47,7 @@ rule  model     = ".model" name type {...params}
 # One heading per statement. A heading in the source is kept; options that
 # come from another dialect are filed where Xyce wants them.
 rule  options   = ".options" package:"timeint"? { reltol=reltol abstol=abstol method=method maxord=maxord ...params }
-rule  options   = ".options" package:"device"? { gmin=gmin temp=temp tnom=tnom ...params }
+rule  options   = ".options" package:"device"? { gmin=gmin gmin=gmindc temp=temp tnom=tnom ...params }
 rule  options   = ".options" package:"parser"? { scale=scale ...params }
 rule  options   = ".options" package {...params}
 rule  print     = style:".print"=print analysis {...params} signals+
@@ -123,7 +123,7 @@ rule  four      = ".four" freq signals+
 rule  hb        = ".hb" freqs+
 
 implied noise ref = 0
-enum options method : trap=trap gear=gear trap=7 gear=8
+enum options method : trap=trap gear=gear trap=7 gear=8 bdf=gear
 enum dc var : temp=temp
 
 no cond_if : Xyce has no conditional blocks in a netlist
@@ -167,6 +167,7 @@ caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed th
 caveat tran step : the first .TRAN number only sets the initial step in Xyce
 caveat noise out : Xyce reports noise as mean-square densities where HSPICE reports RMS
 caveat options gmin : Xyce adds GMIN differently from ngspice, which puts it across every junction; with a large GMIN the operating point differs (sim check: op/option_gmin_ngspice)
+caveat options gmindc : Xyce adds GMIN differently from ngspice, which puts it across every junction; with a large GMIN the operating point differs (sim check: op/option_gmin_ngspice)
 caveat nodeset values : Xyce and ngspice apply nodesets with different algorithms; a circuit with several operating points may settle in another one (sim check: op/nodeset_latch)
 
 # How this dialect writes the things a simulator can record.

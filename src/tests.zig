@@ -1038,7 +1038,8 @@ test "options: one vocabulary, five ways of filing it" {
 
     var r4: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", src, &r4);
-    try has(hs, ".option reltol=1e-4 abstol=1p vntol=1u gmin=1p tnom=25 scale=1u method=gear\n.temp 85\n");
+    // One reltol and one gmin are two keys each in HSPICE (c5).
+    try has(hs, ".option reltol=1e-4 reli=1e-4 abstol=1p vntol=1u gmin=1p gmindc=1p tnom=25 scale=1u method=gear\n.temp 85\n");
     try clean(&r4);
 
     // An option only its own simulator knows is never copied across.
@@ -3746,4 +3747,91 @@ test "c4: ESPice .noise takes the summary interval" {
     const out = try tr(a, "hspice", "espice", "t\nvin in 0 ac 1\nr1 in out 1k\n.ac dec 10 1 1meg\n.noise v(out) vin 1\n.end\n", &r);
     try has(out, ".noise v(out) vin dec 10 1 1meg 1\n");
     try clean(&r);
+}
+
+test "c5: HSPICE ABSV, ABSI and RELV are vntol, abstol and reltol" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ABSV and ABSI are VNTOL and ABSTOL in HSPICE: plain.
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.option absv=1e-6 absi=1e-12\n.end\n", &r), ".options abstol=1p vntol=1u\n");
+    try clean(&r);
+    // The one caveat is the TNOM and TEMP defaults.
+    try testing.expectEqual(1, r.countCode(.caveat));
+    // RELV bounds voltages only there; ngspice's reltol bounds currents too.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "espice", "t\n.option relv=1e-3\n.end\n", &r2), ".options reltol=1m\n");
+    try clean(&r2);
+    try reported(&r2, .warning, "options.reltol: HSPICE's RELTOL (RELV) bounds node voltages only");
+    // Into HSPICE one reltol is RELTOL and RELI; within HSPICE, RELTOL alone.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.options vntol=1u abstol=1p reltol=1e-3\n.end\n", &r3), ".option reltol=1m reli=1m abstol=1p vntol=1u\n");
+    try clean(&r3);
+    try testing.expectEqual(1, r3.countCode(.caveat));
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", "t\n.option relv=1e-3 absv=1u\n.end\n", &r4), ".option reltol=1m vntol=1u\n");
+    try clean(&r4);
+    // RELV and RELTOL are one option: two values are a loss.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.option relv=1e-3 reltol=2e-3\n.end\n", &r5);
+    try reported(&r5, .@"error", "options.reltol is given twice with different values");
+}
+
+test "c5: HSPICE GMINDC and GMIN are one gmin elsewhere" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.option gmindc=1e-9\n.end\n", &r), ".options gmin=1n\n");
+    try clean(&r);
+    try reported(&r, .warning, "options.gmindc: HSPICE's GMINDC acts in DC");
+    // Equal values say one gmin; different ones cannot both be said.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "espice", "t\n.option gmin=1n gmindc=1n\n.end\n", &r2), ".options gmin=1n\n");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", "t\n.option gmin=1n gmindc=1p\n.end\n", &r3), "options gmin=1n\n");
+    try reported(&r3, .@"error", "options: gmin = 1n and gmindc = 1p are both 'gmin' in spectre");
+    // ngspice's gmin is both in HSPICE; HSPICE's own GMINDC stays GMINDC.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.options gmin=1e-9\n.end\n", &r4), ".option gmin=1n gmindc=1n\n");
+    try clean(&r4);
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", "t\n.option gmindc=1e-9\n.end\n", &r5), ".option gmindc=1n\n");
+    try clean(&r5);
+}
+
+test "c5: HSPICE METHOD=BDF is gear elsewhere, with a caveat; POST is dropped" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.option method=bdf post\n.tran 1n 1u\n.end\n", &r), ".options method=gear\n");
+    try clean(&r);
+    try reported(&r, .warning, "options.method: HSPICE's BDF is not its GEAR");
+    try reported(&r, .info, "options: 'post' is not written");
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", "t\n.option method=bdf\n.tran 1n 1u\n.end\n", &r2), "method=gear2");
+    try clean(&r2);
+    // GEAR is GEAR: no caveat. Within HSPICE, both are kept.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.option method=gear\n.tran 1n 1u\n.end\n", &r3);
+    try testing.expect(!r3.contains(.warning, "BDF"));
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", "t\n.option method=bdf post\n.end\n", &r4), ".option method=bdf post\n");
+    try clean(&r4);
+}
+
+test "c5: HSPICE RELI and GMINDC that repeat reltol and gmin read back as one value" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.option reltol=1m reli=1m gmin=1n gmindc=1n\n.end\n", &r), ".options reltol=1m gmin=1n\n");
+    try clean(&r);
+    // A RELI of its own has no counterpart elsewhere.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\n.option reltol=1m reli=1e-2\n.end\n", &r2);
+    try reported(&r2, .@"error", "options: 'reli=0.01' has no spelling in ngspice");
 }

@@ -348,7 +348,7 @@ no single rule holds everything, which is how `.options timeint ...` and
 | `( ... )*` `( ... )+` `( ... )#n` | the group repeated, zero or more / one or more / exactly slot `n` times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
 | `<name>` | the pattern of a `define`, as if written here |
 | `/` | the statement continues on the next line |
-| `{ k=slot k="slot" k=[slot] k==lit k=slot! k=slot?$other k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, defaulted (written from another dialect when the slot is empty, a `synthesized` warning), tagged, `v(node)=value` (`v(*)=slot+` also reads bare `node value` pairs), and everything else. `...rest?` also takes bare flags; `k==lit!@s:a` is a fixed pair that stands for `s` = `a` |
+| `{ k=slot k="slot" k=[slot] k==lit k=slot! k=slot?$other k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, defaulted (written from another dialect when the slot is empty, a `synthesized` warning), tagged, `v(node)=value` (`v(*)=slot+` also reads bare `node value` pairs), and everything else. `k=slot+` writes another dialect's slot once more under this key (`reli=reltol+`: HSPICE says one reltol twice); read, it takes only a repeat of the value already read, and otherwise leaves the key to later entries. Two slots one key spells (`gmin=gmin gmin=gmindc`) are written once, a loss when their values differ. `...rest?` also takes bare flags; `k==lit!@s:a` is a fixed pair that stands for `s` = `a` |
 
 ### Meaning that is not syntax
 
@@ -364,6 +364,10 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # stand between them
     caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
     caveat hdl path=*.osdi : ...       # only where the value ends so
+    caveat read options gmin : ...     # said when a netlist of this dialect is
+                                       # translated out, not into it
+    inert options post : ...           # a parameter that changes no result here:
+                                       # left out crossing out, with an info note
     threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
     convert pss : fund = 1 / fund      # a value this dialect says differently:
     convert vsource wave=exp : td2 = td2 - td1    # a = b, a = a +/- c, a = 1 / a;

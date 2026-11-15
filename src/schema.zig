@@ -195,12 +195,13 @@ const defs = [_]Def{
     // A digital Verilog design, loaded as source (ESPice's `.verilog`).
     .{ .verilog, .structure, "path:path" },
     // `package` is for dialects that file options under headings (Xyce).
+    // `gmin` acts in every analysis; `gmindc` in DC ones only (HSPICE GMINDC).
     // `gshunt` and `cshunt` load every node to ground; `delmax` caps the
     // transient step where `.tran` gives none; `search` is where an include
     // not found beside the file is looked up (HSPICE).
     .{ .options, .control, "package:atom reltol:value abstol:value vntol:value gmin:value temp:value tnom:value " ++
         "scale:value method:atom maxord:value chgtol:value trtol:value params:params " ++
-        "gshunt:value cshunt:value delmax:value search:path" },
+        "gshunt:value cshunt:value delmax:value search:path gmindc:value" },
     .{ .save, .control, "signals:signal*" },
     // `style` tells a table (.print) from a plot (.plot) from a probe (.probe).
     .{ .print, .control, "style:atom analysis:atom signals:signal* params:params" },

@@ -156,7 +156,7 @@ rule  model     = "model" name type [ "(" {...params} ")" ]
 read  model     = "model" name type {...params}
 rule  hdl       = "load" path
 # lib/options.cpp:245-260 and :317; there is no trtol (tran_lteratio is not the same quantity).
-rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin temp=temp tnom=tnom scale=scale chgtol=chgtol tran_method="method" tran_maxord=maxord ...params }
+rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc temp=temp tnom=tnom scale=scale chgtol=chgtol tran_method="method" tran_maxord=maxord ...params }
 rule  save      = "save" signals+
 read  opaque    = ( "ground" | "save" ) ...
 # devices and outputs (b4)
@@ -233,7 +233,7 @@ rule  ccvs      = name "(" pos neg ")" "ccvs" { ctlinst="vsrc" gain=gain ...para
 rule  tline     = name "(" p1 n1 p2 n2 ")" "tline" { z0=z0 td=td f=f nl=nl ...params }
 rule  instance  = name "(" nodes* ")" master {...params}
 
-enum options method : trap=trap gear=gear2 euler=euler
+enum options method : trap=trap gear=gear2 euler=euler bdf=gear2
 enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl sffm=fm
 enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl sffm=fm
 enum tran skip_dc : yes=uic

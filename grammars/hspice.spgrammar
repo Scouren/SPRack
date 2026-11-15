@@ -64,8 +64,8 @@ rule  model     = ".model" name type {...params}
 rule  hdl       = ".hdl" path
 
 rule  options   = ".temp" temp
-rule  options   = ".option" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax search=search ...params? }
-read  options   = ".options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax search=search ...params? }
+rule  options   = ".option" { reltol=reltol relv=reltol reli=reltol+ abstol=abstol absi=abstol vntol=vntol absv=vntol gmin=gmin gmindc=gmin+ gmindc=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax search=search ...params? }
+read  options   = ".options" { reltol=reltol relv=reltol reli=reltol+ abstol=abstol absi=abstol vntol=vntol absv=vntol gmin=gmin gmindc=gmin+ gmindc=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol gshunt=gshunt cshunt=cshunt delmax=delmax search=search ...params? }
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 # HSPICE's own .SAVE stores an operating point; recording signals is .PROBE.
 write save      = ".probe" signals+
@@ -201,7 +201,21 @@ caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, wh
 
 implied tf ref = 0
 implied noise ref = 0
-enum options method : trap=trap gear=gear
+# Measured in HSPICE Y-2026.03 (docs/verification.md 4.7). BDF is a method
+# of its own: an LC tank it damps far less than GEAR, so its canonical name
+# is bdf, which the other dialects write as their gear.
+enum options method : trap=trap gear=gear bdf=bdf
+caveat read options method=*bdf : HSPICE's BDF is not its GEAR: on an LC tank run 100 periods at 20 steps a period it kept 0.78 of the swing where GEAR kept 0.005; the target's gear damps as GEAR does
+# ABSV is VNTOL, ABSI is ABSTOL and RELV is RELTOL: each pair gave the same
+# result to ten digits. RELTOL bounds voltages only; RELI bounds currents.
+# GMINDC acts in DC and the operating point only, GMIN in the transient
+# only. ngspice, ESPice, Xyce, Spectre and VACASK have one reltol for both
+# and one gmin for both, so another dialect's reltol and gmin are written
+# here as both keys (`+`).
+caveat read options reltol : HSPICE's RELTOL (RELV) bounds node voltages only and RELI branch currents; the target's reltol bounds both
+caveat read options gmin : HSPICE's GMIN acts in the transient only, not in its operating point; the target's gmin acts in DC too
+caveat read options gmindc : HSPICE's GMINDC acts in DC and the transient's operating point only; it is the target's gmin, which acts through the transient too
+inert options post : HSPICE's POST only picks the waveform file written; no result depends on it
 enum dc var : temp=temp
 # Measured in HSPICE Y-2026.03 with a 1k resistor of tc1=0.01: TNOM is 25,
 # and with no .TEMP the circuit runs at TNOM (.OPTION TNOM=0 ran it at 0).

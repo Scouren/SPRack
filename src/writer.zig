@@ -256,15 +256,19 @@ const Emit = struct {
     /// differently (`differs` in either grammar): a caveat, never silence.
     fn semantics(e: *Emit, canon: []const u8) void {
         if (e.quiet or !e.foreign) return;
-        const src: ?*const Grammar = if (e.caps) |c| for (c.grammars) |*g| {
-            if (std.mem.eql(u8, g.name, e.source)) break g;
-        } else null else null;
-        for ([_]?*const Grammar{ e.g, src }) |og| {
+        for ([_]?*const Grammar{ e.g, e.sourceGrammar() }) |og| {
             const g = og orelse continue;
             for (g.differs) |d| {
                 if (expr.uses(canon, d.canon)) e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
             }
         }
+    }
+
+    /// The built-in grammar the statement was read with, if any.
+    fn sourceGrammar(e: *const Emit) ?*const Grammar {
+        const c = e.caps orelse return null;
+        for (c.grammars) |*g| if (std.mem.eql(u8, g.name, e.source)) return g;
+        return null;
     }
 
     /// A value as shown in messages: no dialect delimiters around it.
@@ -311,6 +315,11 @@ const Emit = struct {
                     if (!e.foreign) break :blk v.atom;
                     e.why = try e.arena.print("{s} = {s}", .{ sl.name, v.atom });
                     return null;
+                };
+                // `bdf=gear`: a spelling that reads back as another value.
+                for (em.pairs) |pr| if (std.mem.eql(u8, pr.spelling, sp)) {
+                    if (!std.mem.eql(u8, pr.canon, v.atom) and !e.quiet) e.report.add(.info, .oneway, e.st.line, "{s}.{s} = {s} is written as {s}, which reads back as {s}", .{ @tagName(e.st.kind), sl.name, v.atom, sp, pr.canon });
+                    break;
                 };
                 return if (quoted) try e.arena.print("\"{s}\"", .{sp}) else sp;
             }
@@ -590,7 +599,7 @@ const Emit = struct {
                 }
             },
             .bag => {
-                for (n.bag) |b| {
+                for (n.bag, 0..) |b, bi| {
                     switch (b.form) {
                         .fixed => {
                             if (b.tag_slot != grammar.no_slot) {
@@ -653,7 +662,28 @@ const Emit = struct {
                                 });
                                 continue;
                             }
-                            if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
+                            if (b.also) {
+                                // Only after another key wrote it, for another dialect's statement.
+                                if (!e.foreign or !e.bound(b.slot) or !e.isUsed(b.slot)) continue;
+                            } else if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
+                            // Two slots this dialect spells with one key
+                            // (`gmin=gmin gmin=gmindc`): one value is said; two are a loss.
+                            const twin = for (n.bag[0..bi]) |o| {
+                                if (o.form == .plain and !o.also and o.slot != b.slot and e.isUsed(o.slot) and std.mem.eql(u8, o.key, b.key)) break o.slot;
+                            } else null;
+                            if (twin) |t| {
+                                if (!e.val(t).eql(e.val(b.slot)) and !e.quiet) e.report.add(.@"error", .loss, e.st.line, "{s}: {s} = {s} and {s} = {s} are both '{s}' in {s}; the first is written", .{
+                                    @tagName(e.st.kind),           e.slot(t).name, try e.describe(e.val(t)), e.slot(b.slot).name,
+                                    try e.describe(e.val(b.slot)), b.key,          e.g.name,
+                                });
+                                e.mark(b.slot);
+                                continue;
+                            }
+                            // `gmin=gmindc` after `gmin=gmin`: read back, the key fills the other slot.
+                            for (n.bag[0..bi]) |o| if (o.form == .plain and !o.also and o.slot != b.slot and std.mem.eql(u8, o.key, b.key)) {
+                                if (!e.quiet) e.report.add(.info, .oneway, e.st.line, "{s}.{s} is written as '{s}', which reads back as {s}.{s}", .{ @tagName(e.st.kind), e.slot(b.slot).name, b.key, @tagName(e.st.kind), e.slot(o.slot).name });
+                                break;
+                            };
                             if (b.tag_slot != grammar.no_slot) {
                                 const tv = e.st.at(b.tag_slot);
                                 if (tv != .atom or !std.mem.eql(u8, tv.atom, b.tag_atom)) continue;
@@ -687,6 +717,13 @@ const Emit = struct {
         return !e.isImplied(idx);
     }
 
+    /// Why the source dialect's parameter changes no result (`inert`), if it does not.
+    fn inert(e: *const Emit, key: []const u8) ?[]const u8 {
+        const sg = e.sourceGrammar() orelse return null;
+        for (sg.inerts) |in| if (in.kind == e.st.kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
+        return null;
+    }
+
     fn lossCount(e: *Emit) Allocator.Error!usize {
         var n: usize = e.lost_flags;
         for (0..schema.info(e.st.kind).slots.len) |i| n += @intFromBool(try e.lost(@intCast(i)));
@@ -694,8 +731,10 @@ const Emit = struct {
     }
 
     fn reportLosses(e: *Emit) Allocator.Error!void {
-        for (e.g.caveats) |c| {
-            if (e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
+        // The target's caveats on writing it, the source's on reading it.
+        const src: []const grammar.Caveat = if (e.sourceGrammar()) |sg| sg.caveats else &.{};
+        for ([_][]const grammar.Caveat{ e.g.caveats, src }, [_]bool{ false, true }) |cs, read| for (cs) |c| {
+            if (c.read == read and e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
                 if (c.suffix.len > 0) {
                     const v = e.st.at(c.slot);
                     const t: []const u8 = switch (v) {
@@ -707,7 +746,7 @@ const Emit = struct {
                 // Text carried verbatim may read differently on the other side.
                 e.report.add(.warning, if (e.slot(c.slot).ty == .text) .ambiguous else .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
             }
-        }
+        };
         if (e.lost_flags > 0) {
             for (e.st.values()) |v| {
                 if (v != .params) continue;
@@ -728,6 +767,10 @@ const Emit = struct {
             if (e.slot(idx).ty == .params and v == .params) {
                 // One entry per parameter: each is a separate thing the target cannot say.
                 for (v.params) |p| {
+                    if (e.inert(p.key)) |why| {
+                        e.report.add(.info, .cosmetic, e.st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why });
+                        continue;
+                    }
                     e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in {s}", .{
                         @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), e.g.name,
                     });

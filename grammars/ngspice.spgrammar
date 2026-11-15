@@ -63,8 +63,8 @@ rule  model     = ".model" name type {...params?}
 rule  hdl       = ".control" / "pre_osdi" path! / ".endc"
 
 rule  options   = ".temp" temp
-rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
-read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
+rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
+read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
 rule  save      = ".save" signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot | style:".probe"=probe ) [analysis] signals+
 rule  ic        = ".ic" { v(*)=values }
@@ -133,7 +133,7 @@ rule  sp        = ".sp" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstar
 
 implied noise ref = 0
 implied tf ref = 0
-enum options method : trap=trap gear=gear
+enum options method : trap=trap gear=gear bdf=gear
 enum dc var : temp=temp
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
