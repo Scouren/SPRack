@@ -17,5 +17,5 @@
   },
   "default_corner": "tt",
   "prefix": "",
-  "load": ["{osdi}/psp103_nqs.osdi", "{osdi}/r3_cmc.osdi", "{osdi}/mosvar.osdi"]
+  "load": ["{osdi}/psp103.osdi", "{osdi}/psp103_nqs.osdi", "{osdi}/r3_cmc.osdi", "{osdi}/mosvar.osdi", "{osdi}/cap_cmomi.osdi", "{osdi}/cap_cmomf.osdi"]
 }
