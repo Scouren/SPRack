@@ -332,6 +332,12 @@ caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the 
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
 caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
+# Model parameters the shipped modules refuse ("Parameter ... not found").
+# devices/spice/bsim3v3.va has no version; bsim4v8.va:164 declares it a string.
+noparam bsim3 version : sp_bsim3v3 implements BSIM3 3.3.0 only and has no version parameter
+noparam bsim4 version : sp_bsim4v8 implements BSIM4 4.8 and takes version only as a string
+# devices/spice/jfet1.va has no level; jfet2.va is a module with no family here.
+noparam jfet level : sp_jfet1 is the level 1 JFET and has no level parameter; the level 2 model (spice/jfet2.osdi) has no family in the IR
 # docs/cmd-options-op.md "Nodesets": op_nsiter=1, nr_nsforce=10.
 caveat op     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
 caveat dc     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state

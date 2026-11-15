@@ -636,7 +636,8 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     var r4: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", src, &r4);
     try has(va, "load \"spice/bsim4v8.osdi\"\n");
-    try has(va, "model nch sp_bsim4v8 (type=1 version=4.5 vth0=0.4)\n");
+    try has(va, "model nch sp_bsim4v8 (type=1 vth0=0.4)\n");
+    try reported(&r4, .@"error", "model 'nch': version not written");
     try has(va, "M1 (out in 0 0) nch w=1u l=0.18u\n");
     // It ships no HiSIM2: say so, and say who has.
     _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
@@ -3233,4 +3234,17 @@ test "VACASK nodeset: a caveat, since it holds for one Newton iteration only" {
     const va = try tr(a, "ngspice", "vacask", "t\nV1 q 0 1\nR1 q 0 1k\n.nodeset v(q)=5\n.op\n.end\n", &report);
     try has(va, "analysis op1 op nodeset={\"q\",5}\n");
     try reported(&report, .warning, "op.nodeset: VACASK pulls toward a nodeset only during its first Newton iteration");
+}
+
+test "VACASK model cards: parameters the shipped modules refuse are a loss" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\n.model n3 nmos level=8 version=3.3 vth0=0.4\n.model nj njf level=2 vto=-1\n.end\n", &report);
+    try has(va, "model n3 sp_bsim3v3 (type=1 vth0=0.4)\n");
+    try has(va, "model nj sp_jfet1 (type=1 vto=-1)\n");
+    try reported(&report, .@"error", "model 'n3': version not written: sp_bsim3v3 implements BSIM3 3.3.0 only");
+    try reported(&report, .@"error", "model 'nj': level not written: sp_jfet1 is the level 1 JFET");
+    try testing.expectEqual(2, report.count(.@"error"));
 }

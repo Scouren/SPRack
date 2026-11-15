@@ -376,6 +376,8 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # analysis of its body (`sweep monte=30`)
     switch "simulator lang=spice" -> hspice   # from such a line on, read with
                                        # another grammar, until the next switch
+    noparam jfet level=2 : ...         # a model parameter (with that value) the
+                                       # family's model here refuses: not written, a loss
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
     differs pow : the exponent is cut to an integer  # a shared function or operator
                                                      # evaluated differently: a caveat

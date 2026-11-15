@@ -199,6 +199,11 @@ pub const Convert = struct {
 /// thresholds as the levels where it is fully on and fully off, where SPICE
 /// gives a midpoint and a hysteresis half-width: on = mid + half,
 /// off = mid - half. The names are model parameters, as written.
+/// `noparam family key[=value] : text`: a model parameter this dialect's
+/// module for the family does not take (or not with that value); an error
+/// when a card of that family crosses into this dialect.
+pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, text: []const u8 };
+
 pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
 
 /// `invalid kind slot[=0] [slot=atom] : text`: a statement without that slot
@@ -318,6 +323,7 @@ pub const Grammar = struct {
     spreads: []const Kind = &.{},
     reserved: []const Reserved = &.{},
     switches: []const Switch = &.{},
+    noparams: []const NoParam = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -1176,6 +1182,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var spreads: []const Kind = &.{};
     var reserved: []const Reserved = &.{};
     var switches: []const Switch = &.{};
+    var noparams: []const NoParam = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1279,6 +1286,19 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 return c.fail(no, "threshold is `threshold family : on off = mid half`", .{});
             if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
             thresholds = try c.add(Threshold, thresholds, .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] });
+        } else if (std.mem.eql(u8, head, "noparam")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] : text`", .{});
+            const e = try args(c, no, rest[0..colon]);
+            if (e.len != 2) return c.fail(no, "noparam needs a model family and a parameter", .{});
+            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            const eq = std.mem.indexOfScalar(u8, e[1], '=') orelse e[1].len;
+            if (eq < e[1].len) _ = std.fmt.parseFloat(f64, e[1][eq + 1 ..]) catch return c.fail(no, "noparam takes a plain number after '='", .{});
+            noparams = try c.add(NoParam, noparams, .{
+                .family = e[0],
+                .key = e[1][0..eq],
+                .value = if (eq < e[1].len) e[1][eq + 1 ..] else "",
+                .text = rest[colon + 3 ..],
+            });
         } else if (std.mem.eql(u8, head, "convert")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "convert is `convert kind [slot=atom] : a = b [op c]`", .{});
             const ks = try args(c, no, rest[0..colon]);
@@ -1451,6 +1471,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .spreads = spreads,
         .reserved = reserved,
         .switches = switches,
+        .noparams = noparams,
     };
 }
 

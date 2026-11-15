@@ -933,6 +933,19 @@ const Writer = struct {
                     break;
                 };
             }
+            // Parameters this dialect's module for the family refuses.
+            for (w.g.noparams) |np| {
+                if (!std.mem.eql(u8, np.family, fam.atom)) continue;
+                var j: usize = 0;
+                while (j < ps.items.len) : (j += 1) {
+                    const p = ps.items[j];
+                    if (!std.ascii.eqlIgnoreCase(p.key, np.key)) continue;
+                    if (np.value.len > 0 and (p.val != .num or p.val.num.toFloat() != (std.fmt.parseFloat(f64, np.value) catch unreachable))) continue;
+                    w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s}", .{ st.get("name").atom, p.key, np.text });
+                    _ = ps.orderedRemove(j);
+                    break;
+                }
+            }
         }
         const th = try expr.thresholds(a, w.g, fam.atom, ps.items, true);
         if (th.changed and !th.no_half) w.report.add(.warning, .caveat, st.line, "model '{s}': the threshold and hysteresis are written as on and off levels; {s} moves smoothly between them where SPICE switches with hysteresis", .{ st.get("name").atom, w.g.name });
