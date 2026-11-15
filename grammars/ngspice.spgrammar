@@ -145,6 +145,16 @@ enum dc var : temp=temp
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+# What an EXP source means by a value left out, or given as 0, which ngspice
+# reads as left out (measured in ngspice 45: docs/verification.md 4.12, 4.18).
+omitted vsource td1=0 wave=exp : tran.step
+omitted isource td1=0 wave=exp : tran.step
+omitted vsource tau1=0 wave=exp : tran.step
+omitted isource tau1=0 wave=exp : tran.step
+omitted vsource td2=0 wave=exp : td1 + tran.step
+omitted isource td2=0 wave=exp : td1 + tran.step
+omitted vsource tau2=0 wave=exp : tran.step
+omitted isource tau2=0 wave=exp : tran.step
 # ngspice has no step-ceiling option; HSPICE's DELMAX is the .tran maximum step.
 move options.delmax -> tran.maxstep oneway
 # ngspice's own gshunt does not load the nodes in an operating point

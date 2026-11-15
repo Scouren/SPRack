@@ -119,6 +119,10 @@ implied vsource td1 = 0 wave=exp   # only where that slot holds that word
 enum options method : trap=trap gear=gear2      # canonical = this dialect's word
 move options.method -> tran.method # this dialect says it on another statement
 move options.delmax -> tran.maxstep oneway   # only when writing
+move tran.maxstep -> options.delmax oneway   # onto the options, said once
+                                   # for the netlist: the first value, on a
+                                   # new statement if there is none; another
+                                   # value has no place
 merge ac -> noise                  # read: noise takes what it lacks from the ac
                                    # before it, and absorbs it if only comments
                                    # stand between them
@@ -137,13 +141,23 @@ invalid vsource rise=0 wave=pulse : ...  # left out (or 0) it means something
 default vsource rise=0 wave=pulse : tran.step  # left out (or 0) by a dialect
                                    # that means its default by that: written
                                    # out from the netlist's first .tran
-default vsource td2 wave=exp : td1 + tran.step  # counted from a slot of the
-                                   # statement itself
-default vsource td1 wave=exp : tran.step from ngspice espice  # only for a
-                                   # statement of a dialect measured to mean
-                                   # that (an error where the netlist has no
-                                   # .tran); from any other, an `ambiguous`
-                                   # warning unless an `invalid` line speaks
+omitted vsource tau1 wave=exp : tran.step   # what this dialect itself means
+                                   # by a slot left out, as measured: `a`,
+                                   # `a + b` or `(a - b) / c` over a slot of
+                                   # the statement, `kind.slot` of the
+                                   # netlist's first such statement, a whole
+                                   # number. A statement crossing to a
+                                   # dialect whose line for the slot differs
+                                   # or is missing is written with this value
+                                   # (an error where the netlist has no
+                                   # .tran); from a dialect with no line, an
+                                   # `ambiguous` warning
+omitted vsource td1=0 wave=exp : tran.step  # left out or 0: a 0 crossing
+                                   # into this dialect cannot be said, an
+                                   # error
+omitted vsource tau2 wave=exp : tran.stop / 100 given td2  # holds where the
+                                   # statement gives that slot; without it
+                                   # the value plays no part
 unique param : ...                 # a parameter defined twice in one scope is
                                    # refused here: an error
 unique master : ...                # a name both a model and a subcircuit define

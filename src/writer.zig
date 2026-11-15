@@ -1734,7 +1734,8 @@ const Writer = struct {
     fn anyMove(w: *const Writer, stmts: []const ir.Stmt) bool {
         for (w.g.moves) |mv| {
             var from = false;
-            var to = false;
+            // An options statement is made where there is none.
+            var to = mv.to == .options;
             for (stmts) |*s| {
                 from = from or (s.kind == mv.from and s.at(mv.from_slot) != .none);
                 to = to or (s.kind == mv.to and s.at(mv.to_slot) == .none);
@@ -1766,11 +1767,12 @@ const Writer = struct {
         }
     }
 
-    /// Apply the grammar's `default` lines: a value a statement from another
-    /// dialect leaves to that dialect's default (a SPICE pulse's rise time
-    /// is the `.tran` step) is written out where this dialect needs it.
-    /// Where the netlist has nothing to take it from, nothing is filled and
-    /// the dialect's `invalid` line says why.
+    /// Apply the grammar's `default` lines and both dialects' `omitted`
+    /// lines: a value a statement from another dialect leaves to that
+    /// dialect's default (a SPICE pulse's rise time is the `.tran` step) is
+    /// written out where this dialect needs it. Where the netlist has
+    /// nothing to take a `default` from, nothing is filled and the dialect's
+    /// `invalid` line says why.
     fn fill(w: *Writer, stmts: []ir.Stmt, all: []const ir.Stmt) Allocator.Error![]ir.Stmt {
         var list: ?[]ir.Stmt = null;
         for (stmts, 0..) |*st, i| {
@@ -1783,51 +1785,29 @@ const Writer = struct {
                     changed = true;
                 }
             }
+            const foreign = !std.mem.eql(u8, w.sourceOf(st), w.g.name);
+            if (foreign and try w.omitted(w.sourceGrammar(st), st, &cur, all)) changed = true;
             for (w.g.fills) |f| {
-                if (f.kind != st.kind or std.mem.eql(u8, w.sourceOf(st), w.g.name)) continue;
+                if (f.kind != st.kind or !foreign) continue;
                 if (f.when_slot != grammar.no_slot) {
                     const c = cur.at(f.when_slot);
                     if (c != .atom or !std.mem.eql(u8, c.atom, f.when_atom)) continue;
                 }
                 const v = cur.at(f.slot);
-                const zero = v == .num and v.num.toFloat() == 0;
-                if (v != .none and !(f.zero and zero)) continue;
+                if (v != .none and !(f.zero and isZero(v))) continue;
                 // A source dialect with a default of its own means that one.
                 if (w.sourceGrammar(st)) |sg| if (sg.checksSlot(f.kind, f.slot)) continue;
                 const sl = schema.info(f.kind).slots;
-                if (f.only.len > 0) {
-                    for (f.only) |d| {
-                        if (std.mem.eql(u8, d, w.sourceOf(st))) break;
-                    } else {
-                        // Nothing is assumed of a dialect not measured.
-                        if (!w.g.checksSlot(f.kind, f.slot)) w.report.add(.warning, .ambiguous, st.line, "{s}.{s} is not given: {s} takes its own default for it, and what {s} takes is not measured; written as it was", .{
-                            @tagName(f.kind), sl[f.slot].name, w.g.name, w.sourceOf(st),
-                        });
-                        continue;
-                    }
-                }
-                var from = firstValue(all, f.from, f.from_slot) orelse {
-                    if (f.only.len > 0) w.report.add(.@"error", .invalid, st.line, "{s}.{s} is not given: {s} means the {s}.{s} by that and {s} does not, and this netlist has no {s} to take it from", .{
-                        @tagName(f.kind), sl[f.slot].name, w.sourceOf(st), @tagName(f.from), schema.info(f.from).slots[f.from_slot].name, w.g.name, @tagName(f.from),
-                    });
-                    continue;
-                };
-                if (f.plus != grammar.no_slot) {
-                    // Counted from a value this statement does not have: the
-                    // `invalid` line speaks.
-                    if (cur.at(f.plus) == .none) continue;
-                    from = try expr.arith(w.arena, .add, cur.at(f.plus), from);
-                }
+                const from = firstValue(all, f.from, f.from_slot) orelse continue;
                 try cur.own(w.arena);
                 try cur.set(w.arena, f.slot, from);
                 changed = true;
                 var em = w.emitter(w.arena, st);
-                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means {s}{s}the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
-                    @tagName(f.kind),                                       sl[f.slot].name,
-                    if (zero) "is 0" else "is not given",                   w.sourceOf(st),
-                    if (f.plus != grammar.no_slot) sl[f.plus].name else "", if (f.plus != grammar.no_slot) " plus " else "",
-                    @tagName(f.from),                                       schema.info(f.from).slots[f.from_slot].name,
-                    w.g.name,                                               try em.describe(from),
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
+                    @tagName(f.kind),                           sl[f.slot].name,
+                    if (v != .none) "is 0" else "is not given", w.sourceOf(st),
+                    @tagName(f.from),                           schema.info(f.from).slots[f.from_slot].name,
+                    w.g.name,                                   try em.describe(from),
                 });
             }
             if (changed) {
@@ -1838,15 +1818,110 @@ const Writer = struct {
         return list orelse stmts;
     }
 
+    /// The `omitted` lines of both dialects, for a statement crossing from
+    /// `sg`'s into this one: a value it leaves to `sg`'s default is written
+    /// out where this dialect means another by leaving it out (or says
+    /// nothing), and a zero this dialect reads as left out cannot be said.
+    fn omitted(w: *Writer, sg: ?*const Grammar, st: *const ir.Stmt, cur: *ir.Stmt, all: []const ir.Stmt) Allocator.Error!bool {
+        var changed = false;
+        const sl = schema.info(st.kind).slots;
+        if (sg) |s| for (s.omitted) |*o| {
+            if (omittedLine(s, st, o.slot) != o) continue;
+            const v = st.at(o.slot);
+            if (v != .none and !(o.zero and isZero(v))) continue;
+            if (omittedLine(w.g, st, o.slot)) |t| {
+                if (std.mem.eql(u8, t.text, o.text) and t.given == o.given and (v == .none or t.zero)) continue;
+            }
+            // Without the slot the formula holds for, the value plays no part.
+            if (o.given != grammar.no_slot and st.at(o.given) == .none) continue;
+            const what = try omittedPhrase(w.arena, o);
+            var missing: ?Kind = null;
+            const val = (try w.omittedValue(s, st, o, all, &missing, 0)) orelse {
+                if (missing) |k| w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s} means {s} by that and {s} does not, and this netlist has no {s} to take it from", .{
+                    @tagName(st.kind), sl[o.slot].name, if (v != .none) "is 0" else "is not given", s.name, what, w.g.name, @tagName(k),
+                });
+                continue;
+            };
+            try cur.own(w.arena);
+            try cur.set(w.arena, o.slot, val);
+            changed = true;
+            var em = w.emitter(w.arena, st);
+            w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means {s} by that, and {s} needs it said; wrote {s}", .{
+                @tagName(st.kind), sl[o.slot].name, if (v != .none) "is 0" else "is not given", s.name, what, w.g.name, try em.describe(val),
+            });
+        };
+        for (w.g.omitted) |*t| {
+            if (omittedLine(w.g, st, t.slot) != t) continue;
+            const v = cur.at(t.slot);
+            const theirs = if (sg) |s| omittedLine(s, st, t.slot) else null;
+            if (t.zero and isZero(v) and !(theirs != null and theirs.?.zero)) {
+                w.report.add(.@"error", .invalid, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and takes {s} for it; a 0 cannot be said", .{
+                    @tagName(st.kind), sl[t.slot].name, w.g.name, try omittedPhrase(w.arena, t),
+                });
+            } else if (v == .none and theirs == null and !(sg != null and sg.?.checksSlot(st.kind, t.slot))) {
+                // Nothing is assumed of a dialect that does not say.
+                w.report.add(.warning, .ambiguous, st.line, "{s}.{s} is not given: {s} takes its own default for it, and what {s} takes is not measured; written as it was", .{
+                    @tagName(st.kind), sl[t.slot].name, w.g.name, w.sourceOf(st),
+                });
+            }
+        }
+        return changed;
+    }
+
+    /// What the `omitted` line `o` of `sg` gives for `st`. Null where the
+    /// netlist has no statement of a kind it counts from (`missing` names
+    /// it) or the statement no value for a slot it counts from.
+    fn omittedValue(w: *Writer, sg: *const Grammar, st: *const ir.Stmt, o: *const grammar.Omitted, all: []const ir.Stmt, missing: *?Kind, depth: u8) Allocator.Error!?Value {
+        var stack: [3]Value = undefined;
+        var n: usize = 0;
+        for (o.terms) |t| switch (t) {
+            .num => |digits| {
+                stack[n] = .{ .num = .init(digits, 0) };
+                n += 1;
+            },
+            .first => |f| {
+                stack[n] = firstValue(all, f.kind, f.slot) orelse {
+                    missing.* = f.kind;
+                    return null;
+                };
+                n += 1;
+            },
+            .slot => |slot| {
+                const v = st.at(slot);
+                const its = omittedLine(sg, st, slot);
+                // Left out as well: what the dialect means by that.
+                stack[n] = if (v != .none and !(its != null and its.?.zero and isZero(v))) v else if (its != null and depth < 4)
+                    (try w.omittedValue(sg, st, its.?, all, missing, depth + 1)) orelse return null
+                else
+                    return null;
+                n += 1;
+            },
+            .op => |op| {
+                n -= 1;
+                stack[n - 1] = try expr.arith(w.arena, switch (op) {
+                    .add => .add,
+                    .sub => .sub,
+                    .mul => .mul,
+                    .div => .div,
+                }, stack[n - 1], stack[n]);
+            },
+        };
+        return stack[0];
+    }
+
     /// Apply the grammar's `move` lines: values this dialect says on another
     /// statement are carried there before anything is written.
     fn applyMoves(w: *Writer, stmts: []const ir.Stmt) Allocator.Error![]const ir.Stmt {
         if (!w.anyMove(stmts)) return stmts;
-        const list = try w.arena.dupe(ir.Stmt, stmts);
+        var list = try w.arena.dupe(ir.Stmt, stmts);
         // One value may go to several kinds (`nodeset` onto every analysis),
         // so a source is emptied only after every move has seen it.
         var emptied: std.ArrayList(struct { *ir.Stmt, u8 }) = .empty;
         for (w.g.moves) |mv| {
+            if (mv.to == .options) {
+                list = try w.moveToOptions(list, mv);
+                continue;
+            }
             for (list) |*src| {
                 if (src.kind != mv.from or src.at(mv.from_slot) == .none) continue;
                 var moved = false;
@@ -1868,6 +1943,49 @@ const Writer = struct {
         }
         return list;
     }
+
+    /// A `move` onto the options, which hold for the whole netlist (HSPICE
+    /// caps the step of every `.tran` with one DELMAX): the first value
+    /// goes to the first options statement, a new one where the netlist
+    /// has none. A statement that says another value keeps it, for the
+    /// writer to refuse; one that says none is told what it now shares.
+    fn moveToOptions(w: *Writer, list_in: []ir.Stmt, mv: grammar.Move) Allocator.Error![]ir.Stmt {
+        var list = list_in;
+        const first = for (list, 0..) |*s, i| {
+            if (s.kind == mv.from and s.at(mv.from_slot) != .none) break i;
+        } else return list;
+        const v = list[first].at(mv.from_slot);
+        const said = list[first].line;
+        const at = for (list, 0..) |*s, i| {
+            if (s.kind == .options) break i;
+        } else blk: {
+            const grown = try w.arena.alloc(ir.Stmt, list.len + 1);
+            @memcpy(grown[0..first], list[0..first]);
+            grown[first] = try ir.newStmt(w.arena, .options, said);
+            @memcpy(grown[first + 1 ..], list[first..]);
+            list = grown;
+            break :blk first;
+        };
+        if (list[at].at(mv.to_slot) != .none) return list;
+        try list[at].own(w.arena);
+        try list[at].set(w.arena, mv.to_slot, v);
+        const from = schema.info(mv.from).slots[mv.from_slot].name;
+        const to = schema.info(mv.to).slots[mv.to_slot].name;
+        if (mv.oneway) w.report.add(.info, .oneway, said, "{s}.{s} is written as {s}.{s}, which reads back there", .{ @tagName(mv.from), from, @tagName(mv.to), to });
+        for (list) |*s| {
+            if (s.kind != mv.from) continue;
+            if (s.at(mv.from_slot) == .none) {
+                var em = w.emitter(w.arena, s);
+                w.report.add(.warning, .caveat, s.line, "{s}.{s} is not given: {s} says it once for the whole netlist ({s}.{s}), so the {s} another {s} gives holds here too", .{
+                    @tagName(mv.from), from, w.g.name, @tagName(mv.to), to, try em.describe(v), @tagName(mv.from),
+                });
+            } else if (s.at(mv.from_slot).eql(v)) {
+                try s.own(w.arena);
+                try s.set(w.arena, mv.from_slot, .none);
+            }
+        }
+        return list;
+    }
 };
 
 /// The canonical name a dialect's `params` table gives a spelling.
@@ -1883,6 +2001,35 @@ fn firstValue(stmts: []const ir.Stmt, kind: Kind, slot: u8) ?Value {
         if (firstValue(s.body, kind, slot)) |v| return v;
     }
     return null;
+}
+
+fn isZero(v: Value) bool {
+    return v == .num and v.num.toFloat() == 0;
+}
+
+/// The dialect's `omitted` line for `slot` of a statement like `st`.
+fn omittedLine(g: *const Grammar, st: *const ir.Stmt, slot: usize) ?*const grammar.Omitted {
+    for (g.omitted) |*o| {
+        if (o.kind != st.kind or o.slot != slot) continue;
+        if (o.when_slot != grammar.no_slot) {
+            const c = st.at(o.when_slot);
+            if (c != .atom or !std.mem.eql(u8, c.atom, o.when_atom)) continue;
+        }
+        return o;
+    }
+    return null;
+}
+
+/// An `omitted` formula in a report's words: "the tran.step", "td1 plus
+/// the tran.step", any other as the grammar writes it.
+fn omittedPhrase(arena: Allocator, o: *const grammar.Omitted) Allocator.Error![]const u8 {
+    const t = o.terms;
+    const sl = schema.info(o.kind).slots;
+    if (t.len == 1 and t[0] == .first)
+        return std.fmt.allocPrint(arena, "the {s}.{s}", .{ @tagName(t[0].first.kind), schema.info(t[0].first.kind).slots[t[0].first.slot].name });
+    if (t.len == 3 and t[0] == .slot and t[1] == .first and t[2].op == .add)
+        return std.fmt.allocPrint(arena, "{s} plus the {s}.{s}", .{ sl[t[0].slot].name, @tagName(t[1].first.kind), schema.info(t[1].first.kind).slots[t[1].first.slot].name });
+    return o.text;
 }
 
 /// `unique param`: a parameter defined twice in one scope. Each body
@@ -2637,7 +2784,7 @@ pub fn write(
         }
     }
     if (!sameDialect(nl, g)) try topology.check(ir.big, arena, nl, g, report);
-    const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
+    const filled = try w.fill(nl.stmts, nl.stmts);
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
         try w.check(g, filled);
         if (caps) |c| for (c.grammars) |*sg| {
@@ -2792,7 +2939,20 @@ pub const Survey = struct {
     reserved: ir.CaselessSet = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold.
-    pub fn add(sv: *Survey, g: *const Grammar, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+    /// Keeps the value of `slot` on the netlist's first statement of `kind`
+    /// that has one, for `fill`.
+    fn takeFirst(sv: *Survey, k: ir.Keep, stmts: []const ir.Stmt, kind: Kind, slot: u8) Allocator.Error!void {
+        for (sv.fill_from.items) |*s| {
+            if (s.kind == kind and s.at(slot) != .none) return;
+        }
+        const v = firstValue(stmts, kind, slot) orelse return;
+        var st = try ir.newStmt(k.perm, kind, 0);
+        try st.set(k.perm, slot, try ir.cloneValue(k, v));
+        try sv.fill_from.append(k.perm, st);
+    }
+
+    /// `gf`: the grammar the netlist is read with.
+    pub fn add(sv: *Survey, g: *const Grammar, gf: *const Grammar, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
         const a = k.perm;
         try collectDeclared(a, stmts, &sv.declared);
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
@@ -2801,15 +2961,10 @@ pub const Survey = struct {
         ir.markFamilies(stmts, &sv.fams);
         try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
         try collectReserved(a, g, stmts, &sv.reserved, k.src);
-        for (g.fills) |f| {
-            for (sv.fill_from.items) |*s| {
-                if (s.kind == f.from and s.at(f.from_slot) != .none) break;
-            } else if (firstValue(stmts, f.from, f.from_slot)) |v| {
-                var st = try ir.newStmt(a, f.from, 0);
-                try st.set(a, f.from_slot, try ir.cloneValue(k, v));
-                try sv.fill_from.append(a, st);
-            }
-        }
+        for (g.fills) |f| try sv.takeFirst(k, stmts, f.from, f.from_slot);
+        for (gf.omitted) |o| for (o.terms) |t| {
+            if (t == .first) try sv.takeFirst(k, stmts, t.first.kind, t.first.slot);
+        };
         for (stmts) |*s| {
             if (schema.info(s.kind).class == .analysis and s.kind != .alter) sv.analyses += 1;
         }
@@ -2979,7 +3134,7 @@ pub const Stream = struct {
         report.phase = ir.Phase.topology;
         if (s.topo) |*t| try t.group(stmts);
         report.phase = ir.Phase.fill;
-        const filled = if (g.fills.len > 0) try w.fill(stmts, s.fill_from) else stmts;
+        const filled = try w.fill(stmts, s.fill_from);
         if (s.foreign) {
             report.phase = ir.Phase.checks;
             try w.check(g, filled);

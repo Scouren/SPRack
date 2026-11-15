@@ -792,12 +792,13 @@ test "nothing is dropped: a value with no place in the target is an error" {
     try has(va, "analysis tran1 tran step=1n stop=100n maxstep=0.5n icmode=\"uic\"\n");
     try reported(&r1, .@"error", "tran.start = 5n has no spelling in vacask");
 
-    // HSPICE reads SPICE's start and ceiling positionally when they do not
-    // rise like a second segment (c4); whether the ceiling caps is a caveat.
+    // HSPICE's step cap is .OPTION DELMAX; a fourth .TRAN number is nothing
+    // to it (y1, docs/verification.md 4.18).
     var r2: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", "t\n.tran 1n 100n 5n 0.5n uic\n.end\n", &r2);
-    try has(hs, ".tran 1n 100n 5n 0.5n uic\n");
-    try reported(&r2, .warning, "tran.maxstep: HSPICE takes a fourth .TRAN number below the stop as no segment");
+    try has(hs, ".option tnom=27 delmax=0.5n\n.tran 1n 100n start=5n uic\n");
+    try reported(&r2, .info, "tran.maxstep is written as options.delmax, which reads back there");
+    try testing.expectEqual(0, r2.count(.@"error"));
 
     // Spectre can say all of it, with a caveat about what UIC means.
     var r3: ir.Report = .init(a);
@@ -4495,10 +4496,12 @@ test "c4: a multi-segment .tran runs to its last stop at its smallest step" {
     var r2: ir.Report = .init(a);
     _ = try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 1n 5n 2n\n.end\n", &r2);
     try testing.expect(r2.count(.@"error") > 0);
-    // Numbers that do not rise are SPICE's start time and step ceiling.
+    // Numbers that do not rise are SPICE's start time and step ceiling;
+    // HSPICE takes the ceiling as nothing (y1), so it is not carried.
     var r3: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "ngspice", "t\n.tran 10n 1m 0 10n uic\n.end\n", &r3), ".tran 10n 1m 0 10n uic\n");
+    try has(try tr(a, "hspice", "ngspice", "t\n.tran 10n 1m 0 10n uic\n.end\n", &r3), ".tran 10n 1m 0 uic\n");
     try clean(&r3);
+    try reported(&r3, .info, "tran: HSPICE takes a fourth .TRAN number that is no second segment as nothing (its step cap is .OPTION DELMAX), so it is left out");
     var r6: ir.Report = .init(a);
     try has(try tr(a, "hspice", "ngspice", "t\n.tran 1n 100n 90n\n.end\n", &r6), ".tran 1n 100n 90n\n");
     var r4: ir.Report = .init(a);
@@ -5338,13 +5341,16 @@ test "s2: an EXP source's left-out values are written out where the target means
     try reported(&r, .warning, "vsource.td1 is not given: ngspice means the tran.step by that, and xyce needs it said; wrote 1n");
     try testing.expectEqual(1, r.countCode(.synthesized));
     try testing.expectEqual(0, r.count(.@"error"));
-    // And back: Xyce's 0 is said.
+    // And back: Xyce's 0 is said, and ngspice reads a 0 as left out (y1).
     var r2: ir.Report = .init(a);
     try has(try tr(a, "xyce", "ngspice", src, &r2), "V1 a 0 exp(0 1 0)\n");
-    try testing.expectEqual(0, r2.count(.@"error") + r2.countCode(.synthesized));
-    // A 0 that Xyce assumes is still written where a later value needs its place.
+    try reported(&r2, .@"error", "vsource.td1 is 0: ngspice reads a 0 there as not given and takes the tran.step for it; a 0 cannot be said");
+    try testing.expectEqual(1, r2.count(.@"error"));
+    try testing.expectEqual(0, r2.countCode(.synthesized));
+    // A 0 that Xyce assumes is still written where a later value needs its
+    // place (HSPICE's TD1 is 0 too; a 0 in ngspice is its step, y1).
     var r3: ir.Report = .init(a);
-    try has(try tr(a, "ngspice", "xyce", "t\nV1 a 0 EXP(0 1 0 2n)\nR1 a 0 1k\n.tran 1n 20n\n.end\n", &r3), "V1 a 0 exp(0 1 0 2n)\n");
+    try has(try tr(a, "hspice", "xyce", "t\nV1 a 0 EXP(0 1 0 2n 5n 1n)\nR1 a 0 1k\n.tran 1n 20n\n.end\n", &r3), "V1 a 0 exp(0 1 0 2n 5n 1n)\n");
     try testing.expectEqual(0, r3.count(.@"error") + r3.countCode(.synthesized));
     // LTspice assumes 0 for all four; TD2 counts from TD1.
     var r4: ir.Report = .init(a);
@@ -5368,11 +5374,151 @@ test "s2: an EXP source's left-out values are written out where the target means
     var r9: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\nV1 a 0 EXP(0 1)\nR1 a 0 1k\n.op\n.end\n", &r9);
     try reported(&r9, .@"error", "vsource.td1 is not given: ngspice means the tran.step by that and xyce does not, and this netlist has no tran to take it from");
-    // HSPICE is not measured: written as it was, and the report says so.
+}
+
+// y1: HSPICE and Spectre say what they mean by an EXP value left out, and
+// what a 0 is to ngspice. Measured: docs/verification.md 4.18.
+
+test "y1: an EXP source crossing into or out of HSPICE and Spectre says what was left out" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const tran = "R1 a 0 1k\n.tran 2n 50n\n.end\n";
+    const ng = "t\nV1 a 0 EXP(0 1)\nI1 0 a EXP(0 1 3n 0.5n 6n)\n" ++ tran;
+    // Into them: ngspice's step, and TD1 plus the step.
+    var r: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", ng, &r);
+    try has(hs, "V1 a 0 exp(0 1 2n 2n 4n 2n)\n");
+    try has(hs, "I1 0 a exp(0 1 3n 0.5n 6n 2n)\n");
+    try reported(&r, .warning, "vsource.tau1 is not given: ngspice means the tran.step by that, and hspice needs it said; wrote 2n");
+    try reported(&r, .warning, "isource.tau2 is not given: ngspice means the tran.step by that, and hspice needs it said; wrote 2n");
+    try testing.expectEqual(0, r.count(.@"error"));
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
+    try has(sp, "V1 (a 0) vsource type=exp val0=0 val1=1 td1=2n tau1=2n td2=4n tau2=2n\n");
+    try has(sp, "I1 (0 a) isource type=exp val0=0 val1=1 td1=3n tau1=0.5n td2=6n tau2=2n\n");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    // Xyce's TD1 is 0, as theirs; the rest is the step.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "hspice", ng, &r2), "V1 a 0 exp(0 1 0 2n 2n 2n)\n");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "spectre", ng, &r3), "V1 (a 0) vsource type=exp val0=0 val1=1 tau1=2n td2=2n tau2=2n\n");
+
+    // Out of HSPICE: TAU1 is half of what is left after TD1, nothing falls
+    // within the run (TD2 is the stop, and TAU2 then plays no part), TAU2 is
+    // half of what is left after TD2.
+    const hsrc = "t\nV1 a 0 EXP(0 1)\nV2 b 0 EXP(0 1 3n)\nI1 0 a EXP(0 1 3n 0.5n 6n)\nR2 b 0 1k\n" ++ tran;
+    var r4: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce", hsrc, &r4);
+    try has(xy, "V1 a 0 exp(0 1 0 25n 50n)\n");
+    try has(xy, "V2 b 0 exp(0 1 3n 23500p 50n)\n");
+    try has(xy, "I1 0 a exp(0 1 3n 0.5n 6n 22n)\n");
+    try reported(&r4, .warning, "vsource.tau1 is not given: hspice means (tran.stop - td1) / 2 by that, and xyce needs it said; wrote 23500p");
+    try reported(&r4, .warning, "vsource.td2 is not given: hspice means the tran.stop by that, and xyce needs it said; wrote 50n");
+    try reported(&r4, .warning, "isource.tau2 is not given: hspice means (tran.stop - td2) / 2 by that, and xyce needs it said; wrote 22n");
+    try testing.expectEqual(0, r4.count(.@"error") + r4.countCode(.ambiguous));
+    // Spectre's TAU1 and TAU2 are a hundredth of the stop: only those differ.
+    var r5: ir.Report = .init(a);
+    const hsp = try tr(a, "hspice", "spectre", hsrc, &r5);
+    try has(hsp, "V1 (a 0) vsource type=exp val0=0 val1=1 tau1=25n\n");
+    try has(hsp, "I1 (0 a) isource type=exp val0=0 val1=1 td1=3n tau1=0.5n td2=6n tau2=22n\n");
+    try testing.expectEqual(0, r5.count(.@"error"));
+    // Out of Spectre.
+    const ssrc = "// t\nsimulator lang=spectre\nV1 (a 0) vsource type=exp val0=0 val1=1\nI1 (0 a) isource type=exp val0=0 val1=1 td1=3n tau1=0.3n td2=6n\nR1 (a 0) resistor r=1k\ntran1 tran step=2n stop=50n\n";
+    var r6: ir.Report = .init(a);
+    const sx = try tr(a, "spectre", "xyce", ssrc, &r6);
+    try has(sx, "V1 a 0 exp(0 1 0 500p 50n)\n");
+    try has(sx, "I1 0 a exp(0 1 3n 0.3n 6n 500p)\n");
+    try reported(&r6, .warning, "vsource.tau1 is not given: spectre means tran.stop / 100 by that, and xyce needs it said; wrote 500p");
+    try testing.expectEqual(0, r6.count(.@"error"));
+    var r7: ir.Report = .init(a);
+    const sh = try tr(a, "spectre", "hspice", ssrc, &r7);
+    try has(sh, "V1 a 0 exp(0 1 0 500p)\n");
+    try has(sh, "I1 0 a exp(0 1 3n 0.3n 6n 500p)\n");
+    try testing.expectEqual(0, r7.count(.@"error"));
+    // An instant fall is still what LTspice means by no TAU2.
+    var r8: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ltspice", hsrc, &r8), "V2 b 0 exp(0 1 3n 23500p 50n)\n");
+    try reported(&r8, .@"error", "vsource.tau2 is not given: LTspice's default fall time constant is 0, an instant fall");
+
+    // No .tran to take the stop from.
+    var r9: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\nV1 a 0 EXP(0 1)\nR1 a 0 1k\n.op\n.end\n", &r9);
+    try reported(&r9, .@"error", "vsource.tau1 is not given: hspice means (tran.stop - td1) / 2 by that and xyce does not, and this netlist has no tran to take it from");
     var r10: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "xyce", src, &r10), "V1 a 0 exp(0 1)\n");
-    try reported(&r10, .warning, "vsource.td1 is not given: xyce takes its own default for it, and what hspice takes is not measured; written as it was");
-    try testing.expectEqual(0, r10.countCode(.synthesized));
+    _ = try tr(a, "spectre", "hspice", "// t\nsimulator lang=spectre\nV1 (a 0) vsource type=exp val0=0 val1=1\nR1 (a 0) resistor r=1k\n", &r10);
+    try reported(&r10, .@"error", "vsource.tau1 is not given: spectre means tran.stop / 100 by that and hspice does not, and this netlist has no tran to take it from");
+}
+
+test "y1: a 0 in an ngspice EXP source is a value left out" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Out of ngspice a 0 is its default, said where the target reads a 0 as 0.
+    const src = "t\nV1 a 0 EXP(0 1 0 0.5n 0 0)\nR1 a 0 1k\n.tran 2n 50n\n.end\n";
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", src, &r), "V1 a 0 exp(0 1 2n 0.5n 4n 2n)\n");
+    try reported(&r, .warning, "vsource.td1 is 0: ngspice means the tran.step by that, and xyce needs it said; wrote 2n");
+    try reported(&r, .warning, "vsource.td2 is 0: ngspice means td1 plus the tran.step by that, and xyce needs it said; wrote 4n");
+    try testing.expectEqual(0, r.count(.@"error"));
+    // ESPice is not known to read a 0 so.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "espice", src, &r1), "V1 a 0 exp(0 1 2n 0.5n 4n 2n)\n");
+    // Into ngspice a 0 another dialect means cannot be said.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nV2 b 0 EXP(0 1)\nR1 a 0 1k\nR2 b 0 1k\n.tran 2n 50n\n.end\n", &r2);
+    try reported(&r2, .@"error", "vsource.td1 is 0: ngspice reads a 0 there as not given and takes the tran.step for it; a 0 cannot be said");
+    try testing.expectEqual(1, r2.count(.@"error"));
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nR1 a 0 1k\n.tran 2n 50n\n.end\n", &r3), "V1 a 0 exp(0 1 3n 0.5n 50n)\n");
+    try testing.expectEqual(0, r3.count(.@"error"));
+}
+
+test "y1: HSPICE's step cap is .OPTION DELMAX, and a fourth .TRAN number is nothing" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Written as the option, on the first options statement there is (here
+    // the one that says ngspice's nominal temperature), or one of its own.
+    var r: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", "t\nr1 a 0 1k\n.tran 2n 50n 0 0.05n\n.end\n", &r);
+    try has(hs, ".option tnom=27 delmax=0.05n\n");
+    try has(hs, ".tran 2n 50n start=0\n");
+    // A netlist with no options statement gets one.
+    var r0: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", "t\nr1 a 0 1k\n.tran 2n 50n\n.end\n", &r0);
+    for (@constCast(nl.stmts)) |*st| {
+        if (st.kind == .tran) try st.set(a, sprack.schema.slotIndex(.tran, "maxstep").?, .{ .num = .init("50", -12) });
+    }
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r0);
+    try has(aw.written(), ".option delmax=50p\n.tran 2n 50n\n");
+    try testing.expectEqual(0, r.count(.@"error"));
+    // Read back as the cap by each target.
+    const src = "t\n.option delmax=0.05n\nr1 a 0 1k\n.tran 2n 50n\n.end\n";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", src, &r1), ".tran 2n 50n 0 0.05n\n");
+    try reported(&r1, .info, "options.delmax is written as tran.maxstep");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", src, &r2), "tran1 tran step=2n stop=50n maxstep=0.05n\n");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "vacask", src, &r3), "analysis tran1 tran step=2n stop=50n maxstep=0.05n\n");
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ltspice", src, &r4), ".tran 2n 50n 0 0.05n\n");
+    // The fourth number caps nothing in HSPICE, so no cap is carried.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\nr1 a 0 1k\n.tran 2n 50n 0 0.05n\n.end\n", &r5), ".tran 2n 50n 0\n");
+    try reported(&r5, .info, "tran: HSPICE takes a fourth .TRAN number that is no second segment as nothing");
+    // One option holds for every .tran: another cap has no place, and a
+    // .tran without one is told.
+    var r6: ir.Report = .init(a);
+    const two = try tr(a, "ngspice", "hspice", "t\nr1 a 0 1k\n.tran 2n 50n 0 0.05n\n.tran 2n 80n\n.tran 2n 90n 0 0.05n\n.tran 2n 99n 0 1n\n.end\n", &r6);
+    try has(two, ".option tnom=27 delmax=0.05n\n");
+    try has(two, ".tran 2n 50n start=0\n.tran 2n 80n\n.tran 2n 90n start=0\n");
+    try reported(&r6, .warning, "tran.maxstep is not given: hspice says it once for the whole netlist (options.delmax), so the 0.05n another tran gives holds here too");
+    try reported(&r6, .@"error", "tran.maxstep = 1n has no spelling in hspice");
+    try testing.expectEqual(1, r6.count(.@"error"));
 }
 
 // s4: a condition in parentheses is the text between them, as written.

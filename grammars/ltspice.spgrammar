@@ -131,6 +131,8 @@ implied tf ref = 0
 # Every run's log states both.
 implied options tnom = 27
 implied options temp = 27
+# No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
+move options.delmax -> tran.maxstep oneway
 # A zero rise or fall time is a tenth of the pulse width here, the .tran step
 # in SPICE; with a fall time and no width the pulse does not stay up.
 default vsource rise=0 wave=pulse : tran.step
@@ -145,14 +147,6 @@ default isource width=0 wave=pulse : tran.stop
 # TAU2 and TD1 plus the step for TD2; for TD1 ngspice takes the step, Xyce 0.
 implied vsource td1 = 0 wave=exp
 implied isource td1 = 0 wave=exp
-default vsource td1 wave=exp : tran.step from ngspice espice
-default isource td1 wave=exp : tran.step from ngspice espice
-default vsource td2 wave=exp : td1 + tran.step from ngspice espice xyce
-default isource td2 wave=exp : td1 + tran.step from ngspice espice xyce
-default vsource tau1 wave=exp : tran.step from ngspice espice xyce
-default isource tau1 wave=exp : tran.step from ngspice espice xyce
-default vsource tau2 wave=exp : tran.step from ngspice espice xyce
-default isource tau2 wave=exp : tran.step from ngspice espice xyce
 invalid vsource tau1 wave=exp : LTspice's default rise time constant is 0, an instant rise; ngspice's and Xyce's is the time step
 invalid isource tau1 wave=exp : LTspice's default rise time constant is 0, an instant rise; ngspice's and Xyce's is the time step
 invalid vsource td2 wave=exp : LTspice's default TD2 is 0, so the fall starts with the rise; ngspice's and Xyce's is TD1 plus the time step

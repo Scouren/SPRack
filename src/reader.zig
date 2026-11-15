@@ -2019,9 +2019,10 @@ fn namedAs(st: *const ir.Stmt, name: []const u8) bool {
 /// A multi-segment `.tran tstep1 tstop1 tstep2 tstop2 ...` (HSPICE) runs to
 /// the last stop. No other dialect has segments, so it is read as one run to
 /// that stop at the smallest step. Numbers after the first pair that do not
-/// rise are SPICE's start time and step ceiling, which HSPICE also reads
+/// rise are SPICE's start time and step ceiling: HSPICE reads the first
 /// (measured: `.tran 1n 100n 90n` outputs from 90n, `.tran 1n 10n 0 1n`
-/// stops at 10n, `.tran 1n 10n 2n 20n` at 20n).
+/// stops at 10n, `.tran 1n 10n 2n 20n` at 20n) and takes the second as
+/// nothing.
 fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
     const seg = schema.slotIndex(.tran, "segments").?;
     const si = schema.slotIndex(.tran, "step").?;
@@ -2051,7 +2052,9 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
                 continue;
             }
             if (items.len > 0) try st.set(arena, schema.slotIndex(.tran, "start").?, items[0]);
-            if (items.len > 1) try st.set(arena, schema.slotIndex(.tran, "maxstep").?, items[1]);
+            // Measured (docs/verification.md 4.18): the same samples with
+            // and without it; `.option delmax` is what caps the step.
+            if (items.len > 1) report.add(.info, .caveat, st.line, "tran: HSPICE takes a fourth .TRAN number that is no second segment as nothing (its step cap is .OPTION DELMAX), so it is left out", .{});
             continue;
         }
         var step = st.at(si);

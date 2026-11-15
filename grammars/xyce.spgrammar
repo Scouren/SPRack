@@ -140,8 +140,12 @@ implied noise ref = 0
 # netlist/tran/source_exp_defaults_ngspice).
 implied vsource td1 = 0 wave=exp
 implied isource td1 = 0 wave=exp
-default vsource td1 wave=exp : tran.step from ngspice espice
-default isource td1 wave=exp : tran.step from ngspice espice
+omitted vsource tau1 wave=exp : tran.step
+omitted isource tau1 wave=exp : tran.step
+omitted vsource td2 wave=exp : td1 + tran.step
+omitted isource td2 wave=exp : td1 + tran.step
+omitted vsource tau2 wave=exp : tran.step
+omitted isource tau2 wave=exp : tran.step
 enum options method : trap=trap gear=gear trap=7 gear=8 bdf=gear
 enum dc var : temp=temp
 
@@ -395,6 +399,8 @@ no alter : Xyce has no .alter; when every alter changes only parameters and the 
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+# No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
+move options.delmax -> tran.maxstep oneway
 
 # A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
 # (docs/verification.md 4.13).

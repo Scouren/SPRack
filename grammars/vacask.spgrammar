@@ -285,14 +285,6 @@ default isource width=0 wave=pulse : tran.stop
 # time step in ngspice 45 and ESPice.
 implied vsource td1 = 0 wave=exp
 implied isource td1 = 0 wave=exp
-default vsource td1 wave=exp : tran.step from ngspice espice
-default isource td1 wave=exp : tran.step from ngspice espice
-default vsource td2 wave=exp : td1 + tran.step
-default isource td2 wave=exp : td1 + tran.step
-default vsource tau1 wave=exp : tran.step
-default isource tau1 wave=exp : tran.step
-default vsource tau2 wave=exp : tran.step
-default isource tau2 wave=exp : tran.step
 invalid vsource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
 invalid isource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step
 invalid vsource fall=0 wave=pulse : a VACASK pulse without a fall time never falls; SPICE takes the time step
@@ -514,6 +506,8 @@ rerun alter
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+# No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
+move options.delmax -> tran.maxstep oneway
 
 # A resistor model's NARROW and SHORT, measured with RSH=1000 at five L and W
 # (docs/verification.md 4.13).

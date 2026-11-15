@@ -238,7 +238,7 @@ const Survey = struct {
     fn add(sv: *Survey, s: *const reader.Source, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
         const gf = sv.gf;
         const gt = sv.gt;
-        try sv.w.add(gt, k, stmts);
+        try sv.w.add(gt, gf, k, stmts);
         try sv.tables.add(k, stmts);
         sv.last = reader.lastAnalysis(stmts, sv.last);
         for (stmts) |*st| {
@@ -318,7 +318,8 @@ const Survey = struct {
     fn noteMoves(sv: *Survey, st: *const Stmt) void {
         for (sv.gt.moves, 0..) |mv, i| {
             if (st.kind == mv.from and st.at(mv.from_slot) != .none) sv.move_from[i] = true;
-            if (st.kind == mv.to and st.at(mv.to_slot) == .none) sv.move_to[i] = true;
+            // An options statement is made where there is none (`moveToOptions`).
+            if (mv.to == .options or (st.kind == mv.to and st.at(mv.to_slot) == .none)) sv.move_to[i] = true;
         }
     }
 

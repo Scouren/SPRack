@@ -137,7 +137,6 @@ rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"
 # measured, `.tran 1n 100n 90n` outputs from 90n and `.tran 1n 10n 0 1n`
 # stops at 10n, while `.tran 1n 10n 2n 20n` runs to 20n.
 read  tran      = ".tran" step stop ( segments )+ { start=start } [ skip_dc:"uic"=yes ]
-write tran      = ".tran" step stop start?0 maxstep [ skip_dc:"uic"=yes ]
 write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 merge ac -> noise
@@ -205,6 +204,19 @@ caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, wh
 
 implied tf ref = 0
 implied noise ref = 0
+# What an EXP source means by a value left out, measured in HSPICE
+# Y-2026.03-SP2-1 (docs/verification.md 4.18): TD1 is 0, TAU1 half of what
+# is left of the run after TD1, and without a TD2 the source does not fall
+# within the run; TAU2 is half of what is left after TD2. The print step
+# plays no part.
+implied vsource td1 = 0 wave=exp
+implied isource td1 = 0 wave=exp
+omitted vsource tau1 wave=exp : (tran.stop - td1) / 2
+omitted isource tau1 wave=exp : (tran.stop - td1) / 2
+omitted vsource td2 wave=exp : tran.stop
+omitted isource td2 wave=exp : tran.stop
+omitted vsource tau2 wave=exp : (tran.stop - td2) / 2 given td2
+omitted isource tau2 wave=exp : (tran.stop - td2) / 2 given td2
 # Measured in HSPICE Y-2026.03 (docs/verification.md 4.7). BDF is a method
 # of its own: an LC tank it damps far less than GEAR, so its canonical name
 # is bdf, which the other dialects write as their gear.
@@ -243,7 +255,10 @@ requires no-vlloop error   : HSPICE stops on it, where ngspice gets through with
 requires no-lloop  error   : HSPICE stops on it, where ngspice and Xyce solve it
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
-caveat tran maxstep : HSPICE takes a fourth .TRAN number below the stop as no segment (that it caps the step was not measured), and one above the stop as a second segment; the first number is the print step and limits nothing
+# The step is capped by .OPTION DELMAX; a fourth .TRAN number below the stop
+# changes nothing (measured: docs/verification.md 4.18), so the cap is said
+# as the option. One option holds for every .TRAN of the netlist.
+move tran.maxstep -> options.delmax oneway
 caveat noise src : HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well
 caveat hdl path=*.osdi : .HDL expects Verilog-A source, not a compiled OSDI file
 caveat save signals : HSPICE's own .SAVE stores an operating point; the signals are recorded with .PROBE

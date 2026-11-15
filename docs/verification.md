@@ -833,19 +833,17 @@ In LTspice `EXP(0 1)` and `EXP(0 1 3n)` stay at 0 V, `EXP(0 1 3n 0.5n)` is
 `-exp(-(t-3n)/0.5n)` from 3 ns on, and `EXP(0 1 3n 0.5n 6n)` rises as given
 and drops at 6 ns to that same curve.
 
-The grammars now say it: `implied vsource td1 = 0 wave=exp` in Xyce, LTspice
-and VACASK (read from them, the 0 is in the netlist; `exp(0 1 0)` in
-ngspice), and `default ... td1 wave=exp : tran.step from ngspice espice`
-(written into them, ngspice's step is said; `exp(0 1 1n)` in Xyce). LTspice
-also takes TAU1, TAU2 and `td1 + tran.step` for TD2 from ngspice, ESPice and
-Xyce, and has `invalid` lines for the three, so a source read from LTspice
-without them is an error. VACASK's TD2 is now written out as well
-(`delay=1n td2=1n` for `EXP(0 1)` at a 1 ns step), where it was an error.
-ESPice was not run here: it is listed with ngspice on the word of the
-Conformance Suite deck `netlist/tran/source_exp_defaults_ngspice` (TD1 =
-TAU1 = TAU2 = 1n, TD2 = 2n at a 1 ns step). HSPICE and Spectre were not
-measured and their grammars are unchanged: a source from them that leaves
-TD1 out is written as it was, with an `ambiguous` warning.
+The grammars say it, each for itself (4.18 has the form of the lines):
+`implied vsource td1 = 0 wave=exp` in Xyce, LTspice and VACASK (read from
+them, the 0 is in the netlist), `omitted ... : tran.step` and
+`td1 + tran.step` in ngspice and Xyce, and `invalid` lines in LTspice and
+VACASK for TAU1, TD2 and TAU2, so a source read from them without one is an
+error. A crossing writes the source's value where the target's line differs
+or is missing: `exp(0 1 1n)` in Xyce for ngspice's `EXP(0 1)` at a 1 ns
+step, `delay=1n td2=1n tau1=1n tau2=1n` in VACASK. ESPice was not run here:
+its lines are ngspice's on the word of the Conformance Suite deck
+`netlist/tran/source_exp_defaults_ngspice` (TD1 = TAU1 = TAU2 = 1n, TD2 = 2n
+at a 1 ns step).
 
 ### 4.13 A resistor model's NARROW and SHORT (s3)
 
@@ -1060,6 +1058,135 @@ PSP103, which Xyce has), and the one instance in `diodes.lib` that passes
 `xds` down from its parent.
 
 ---
+
+### 4.18 EXP sources in HSPICE and Spectre, a 0 in ngspice, HSPICE's step cap (y1)
+
+**HSPICE Y-2026.03-SP2-1.** The five sources of 4.12 across 1k each, read
+with `.meas tran ... find v() at=`.
+
+| deck | source | read | so |
+|---|---|---|---|
+| `.tran 2n 50n 0 0.05n` | `EXP(0 1)` | v(0.5n) = 19.8013266932m, v(1n) = 39.2105608477m | 1 - exp(-t/25n): TD1 = 0, TAU1 = 25n |
+| | `EXP(0 1 3n)` | v(3.25n) = 10.5779632514m, v(3.5n) = 21.0353676473m, v(4n) = 41.6400268136m | TAU1 = 23.5n |
+| | `EXP(0 1 3n 0.5n)` | 1.0000000000 at 49n | no fall within the run |
+| | `EXP(0 1 3n 0.5n 6n)` | v(6.25n) = 987.1959356803m (998.4946579911m without the fall), v(49n) = 141.8946939310m | the fall is 1 - exp(-0.25n/22n): TAU2 = 22n |
+| | `EXP(0 1 3n 0.5n 6n 0.25n)` | v(6.25n) = 368.4212313561m, v(6.5n) = 142.5919541350m | the given values |
+| TAU1 = 0.3n, `.tran 2n 80n` | `EXP(0 1)` | v(0.5n) = 12.4221995061m, v(1n) = 24.6900879717m | TAU1 = 40n |
+| | `EXP(0 1 3n)` | v(3.25n) = 6.4718942774m, v(3.5n) = 12.9005256267m | TAU1 = 38.5n |
+| | `EXP(0 1 3n 0.3n 6n)` | v(6.25n) = 993.2476397335m | TAU2 = 37n |
+| `.tran 4n 50n` | `EXP(0 1)` | v(0.5n) = 19.7029776343m, v(1n) = 39.1147997729m | TAU1 = 25n again |
+
+So TD1 left out is 0, TAU1 left out is (stop - TD1) / 2, without a TD2 the
+source does not fall within the run, and TAU2 left out is (stop - TD2) / 2.
+The print step plays no part.
+
+**Spectre 25.10.** `vsource type=exp val0=0 val1=1` with `td1=3n`,
+`tau1=0.5n`, `td2=6n`, `tau2=0.25n` added one by one, the solver points of
+the raw file interpolated at the sample times.
+
+| deck | source | read | so |
+|---|---|---|---|
+| `tran step=2n stop=50n start=0 maxstep=0.05n` | none given | v(0.5n) = 0.632121, v(1n) = 0.864665, 1.000000 at 49n | 1 - exp(-t/0.5n): TD1 = 0, TAU1 = 0.5n |
+| | `td1=3n` | v(3.25n) = 0.393469, v(3.5n) = 0.632121 | TAU1 = 0.5n |
+| | `td1 tau1` | 1.000000 at 49n | no fall within the run |
+| | `td1 tau1 td2` | v(6.25n) = 0.605027, v(6.5n) = 0.366968 | TAU2 = 0.5n |
+| | all four | v(3.25n) = 0.393469, v(6.25n) = 0.366376, v(6.5n) = 0.134423 | the given values |
+| `tau1=0.3n`, `stop=80n` | none given | v(0.5n) = 0.464739, v(1n) = 0.713495 | TAU1 = 0.8n |
+| | `td1=3n` | v(3.25n) = 0.268384, v(3.5n) = 0.464739 | TAU1 = 0.8n |
+| | `td1 tau1=0.3n td2=6n` | v(6.25n) = 0.731596, v(6.5n) = 0.535253 | TAU2 = 0.8n, not the given TAU1 |
+| `step=4n stop=50n maxstep=0.02n` | none given | v(0.5n) = 0.632121 | TAU1 = 0.5n |
+| | `td1 tau1=0.3n td2=6n` | v(6.25n) = 0.606632 | TAU2 = 0.5n |
+| `tran stop=50n maxstep=0.05n` | none given | v(0.5n) = 0.632121 | TAU1 = 0.5n |
+
+So TD1 left out is 0, TAU1 and TAU2 left out are stop / 100 (not the step,
+not the largest step), and without a TD2 the source does not fall within the
+run. All with a start of 0; another start was not measured.
+
+**A 0 in ngspice 45 and Xyce 7.10.** `EXP(0 1 0)`, `EXP(0 1 0 0.5n)`,
+`EXP(0 1 3n 0)`, `EXP(0 1 3n 0.5n 0)`, `EXP(0 1 3n 0.5n 6n 0)`,
+`EXP(0 1 1e-18 0.5n 6n 0.25n)` and `EXP(0 1 0 0.5n 6n 0.25n)` across 1k each,
+`.tran 2n 50n 0 0.05n`; the largest distance of every solver point from a
+curve:
+
+| source | ngspice 45: from the curve with the default for the 0 | from the curve with 0 |
+|---|---|---|
+| `EXP(0 1 0)` | 0 (TD1 = 2n) | 6.28e-01 |
+| `EXP(0 1 0 0.5n)` | 0 (TD1 = 2n, TD2 = 4n) | 9.81e-01 |
+| `EXP(0 1 3n 0)` | 2.22e-16 (TAU1 = 2n) | 9.85e-01 |
+| `EXP(0 1 3n 0.5n 0)` | 7.77e-16 (TD2 = 5n) | 9.17e-01 |
+| `EXP(0 1 3n 0.5n 6n 0)` | 7.77e-16 (TAU2 = 2n) | 9.85e-01 |
+| `EXP(0 1 0 0.5n 6n 0.25n)` | 3.00e-15 (TD1 = 2n) | 9.81e-01 |
+| `EXP(0 1 1e-18 0.5n 6n 0.25n)` | 9.81e-01 | 1.98e-09: a TD1 that is not 0 is taken as given |
+
+So ngspice reads a 0 in any of the four as left out. Xyce takes it as 0:
+`EXP(0 1 0 0.5n)` alone is on the TD1 = 0 curve (0), and `EXP(0 1 3n 0)`,
+`EXP(0 1 3n 0.5n 0)` and `EXP(0 1 3n 0.5n 6n 0)`, each alone, stop with
+"Time step too small" (at 3 ns, 3 ns and 6 ns).
+
+**HSPICE's fourth `.TRAN` number.** `EXP(0 1 3n 0.3n)` across 1k; the exact
+curve is 0.565402, 0.811124, 0.964326 at the three times.
+
+| deck | 3.25n | 3.5n | 4n | warnings in the run |
+|---|---|---|---|---|
+| `.tran 2n 50n` | 560.9037437536m | 804.0489769449m | 960.8452734841m | 0 |
+| `.tran 2n 50n 0 0.05n` | 560.9037437536m | 804.0489769449m | 960.8452734841m | 1 |
+| `.option delmax=0.05n` and `.tran 2n 50n` | 564.0953387680m | 810.5566151487m | 964.2187664826m | 0 |
+
+So a fourth number below the stop changes nothing (the same samples to ten
+digits) and draws a warning; `.option delmax` is what caps the step (the
+error against the exact curve falls to what a 0.05 ns straight line gives).
+
+**What the grammars say.** Each dialect states what it means itself:
+`omitted vsource tau1 wave=exp : (tran.stop - td1) / 2`, `td2 : tran.stop`
+and `tau2 : (tran.stop - td2) / 2 given td2` in HSPICE; `tau1 :
+tran.stop / 100`, `td2 : tran.stop`, `tau2 : tran.stop / 100 given td2` in
+Spectre; both with `implied vsource td1 = 0 wave=exp`. ngspice's four lines
+are `omitted vsource td1=0 ...`: left out or 0. The `default ... from`
+lists of 4.12 are gone. A statement crossing is written with its own
+dialect's value wherever the target's line differs or is missing (ngspice
+`EXP(0 1)` at a 2 ns step is `exp(0 1 2n 2n 4n 2n)` in HSPICE; HSPICE
+`EXP(0 1 3n)` with a stop of 50 ns is `exp(0 1 3n 23500p 50n)` in Xyce); a
+TD2 neither HSPICE nor Spectre has is written as the stop, a time at which
+nothing falls within the run, and its TAU2 is left to the target, where it
+plays no part (LTspice and VACASK, which cannot leave it out, keep their
+`invalid` error). With no `.tran` in the netlist the crossing is an error.
+A 0 crossing into ngspice (Xyce's, LTspice's, VACASK's, HSPICE's and
+Spectre's TD1 among them) is an error: ngspice cannot say it. HSPICE writes
+a largest step as `.option delmax=` (`move tran.maxstep -> options.delmax
+oneway`), every other dialect reads DELMAX as its `.tran` largest step, and
+a fourth `.TRAN` number read from an HSPICE deck that is no second segment
+is left out with an info note.
+
+**Every translation run in its target.** The five-source deck of 4.12
+(`.tran 2n 50n 0 0.05n`) in ngspice 45, Xyce 7.10 and LTspice 26.0.2, and
+for VACASK the two sources it runs (`td2=6n tau1=0.5n tau2=0.25n` without
+and with `delay=3n`), translated to each of the other three, original and
+translation run, both interpolated between solver points at 201 times (0 to
+50 ns, every 0.25 ns). The largest difference per source; the fifth source,
+with nothing left out, shows what the solvers' own points differ by at an
+edge.
+
+| from > to | `EXP(0 1)` | `(0 1 3n)` | `(0 1 3n 0.5n)` | `(0 1 3n 0.5n 6n)` | all given | errors in the report |
+|---|---|---|---|---|---|---|
+| ngspice > Xyce | 5.96e-03 | 5.79e-03 | 2.26e-02 | 2.26e-02 | 4.23e-02 | 0 |
+| ngspice > LTspice | 5.98e-03 | 5.98e-03 | 2.33e-02 | 2.33e-02 | 4.52e-02 | 0 |
+| ngspice > VACASK | 5.98e-03 | 5.98e-03 | 2.33e-02 | 2.33e-02 | 4.52e-02 | 1: `tran.start = 0` |
+| Xyce > ngspice | 6.21e-01 | 5.89e-03 | 2.30e-02 | 2.30e-02 | 4.23e-02 | 1: the first source's TD1 is 0 |
+| Xyce > LTspice | 5.33e-03 | 7.67e-04 | 7.67e-04 | 6.93e-04 | 2.93e-03 | 0 |
+| Xyce > VACASK | 5.33e-03 | 7.67e-04 | 7.67e-04 | 4.84e-04 | 2.93e-03 | 1: `tran.start = 0` |
+| LTspice > ngspice | 6.26e-01 | 6.26e-01 | 1.00e+00 | 8.83e-01 | 4.52e-02 | 10: every value left out, and the TD1 of 0 |
+| LTspice > Xyce | 6.27e-01 | 6.31e-01 | 1.00e+00 | 8.83e-01 | 2.93e-03 | 9: every value left out |
+| LTspice > VACASK | | | | | | 19; VACASK refuses the translation |
+| VACASK > ngspice | 9.70e-01 | | | | 4.52e-02 | 1: the first source's delay is 0 |
+| VACASK > Xyce | 4.82e-03 | | | | 4.82e-03 | 0 |
+| VACASK > LTspice | 5.83e-05 | | | | 2.09e-04 | 0 |
+
+Every difference above the fifth column's is a source with an error in the
+report. Before this change Xyce > ngspice and VACASK > ngspice had none: the
+0 was written and ngspice took its step. The same seven-source deck of zeros
+from ngspice (each 0 written as ngspice's value) differs from its
+translation by at most 4.20e-02 in Xyce and 4.52e-02 in LTspice and VACASK,
+the fully given source's own difference.
 
 ## 5. Enum spellings (6.5): integration method
 

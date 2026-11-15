@@ -350,8 +350,9 @@ pub fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
 
 pub const Op = enum { add, sub, recip, mul, div };
 
-/// `a + b`, `a - b` or `1 / a`, exact when both are plain numbers (and, for
-/// `1 / a`, when `a` is a power of ten); otherwise a canonical expression.
+/// `a + b`, `a - b`, `a * b`, `a / b` or `1 / a`, exact when both are plain
+/// numbers (for `1 / a`, when `a` is a power of ten; for `a / b`, when `b`
+/// has no prime factor but 2 and 5); otherwise a canonical expression.
 pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error!ir.Value {
     const da = if (a == .num) decimal(a.num) else null;
     const db = if (b == .num) decimal(b.num) else null;
@@ -369,14 +370,27 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
             while (m != 0 and @mod(ex, 3) != 0) : (ex -= 1) m *= 10;
             return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), ex) };
         },
-        // Exact only by a power of ten.
+        // Exact by a divisor with no prime factor but 2 and 5: a / 2 is
+        // a * 5 / 10.
         .div => if (da != null and db != null) exact: {
             var d = db.?[0];
-            var k: i32 = 0;
-            while (d != 0 and @rem(d, 10) == 0) : (k += 1) d = @divExact(d, 10);
-            if (d != 1 and d != -1) break :exact;
-            var m = da.?[0] * d;
-            var ex = da.?[1] - db.?[1] - k;
+            var m = da.?[0];
+            var ex = da.?[1] - db.?[1];
+            if (d == 0) break :exact;
+            if (d < 0) {
+                d = -d;
+                m = -m;
+            }
+            while (@rem(d, 10) == 0) : (ex -= 1) d = @divExact(d, 10);
+            while (@rem(d, 2) == 0) : (ex -= 1) {
+                d = @divExact(d, 2);
+                m = std.math.mul(i128, m, 5) catch break :exact;
+            }
+            while (@rem(d, 5) == 0) : (ex -= 1) {
+                d = @divExact(d, 5);
+                m = std.math.mul(i128, m, 2) catch break :exact;
+            }
+            if (d != 1) break :exact;
             while (m != 0 and @rem(m, 10) == 0) : (ex += 1) m = @divExact(m, 10);
             while (m != 0 and @mod(ex, 3) != 0) : (ex -= 1) m *= 10;
             return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), ex) };

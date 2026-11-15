@@ -261,6 +261,18 @@ requires no-lloop  error   : Spectre stops on it, where ngspice and Xyce solve i
 unique param  : Spectre stops on a redefinition where SPICE keeps the last value
 unique master : Spectre takes the subcircuit, where the SPICE device letter picks the model
 
+# What an EXP source means by a value left out, measured in Spectre 25.10
+# with a start of 0 (docs/verification.md 4.18): TD1 is 0, TAU1 and TAU2 a
+# hundredth of the stop time (not the step), and without a TD2 the source
+# does not fall within the run.
+implied vsource td1 = 0 wave=exp
+implied isource td1 = 0 wave=exp
+omitted vsource tau1 wave=exp : tran.stop / 100
+omitted isource tau1 wave=exp : tran.stop / 100
+omitted vsource td2 wave=exp : tran.stop
+omitted isource td2 wave=exp : tran.stop
+omitted vsource tau2 wave=exp : tran.stop / 100 given td2
+omitted isource tau2 wave=exp : tran.stop / 100 given td2
 # A pulse's rise and fall: Spectre refuses 0 and, left out, takes a default
 # of its own far below the .tran step (observed on a deck written for it);
 # SPICE means the .tran step by either, so that is written out.
@@ -411,3 +423,5 @@ rerun alter
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.
 implied options tnom = 27
 implied options temp = 27
+# No step-cap option: HSPICE's DELMAX is the tran maximum step (ngspice.spgrammar).
+move options.delmax -> tran.maxstep oneway

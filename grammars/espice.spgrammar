@@ -151,6 +151,17 @@ read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
 
 implied noise ref = 0
 implied tf ref = 0
+# What an EXP source means by a value left out: as ngspice, on the word of
+# the Conformance Suite deck netlist/tran/source_exp_defaults_ngspice (not
+# run here; what a 0 means was not stated).
+omitted vsource td1 wave=exp : tran.step
+omitted isource td1 wave=exp : tran.step
+omitted vsource tau1 wave=exp : tran.step
+omitted isource tau1 wave=exp : tran.step
+omitted vsource td2 wave=exp : td1 + tran.step
+omitted isource td2 wave=exp : td1 + tran.step
+omitted vsource tau2 wave=exp : tran.step
+omitted isource tau2 wave=exp : tran.step
 enum options method : trap=trap gear=gear bdf=gear
 enum dc var : temp=temp
 # Measured with a 1k resistor of tc1=0.01: 27 each, and independent.

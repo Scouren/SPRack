@@ -251,13 +251,39 @@ pub const Fill = struct {
     when_atom: []const u8 = "",
     from: Kind,
     from_slot: u8,
-    /// `td1 + tran.step`: counted from that slot of the statement itself.
-    plus: u8 = no_slot,
-    /// `from ngspice espice`: only a statement of one of these dialects,
-    /// the ones measured to mean that default; and with nothing in the
-    /// netlist to take it from, an error. Empty: any dialect without an
-    /// `invalid` line of its own for the slot.
-    only: []const []const u8 = &.{},
+};
+
+/// `omitted kind slot[=0] [slot=atom] : formula [given slot]`: what this
+/// dialect itself means by a statement that leaves the slot out (or, with
+/// `=0`, gives it as zero), as measured. A statement crossing to a dialect
+/// whose line for the slot says another formula, or that has none, is
+/// written with the value of this one; a zero crossing into a dialect that
+/// reads it as left out is an error.
+pub const Omitted = struct {
+    kind: Kind,
+    slot: u8,
+    zero: bool,
+    when_slot: u8 = no_slot,
+    when_atom: []const u8 = "",
+    /// `given td2`: the formula holds where the statement gives that slot;
+    /// without it the value plays no part (an EXP source that never falls).
+    given: u8 = no_slot,
+    /// The formula as written, blanks apart: two dialects' lines are
+    /// compared by it.
+    text: []const u8,
+    /// The same, operands first: `(a - b) / c` is a b sub c div.
+    terms: []const Term,
+
+    pub const Op = enum { add, sub, mul, div };
+    pub const Term = union(enum) {
+        /// A whole number.
+        num: []const u8,
+        /// A slot of the statement itself.
+        slot: u8,
+        /// A slot of the netlist's first statement of a kind (`tran.step`).
+        first: struct { kind: Kind, slot: u8 },
+        op: Op,
+    };
 };
 
 /// Something a reader of the translated netlist should know when a slot
@@ -369,6 +395,7 @@ pub const Grammar = struct {
     thresholds: []const Threshold = &.{},
     params: []const ParamTable = &.{},
     fills: []const Fill = &.{},
+    omitted: []const Omitted = &.{},
     /// `unique param : why`: a parameter defined twice in one scope is
     /// refused here. Empty: allowed.
     unique_param: []const u8 = "",
@@ -1285,6 +1312,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var thresholds: []const Threshold = &.{};
     var params: []const ParamTable = &.{};
     var fills: []const Fill = &.{};
+    var omitted: []const Omitted = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
     var hoist_param: []const []const u8 = &.{};
@@ -1495,17 +1523,57 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const kind = try kindOf(c, no, ks[0]);
             const zero = std.mem.endsWith(u8, ks[1], "=0");
             const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
-            var to = try args(c, no, rest[colon + 3 ..]);
-            var plus: u8 = no_slot;
-            if (to.len > 2 and std.mem.eql(u8, to[1], "+")) {
-                plus = try slotNamed(c, no, kind, to[0]);
-                to = to[2..];
-            }
-            if (to.len == 0 or (to.len > 1 and (to.len == 2 or !std.mem.eql(u8, to[1], "from")))) return c.fail(no, "default takes `[slot +] kind.slot [from dialect...]`", .{});
+            const to = try args(c, no, rest[colon + 3 ..]);
+            if (to.len != 1) return c.fail(no, "default takes one `kind.slot`", .{});
             const fk, const fs = try dotted(c, no, to[0]);
-            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs, .plus = plus, .only = if (to.len > 2) to[2..] else &.{} };
+            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs };
             if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
             fills = try c.add(Fill, fills, f);
+        } else if (std.mem.eql(u8, head, "omitted")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "omitted is `omitted kind slot[=0] [slot=atom] : formula [given slot]`", .{});
+            const ks = try args(c, no, rest[0..colon]);
+            if (ks.len < 2 or ks.len > 3) return c.fail(no, "omitted needs a kind, a slot and at most one condition", .{});
+            const kind = try kindOf(c, no, ks[0]);
+            const zero = std.mem.endsWith(u8, ks[1], "=0");
+            var text = std.mem.trim(u8, rest[colon + 3 ..], " \t");
+            var o: Omitted = .{ .kind = kind, .slot = try slotNamed(c, no, kind, if (zero) ks[1][0 .. ks[1].len - 2] else ks[1]), .zero = zero, .text = "", .terms = &.{} };
+            if (ks.len == 3) o.when_slot, o.when_atom = try condition(c, no, kind, ks[2]);
+            if (std.mem.lastIndexOf(u8, text, " given ")) |at| {
+                o.given = try slotNamed(c, no, kind, std.mem.trim(u8, text[at + 7 ..], " \t"));
+                text = std.mem.trim(u8, text[0..at], " \t");
+            }
+            o.text = text;
+            const f = try args(c, no, text);
+            // Read left to right, so two operators need the first in
+            // parentheses: `a`, `a + b`, `(a - b) / c`.
+            if (f.len != 1 and f.len != 3 and f.len != 5) return c.fail(no, "an omitted formula is `a`, `a + b` or `(a - b) / c`", .{});
+            for (f, 0..) |tok, i| {
+                var t = tok;
+                if (f.len == 5 and i == 0 and t[0] == '(') t = t[1..];
+                if (f.len == 5 and i == 2 and t[t.len - 1] == ')') t = t[0 .. t.len - 1];
+                if (f.len == 5 and (i == 0 or i == 2) and t.len == tok.len) return c.fail(no, "an omitted formula with two operators is `(a - b) / c`", .{});
+                const term: Omitted.Term = if (i % 2 == 1)
+                    .{ .op = if (t.len != 1) return c.fail(no, "expected + - * or /, found '{s}'", .{t}) else switch (t[0]) {
+                        '+' => .add,
+                        '-' => .sub,
+                        '*' => .mul,
+                        '/' => .div,
+                        else => return c.fail(no, "expected + - * or /, found '{s}'", .{t}),
+                    } }
+                else if (t.len > 0 and std.ascii.isDigit(t[0]))
+                    .{ .num = if (std.mem.indexOfNone(u8, t, "0123456789") == null) t else return c.fail(no, "a number in an omitted formula is a whole one, found '{s}'", .{t}) }
+                else if (std.mem.indexOfScalar(u8, t, '.') != null) first: {
+                    const fk, const fs = try dotted(c, no, t);
+                    break :first .{ .first = .{ .kind = fk, .slot = fs } };
+                } else .{ .slot = try slotNamed(c, no, kind, t) };
+                // Operands first: each operator goes after its second operand.
+                if (i % 2 == 0 and i > 0) {
+                    const op = o.terms[o.terms.len - 1];
+                    o.terms = try c.add(Omitted.Term, o.terms[0 .. o.terms.len - 1], term);
+                    o.terms = try c.add(Omitted.Term, o.terms, op);
+                } else o.terms = try c.add(Omitted.Term, o.terms, term);
+            }
+            omitted = try c.add(Omitted, omitted, o);
         } else if (std.mem.eql(u8, head, "unique")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master : reason`", .{});
             const what = std.mem.trim(u8, rest[0..colon], " \t");
@@ -1635,6 +1703,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .thresholds = thresholds,
         .params = params,
         .fills = fills,
+        .omitted = omitted,
         .unique_param = unique_param,
         .unique_master = unique_master,
         .hoist_param = hoist_param,
