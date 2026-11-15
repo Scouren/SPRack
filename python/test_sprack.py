@@ -340,6 +340,8 @@ def test_pdk_asap7():
     c = sprack.Circuit("asap7 inverter", pdk=p)
     c.nmos_rvt("M1", "out", "in", 0, 0, nfin=3)
     c.pmos_rvt("M2", "out", "in", "vdd", "vdd", nfin=3)
+    # A model card takes the instance parameters HSPICE's MOSFET takes.
+    raises(TypeError, lambda: c.nmos_rvt("M3", "out", "in", 0, 0, nfins=3), "nmos_rvt is a mosfet of a hspice model card, which takes no parameter 'nfins'")
     c.tran("1p", "1n")
     hs = unwrap(c.netlist("hspice"))
     assert f'.include "{p.root}/models/hspice/7nm_FF.pm"\n' in hs and "M1 out in 0 0 nmos_rvt nfin=3\n" in hs

@@ -301,3 +301,30 @@ rule  step      = ".step" <stepwhat> start stop step
 rule  step      = var:".temp"=temp start stop step
 rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"
 caveat data name : ESPice 0.3.0 takes a deck with .data for HSPICE unless run with --tokenizer ngspice, and HSPICE has no {} expressions
+# Instance parameters each device takes, by canonical name (the ngspice one);
+# the first spelling is written. As ngspice: `devhelp` in ngspice 45. One a
+# netlist brings from another dialect that a table here lacks is a loss; a
+# kind with no table is not checked.
+params resistor
+  same ac bv_max dtemp l m scale tc2 tce temp w
+  tc1   = tc1 tc
+  noisy = noisy noise
+end
+params capacitor
+  same bv_max dtemp ic l m q scale tc1 tc2 temp w
+end
+params inductor
+  same dtemp ic m nt scale tc1 tc2 temp
+end
+params isource
+  same m r td
+end
+params diode
+  same area dtemp ic l lm lp m off perim pj temp w wm wp
+end
+params bjt
+  same area areab areac dtemp ic m off temp
+end
+params jfet
+  same area dtemp ic m off temp
+end

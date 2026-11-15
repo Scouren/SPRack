@@ -405,6 +405,13 @@ class _Scope:
                     raise TypeError(f"{dev['name']} has no parameter {key!r}; it has: {', '.join(dev['params'])}")
             return self.add("instance", str(name), *nodes, dev["name"], **params)
         kind = dev["device"] if dev["device"] in KINDS else "device"
+        # A model card: the instance parameters its device takes in the
+        # PDK's dialect, where that grammar lists them.
+        table = KINDS.get(kind, {}).get("params", {}).get(self._pdk.dialect)
+        if table:
+            for key in params:
+                if key.lower() not in table:
+                    raise TypeError(f"{dev['name']} is a {kind} of a {self._pdk.dialect} model card, which takes no parameter {key!r}; it takes: {', '.join(table)}")
         return self.add(kind, str(name), *nodes, dev["name"], **params)
 
     # -- structure --------------------------------------------------------

@@ -286,3 +286,28 @@ rule  step      = ".step" { data=data! }
 rule  step      = ".step" <what> start stop step
 read  step      = ".step" "lin" <what> start stop step
 rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"
+# Instance parameters each device takes, by canonical (ngspice) name; the
+# first spelling is written. From `Xyce -param` (7.10), all levels of a
+# device together; `m>0`: zero or less is a netlist error. A kind with no
+# table is not checked.
+params resistor
+  same dtemp l m>0 tc1 tc2 tce temp w
+end
+params capacitor
+  same dtemp ic l m>0 q tc1 tc2 temp w
+end
+params inductor
+  same dtemp ic m>0 tc1 tc2 temp
+end
+params isource
+  same r td
+end
+params diode
+  same area dtemp ic m mult off perim pj temp
+end
+params bjt
+  same area dtemp m mult off temp
+end
+params jfet
+  same area dtemp temp
+end

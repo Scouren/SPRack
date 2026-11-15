@@ -2902,3 +2902,40 @@ test "sweeps: a step repeats the analyses it holds" {
     _ = try tr(a, "hspice", "xyce", "t\nR1 a 0 1k\n.temp -40 85\n.end\n", &r5);
     try reported(&r5, .@"error", "no analysis for the xyce sweep to repeat");
 }
+
+test "instance parameters: renamed for the target, a loss where its device lacks one" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\R1 a b 1k ac=2k noisy=0 m=-2 tc=1m
+        \\I1 a 0 1m m=2
+        \\D1 a 0 dm w=1u l=1u off
+        \\Q1 c b e s1 t qm dtemp=1
+        \\.model dm d
+        \\.model qm npn
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, "R1 a b 1k m=-2 tc1=1m\n");
+    try has(xy, "I1 a 0 dc 1m\n");
+    try reported(&r1, .@"error", "resistor: 'ac=2k' has no spelling in xyce, whose resistor takes no such instance parameter");
+    try reported(&r1, .@"error", "isource: 'm=2' has no spelling in xyce");
+    try reported(&r1, .@"error", "diode: 'w=1u' has no spelling in xyce");
+    try reported(&r1, .@"error", "resistor: m=-2: xyce refuses m of zero or less");
+
+    var r2: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", src, &r2);
+    try has(sp, "R1 (a b) resistor r=1k ac=2k isnoisy=0 m=-2 tc1=1m\n");
+    try reported(&r2, .@"error", "diode: 'off' has no spelling in spectre");
+    // A model name after the nodes is no flag: Q1 has a thermal node.
+    try has(sp, "Q1 (c b e s1 t) qm dtemp=1\n");
+
+    // And back: Spectre's spelling reads as the canonical one.
+    var r3: ir.Report = .init(a);
+    const ng = try tr(a, "spectre", "ngspice", "// t\nR1 (a b) resistor r=1k isnoisy=0 trise=2\n", &r3);
+    try has(ng, "R1 a b 1k noisy=0 dtemp=2\n");
+    try clean(&r3);
+}

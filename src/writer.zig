@@ -922,6 +922,60 @@ const Writer = struct {
         return out;
     }
 
+    /// The grammar of the dialect `st` was read in, when it is a built-in one.
+    fn sourceGrammar(w: *const Writer, st: *const ir.Stmt) ?*const Grammar {
+        const c = w.caps orelse return null;
+        for (c.grammars) |*g| if (std.mem.eql(u8, g.name, w.sourceOf(st))) return g;
+        return null;
+    }
+
+    /// A device's instance parameters against the target's `params` table:
+    /// each is renamed to the target's spelling, and one the target's
+    /// device does not take is a loss, not copied. Null: nothing changes.
+    fn instParams(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?ir.Stmt {
+        const table = w.g.paramsOf(st.kind) orelse return null;
+        if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return null;
+        const idx = schema.slotIndex(st.kind, "params") orelse return null;
+        const v = st.at(idx);
+        if (v != .params) return null;
+        const from = if (w.sourceGrammar(st)) |sg| sg.paramsOf(st.kind) else null;
+        var em = w.emitter(a, st);
+        var out: std.ArrayList(ir.Param) = .empty;
+        var changed = false;
+        for (v.params) |p| {
+            const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
+            const entry = for (table) |*e| {
+                if (std.ascii.eqlIgnoreCase(e.canon, canon)) break e;
+            } else {
+                const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
+                w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such instance parameter", .{
+                    @tagName(st.kind), shown, w.g.name, @tagName(st.kind),
+                });
+                changed = true;
+                continue;
+            };
+            if (entry.positive and p.val == .num and p.val.num.toFloat() <= 0) {
+                w.report.add(.@"error", .invalid, st.line, "{s}: {s}={s}: {s} refuses {s} of zero or less", .{
+                    @tagName(st.kind), p.key, try em.describe(p.val), w.g.name, entry.canon,
+                });
+            }
+            for (entry.spellings) |sp| {
+                if (std.ascii.eqlIgnoreCase(sp, p.key)) break;
+            } else {
+                w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, entry.spellings[0], w.g.name });
+                try out.append(a, .{ .key = entry.spellings[0], .val = p.val });
+                changed = true;
+                continue;
+            }
+            try out.append(a, p);
+        }
+        if (!changed) return null;
+        var copy = st.*;
+        try copy.own(a);
+        try copy.set(a, idx, if (out.items.len > 0) .{ .params = out.items } else .none);
+        return copy;
+    }
+
     fn emitter(w: *Writer, a: Allocator, st: *const ir.Stmt) Emit {
         return .{
             .g = w.g,
@@ -1060,6 +1114,11 @@ const Writer = struct {
             };
             mapped = m orelse return w.comment(try a.print("[sprack] not written: model '{s}'", .{st.get("name").atom}));
             st = &mapped;
+        }
+        var checked: ir.Stmt = undefined;
+        if (try w.instParams(a, st)) |c| {
+            checked = c;
+            st = &checked;
         }
 
         if (!w.g.canWrite(st.kind)) {
@@ -1233,6 +1292,12 @@ const Writer = struct {
         return list;
     }
 };
+
+/// The canonical name a dialect's `params` table gives a spelling.
+fn spellingCanon(table: []const grammar.Spellings, key: []const u8) ?[]const u8 {
+    for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, key)) return e.canon;
+    return null;
+}
 
 fn collectDeclared(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged(void)) Allocator.Error!void {
     for (stmts) |*s| {

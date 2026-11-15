@@ -181,6 +181,23 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
             try w.writeByte(':');
             try str(w, why);
         }
+        // Instance parameters per dialect, every spelling it reads.
+        try w.writeAll("},\"params\":{");
+        first = true;
+        for (grammars) |*g| {
+            const table = g.paramsOf(info.kind) orelse continue;
+            if (!first) try w.writeByte(',');
+            first = false;
+            try str(w, g.name);
+            try w.writeAll(":[");
+            var n: usize = 0;
+            for (table) |e| for (e.spellings) |sp| {
+                if (n > 0) try w.writeByte(',');
+                n += 1;
+                try str(w, sp);
+            };
+            try w.writeByte(']');
+        }
         try w.writeAll("}}");
     }
     try w.writeAll("},\"functions\":[");

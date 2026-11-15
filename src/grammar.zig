@@ -229,7 +229,17 @@ pub const Merge = struct { from: Kind, into: Kind };
 pub const SignalForm = struct { form: []const u8, template: []const u8 };
 /// One canonical function, variable or operator and its spellings here.
 /// The first spelling is the one written.
-pub const Spellings = struct { canon: []const u8, spellings: []const []const u8 };
+pub const Spellings = struct {
+    canon: []const u8,
+    spellings: []const []const u8,
+    /// `m>0` in a `params` table: the simulator refuses zero or less.
+    positive: bool = false,
+};
+/// `params kind ... end`: the instance parameters a device of that kind
+/// takes here, by canonical (ngspice) name. A parameter a statement brings
+/// from another dialect that the table lacks is a loss; a kind without a
+/// table is not checked.
+pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 /// A function or operator this dialect spells like the others but
 /// evaluates differently (HSPICE `pow` truncates its exponent).
 pub const Differs = struct { canon: []const u8, text: []const u8 };
@@ -271,6 +281,12 @@ pub const Grammar = struct {
     checks: []const Check = &.{},
     differs: []const Differs = &.{},
     thresholds: []const Threshold = &.{},
+    params: []const ParamTable = &.{},
+
+    pub fn paramsOf(g: *const Grammar, kind: Kind) ?[]const Spellings {
+        for (g.params) |t| if (t.kind == kind) return t.names;
+        return null;
+    }
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
         for (g.enums) |*e| if (e.kind == kind and e.slot == slot) return e;
@@ -981,7 +997,9 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
     return c.fail(lines.no, "models section is missing 'end'", .{});
 }
 
-fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: []const []const u8) Error![]const Spellings {
+/// `known` null: any name goes (instance parameters), and `name>0` marks
+/// one that must be positive.
+fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]const []const u8) Error![]const Spellings {
     var out: []const Spellings = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
@@ -996,16 +1014,20 @@ fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: []c
             if (a.len <= from) return c.fail(lines.no, "expected `name = spelling ...` or `same name ...`", .{});
             spell = a[from..];
         }
-        for (names) |n| {
-            var ok = false;
-            for (known) |k| {
-                if (std.mem.eql(u8, k, n)) ok = true;
+        for (names) |raw| {
+            const positive = known == null and std.mem.endsWith(u8, raw, ">0");
+            const n = if (positive) raw[0 .. raw.len - 2] else raw;
+            if (known) |list| {
+                var ok = false;
+                for (list) |k| {
+                    if (std.mem.eql(u8, k, n)) ok = true;
+                }
+                if (!ok) return c.fail(lines.no, "unknown {s} '{s}'", .{ what, n });
             }
-            if (!ok) return c.fail(lines.no, "unknown {s} '{s}'", .{ what, n });
             var sp: []const []const u8 = &.{};
-            if (spell.len == 0) sp = try c.add([]const u8, sp, n);
+            if (spell.len == 0) sp = try c.add([]const u8, sp, try c.foldIf(fold, n));
             for (spell) |x| sp = try c.add([]const u8, sp, try c.foldIf(fold, x));
-            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp });
+            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp, .positive = positive });
         }
     }
     return c.fail(lines.no, "{s} section is missing 'end'", .{what});
@@ -1084,6 +1106,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var checks: []const Check = &.{};
     var differs: []const Differs = &.{};
     var thresholds: []const Threshold = &.{};
+    var params: []const ParamTable = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1279,6 +1302,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             variables = try parseSpellings(c, &lines, fold, "variable", &schema.variables);
         } else if (std.mem.eql(u8, head, "operators")) {
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
+        } else if (std.mem.eql(u8, head, "params")) {
+            const kind = try kindOf(c, no, rest);
+            if (schema.info(kind).class != .device or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device kind with parameters", .{});
+            params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
         } else if (std.mem.eql(u8, head, "differs")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "differs is `differs function-or-operator : reason`", .{});
             const canon = std.mem.trim(u8, rest[0..colon], " \t");
@@ -1318,6 +1345,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .checks = checks,
         .differs = differs,
         .thresholds = thresholds,
+        .params = params,
     };
 }
 

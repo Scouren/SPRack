@@ -546,7 +546,9 @@ const Matcher = struct {
                     const flags = for (node.bag) |e| {
                         if (e.form == .rest and e.flags) break e;
                     } else break;
-                    if (!lexer.isIdent(kt.text)) break;
+                    // A declared model is no flag: a longer form names it
+                    // (`Q c b e s tj model`).
+                    if (!lexer.isIdent(kt.text) or self.declared.contains(kt.text)) break;
                     try self.log.append(self.arena, .{ .slot = flags.slot, .key = kt.raw, .val = .none });
                     j += 1;
                 }

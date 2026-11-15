@@ -295,3 +295,35 @@ no simctl : HSPICE has no control language besides its dot commands
 # .TEMP with several values runs every analysis at each of them.
 rule  step      = var:".temp"=temp ( values )+
 rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"
+# Instance parameters each device takes, by canonical (ngspice) name; the
+# first spelling is written. Observed: a deck per name, a warning or an
+# error for one HSPICE does not take (mosfet: levels 54 and 72 together).
+# `m>0`: m of zero or less stops the run. A kind with no table is not checked.
+params resistor
+  same ac c dtemp l m>0 scale tc2 w
+  tc1   = tc1 tc
+  noisy = noise
+end
+params capacitor
+  same dtemp ic l m>0 q scale tc1 tc2 w
+end
+params inductor
+  same dtemp ic m>0 nt r scale tc1 tc2
+end
+params isource
+  same m>0 r td
+end
+params diode
+  same area dtemp ic l lm lp m>0 mult off perim pj w wm wp
+end
+params bjt
+  same area areab areac dtemp ic m>0 mult off
+end
+params jfet
+  same area dtemp ic l m>0 off w
+end
+params mosfet
+  same acnqsmod ad adeo as aseo d delvto dtemp fpitch geomod ic l lrsd m>0 min mult mulu0
+  same nf nfin ngcon nrd nrs off pd pdeo ps pseo rbdb rbodymod rbpb rbpd rbps rbsb
+  same rgatemod rgeomod sa sb sc sca scb scc sd tfin trnqsmod w xgw
+end

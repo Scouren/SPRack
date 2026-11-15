@@ -274,3 +274,35 @@ convert stb sweep=lin : points = points - 1
 convert dc stop==start : values = [stop]
 convert ac fstop==fstart : values = [fstop]
 convert noise fstop==fstart : values = [fstop]
+# Instance parameters each device takes, by canonical (ngspice) name; the
+# first spelling is written. Observed: a deck per name, a warning for one
+# Spectre does not take; `m>0`: m of zero or less stops the run. A kind with
+# no table is not checked.
+params resistor
+  same ac c l m>0 scale tc1 tc2 w
+  dtemp = dtemp trise
+  noisy = isnoisy
+end
+params capacitor
+  same ic l m>0 q scale tc1 tc2 w
+  dtemp = dtemp trise
+end
+params inductor
+  same ic m>0 r tc1 tc2 temp
+  dtemp = dtemp trise
+end
+params isource
+  same m>0
+end
+params diode
+  same area l lm lp m>0 perim pj w wm wp
+  dtemp = dtemp trise
+end
+params bjt
+  same area areab areac m>0
+  dtemp = dtemp trise
+end
+params jfet
+  same area l m>0 w
+  dtemp = dtemp trise
+end
