@@ -353,3 +353,5 @@ end
 params jfet
   same area dtemp ic m off temp
 end
+# alter (c2)
+no alter : this grammar has no form for the .alter ESPice takes in HSPICE mode

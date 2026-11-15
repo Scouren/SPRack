@@ -3315,3 +3315,81 @@ test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
     try has(va, "width=1u period=0\n");
     try reported(&report, .warning, "vsource.width is 0: ngspice means the tran.stop by that");
 }
+
+test "c2 alter: reruns with cumulative edits, in each dialect's form" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const src = "t\n.param ra=1k\nV1 a 0 1\nR1 a b 'ra'\nR2 b 0 1k\n.op\n.alter one\n.param ra=3k\n.alter two\n.temp 75\n.end\n";
+    const nl = try readAs(a, "hspice", src, &r);
+    try testing.expectEqual(2, countKind(nl, .alter));
+    try has(try sameBack(a, "hspice", "hspice", src, &r), ".op\n.alter one\n.param ra=3k\n.alter two\n.temp 75\n.end\n");
+    // Spectre runs analyses where they stand: each altergroup is followed by them.
+    try has(try sameBack(a, "hspice", "spectre", src, &r), "op1 dc\none altergroup {\nparameters ra=3k\n}\nop2 dc\ntwo altergroup {\nsprackOptions1 options temp=75\n}\nop3 dc\n");
+    try clean(&r);
+    // Xyce: a .step over a table, a row for the netlist and one per alter.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", src, &r1), ".data alters ra temp 1k 27 3k 27 3k 75\n.enddata\n.step data=alters\n.op\n");
+    try reported(&r1, .warning, "its run is written at 27 degrees");
+    try testing.expect(!r1.hasErrors());
+    // VACASK's control block runs in order; ngspice reruns from .control.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "vacask", src, &r2), "analysis op1 op\nalter instance(\"__topinst__\") ra=3k\nanalysis op2 op\noptions temp=75\nanalysis op3 op\nendc\n");
+    try has(try tr(a, "hspice", "ngspice", src, &r2), ".op\n.control\nreset\nrun\n.endc\n.control\nalterparam ra=3k\nreset\nrun\n.endc\n.control\nreset\noption temp=75\nrun\n.endc\n");
+    try testing.expect(!r2.hasErrors());
+    // What those forms cannot change is an error with the reason.
+    var r3: ir.Report = .init(a);
+    const elem = "t\nV1 a 0 1\nR1 a b 1k\nR2 b 0 1k\n.op\n.alter\nR2 b 0 3k\n.alter\nR3 b 0 1k\n.end\n";
+    _ = try tr(a, "hspice", "xyce", elem, &r3);
+    try reported(&r3, .@"error", "changes only parameters and the temperature, not a resistor");
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", elem, &r4);
+    try reported(&r4, .@"error", "resistor 'R3' is not in the netlist");
+    try testing.expectEqual(1, r4.count(.@"error"));
+}
+
+test "c2 alter: Spectre alter and altergroup read back as alters" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    // One-change alters with no analysis between them are one rerun.
+    const scs = "// t\nparameters ra=1k\nv1 (a 0) vsource dc=1\nr1 (a b) resistor r=ra\nr2 (b 0) resistor r=1k\nd1 (b 0) dm\nmodel dm diode is=1e-14\n" ++
+        "op0 dc\na1 alter dev=r2 param=r value=3k\na2 alter mod=dm param=is value=1e-12\nop1 dc\na3 alter param=temp value=75\nop2 dc\nag4 altergroup {\nparameters ra=2k\n}\nop3 dc\n";
+    const nl = try readAs(a, "spectre", scs, &r);
+    try testing.expectEqual(3, countKind(nl, .alter));
+    try testing.expectEqual(1, countKind(nl, .op));
+    try has(try tr(a, "spectre", "hspice", scs, &r), ".op\n.alter a1\nr2 b 0 3k\n.model dm d is=1p\n.alter a3\n.temp 75\n.alter ag4\n.param ra=2k\n.end\n");
+    _ = try sameBack(a, "spectre", "spectre", scs, &r);
+    try testing.expect(!r.hasErrors());
+    // Analyses after an altergroup that are not the netlist's: no rerun.
+    var r1: ir.Report = .init(a);
+    _ = try readAs(a, "spectre", "// t\nr1 (a 0) resistor r=1k\nop0 dc\nag1 altergroup {\nr1 (a 0) resistor r=2k\n}\ntran1 tran stop=1n\n", &r1);
+    try reported(&r1, .@"error", "the analyses after it are not those of the netlist");
+}
+
+test "c2 sweep: HSPICE SWEEP at the end of an analysis line is a step around it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const src = "t\n.param rl=1k\nV1 a 0 1 ac 1\nVdd d 0 1\nR1 a b rl\nC1 b 0 1n\n.data rows rl\n+ 1k\n+ 3k\n.enddata\n" ++
+        ".tran 1n 1u SWEEP rl 1k 10k 1k\n.ac dec 10 1 1g SWEEP temp poi 3 0 27 85\n.op sweep data=rows\n.dc V1 0 1 0.1 SWEEP Vdd 1 2 0.5\n.end\n";
+    const nl = try readAs(a, "hspice", src, &r);
+    try testing.expectEqual(3, countKind(nl, .step));
+    const back = try sameBack(a, "hspice", "hspice", src, &r);
+    try has(back, ".tran 1n 1u sweep rl 1k 10k 1k\n.ac dec 10 1 1g sweep temp poi 3 0 27 85\n.op sweep data=rows\n");
+    // One loop around a DC sweep is its outer loop.
+    try has(back, ".dc V1 0 1 0.1 Vdd 1 2 0.5\n");
+    try clean(&r);
+    // Spectre has no .data tables, so the other three only.
+    var r0: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre", src, &r0);
+    try has(sp, "swp1 sweep param=rl start=1k stop=10k step=1k {\ntran1 tran step=1n stop=1u\n}\nswp2 sweep param=temp values=[0 27 85] {\nac1 ac start=1 stop=1G dec=10\n}\n");
+    try has(sp, "sweep dev=Vdd start=1 stop=2 step=0.5 {\ndc1 dc dev=V1 start=0 stop=1 step=0.1\n}\n");
+    // A .TEMP list around the only analysis stays a .TEMP line.
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", "t\nR1 a 0 1k\nI1 0 a 1m\n.temp -55 25 125\n.op\n.end\n", &r1), ".temp -55 25 125\n.op\n");
+    try clean(&r1);
+}

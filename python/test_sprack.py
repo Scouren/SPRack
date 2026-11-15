@@ -129,6 +129,16 @@ def test_sweeps():
     d.data("rows", ["rv"], ["1k", "3k"])
     d.dc(data="rows")
     assert ".data rows rv 1k 3k\n.enddata\n.dc data=rows\n" in d.netlist("hspice")
+    # An alter reruns the analyses with its edits: after them in Spectre, a table row in Xyce.
+    e = sprack.Circuit("t")
+    e.param(rv="1k")
+    e.V("1", "a", 0, 1)
+    e.R("1", "a", 0, "rv")
+    e.op()
+    e.code(".alter hot\n.param rv=2k\n.temp 85", dialect="hspice")
+    sp = e.netlist("spectre")
+    assert "op1 dc\nhot altergroup {\nparameters rv=2k\nsprackOptions1 options temp=85\n}\nop2 dc\n" in sp, sp
+    assert ".data alters rv temp 1k 27 2k 85\n.enddata\n.step data=alters\n.op\n" in e.netlist("xyce", strict=False)
 
 
 # SPRACK_GRAMMARS: for a copy of this file run outside the checkout (the wheel test).

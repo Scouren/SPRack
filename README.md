@@ -113,7 +113,7 @@ statements of the canonical vocabulary and the core writes them.
   kind (`c.resistor(...)`). Analyses and the rest are methods too: `op`, `dc`,
   `ac`, `tran`, `noise`, `tf`, `pz`, `sens`, `four`, `hb`, `sp`, `pss`, `stb`,
   `pac`, `pnoise`, `pxf`, `psp`, `xf`, `dcmatch`, `trannoise`, `phasenoise`,
-  `envelope`, `qpss`, `step`, `data`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
+  `envelope`, `qpss`, `step`, `data`, `alter`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
   `func`, `include`, `lib`, `hdl`, `global_`, `subckt`.
 * The vocabulary is closed. `c.tran("1n", "1u", errpreset="moderate")` raises
   `TypeError: tran has no 'errpreset'; it has: name, step, stop, ...`. There is
@@ -375,6 +375,10 @@ no single rule holds everything, which is how `.options timeint ...` and
     reserved vt temp : ...             # parameter names the simulator refuses
     spread montecarlo                  # a block written by adding its rule to each
                                        # analysis of its body (`sweep monte=30`)
+    spread step "sweep"                # the same; only the rules starting with
+                                       # the word are endings (`.temp` is not)
+    rerun alter                        # analyses run where they stand: written
+                                       # again after each statement of the kind
     switch "simulator lang=spice" -> hspice   # from such a line on, read with
                                        # another grammar, until the next switch
     noparam jfet level=2 : ...         # a model parameter (with that value) the
@@ -472,11 +476,21 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   HSPICE's `.temp` with several values and Spectre's `sweep` blocks (`step`,
   whose body is the analyses it repeats); `.data` tables and `data=` sweeps
   over them (`data`). A `.step` line sweeps every analysis of its netlist, so
-  a Spectre sweep around only some of them has no SPICE form, and VACASK,
-  whose sweep belongs to the one analysis after it, has no `step`. Not in
-  the vocabulary: HSPICE's `.alter` and the `SWEEP` tail of an analysis
-  line, Spectre's `alter`, `altergroup` and `paramset`, and `.data` read
-  from files (`MER`, `LAM`).
+  a Spectre sweep around only some of them has no SPICE form except
+  HSPICE's, where `SWEEP` at the end of an analysis line repeats that
+  analysis alone; VACASK, whose sweep belongs to the one analysis after it,
+  has no `step`. Not in the vocabulary: Spectre's `paramset`, and `.data`
+  read from files (`MER`, `LAM`).
+* Alters (`alter`, whose body is its edits): HSPICE `.alter`, Spectre
+  `altergroup` and one-change `alter` statements, each a rerun of every
+  analysis on top of the alters before it. Spectre gets the analyses again
+  after each altergroup, and an altergroup cannot add an instance. VACASK
+  (`alter instance(...)`, `options temp=` in the control block), ngspice (a
+  `.control` block per run with `alterparam`, `reset`, `run`; ngspice then
+  runs the analyses once more, as the last run left them) and Xyce (a
+  `.step` over a `.data` table, a row per run) take only alters that change
+  parameters and the temperature; anything else in an alter is an error
+  there. Read back, those three are not alters.
 * Parameters of model cards are copied by name, with one warning per file:
   the simulators ship different versions of the same model. Instance
   parameters are checked (`params` tables) for resistors, capacitors,

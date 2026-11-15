@@ -229,6 +229,8 @@ _POSITIONAL = {
     # b2: statistics and structure
     "statistics": [], "statgroup": ["scope"], "vary": ["param", "dist", "std"], "correlate": ["names", "cc"],
     "montecarlo": ["runs"], "library": ["name"],
+    # c2: alter
+    "alter": ["name"],
 }
 
 _WAVES = {

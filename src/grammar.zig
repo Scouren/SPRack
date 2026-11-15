@@ -278,6 +278,7 @@ pub const Absent = struct { kind: Kind, reason: []const u8 };
 /// `switch "simulator lang=spice" -> hspice`: from a line that starts with
 /// these words on, the file is in another dialect.
 pub const Switch = struct { words: []const u8, dialect: []const u8 };
+pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `reserved name ... : reason`: parameter names the simulator refuses.
 pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
 
@@ -327,9 +328,15 @@ pub const Grammar = struct {
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
-    /// `spread kind`: a block kind this dialect says by adding the kind's
-    /// rule to the end of each statement in its body (HSPICE `monte=`).
-    spreads: []const Kind = &.{},
+    /// `spread kind ["word"]`: a block kind this dialect says by adding the
+    /// kind's rule to the end of each statement in its body (HSPICE
+    /// `monte=`). With a word, only the rules that start with it are such
+    /// endings, and the others are the kind's own lines (`.temp`).
+    spreads: []const Spread = &.{},
+    /// `rerun kind`: this dialect runs its analyses where they stand, so
+    /// they are written again after each statement of the kind (Spectre's
+    /// `altergroup`).
+    reruns: []const Kind = &.{},
     reserved: []const Reserved = &.{},
     switches: []const Switch = &.{},
     noparams: []const NoParam = &.{},
@@ -348,7 +355,24 @@ pub const Grammar = struct {
     }
 
     pub fn isSpread(g: *const Grammar, kind: Kind) bool {
-        return std.mem.indexOfScalar(Kind, g.spreads, kind) != null;
+        for (g.spreads) |s| if (s.kind == kind) return true;
+        return false;
+    }
+
+    /// The word that starts the kind's `spread` endings, if it has one.
+    pub fn spreadWord(g: *const Grammar, kind: Kind) ?[]const u8 {
+        for (g.spreads) |s| if (s.kind == kind and s.word.len > 0) return s.word;
+        return null;
+    }
+
+    /// Is the rule one of its kind's `spread` endings (`sweep ...`)?
+    pub fn isEnding(g: *const Grammar, rule: *const Rule) bool {
+        const word = g.spreadWord(rule.kind) orelse return false;
+        return rule.pat.len > 0 and rule.pat[0].tag == .lit and std.mem.eql(u8, rule.pat[0].text, word);
+    }
+
+    pub fn isRerun(g: *const Grammar, kind: Kind) bool {
+        return std.mem.indexOfScalar(Kind, g.reruns, kind) != null;
     }
 
     pub fn enumOf(g: *const Grammar, kind: Kind, slot: u8) ?*const EnumMap {
@@ -1189,7 +1213,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var fills: []const Fill = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
-    var spreads: []const Kind = &.{};
+    var spreads: []const Spread = &.{};
+    var reruns: []const Kind = &.{};
     var reserved: []const Reserved = &.{};
     var switches: []const Switch = &.{};
     var noparams: []const NoParam = &.{};
@@ -1446,7 +1471,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
             reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "spread")) {
-            spreads = try c.add(Kind, spreads, try kindOf(c, no, rest));
+            const a = try args(c, no, rest);
+            if (a.len < 1 or a.len > 2) return c.fail(no, "spread is `spread kind [\"word\"]`", .{});
+            spreads = try c.add(Spread, spreads, .{ .kind = try kindOf(c, no, a[0]), .word = if (a.len == 2) try c.foldIf(fold, a[1]) else "" });
+        } else if (std.mem.eql(u8, head, "rerun")) {
+            reruns = try c.add(Kind, reruns, try kindOf(c, no, rest));
         } else if (std.mem.eql(u8, head, "no")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind : reason`", .{});
             absent = try c.add(Absent, absent, .{ .kind = try kindOf(c, no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] });
@@ -1484,6 +1513,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .unique_param = unique_param,
         .unique_master = unique_master,
         .spreads = spreads,
+        .reruns = reruns,
         .reserved = reserved,
         .switches = switches,
         .noparams = noparams,

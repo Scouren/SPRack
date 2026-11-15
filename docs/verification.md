@@ -548,3 +548,34 @@ Xyce 7.10, VACASK b2c1551, ESPice 0.3.0) or cited.
 | Xyce | `.DC LIST v1 ...` and `.DC DEC v1 ...` put the type first; `.STEP DEC rv ...` too, but a list is `.STEP rv LIST ...` (`.STEP LIST rv` is refused). A second sweep may follow a list. `.DC` of a resistor, of a parameter, `.DATA` rows on one line, `.DC DATA=` and `.STEP DATA=` run. |
 | ngspice | `.dc` of a parameter stops with "not in the circuit"; `.temp` with several values is ignored with a warning. No `.step` (hence `no step`). |
 | ESPice | `.dc` of a parameter runs alone but not nested with a second sweep. A deck with `.data` is taken for HSPICE unless run with `--tokenizer ngspice` (a `caveat`). |
+
+### Alters and SWEEP tails (c2)
+
+Each alter deck changes a parameter, then an element, the temperature, a
+model card and a library section in turn, and records the operating point
+after each change. "Cumulative" means a later alter sees every earlier
+change.
+
+| dialect | observed |
+|---|---|
+| HSPICE | `.alter` blocks are cumulative for all five kinds of change; an alter may also add an element. `SWEEP` after `.tran`, `.ac`, `.dc` and `.op` (a step, `POI`, `DEC`, `LIN`, `DATA=`) runs that analysis once per point; on `.dc` it is the outer loop. |
+| Spectre | Analyses run where they are written. `altergroup` and the one-change `alter` (`dev=`, `mod=`, `param=`, `param=temp`) are cumulative, across each other too. An altergroup takes `parameters`, instances, `model`, `options temp=` and `include ... section=`; an instance the netlist does not have is refused. Spectre 23.10 and 25.10. |
+| VACASK | In the control block, `alter instance("__topinst__") p=v` changes a top-level parameter and `options temp=` the temperature for every later analysis; both stay set (b2c1551). |
+| ngspice | `alterparam p=v` takes one parameter per line and needs `reset` to apply; `reset` drops an earlier `option temp=`, but keeps `alterparam` values. Once a `.control` block is present the dot analyses run only from it, and after the blocks ngspice runs them once more in the last state (45). |
+| Xyce | No alter. A `.data` table with a `temp` column and parameter columns, swept with `.step data=`, runs once per row (7.10). |
+
+Compared per run, a deck changing two parameters and the temperature
+(`alt_pt`) and one changing a parameter, an element, the temperature and a
+diode model (`alt_em`), both at `tnom=27`, translated from HSPICE:
+
+| run | HSPICE v(b) | Spectre | Xyce (`alt_pt`) | VACASK | ngspice |
+|---|---|---|---|---|---|
+| base | 0.5000 | 0.5 | 0.5 | 0.5 | 0.5 |
+| ra=3k | 0.2500 | 0.25 | 0.25 | 0.25 | 0.25 |
+| temp 75 | 0.3304 | 0.330357 | 0.330357 | 0.330357 | 0.330357 |
+| rb=2k | 0.4966 | 0.496644 | 0.496644 | 0.496644 | 0.496644 |
+
+In `alt_em` (HSPICE against Spectre), v(b) is 0.5, 0.25, 0.4, 0.4966,
+0.4966 in both; the diode voltage agrees at 27 degrees (0.6551) and moves
+the same way with each change, 0.015 V lower in Spectre at 75 degrees,
+where the two diode models' temperature terms differ.

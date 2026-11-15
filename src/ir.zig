@@ -381,7 +381,7 @@ fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
     return true;
 }
 
-fn looseListEql(a: []const Stmt, b: []const Stmt) bool {
+pub fn looseListEql(a: []const Stmt, b: []const Stmt) bool {
     // Analyses and control statements may sit anywhere among the devices
     // (VACASK keeps them in a block at the end): compare each group in its
     // own order.
@@ -840,7 +840,7 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
     var analyses: usize = 0;
     for (stmts, 0..) |*s, i| {
         if (s.kind == .step and s.body.len == 0 and first == null) first = i;
-        if (s.kind != .step and schema.info(s.kind).class == .analysis) analyses += 1;
+        if (s.kind != .step and s.kind != .alter and schema.info(s.kind).class == .analysis) analyses += 1;
     }
     if (first == null or analyses == 0) return stmts;
     var out: std.ArrayList(Stmt) = .empty;
@@ -852,7 +852,7 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
             if (chain.items.len == 0) slot = out.items.len;
             if (chain.items.len == 0) try out.append(arena, s);
             try chain.append(arena, s);
-        } else if (schema.info(s.kind).class == .analysis and s.kind != .step) {
+        } else if (schema.info(s.kind).class == .analysis and s.kind != .step and s.kind != .alter) {
             try inner.append(arena, s);
         } else try out.append(arena, s);
     }

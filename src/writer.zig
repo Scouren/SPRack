@@ -14,6 +14,7 @@ const lexer = @import("lexer.zig");
 const expr = @import("expr.zig");
 const reader = @import("reader.zig");
 const stats = @import("stats.zig");
+const alter = @import("alter.zig");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -752,6 +753,12 @@ const Writer = struct {
     last_blank: bool = true,
     /// The statement being written names a file: one line, however long.
     nowrap: bool = false,
+    /// Writing the ending a `spread` kind adds to each analysis (`sweep
+    /// ...`): only its ending rules are tried, and elsewhere only the others.
+    ending: bool = false,
+    /// The one analysis of the netlist, when it has one: a spread step
+    /// around it may be the kind's own line (HSPICE `.temp 0 27`).
+    sole: ?*const ir.Stmt = null,
     /// Model name to its family, for rules that depend on it (`bjt[hicum2]`).
     // ponytail: models of this file only; one declared in another file of a project leaves its instances on the plain rules.
     families: std.StringHashMapUnmanaged([]const u8) = .empty,
@@ -1068,7 +1075,7 @@ const Writer = struct {
         // analyses), or the rule is added to each statement of the body
         // (`spread`, HSPICE `monte=`).
         if (st.body.len > 0 and w.g.blockOf(st.kind) == null and w.g.canWrite(st.kind)) {
-            if (w.g.isSpread(st.kind)) return w.spread(st);
+            if (w.g.isSpread(st.kind) and !(st == w.sole and try w.fits(st))) return w.spread(st);
             var head = st.*;
             head.body = &.{};
             try w.stmt(&head);
@@ -1114,6 +1121,7 @@ const Writer = struct {
         var step: ?*const ir.Stmt = null;
         var outside = false;
         for (stmts) |*s| {
+            if (s.kind == .alter) continue;
             if (s.kind != .step) {
                 outside = outside or schema.info(s.kind).class == .analysis;
             } else if (step == null) step = s else outside = true;
@@ -1122,7 +1130,7 @@ const Writer = struct {
         // HSPICE's .TEMP list in a deck with no analysis: nothing to repeat.
         if (st.body.len == 0 and !std.mem.eql(u8, w.sourceOf(st), w.g.name))
             w.report.add(.@"error", .invalid, st.line, "step: the netlist has no analysis for the {s} sweep to repeat", .{w.g.name});
-        if (outside) w.report.add(.@"error", .invalid, st.line, "step: a {s} sweep applies to every analysis of the netlist; this one leaves some out", .{w.g.name});
+        if (outside and !w.g.isSpread(.step)) w.report.add(.@"error", .invalid, st.line, "step: a {s} sweep applies to every analysis of the netlist; this one leaves some out", .{w.g.name});
     }
 
     /// What `stmt` writes for `st`, as text.
@@ -1139,7 +1147,10 @@ const Writer = struct {
     fn spread(w: *Writer, st: *const ir.Stmt) Error!void {
         var head = st.*;
         head.body = &.{};
-        const suffix = std.mem.trim(u8, try w.capture(&head), " \n");
+        w.ending = true;
+        const captured = w.capture(&head);
+        w.ending = false;
+        const suffix = std.mem.trim(u8, try captured, " \n");
         for (st.body) |*child| {
             if (schema.info(child.kind).class != .analysis) {
                 try w.stmt(child);
@@ -1148,6 +1159,19 @@ const Writer = struct {
             const text = std.mem.trimEnd(u8, try w.capture(child), "\n");
             try w.out.print("{s} {s}\n", .{ text, suffix });
         }
+    }
+
+    /// Does one of the kind's own rules (not an ending) say `st` whole?
+    fn fits(w: *Writer, st: *const ir.Stmt) Error!bool {
+        var head = st.*;
+        head.body = &.{};
+        for (w.g.rules) |*rule| {
+            if (rule.kind != st.kind or rule.dir == .read or w.g.isEnding(rule)) continue;
+            var e = w.emitter(w.arena, &head);
+            e.quiet = true;
+            if (try e.seq(rule.pat) and try e.lossCount() == 0) return true;
+        }
+        return false;
     }
 
     /// Model cards `nch.1`, `nch.2`, ... grouped under `nch` by
@@ -1277,6 +1301,7 @@ const Writer = struct {
             if (best != null or (loose and fam.len > 0)) break;
             for (w.g.rules) |*rule| {
                 if (rule.kind != st.kind or rule.dir == .read) continue;
+                if (w.g.spreadWord(st.kind) != null and w.g.isEnding(rule) != w.ending) continue;
                 if (rule.family.len > 0 and !std.mem.eql(u8, rule.family, fam) and !loose) {
                     if (why.len == 0 and fam.len > 0) why = try a.print("a model of family '{s}'", .{fam});
                     continue;
@@ -1310,7 +1335,7 @@ const Writer = struct {
         // ngspice reads .lib and .include before it joins continuation lines.
         w.nowrap = st.kind == .include or st.kind == .lib or st.kind == .hdl;
         defer w.nowrap = false;
-        try w.lineTail(e.buf.items, st.tail);
+        try w.lineTail(std.mem.trimEnd(u8, e.buf.items, "\n"), st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
         }
@@ -1765,7 +1790,7 @@ pub fn write(
     }
     const gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
-    var stmts = try w.applyMoves(gathered);
+    var stmts = try w.applyMoves(try alter.prepare(arena, g, gathered, report));
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
         try expr.convert(arena, g, list, true);
@@ -1773,6 +1798,12 @@ pub fn write(
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
+    var n_analyses: usize = 0;
+    for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {
+        n_analyses += 1;
+        w.sole = s;
+    };
+    if (n_analyses != 1) w.sole = null;
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }

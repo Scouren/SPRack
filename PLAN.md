@@ -121,11 +121,17 @@ Order, by deck count:
    Done: `dc` sweeps an instance, a parameter or the temperature in both
    loops, by step, points per decade or octave, points in all, or a list;
    kinds `step` (body: the analyses it repeats) and `data`; Spectre `sweep`
-   blocks, `dc param=`, `values=`; VACASK sweeps. Out of scope: HSPICE
-   `.alter` and Spectre `alter`/`altergroup` (a rerun of the deck with edits,
-   which needs the analyses repeated per alter), the HSPICE `SWEEP` tail of
-   an analysis line (one line that is a step and its analysis), Spectre
-   `paramset`, `.data` from files (`MER`, `LAM`).
+   blocks, `dc param=`, `values=`; VACASK sweeps.
+   *Done (c2):* kind `alter` (body: its edits, cumulative), HSPICE `.alter`,
+   Spectre `altergroup` and one-change `alter` both ways (`rerun alter`: the
+   analyses are written again after each); VACASK `alter instance(...)` and
+   ngspice `.control` `alterparam` runs, Xyce a `.step` over a `.data`
+   table, these three for parameter and temperature changes only. The
+   HSPICE `SWEEP` tail (step, `POI`, `DEC`/`OCT`/`LIN`, `DATA=`) is a `step`
+   around its analysis (`spread step "sweep"`). Semantics measured per tool
+   (`docs/verification.md` 7). Out of scope: `SWEEP MONTE=` lists and
+   `OPTIMIZE=`, Spectre `paramset`, `.data` from files (`MER`, `LAM`),
+   HSPICE `.DEL LIB` and analyses added inside an `.alter` (an error elsewhere).
 2. [x] **Analyses (4.2):** `pss`, HSPICE `pz`, ~~`mc`/`variation`~~ (done with 4.6), `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
    - [x] **Periodic small-signal (b3):** kinds `pac`, `pnoise`, `pxf`, `psp`,
      each with `engine=hb` for the harmonic-balance form. Spectre

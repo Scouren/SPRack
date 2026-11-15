@@ -341,3 +341,5 @@ end
 params jfet
   same area dtemp temp
 end
+# alter (c2)
+no alter : Xyce has no .alter; when every alter changes only parameters and the temperature the runs are written as a .step over a .data table, a row per run

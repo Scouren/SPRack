@@ -97,7 +97,10 @@ rule  nodeset   = "nodeset" { ...values }
 # Statements this grammar recognises but cannot express. Listing them keeps
 # the generic instance rule at the bottom from misreading them.
 read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "real" ) ...
-read  opaque    = _ ( "options" | "info" | "alter" | "altergroup" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
+# One change on its own (an instance's, a model's, a parameter or the
+# temperature): read as an alter whose body is the edited statement.
+read  alter     = name "alter" { dev=dev mod=mod param=param value=value }
+read  opaque    = _ ( "options" | "info" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
 
 # A dc analysis that sweeps something is a DC sweep; any other is an
 # operating point. It sweeps an instance (param= names what of it, the
@@ -370,3 +373,14 @@ params jfet
   same area l m>0 w
   dtemp = dtemp trise
 end
+# alter (c2)
+# Analyses run where they stand: an altergroup changes what the analyses
+# after it see, on top of earlier altergroups and alters, so the netlist's
+# analyses are written again after each. It changes parameters, instances,
+# models, options and included sections; an instance it does not have is
+# refused. Measured in Spectre 23.10 and 25.10.
+block alter
+  open   name?alter$# "altergroup" "{"
+  close  "}"
+end
+rerun alter

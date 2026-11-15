@@ -322,3 +322,11 @@ end
 params jfet
   same area dtemp ic m off temp
 end
+# alter (c2)
+# A .control block per run: alterparam (one parameter each), reset to apply
+# it, the temperature again (reset forgets it; alterparam values stay),
+# run. The first block runs the netlist itself: once a .control block is
+# there, the analyses run only from it, and once more after the blocks, as
+# the last left them. Run in ngspice 45; read back, it is
+# a .control block, kept verbatim.
+write alter     = ".control" / ( "alterparam" keys ~"=" vals / )* "reset" / [ "option" { temp=temp } / ] "run" / ".endc"

@@ -121,7 +121,7 @@ needs psp103
   load "psp103v4.osdi"
 end
 
-wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb pac pnoise xf simctl
+wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb pac pnoise xf simctl alter
 
 # A file carried inside the netlist (a Python post-processing script, say).
 raw "embed" ">>>FILE" : VACASK embeds a file (a post-processing script) in the netlist; SPICE dialects have no such statement, so save the file next to the netlist
@@ -479,3 +479,10 @@ no data : VACASK has no data tables; a sweep lists its points in values= (docs/c
 caveat dc step : VACASK counts a stepped sweep's points with no rounding tolerance, so a stop a whole number of steps away may lose its last point (0.2 to 0.9 by 0.005 gives 140 points, not 141)
 caveat ac points : VACASK counts points per decade with no rounding tolerance and spaces a span that is not a whole number of steps evenly up to the stop, not on SPICE's per-decade grid
 caveat noise points : VACASK counts points per decade with no rounding tolerance and spaces a span that is not a whole number of steps evenly up to the stop, not on SPICE's per-decade grid
+# alter (c2)
+# The control block runs in order: `alter` on the top-level instance changes
+# its parameters (docs/cmd-alter.md), `options temp=` the temperature, and
+# the analyses written again after it see both, on top of earlier changes
+# (run in b2c1551). Only parameters and the temperature are written so.
+write alter     = [ "alter" 'instance("__topinst__")' ( keys ~"=" vals )* / ] [ "options" { temp=temp } ]
+rerun alter

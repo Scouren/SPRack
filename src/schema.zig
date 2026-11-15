@@ -122,6 +122,8 @@ pub const Kind = enum(u8) {
     correlate,
     montecarlo,
     library,
+    // c2: alter
+    alter,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -308,6 +310,14 @@ const defs = [_]Def{
     .{ .montecarlo, .analysis, "name runs:value seed:value params:params" },
     // A named group of library sections; nothing refers to the name.
     .{ .library, .structure, "name" },
+    // c2: alter
+    // A rerun of every analysis of the netlist with the edits in `body`
+    // (parameters, models, instances, library sections, options), on top of
+    // those of the alters before it. Alters come last, in order. Spectre's
+    // one-change form reads into `dev`/`mod`, `param` and `value`; a dialect
+    // that says parameters and the temperature only writes them flat, from
+    // `keys`, `vals` and `temp`.
+    .{ .alter, .analysis, "name dev:ref mod:ident param:ident value:value keys:ident* vals:value* temp:value" },
 };
 
 pub const kind_count = defs.len;
