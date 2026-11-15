@@ -76,9 +76,11 @@ def test_build_every_dialect():
     # Xyce records only what .print lists: a bare save is an error there, and says so.
     raises(sprack.Unsupported, lambda: c.netlist("xyce"), "Xyce records only what .PRINT lists")
     # VACASK loads the BSIM4 module and takes the initial condition on the analysis.
-    va = c.netlist("vacask")
-    for line in ['load "spice/bsim4v8.osdi"', "model nch sp_bsim4v8 (type=1 version=4.5 vth0=0.4)",
-                 'analysis tran1 tran step=10p stop=8n icmode="uic" ic={"out",0}']:
+    # Its BSIM4 takes version only as a string, so a numeric one is refused.
+    raises(sprack.Unsupported, lambda: c.netlist("vacask"), "version not written: VACASK ships BSIM4 4.8 only")
+    va = c.netlist("vacask", strict=False)
+    for line in ['load "spice/bsim4v8.osdi"', "model nch sp_bsim4v8 (type=1 vth0=0.4)",
+                 'analysis tran1 tran step=10p stop=8n maxstep=10p icmode="uic" ic={"out",0}']:
         assert line + "\n" in va, f"missing {line!r} in\n{va}"
     # Reading any netlist back gives a circuit that can be written again.
     again = sprack.read(ng, "ngspice")

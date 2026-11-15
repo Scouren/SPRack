@@ -337,7 +337,7 @@ caveat noise out : VACASK writes the output noise as a power density with the po
 # Model parameters the shipped modules refuse ("Parameter ... not found").
 # devices/spice/bsim3v3.va has no version; bsim4v8.va:164 declares it a string.
 noparam bsim3 version : sp_bsim3v3 implements BSIM3 3.3.0 only and has no version parameter
-noparam bsim4 version : sp_bsim4v8 implements BSIM4 4.8 and takes version only as a string
+noparam bsim4 version : VACASK ships BSIM4 4.8 only (sp_bsim4v8.va:3873-3882) and takes version as a string; SPICE selects BSIM4 4.5 to 4.8 by its number
 # devices/spice/jfet1.va has no level; jfet2.va is a module with no family here.
 noparam jfet level : sp_jfet1 is the level 1 JFET and has no level parameter; the level 2 model (spice/jfet2.osdi) has no family in the IR
 # docs/cmd-options-op.md "Nodesets": op_nsiter=1, nr_nsforce=10.
