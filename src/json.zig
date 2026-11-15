@@ -12,6 +12,18 @@
 //! `"10n"`), otherwise an expression in the canonical spelling. `{"str": s}`
 //! is a quoted string, a list is an array, parameters are an object, and a
 //! flag without a value is `null`.
+//!
+//! In a slot that holds a name the string is the name. In one that holds a
+//! signal it is the signal (`"v(out)"`), or an expression recorded as one
+//! if it is not in that form (`"-i(vc)"`). A dotted version (`"3.3.0"`) is a
+//! word, not arithmetic.
+//!
+//! Reading the JSON `writeNetlist` wrote gives the statements it was given.
+//! So what a plain string would not read back as is written tagged:
+//! `{"raw": s}` is a word kept as written where a value stands,
+//! `{"expr": s}` an expression a plain string would not be (`{13}`, which
+//! looks like a number), and parameters that repeat a key are an array of
+//! `[key, value]` pairs.
 
 const std = @import("std");
 const schema = @import("schema.zig");
@@ -20,6 +32,7 @@ const ir = @import("ir.zig");
 const sprack = @import("root.zig");
 const grammar = @import("grammar.zig");
 const lexer = @import("lexer.zig");
+const reader = @import("reader.zig");
 
 const Allocator = std.mem.Allocator;
 const Value = ir.Value;
@@ -54,39 +67,93 @@ fn str(w: *Writer, s: []const u8) Writer.Error!void {
     try w.writeByte('"');
 }
 
-fn value(w: *Writer, v: Value) Writer.Error!void {
+/// Where a value stands, as far as reading a plain JSON string goes.
+const Pos = enum { word, signal, path, value };
+
+fn posOf(ty: schema.SlotType) Pos {
+    return switch (ty) {
+        .name, .node, .ident, .ref, .atom, .text => .word,
+        .signal => .signal,
+        .path => .path,
+        .value, .params => .value,
+    };
+}
+
+/// A plain string in a signal slot: a signal in the canonical spelling
+/// (`v(out)`, `all`) or a bare name; anything else there is an expression.
+fn isSignal(text: []const u8) bool {
+    if (lexer.isIdent(text)) return true;
+    const open = std.mem.indexOfScalar(u8, text, '(') orelse return false;
+    if (text[text.len - 1] != ')') return false;
+    for (schema.signal_forms) |f| if (std.mem.eql(u8, f, text[0..open])) return true;
+    return false;
+}
+
+/// What a plain string reads back as where it stands: the one place that
+/// says so. The parser goes by it, and the writer tags what it would not
+/// give back.
+fn plainTag(pos: Pos, text: []const u8) std.meta.Tag(Value) {
+    switch (pos) {
+        .word => return .atom,
+        .signal => return if (isSignal(text)) .atom else .expr,
+        .path => return .str,
+        .value => {
+            // `scalar` allocates for a report entry only, not wanted here.
+            var fba: std.heap.FixedBufferAllocator = .init(&.{});
+            var sink: ir.Report = .init(fba.allocator());
+            var p: Parser = .{ .arena = fba.allocator(), .report = &sink };
+            return std.meta.activeTag(p.scalar(text, 0) catch return .none);
+        },
+    }
+}
+
+fn tagged(w: *Writer, tag: []const u8, s: []const u8) Writer.Error!void {
+    try w.print("{{\"{s}\":", .{tag});
+    try str(w, s);
+    try w.writeByte('}');
+}
+
+fn repeatsKey(ps: []const ir.Param) bool {
+    for (ps, 0..) |p, i| {
+        for (ps[0..i]) |q| if (std.mem.eql(u8, p.key, q.key)) return true;
+    }
+    return false;
+}
+
+fn value(w: *Writer, v: Value, pos: Pos) Writer.Error!void {
     switch (v) {
         .none => try w.writeAll("null"),
-        .atom => |s| try str(w, s),
-        .expr => |s| try str(w, s),
+        .atom => |s| if (plainTag(pos, s) == .atom) try str(w, s) else try tagged(w, "raw", s),
+        .expr => |s| if (plainTag(pos, s) == .expr) try str(w, s) else try tagged(w, "expr", s),
         .num => |n| {
             try w.writeByte('"');
             try w.writeAll(n.digits());
             if (n.exp10 != 0) try w.print("e{d}", .{n.exp10});
             try w.writeByte('"');
         },
-        .str => |s| {
-            try w.writeAll("{\"str\":");
-            try str(w, s);
-            try w.writeByte('}');
-        },
+        .str => |s| try tagged(w, "str", s),
         .list => |items| {
             try w.writeByte('[');
             for (items, 0..) |it, i| {
                 if (i > 0) try w.writeByte(',');
-                try value(w, it);
+                try value(w, it, pos);
             }
             try w.writeByte(']');
         },
         .params => |ps| {
-            try w.writeByte('{');
+            // A JSON object holds a key once: `toxref=1.26n ... toxref=1.3n`
+            // is written as pairs.
+            const pairs = repeatsKey(ps);
+            try w.writeByte(if (pairs) '[' else '{');
             for (ps, 0..) |p, i| {
                 if (i > 0) try w.writeByte(',');
+                if (pairs) try w.writeByte('[');
                 try str(w, p.key);
-                try w.writeByte(':');
-                try value(w, p.val);
+                try w.writeByte(if (pairs) ',' else ':');
+                try value(w, p.val, .value);
+                if (pairs) try w.writeByte(']');
             }
-            try w.writeByte('}');
+            try w.writeByte(if (pairs) ']' else '}');
         },
     }
 }
@@ -115,7 +182,7 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
             try w.writeByte(',');
             try str(w, sl.name);
             try w.writeByte(':');
-            try value(w, s.at(k));
+            try value(w, s.at(k), posOf(sl.ty));
         }
         if (s.body.len > 0 or s.kind == .subckt or s.kind == .libsection) {
             try w.writeAll(",\"body\":");
@@ -230,6 +297,8 @@ const Parser = struct {
 
     fn scalar(p: *Parser, text: []const u8, line: u32) Allocator.Error!Value {
         if (lexer.parseNumber(p.arena, &number_cfg, text)) |n| return .{ .num = n };
+        // `version=3.3.0` is a word, as every reader takes it.
+        if (reader.isVersion(text)) return .{ .atom = text };
         if (text.len > 1 and std.ascii.isDigit(text[0])) {
             const digits = std.mem.trimEnd(u8, text, "M");
             if (digits.len + 1 == text.len and lexer.parseNumber(p.arena, &number_cfg, digits) != null) {
@@ -265,14 +334,17 @@ const Parser = struct {
                 for (arr.items, 0..) |it, i| out[i] = try p.any(it, line);
                 return .{ .list = out };
             },
-            .object => |obj| {
-                if (obj.count() == 1) {
-                    if (obj.get("str")) |s| if (s == .string) return .{ .str = s.string };
-                    if (obj.get("raw")) |s| if (s == .string) return .{ .atom = s.string };
-                }
-                return p.params(obj, line);
-            },
+            .object => |obj| return typed(j) orelse p.params(obj, line),
         }
+    }
+
+    /// `{"str": s}`, `{"raw": s}` and `{"expr": s}`: a value of the type named.
+    fn typed(j: J) ?Value {
+        if (j != .object or j.object.count() != 1) return null;
+        if (j.object.get("str")) |s| if (s == .string) return .{ .str = s.string };
+        if (j.object.get("raw")) |s| if (s == .string) return .{ .atom = s.string };
+        if (j.object.get("expr")) |s| if (s == .string) return .{ .expr = s.string };
+        return null;
     }
 
     fn params(p: *Parser, obj: std.json.ObjectMap, line: u32) Allocator.Error!Value {
@@ -282,15 +354,24 @@ const Parser = struct {
         return if (out.items.len > 0) .{ .params = out.items } else .none;
     }
 
+    /// Parameters as `[[key, value], ...]`: the form that can repeat a key.
+    fn pairs(p: *Parser, sl: schema.Slot, items: []const J, line: u32) Allocator.Error!Value {
+        var out: std.ArrayList(ir.Param) = .empty;
+        for (items) |it| {
+            if (it != .array or it.array.items.len != 2 or it.array.items[0] != .string) {
+                p.fail(line, "'{s}' as an array must hold [name, value] pairs", .{sl.name});
+                return .none;
+            }
+            try out.append(p.arena, .{ .key = it.array.items[0].string, .val = try p.any(it.array.items[1], line) });
+        }
+        return if (out.items.len > 0) .{ .params = out.items } else .none;
+    }
+
     fn nameOf(p: *Parser, j: J, line: u32, slot: []const u8) Allocator.Error!?[]const u8 {
         switch (j) {
             .string => |s| return s,
             .integer => |i| return try p.arena.print("{d}", .{i}),
             .number_string => |s| return s,
-            // A path as `writeNetlist` writes it (a quoted string).
-            .object => |obj| if (obj.count() == 1) {
-                if (obj.get("str")) |s| if (s == .string) return s.string;
-            },
             else => {},
         }
         p.fail(line, "'{s}' must be a name", .{slot});
@@ -307,14 +388,17 @@ const Parser = struct {
             for (items, 0..) |it, i| out[i] = try p.slotValue(one, it, line);
             return .{ .list = out };
         }
+        if (sl.ty != .params) if (typed(j)) |v| return v;
         switch (sl.ty) {
             .name, .node, .ident, .ref, .atom, .signal, .text => {
                 if (j == .bool) return .{ .atom = if (j.bool) "yes" else "no" };
-                return .{ .atom = (try p.nameOf(j, line, sl.name)) orelse return .none };
+                const text = (try p.nameOf(j, line, sl.name)) orelse return .none;
+                return if (plainTag(posOf(sl.ty), text) == .expr) .{ .expr = text } else .{ .atom = text };
             },
             .path => return .{ .str = (try p.nameOf(j, line, sl.name)) orelse return .none },
             .value => return p.any(j, line),
             .params => {
+                if (j == .array) return p.pairs(sl, j.array.items, line);
                 if (j != .object) {
                     p.fail(line, "'{s}' must be an object of name: value pairs", .{sl.name});
                     return .none;

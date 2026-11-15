@@ -953,6 +953,13 @@ const Writer = struct {
                 }
             }
             const who = if (w.caps) |c| c.family(fam.atom, pol) else "";
+            // No model cards at all here (CDL): the grammar's reason, not a gap in its table.
+            if (w.g.absentReason(.model)) |why| {
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' cannot be written for {s}: {s}. Dialects that define the family: {s}", .{
+                    st.get("name").atom, w.g.name, why, if (who.len > 0) who else "none",
+                });
+                return null;
+            }
             w.report.add(.@"error", .unsupported, st.line, "model '{s}': {s}.spgrammar has no spelling for model family '{s}{s}{s}'. Defined by: {s}", .{
                 st.get("name").atom,              w.g.name, fam.atom, if (pol.len > 0) " " else "", pol,
                 if (who.len > 0) who else "none",
@@ -1986,6 +1993,7 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
             try p.set(arena, out_i, .{ .atom = sig });
             try p.set(arena, op_i, .none);
             try p.set(arena, on_i, .none);
+            report.add(.info, .oneway, st.line, "pz: the output nodes {s} {s} are the signal {s}, as {s} names it", .{ pos, neg, sig, g.name });
         }
     }
     return list orelse stmts;

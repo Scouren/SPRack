@@ -122,4 +122,118 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = lib.root_module })).step);
+    const cli_step = b.step("test-cli", "Run the sprack command on small inputs: what it prints and how it exits");
+    cliTests(.{ .b = b, .step = cli_step, .exe = exe });
+    test_step.dependOn(cli_step);
+}
+
+/// One run of the built command per case. Standard output and standard
+/// error are checked for what they must contain, the exit status exactly:
+/// 0 nothing lost, 1 the report has an error, 2 the command line is wrong.
+const Cli = struct {
+    b: *std.Build,
+    step: *std.Build.Step,
+    exe: *std.Build.Step.Compile,
+
+    fn run(c: Cli, args: []const []const u8, stdin: []const u8, code: u8) *std.Build.Step.Run {
+        const r = c.b.addRunArtifact(c.exe);
+        r.addArgs(args);
+        r.setStdIn(.{ .bytes = stdin });
+        r.expectExitCode(code);
+        c.step.dependOn(&r.step);
+        return r;
+    }
+
+    fn file(c: Cli, lp: std.Build.LazyPath, matches: []const []const u8) void {
+        c.step.dependOn(&c.b.addCheckFile(lp, .{ .expected_matches = matches }).step);
+    }
+};
+
+fn cliTests(c: Cli) void {
+    const b = c.b;
+    const deck = "t\nR1 a 0 1k\n.tran 1n 1u\n.end\n";
+    const spectre = "// t\nsimulator lang=spectre insensitive=yes\nglobal 0\nR1 (a 0) resistor r=1k\ntran1 tran step=1n stop=1u\n";
+
+    // What needs no input.
+    c.run(&.{}, "", 2).expectStdErrMatch("usage:\n  sprack translate --from <dialect> --to <dialect> [file] [-o out]");
+    c.run(&.{"dialects"}, "", 0).expectStdOutEqual("cdl\nespice\nhspice\nltspice\nngspice\nspectre\nvacask\nxyce\n");
+    c.run(&.{"info"}, "", 0).expectStdOutMatch("{\"dialects\":[\"cdl\",\"espice\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"");
+    const caps = c.run(&.{"caps"}, "", 0);
+    caps.expectStdOutMatch("            cdl      espice   hspice   ltspice  ngspice  spectre  vacask   xyce     \nresistor    yes      yes      yes      yes      yes      yes      yes      yes      \n");
+    caps.expectStdOutMatch("\nnone: the simulator has no such thing; an error that says why.\n");
+
+    // translate: standard input to standard output, the report to standard error.
+    const ok = c.run(&.{ "translate", "--from", "ngspice", "--to", "spectre" }, deck, 0);
+    ok.expectStdOutEqual(spectre);
+    ok.expectStdErrEqual("");
+    // An error in the report: the output is still written, and the status is 1.
+    const lost = c.run(&.{ "translate", "--from", "ngspice", "--to", "xyce" }, "t\n.pz a 0 b 0 vol pz\n.end\n", 1);
+    lost.expectStdOutEqual("t\n* [sprack] not written: analysis 'pz' has no xyce form\n.end\n");
+    lost.expectStdErrEqual("error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre\n");
+    // A warning alone is status 0.
+    c.run(&.{ "translate", "--from", "ngspice", "--to", "vacask" }, deck, 0).expectStdErrMatch("warning[synthesized]: line 3: tran: vacask needs 'maxstep'");
+    // To a file, and from one.
+    const to_file = c.run(&.{ "translate", "--from", "ngspice", "--to", "spectre", "-o" }, deck, 0);
+    c.file(to_file.addOutputFileArg("out.scs"), &.{spectre});
+    to_file.expectStdOutEqual("");
+    const wf = b.addWriteFiles();
+    const from_file = c.run(&.{ "translate", "--to", "spectre", "--from", "ngspice" }, "", 0);
+    from_file.addFileArg(wf.add("deck.sp", deck));
+    from_file.expectStdOutEqual(spectre);
+    // A dialect given as its grammar file is that dialect.
+    const by_path = c.run(&.{ "translate", "--to", "spectre", "--from" }, deck, 0);
+    by_path.addFileArg(b.path("grammars/ngspice.spgrammar"));
+    by_path.expectStdOutEqual(spectre);
+    const bad_grammar = c.run(&.{ "translate", "--to", "spectre", "--from" }, deck, 2);
+    bad_grammar.addFileArg(wf.add("bad.spgrammar", "dialect bad\nlexer\nend\nrule op = \".op\" zz\n"));
+    bad_grammar.expectStdErrMatch("bad.spgrammar:4: unknown slot 'zz' for kind 'op'");
+
+    // read and write: the statements as JSON, and back.
+    const json = "{\"title\":\"t\",\"dialect\":\"ngspice\",\"stmts\":[{\"kind\":\"resistor\",\"line\":2,\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1e3\"},\n{\"kind\":\"tran\",\"line\":3,\"step\":\"1e-9\",\"stop\":\"1e-6\"}]}\n";
+    c.run(&.{ "read", "--from", "ngspice" }, deck, 0).expectStdOutEqual(json);
+    c.run(&.{ "write", "--to", "spectre" }, json, 0).expectStdOutEqual(spectre);
+    c.run(&.{ "write", "--to", "ngspice" }, "{\"stmts\":", 1).expectStdErrEqual("error[invalid]: not valid JSON: UnexpectedEndOfInput\n");
+
+    // audit: one TSV line; the circuit reads back the same (column 4).
+    c.run(&.{ "audit", "--from", "ngspice", "--to", "spectre" }, deck, 0).expectStdOutEqual("-\t2\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t\n");
+    // A line no rule reads: counted, keyed by its first word, an error for another dialect.
+    c.run(&.{ "audit", "--from", "ngspice", "--to", "xyce" }, "t\n.bogus 1\n.end\n", 0).expectStdOutEqual("-\t1\t1\t0\t1\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t.bogus:1\n");
+
+    // A wrong command line: status 2 and what is wrong, nothing translated.
+    c.run(&.{ "translate", "--from", "ngspice" }, deck, 2).expectStdErrMatch("--to is required\nusage:");
+    c.run(&.{ "translate", "--to", "xyce" }, deck, 2).expectStdErrMatch("--from is required\nusage:");
+    c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, deck, 2).expectStdErrEqual("unknown dialect 'pspice'. Built in: cdl espice hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file\n");
+    c.run(&.{ "translate", "--frm", "ngspice" }, deck, 2).expectStdErrMatch("unknown option '--frm'\nusage:");
+    c.run(&.{"frobnicate"}, "", 2).expectStdErrMatch("unknown command 'frobnicate'\nusage:");
+    c.run(&.{ "translate", "--from", "ngspice", "--to", "xyce", "/no/such.sp" }, "", 2).expectStdErrEqual("cannot read /no/such.sp: FileNotFound\n");
+    c.run(&.{ "translate", "--from", "/no/such.spgrammar", "--to", "xyce" }, deck, 2).expectStdErrEqual("cannot read /no/such.spgrammar: FileNotFound\n");
+    c.run(&.{ "catalog", "--from", "ngspice", "-D", "PDK", "x.sp" }, "", 2).expectStdErrEqual("--define takes NAME=VALUE\n");
+    c.run(&.{ "project", "--from", "ngspice", "--to", "xyce", "x.sp" }, "", 2).expectStdErrMatch("project needs --out <dir>\nusage:");
+    c.run(&.{ "project", "--from", "ngspice", "--to", "xyce", "--out", "x" }, "", 2).expectStdErrMatch("project needs at least one file\nusage:");
+
+    // project: a tree of files, its includes followed and rewritten.
+    const top = wf.add("tree/top.sp", "top\n.include \"inc/sub.sp\"\n.lib \"$PDK/corners.lib\" tt\nX1 a 0 rdiv\n.op\n.end\n");
+    const sub = wf.add("tree/inc/sub.sp", ".subckt rdiv a b\nR1 a b 1k\n.ends rdiv\n");
+    _ = wf.add("tree/pdk/corners.lib", ".lib tt\n.param rsh=10\n.endl tt\n.lib ff\n.param rsh=8\n.endl ff\n");
+    // ($PDK is put into the path as text: a relative one is relative to the including file.)
+    const tree = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "--section", "tt", "-D", "PDK=pdk", "--out" }, "", 0);
+    const out = tree.addOutputDirectoryArg("spectre-tree");
+    tree.addFileArg(top);
+    tree.expectStdErrMatch("pdk/corners.lib: info[cosmetic]: section 'ff' not followed");
+    tree.expectStdErrMatch("3 files, 0 errors, 0 warnings\n");
+    c.file(out.path(b, "top.sp"), &.{ "include \"inc/sub.sp\"\ninclude \"pdk/corners.lib\" section=tt\nX1 (a 0) rdiv\n", "op1 dc\n" });
+    c.file(out.path(b, "inc/sub.sp"), &.{"subckt rdiv (a b)\nR1 (a b) resistor r=1k\nends rdiv\n"});
+    c.file(out.path(b, "pdk/corners.lib"), &.{"section tt\nparameters rsh=10\nendsection tt\n"});
+    // An include that is not there: an error, the count says so, status 1.
+    const missing = c.run(&.{ "project", "--from", "ngspice", "--to", "xyce", "--out" }, "", 1);
+    _ = missing.addOutputDirectoryArg("xyce-tree");
+    missing.addFileArg(top);
+    missing.expectStdErrMatch("$PDK/corners.lib: error[invalid]: cannot open this file; it is included by the project\n2 files, 1 error, 0 warnings, 1 included file not found\n");
+    // catalog: what the files define, as JSON; the files named are libraries.
+    const cat = c.run(&.{ "catalog", "--from", "ngspice" }, "", 0);
+    cat.addFileArg(sub);
+    cat.expectStdOutMatch("{\"devices\":[\n{\"name\":\"rdiv\",\"file\":\"");
+    cat.expectStdOutMatch("\"section\":\"\",\"kind\":\"subckt\",\"ports\":[\"a\",\"b\"],\"params\":{}}\n]");
+    cat.expectStdOutMatch("\"errors\":0,\"warnings\":0,\"missing\":0}\n");
+    cat.expectStdErrEqual("1 file, 0 errors, 0 warnings\n");
 }

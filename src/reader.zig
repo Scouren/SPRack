@@ -2098,7 +2098,9 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
         }
         if (k >= starts.items.len) break;
         const sw = switchOf(g, lines.items[starts.items[k]]).?;
-        cur = root.find(sw.dialect) orelse g;
+        // Back to the file's own language is back to `g`, which may be a
+        // grammar loaded from a file, not the built-in of the same name.
+        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name)) g else root.find(sw.dialect) orelse g;
         const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
         for (cur.header_folded) |l| folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
         from = starts.items[k] + 1;
@@ -2163,7 +2165,7 @@ fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.R
 }
 
 /// A dotted version number, `3.3.0`: digits with two or more dots.
-fn isVersion(s: []const u8) bool {
+pub fn isVersion(s: []const u8) bool {
     if (s.len == 0 or !std.ascii.isDigit(s[0])) return false;
     var dots: usize = 0;
     for (s) |c| {

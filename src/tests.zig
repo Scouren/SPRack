@@ -235,8 +235,117 @@ fn clean(report: *const ir.Report) !void {
     }
 }
 
+/// Translate, and check what must hold for every translation (`invariants`).
+/// Nearly every test below goes through here, so each example in this file
+/// is also a test of those.
 fn tr(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
-    return sprack.translateAlloc(a, from, to, src, report);
+    return trx(a, from, to, src, report, .{});
+}
+
+fn trx(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report, skip: Skip) ![]const u8 {
+    const out = try sprack.translateAlloc(a, from, to, src, report);
+    try invariants(a, from, to, src, out, skip);
+    return out;
+}
+
+const Skip = struct {
+    /// The target reads the output as other statements than the source's
+    /// and no report entry says so. Each use says why that is known.
+    silent: bool = false,
+};
+
+/// Report entries that explain a translation not reading back the same, as
+/// `tools/corpus_summary.py` counts them.
+fn excuses(r: *const ir.Report) usize {
+    var n: usize = 0;
+    inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .invalid, .ambiguous, .oneway, .rename }) |c| n += r.countCode(c);
+    return n;
+}
+
+fn jsonOf(a: std.mem.Allocator, nl: *const ir.Netlist) ![]const u8 {
+    var j: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeNetlist(&j.writer, nl);
+    return j.written();
+}
+
+var loaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+var loaded_grammars: [dialects.len]?*const sprack.Grammar = @splat(null);
+
+/// The dialect's grammar file compiled now, at run time, once per process.
+fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
+    const i = for (dialects, 0..) |d, k| {
+        if (std.mem.eql(u8, d, name)) break k;
+    } else unreachable;
+    if (loaded_grammars[i]) |g| return g;
+    const la = loaded_arena.allocator();
+    var diag: sprack.grammar.Diag = .{};
+    const g = sprack.resolve(la, testing.io, try std.fmt.allocPrint(la, "grammars/{s}.spgrammar", .{name}), &diag) catch |e| {
+        std.debug.print("{s}\n", .{diag.msg});
+        return e;
+    };
+    loaded_grammars[i] = g;
+    return g;
+}
+
+/// What holds for any input at all, damaged ones included: `out` is `src`
+/// read as `from` and written as `to`.
+///  - Twice gives the same bytes.
+///  - The JSON form is the netlist: read back it is the same JSON, and
+///    writes the same output.
+///  - The grammar file compiled at run time reads and writes as the one
+///    compiled into the binary.
+fn anyInput(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, out: []const u8) !ir.Netlist {
+    var r1: ir.Report = .init(a);
+    return anyInputReport(a, from, to, src, out, &r1);
+}
+
+/// `r1` gets the report of reading and writing.
+fn anyInputReport(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, out: []const u8, r1: *ir.Report) !ir.Netlist {
+    const nl = try readAs(a, from, src, r1);
+    try testing.expectEqualStrings(out, try writeAs(a, to, &nl, r1));
+
+    const json = try jsonOf(a, &nl);
+    var r2: ir.Report = .init(a);
+    const from_json = try sprack.json.parseNetlist(a, json, &r2);
+    try testing.expectEqual(0, r2.items.items.len);
+    try testing.expectEqualStrings(json, try jsonOf(a, &from_json));
+    try testing.expectEqualStrings(out, try writeAs(a, to, &from_json, &r2));
+
+    var r3: ir.Report = .init(a);
+    try testing.expectEqualStrings(json, try jsonOf(a, &try sprack.read(a, try loadedGrammar(from), src, &r3)));
+    var w: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, try loadedGrammar(to), &w.writer, &nl, &r3);
+    try testing.expectEqualStrings(out, w.written());
+    return nl;
+}
+
+/// `anyInput`, and what holds for a netlist that is valid in its dialect:
+///  - Nothing is lost in silence: the target reads the output as the same
+///    circuit, or the report has an entry that says why not (`sprack audit`).
+///  - What the target read, it writes again without an error and reads
+///    the same from that.
+fn invariants(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, out: []const u8, skip: Skip) !void {
+    errdefer std.debug.print("\n--- {s} -> {s}:\n{s}\n--- written:\n{s}\n", .{ from, to, src, out });
+    var r1: ir.Report = .init(a);
+    const nl = try anyInputReport(a, from, to, src, out, &r1);
+    const gt = sprack.find(to).?;
+    var rb: ir.Report = .init(a);
+    const back = try readAs(a, to, out, &rb);
+    if (!skip.silent and excuses(&r1) == 0 and !try sprack.sameTranslation(a, gt, &nl, &back)) {
+        std.debug.print("\n--- source statements:\n{s}--- read back from {s}:\n{s}", .{ try jsonOf(a, &nl), to, try jsonOf(a, &back) });
+        return error.TestSilentDifference;
+    }
+    if (r1.hasErrors()) return;
+    var r2: ir.Report = .init(a);
+    const again = try writeAs(a, to, &back, &r2);
+    errdefer {
+        std.debug.print("\n--- written again by {s}:\n{s}\n", .{ to, again });
+        dumpReport(&r2);
+    }
+    try testing.expectEqual(0, r2.count(.@"error"));
+    if (excuses(&r2) > 0) return;
+    const back2 = try readAs(a, to, again, &r2);
+    try testing.expect(ir.sameCircuit(&back, &back2));
 }
 
 fn dumpReport(report: *const ir.Report) void {
@@ -254,6 +363,175 @@ const Arena = std.heap.ArenaAllocator;
 test "all grammars compiled" {
     try testing.expectEqual(dialects.len, sprack.dialect_count);
     for (dialects) |n| try testing.expect(sprack.find(n) != null);
+}
+
+test "each grammar file compiled at run time is the grammar compiled into the binary" {
+    // One compiler, run twice: every table of every dialect, field for field.
+    for (dialects) |d| {
+        errdefer std.debug.print("dialect {s}\n", .{d});
+        try testing.expectEqualDeep(sprack.find(d).?.*, (try loadedGrammar(d)).*);
+    }
+}
+
+test "caps: every kind has a rule, a place or a reason in every dialect" {
+    // `sprack caps` shows no `-`.
+    for (&sprack.grammars) |*g| for (schema.table) |info| {
+        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+        const said = g.canWrite(info.kind) or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
+            (info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null);
+        if (!said) {
+            std.debug.print("{s} has no rule for '{s}' and no `no {s} : reason` line\n", .{ g.name, @tagName(info.kind), @tagName(info.kind) });
+            return error.TestCapsGap;
+        }
+    };
+}
+
+/// A value of the kind a slot holds, for statements made up by the tests.
+fn sampleValue(a: std.mem.Allocator, sl: schema.Slot, n: usize) !ir.Value {
+    if (sl.list) {
+        var one = sl;
+        one.list = false;
+        return .{ .list = try a.dupe(ir.Value, &.{ try sampleValue(a, one, n), try sampleValue(a, one, n + 1) }) };
+    }
+    return switch (sl.ty) {
+        .name => .{ .atom = "X1" },
+        .node => .{ .atom = try std.fmt.allocPrint(a, "n{d}", .{n}) },
+        .ident => .{ .atom = "m1" },
+        .ref => .{ .atom = "V1" },
+        .value => .{ .num = .init("1.5", -9) },
+        .atom => .{ .atom = "a1" },
+        .path => .{ .str = "lib/f.inc" },
+        .text => .{ .atom = "some text" },
+        .signal => .{ .atom = "v(n1)" },
+        .params => .{ .params = try a.dupe(ir.Param, &.{ .{ .key = "k1", .val = .{ .num = .init("1", 3) } }, .{ .key = "k2", .val = .{ .expr = "2*k1" } }, .{ .key = "flag", .val = .none } }) },
+    };
+}
+
+/// A statement of `kind` with every slot given (`only` null), or with its
+/// name and one slot.
+fn sampleStmt(a: std.mem.Allocator, kind: schema.Kind, only: ?usize) !ir.Stmt {
+    var st = try ir.newStmt(a, kind, 1);
+    for (schema.info(kind).slots, 0..) |sl, i| {
+        if (only == null or only.? == i or sl.ty == .name) try st.set(a, i, try sampleValue(a, sl, i));
+    }
+    return st;
+}
+
+test "every kind, every slot, every dialect: written without a crash, and the JSON is the statement" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var count: usize = 0;
+    var silent: usize = 0;
+    for (schema.table) |info| {
+        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+        var only: ?usize = null;
+        while (true) {
+            _ = arena_state.reset(.retain_capacity);
+            var stmts = [_]ir.Stmt{try sampleStmt(a, info.kind, only)};
+            const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
+            errdefer std.debug.print("kind {s}, slot {?d}\n", .{ @tagName(info.kind), only });
+            // The JSON form holds any statement of the vocabulary exactly.
+            const json = try jsonOf(a, &nl);
+            var rj: ir.Report = .init(a);
+            const back = try sprack.json.parseNetlist(a, json, &rj);
+            try testing.expectEqual(0, rj.items.items.len);
+            try testing.expect(nl.eql(&back));
+            try testing.expectEqualStrings(json, try jsonOf(a, &back));
+            for (dialects) |to| {
+                errdefer std.debug.print("to {s}\n", .{to});
+                var r1: ir.Report = .init(a);
+                const out = try writeAs(a, to, &nl, &r1);
+                // Twice the same, from the JSON the same, and by the grammar
+                // compiled at run time the same.
+                var r2: ir.Report = .init(a);
+                try testing.expectEqualStrings(out, try writeAs(a, to, &back, &r2));
+                try testing.expectEqual(r1.items.items.len, r2.items.items.len);
+                var r3: ir.Report = .init(a);
+                var w: std.Io.Writer.Allocating = .init(a);
+                try sprack.write(a, try loadedGrammar(to), &w.writer, &nl, &r3);
+                try testing.expectEqualStrings(out, w.written());
+                // A kind the dialect has no form for is an error that names
+                // the kind; where the grammar says why, the reason is given.
+                const g = sprack.find(to).?;
+                // (A device with a model may be written as an instance of it: `inst` in `sprack caps`.)
+                const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null;
+                // Nothing to write is not a loss: an options statement that is
+                // only a heading, a statistics block that varies nothing.
+                const empty = (info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package")) or info.kind == .statistics;
+                if (!g.canWrite(info.kind) and g.movedTo(info.kind) == null and !as_instance and !empty and r1.count(.@"error") == 0) {
+                    std.debug.print("SILENT {s} slot {?d} to {s}\n", .{ @tagName(info.kind), only, to });
+                    silent += 1;
+                }
+                // What it wrote, its own reader takes without a crash.
+                var r4: ir.Report = .init(a);
+                _ = try readAs(a, to, out, &r4);
+                count += 1;
+            }
+            const next = if (only) |o| o + 1 else 0;
+            if (next == info.slots.len) break;
+            only = next;
+        }
+    }
+    try testing.expectEqual(0, silent);
+    try testing.expect(count > 4000);
+}
+
+test "every `no` line: the kind is an error in that dialect, and the reason is the grammar's" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var count: usize = 0;
+    var bad: usize = 0;
+    for (&sprack.grammars) |*g| for (g.absent) |no| {
+        // Two kinds a dialect without the statement may still say another
+        // way, so their reason is only given when that way fails: variations
+        // as agauss() in the parameter (`stats.zig`), alters of parameters as
+        // a table of runs (`alter.zig`).
+        if (no.kind == .statistics or no.kind == .alter) continue;
+        var stmts = [_]ir.Stmt{try sampleStmt(a, no.kind, null)};
+        const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
+        var r: ir.Report = .init(a);
+        var w: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, g, &w.writer, &nl, &r);
+        if (!r.contains(.@"error", no.reason) or r.countCode(.unsupported) == 0) {
+            std.debug.print("MISSING {s}: no {s} : {s}\n", .{ g.name, @tagName(no.kind), no.reason });
+            dumpReport(&r);
+            bad += 1;
+        }
+        count += 1;
+    };
+    try testing.expectEqual(0, bad);
+    try testing.expect(count > 100);
+}
+
+fn translateOnce(gpa: std.mem.Allocator, from: []const u8, to: []const u8) !void {
+    var arena_state: Arena = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    _ = try sprack.translateAlloc(a, from, to, sample(from), &report);
+}
+
+test "out of memory at any allocation comes back as that: no crash, no leak" {
+    // The large temporary tables too (`ir.big`), which are freed by hand.
+    const big = ir.big;
+    defer ir.big = big;
+    for ([_][2][]const u8{ .{ "ngspice", "spectre" }, .{ "spectre", "vacask" }, .{ "vacask", "hspice" }, .{ "hspice", "xyce" } }) |pair| {
+        errdefer std.debug.print("{s} -> {s}\n", .{ pair[0], pair[1] });
+        var failing: testing.FailingAllocator = .init(testing.allocator, .{});
+        ir.big = failing.allocator();
+        try translateOnce(failing.allocator(), pair[0], pair[1]);
+        const n = failing.alloc_index;
+        try testing.expect(n > 10);
+        for (0..n) |i| {
+            failing = .init(testing.allocator, .{ .fail_index = i });
+            ir.big = failing.allocator();
+            // (What is not freed, `testing.allocator` reports when the test ends.)
+            // (The output buffer running out is the writer's own error.)
+            translateOnce(failing.allocator(), pair[0], pair[1]) catch |e| try testing.expect(e == error.OutOfMemory or e == error.WriteFailed);
+        }
+    }
 }
 
 test "hand-written samples parse completely" {
@@ -356,6 +634,7 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
                 std.debug.print("{s} -> {s}\n{s}\n", .{ from, to, text });
                 dumpReport(&report);
             }
+            try invariants(a, from, to, sample(from), text, .{});
             // A netlist-only target has no form for the sources and
             // analyses: one `unsupported` error each, and the rest intact.
             const gt = sprack.find(to).?;
@@ -959,6 +1238,88 @@ test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive 
     try reported(&r6, .@"error", "'in' and 'IN' are different names in the source but the same name in ngspice");
 }
 
+test "JSON is the netlist: what a plain string would not read back as is tagged" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // `sprack read | sprack write` is `sprack translate`. Each of these once
+    // came out different: the version as {3.3.0}, the print not written,
+    // the model card not at all (a JSON object cannot hold toxref twice).
+    const src =
+        \\t
+        \\.model n3 nmos level=49 version=3.3.0
+        \\.model p1 pmos level=54 toxref=1.26n vsat=69000 toxref=1.3n
+        \\.print dc -i(vc) vids#branch
+        \\R1 a 0 {13}
+        \\.end
+        \\
+    ;
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r);
+    const json = try jsonOf(a, &nl);
+    // A version and a signal are plain strings; only what would read
+    // otherwise is tagged.
+    try has(json, "\"params\":{\"version\":\"3.3.0\"}");
+    try has(json, "\"params\":[[\"toxref\",\"1.26e-9\"],[\"vsat\",\"69000\"],[\"toxref\",\"1.3e-9\"]]");
+    try has(json, "\"signals\":[\"-i(vc)\",\"i(vids)\"]");
+    try has(json, "\"r\":{\"expr\":\"13\"}");
+    var r2: ir.Report = .init(a);
+    const back = try sprack.json.parseNetlist(a, json, &r2);
+    try testing.expectEqual(0, r2.items.items.len);
+    try testing.expect(nl.eql(&back));
+    try testing.expectEqualStrings(try writeAs(a, "ngspice", &nl, &r), try writeAs(a, "ngspice", &back, &r2));
+    try has(try writeAs(a, "ngspice", &back, &r2), "t\n.model n3 nmos level=8 version=3.3.0\n.model p1 pmos level=14 toxref=1.26n vsat=69000 toxref=1.3n\n.print dc -i(vc) i(vids)\nR1 a 0 {13}\n");
+
+    // By hand, as the Python package writes it: the same forms, and the
+    // tags where a plain string means something else.
+    var r3: ir.Report = .init(a);
+    const hand = try sprack.json.parseNetlist(a,
+        \\{"title":"a \"quoted\" title\twith a tab","stmts":[
+        \\ {"kind":"model","name":"m","family":"bsim3","polarity":"n","params":{"version":"3.2.4","word":{"raw":"a.b"},"file":{"str":"m.dat"},"k":{"expr":"13"},"on":true,"n":3,"x":2.5}},
+        \\ {"kind":"print","style":"print","analysis":"dc","signals":["v(a)","-i(vc)",{"expr":"v(a)*2"},"all"]},
+        \\ {"kind":"param","params":[["a",1],["dev/gauss","0.1"],["b","2"],["dev/gauss","0.2"]]},
+        \\ {"kind":"comment","raw":"","blank":true},
+        \\ {"kind":"resistor","name":"R1","pos":"a","neg":0,"r":"1k","tail":"back\\slash \u0007"}]}
+    , &r3);
+    try testing.expectEqual(0, r3.items.items.len);
+    const ps = hand.stmts[0].get("params").params;
+    try testing.expectEqualStrings("3.2.4", ps[0].val.atom);
+    try testing.expectEqualStrings("a.b", ps[1].val.atom);
+    try testing.expectEqualStrings("m.dat", ps[2].val.str);
+    try testing.expectEqualStrings("13", ps[3].val.expr);
+    try testing.expectEqualStrings("yes", ps[4].val.atom);
+    try testing.expectEqualStrings("3", ps[5].val.num.digits());
+    try testing.expectEqualStrings("2.5", ps[6].val.num.digits());
+    const sig = hand.stmts[1].get("signals").list;
+    try testing.expect(sig[0] == .atom and sig[1] == .expr and sig[2] == .expr and sig[3] == .atom);
+    try testing.expectEqual(4, hand.stmts[2].get("params").params.len);
+    // Quotes, backslashes and control characters survive the trip.
+    const again = try jsonOf(a, &hand);
+    try has(again, "{\"title\":\"a \\\"quoted\\\" title\\twith a tab\"");
+    try has(again, "\"tail\":\"back\\\\slash \\u0007\"");
+    var r4: ir.Report = .init(a);
+    try testing.expectEqualStrings(again, try jsonOf(a, &try sprack.json.parseNetlist(a, again, &r4)));
+
+    // What is wrong is reported with the statement's number, never fatal.
+    const bad = [_][2][]const u8{
+        .{ "[1,2]", "the top level must be an object with 'stmts'" },
+        .{ "{\"stmts\":", "not valid JSON" },
+        .{ "{\"stmts\":{}}", "'stmts' and 'body' must be arrays" },
+        .{ "{\"stmts\":[7]}", "a statement must be an object" },
+        .{ "{\"stmts\":[{\"kind\":\"resistor\",\"name\":[1]}]}", "'name' must be a name" },
+        .{ "{\"stmts\":[{\"kind\":\"resistor\",\"params\":7}]}", "'params' must be an object of name: value pairs" },
+        .{ "{\"stmts\":[{\"kind\":\"resistor\",\"params\":[[\"a\"]]}]}", "'params' as an array must hold [name, value] pairs" },
+        .{ "{\"stmts\":[{\"kind\":\"capacitor\",\"c\":\"10PF\"}]}", "'10PF' is not a number" },
+        .{ "{\"stmts\":[{\"kind\":\"subckt\",\"body\":3}]}", "'stmts' and 'body' must be arrays" },
+    };
+    for (bad) |cs| {
+        var rb: ir.Report = .init(a);
+        _ = try sprack.json.parseNetlist(a, cs[0], &rb);
+        errdefer std.debug.print("{s}\n", .{cs[0]});
+        try reported(&rb, .@"error", cs[1]);
+    }
+}
+
 test "statement dialects are table indices; the JSON keeps the name" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -1014,7 +1375,10 @@ test "a name an expression refers to keeps its spelling when its definition is e
         \\
     ;
     var r: ir.Report = .init(a);
-    const sp = try tr(a, "ngspice", "spectre", src, &r);
+    // Not the same read back, and nothing says so: M1's model is declared
+    // in no file here, so Spectre's reader cannot tell it from a subcircuit
+    // instance (`ir.resolveInstances`).
+    const sp = try trx(a, "ngspice", "spectre", src, &r, .{ .silent = true });
     for ([_][]const u8{
         "VP (inp 0) vsource dc=VCM mag=1\n",
         "VDD (VDD 0) vsource dc=VDD\n",
@@ -1113,7 +1477,9 @@ test "expressions: functions, operators and variables are mapped" {
     _ = try tr(a, "spectre", "ngspice", "// t\nparameters m=(3 ^ 5)\n", &r2);
     try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: ltspice, spectre");
     var r3: ir.Report = .init(a);
-    const st = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
+    // Not the same read back, and nothing says so: Spectre says a random
+    // function as a statistics block, and reads it as one (`stats.zig`).
+    const st = try trx(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3, .{ .silent = true });
     try clean(&r3);
     try has(st, "parameters vth=0.4\n");
     try has(st, "vary vth dist=gauss std=(0.01)/(3)\n");
@@ -1356,6 +1722,18 @@ fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         const nl = try readAs(a, from, buf[0..n], &report);
         for (dialects) |to| _ = try writeAs(a, to, &nl, &report);
     }
+    // No crash is the least of it: one pair, chosen by the input, must
+    // also keep what holds for any input.
+    if (n < 2) return;
+    const from = dialects[buf[0] % dialects.len];
+    const to = dialects[buf[1] % dialects.len];
+    var report: ir.Report = .init(a);
+    _ = try anyInput(a, from, to, buf[0..n], try tr0(a, from, to, buf[0..n], &report));
+}
+
+/// Translate, with no checks: for input that is not a valid netlist.
+fn tr0(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
+    return sprack.translateAlloc(a, from, to, src, report);
 }
 
 test "fuzz: any bytes in, no crash" {
@@ -1383,7 +1761,11 @@ test "20,000 randomly damaged netlists, no crash" {
         }
         var report: ir.Report = .init(a);
         const nl = try readAs(a, from, buf[0..len], &report);
-        _ = try writeAs(a, dialects[rnd.uintLessThan(usize, dialects.len)], &nl, &report);
+        const to = dialects[rnd.uintLessThan(usize, dialects.len)];
+        const out = try writeAs(a, to, &nl, &report);
+        // One in eight also keeps what holds for any input.
+        errdefer std.debug.print("\niteration {d}, {s} -> {s}:\n{s}\n", .{ i, from, to, buf[0..len] });
+        if (i % 8 == 0) _ = try anyInput(a, from, to, buf[0..len], out);
     }
 }
 
@@ -2700,6 +3082,14 @@ test "Spectre: a simulator lang=spice section is read as HSPICE" {
     _ = try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spice\n.bogus x\n", &r3);
     try reported(&r3, .@"error", "no hspice rule understood this line");
     try testing.expectEqual(@as(u32, 3), r3.items.items[0].line);
+    // Read with the grammar loaded from its file, back in Spectre is back in
+    // that grammar: once it was the built-in of the name, and r0 and r2
+    // came out as statements of another dialect.
+    var r4: ir.Report = .init(a);
+    const nl = try sprack.read(a, try loadedGrammar("spectre"), src, &r4);
+    try testing.expectEqual(@as(u8, 0), nl.stmts[0].dialect);
+    try testing.expectEqual(@as(u8, 0), nl.stmts[nl.stmts.len - 1].dialect);
+    try testing.expect(nl.stmts[1].dialect != 0);
 }
 
 test "HSPICE dev/gauss= and names Xyce keeps for itself" {
@@ -2713,8 +3103,9 @@ test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     try reported(&r1, .warning, "dev/gauss=");
     try reported(&r1, .@"error", "parameter 'vt': Xyce keeps this name");
     // Into Spectre the variation becomes a statistics block.
+    // (Read back it is that block, not the dev/gauss it was: see `Skip`.)
     var r2: ir.Report = .init(a);
-    const sp = try tr(a, "ngspice", "spectre", src, &r2);
+    const sp = try trx(a, "ngspice", "spectre", src, &r2, .{ .silent = true });
     try has(sp, "vary czero dist=gauss std=0.1p\n");
     // HSPICE reads the form itself.
     var r3: ir.Report = .init(a);
@@ -3954,8 +4345,10 @@ test "d2: ngspice .pz node pairs as HSPICE and Spectre output and source" {
     try clean(&r2);
     var r3: ir.Report = .init(a);
     try has(try tr(a, "spectre", "ngspice", sx, &r3), ".pz in 0 out 0 vol pz\n");
+    // Read back by HSPICE the output is a signal, not the node pair: said.
     var r3h: ir.Report = .init(a);
     try has(try tr(a, "spectre", "hspice", sx, &r3h), ".pz v(out) vin\n");
+    try reported(&r3h, .info, "pz: the output nodes out 0 are the signal v(out), as hspice names it");
 
     // A current input is the current source across the pair, either way round.
     var r4: ir.Report = .init(a);

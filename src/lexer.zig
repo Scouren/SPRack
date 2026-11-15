@@ -149,6 +149,8 @@ const Joiner = struct {
 
 fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]const u8) Allocator.Error![]Line {
     var j: Joiner = .{ .arena = arena };
+    // The list is outside the arena: on the way out with an error, free it.
+    errdefer j.lines.deinit(ir.big);
     var trail = false; // previous physical line ended with the trailing marker
     var open: []const u8 = ""; // a string or expression still open at the end of the last line
     var no: u32 = 0;
@@ -531,6 +533,7 @@ fn topComma(run: []const u8) bool {
 pub fn lex(arena: Allocator, cfg: *const LexCfg, src: []const u8) Allocator.Error!Lexed {
     var title: []const u8 = "";
     const lines = try joinLines(arena, cfg, src, &title);
+    errdefer ir.big.free(lines);
     var lx: Lexed = .{ .title = title, .lines = lines, .all_lines = lines };
     if (cfg.end_marker.len == 0) return lx;
     var w: Window = .init(cfg, lines, arena);

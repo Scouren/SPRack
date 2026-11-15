@@ -161,6 +161,7 @@ fn node(cx: *Cx, sc: *Scope, v: Value, line: u32) Allocator.Error!?u32 {
 
 fn newScope(cx: *Cx) Allocator.Error!Scope {
     var sc: Scope = .{};
+    errdefer sc.deinit(cx.gpa);
     try sc.names.append(cx.gpa, "0");
     try sc.lines.append(cx.gpa, 0);
     try sc.dc.up.append(cx.gpa, 0);
