@@ -656,11 +656,13 @@ pub const Phase = struct {
     pub const checks: u8 = 13;
     pub const checks_source: u8 = 14;
     pub const options: u8 = 15;
-    pub const stats: u8 = 16;
-    pub const pz: u8 = 17;
-    pub const ceilings: u8 = 18;
-    pub const write: u8 = 19;
-    pub const caveat: u8 = 20;
+    /// `stats.devLot`, then the rest of `stats.prepare`.
+    pub const devlot: u8 = 16;
+    pub const stats: u8 = 17;
+    pub const pz: u8 = 18;
+    pub const ceilings: u8 = 19;
+    pub const write: u8 = 20;
+    pub const caveat: u8 = 21;
 };
 
 /// `phase`: the pass that made the entry (`Report.phase`).

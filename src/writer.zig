@@ -2327,8 +2327,10 @@ pub const Survey = struct {
     /// One statement per `default` source the target's grammar names,
     /// holding the first value of it in the netlist.
     fill_from: std.ArrayList(ir.Stmt) = .empty,
-    /// The top-level option statements.
-    options: std.ArrayList(ir.Stmt) = .empty,
+    /// The top-level option statements, as a netlist read whole has them.
+    options: []ir.Stmt = &.{},
+    /// The subcircuits an instance names before their definitions come.
+    early: std.ArrayList(ir.Stmt) = .empty,
     /// Top-level analyses.
     analyses: usize = 0,
     /// Two names differing only by case may be in it: the check runs.
@@ -2356,7 +2358,6 @@ pub const Survey = struct {
             }
         }
         for (stmts) |*s| {
-            if (s.kind == .options) try sv.options.append(a, try ir.cloneStmt(k, s));
             if (schema.info(s.kind).class == .analysis and s.kind != .alter) sv.analyses += 1;
         }
         sv.facts.add(stmts);
@@ -2434,9 +2435,10 @@ pub const Stream = struct {
         }
         for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
         if (!nl.library) {
-            for (g.preamble) |l| try w.line(l);
             var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
             for (&used, sv.used) |*u, x| u.* = u.* or x;
+            const said = if (g.preamble_unless) |pk| used[@backingInt(pk)] else false;
+            if (!said) for (g.preamble) |l| try w.line(l);
             var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
             for (&fams, sv.fams) |*f, x| f.* = f.* or x;
             for (g.needs) |n| {
@@ -2465,12 +2467,12 @@ pub const Stream = struct {
             }
         }
         if (!std.mem.eql(u8, nl.dialect, g.name))
-            s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items);
+            s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items, sv.early.items);
         if (caps) |c| for (c.grammars) |*sg| {
             if (std.mem.eql(u8, sg.name, nl.dialect)) s.source = sg;
         };
         var opts = nl.*;
-        opts.stmts = sv.options.items;
+        opts.stmts = sv.options;
         report.phase = ir.Phase.options;
         if (try defaultOptions(perm, g, &opts)) |d| {
             var names: std.ArrayList(u8) = .empty;
@@ -2530,8 +2532,10 @@ pub const Stream = struct {
             stmts = list;
         }
         if (g.blockOf(.model) != null) stmts = try groupBins(a, stmts);
-        // What `stats.prepare` and `pzPorts` would change makes the netlist
-        // be written whole (`stream.zig`): here they only check.
+        // What else `stats.prepare` and `pzPorts` would change makes the
+        // netlist be written whole (`stream.zig`): here they only check.
+        w.report.phase = ir.Phase.devlot;
+        if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts)) stmts = try stats.devLot(a, stmts, w.report);
         w.report.phase = ir.Phase.stats;
         stats.checkReserved(g, stmts, w.report);
         w.report.phase = ir.Phase.ceilings;
@@ -2553,7 +2557,7 @@ pub const Stream = struct {
 
     /// Everything after the last statement. `rescan` gives the topology
     /// check every group again when the top level has islands:
-    /// `rescan.run(*topology.Stream)`.
+    /// `rescan.run(topology.Stream.cross, *topology.Stream)`.
     pub fn end(s: *Stream, rescan: anytype) Writer.Error!void {
         const w = &s.w;
         const g = w.g;
@@ -2586,7 +2590,7 @@ pub const Stream = struct {
         }
         if (s.topo) |*t| {
             report.phase = ir.Phase.topology;
-            if (try t.islands()) try rescan.run(t);
+            if (try t.islands()) try rescan.run(topology.Stream.cross, t);
             try t.end();
         }
         s.refs.settle(report);

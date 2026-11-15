@@ -40,8 +40,7 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
     var stmts = stmts_in;
     // ponytail: HSPICE is the one dialect named here, as the home of the
     // `dev/gauss=` form; a grammar directive if a second one needs it.
-    if (!std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice") and usesDevLot(stmts))
-        stmts = try devLot(arena, stmts, report);
+    if (devLots(g, source) and usesDevLot(stmts)) stmts = try devLot(arena, stmts, report);
     checkReserved(g, stmts, report);
     if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) {
         if (!usesRandom(stmts)) return stmts;
@@ -57,13 +56,18 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
     return stmts;
 }
 
-/// Would `prepare` change `stmts`, rather than only check them? Then it
-/// needs every statement of the netlist at once.
+/// Does `prepare` need every statement of the netlist at once for
+/// `stmts`? Not for `devLot`, which changes a statement by itself.
 pub fn changes(g: *const Grammar, source: []const u8, stmts: []const Stmt) bool {
-    if (!std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice") and usesDevLot(stmts)) return true;
-    if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) return usesRandom(stmts);
+    if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary))
+        return usesRandom(stmts) or (devLots(g, source) and usesDevLot(stmts));
     if (hasFunction(g, "agauss")) return usesKind(stmts, .statistics);
     return false;
+}
+
+/// Is `dev/gauss=` rewritten (`devLot`) on the way from `source` to `g`?
+pub fn devLots(g: *const Grammar, source: []const u8) bool {
+    return !std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice");
 }
 
 /// HSPICE's `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run),
@@ -78,7 +82,7 @@ fn devLotKey(key: []const u8) ?enum { gauss, unif } {
     return null;
 }
 
-fn usesDevLot(stmts: []const Stmt) bool {
+pub fn usesDevLot(stmts: []const Stmt) bool {
     for (stmts) |*s| {
         if (s.kind == .param and s.get("params") == .params) {
             for (s.get("params").params) |p| if (devLotKey(p.key) != null) return true;
@@ -90,7 +94,7 @@ fn usesDevLot(stmts: []const Stmt) bool {
 
 /// `p=nom dev/gauss=s` as `p=agauss(nom, s, 1)`, which the rest of this
 /// file and every dialect with agauss() understand.
-fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
     const out = try arena.dupe(Stmt, stmts);
     const pi = schema.slotIndex(.param, "params").?;
     for (out) |*st| {

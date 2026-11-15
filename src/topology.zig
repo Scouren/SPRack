@@ -59,7 +59,9 @@ const DefMap = std.HashMapUnmanaged([]const u8, *Def, ir.Caseless, std.hash_map.
 /// `known`: summarized, or being summarized (`sum` null until done; it
 /// stays null for a body this check cannot read). `stmt` goes away once
 /// summarized when the netlist is read as a stream.
-const Def = struct { stmt: ?*const Stmt, known: bool = false, sum: ?Summary = null };
+/// `early`: kept from before the stream, its definition not yet met.
+/// `owed`: summarized with the report muted, so not yet reported on.
+const Def = struct { stmt: ?*const Stmt, known: bool = false, sum: ?Summary = null, early: bool = false, owed: bool = false };
 
 /// Islands and loops reported per scope; the rest are counted.
 const max_reports = 20;
@@ -170,7 +172,7 @@ const Cx = struct {
     }
 };
 
-fn nodeName(v: Value) ?[]const u8 {
+pub fn nodeName(v: Value) ?[]const u8 {
     return switch (v) {
         .atom => |a| a,
         .num => |n| if (n.exp10 == 0) n.digits() else null,
@@ -357,8 +359,12 @@ fn portEdges(cx: *Cx, sc: *Scope, idx: []const u32) Allocator.Error![]const Port
 }
 
 fn summarize(cx: *Cx, d: *Def) Allocator.Error!?Summary {
-    if (d.known) return d.sum;
+    // Summarized unheard, it is summarized again where the report is
+    // heard: there a whole netlist's check says what it found.
+    if (d.known and (!d.owed or cx.report.mute)) return d.sum;
     d.known = true;
+    d.owed = cx.report.mute;
+    d.sum = null;
     const def = d.stmt.?;
     var sc = try newScope(cx);
     defer sc.deinit(cx.gpa);
@@ -628,6 +634,9 @@ fn collect(cx: *Cx, stmts: []const Stmt, defs: *std.ArrayList(*Def)) Allocator.E
                     d.* = .{ .stmt = s };
                     gop.value_ptr.* = d;
                     try defs.append(cx.gpa, d);
+                } else if (gop.value_ptr.*.early) {
+                    gop.value_ptr.*.early = false;
+                    try defs.append(cx.gpa, gop.value_ptr.*);
                 }
             }
         }
@@ -680,10 +689,10 @@ pub const Facts = struct {
 };
 
 /// The check run on a netlist read as a stream, a few statements at a time
-/// that go away after (`group`). Subcircuits are summarized as they come,
-/// so an instance may come after the definition of what it instantiates,
-/// never before; the top level is walked as it comes. Its islands need
-/// their crossings, so the statements again, before `end` reports them.
+/// that go away after (`group`). Subcircuits are summarized as they come;
+/// one that an instance names before its definition comes is given to
+/// `init`. The top level is walked as it comes. Its islands need their
+/// crossings, so the statements again, before `end` reports them.
 pub const Stream = struct {
     cx: Cx,
     top: Scope,
@@ -692,11 +701,18 @@ pub const Stream = struct {
     isl: Islands = .{},
 
     /// Null when `g` requires nothing, or the netlist has no analysis.
-    /// `globals`: every node the netlist's `.global` lines name.
-    pub fn init(gpa: Allocator, arena: Allocator, g: *const grammar.Grammar, report: *ir.Report, src: []const u8, library: bool, facts: Facts, globals: []const []const u8) Allocator.Error!?Stream {
+    /// `globals`: every node the netlist's `.global` lines name. `early`:
+    /// the subcircuits needed before their definitions come, which outlive
+    /// the stream.
+    pub fn init(gpa: Allocator, arena: Allocator, g: *const grammar.Grammar, report: *ir.Report, src: []const u8, library: bool, facts: Facts, globals: []const []const u8, early: []const Stmt) Allocator.Error!?Stream {
         if (g.requires.len == 0 or !facts.any) return null;
         var cx: Cx = .{ .gpa = gpa, .arena = arena, .g = g, .report = report, .src = src, .no_op = facts.no_op, .has = facts.has };
         for (globals) |n| try cx.globals.put(gpa, try cx.keep(n), {});
+        for (early) |*st| {
+            const d = try arena.create(Def);
+            d.* = .{ .stmt = st, .early = true };
+            try cx.subckts.put(gpa, try cx.keep(nodeName(st.get("name")).?), d);
+        }
         return .{ .cx = cx, .top = try newScope(&cx), .library = library };
     }
 
@@ -705,7 +721,14 @@ pub const Stream = struct {
         try collect(&s.cx, stmts, &s.defs);
         try summarizeAll(&s.cx, s.defs.items);
         for (s.defs.items) |d| d.stmt = null;
-        if (!s.library) try walk(&s.cx, &s.top, stmts, false);
+        if (s.library) return;
+        // A subcircuit first met here, before its definition, is summarized
+        // unheard: a whole netlist's check reports on it where it stands.
+        const report = s.cx.report;
+        const muted = report.mute;
+        report.mute = true;
+        defer report.mute = muted;
+        try walk(&s.cx, &s.top, stmts, false);
     }
 
     /// After the last group: true when the top level has islands, whose

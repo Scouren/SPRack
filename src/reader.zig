@@ -1792,7 +1792,7 @@ fn undoMerges(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt)
 }
 
 /// Several option statements under one heading are one set of options.
-fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
+pub fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
     const package = schema.slotIndex(.options, "package").?;
     var i: usize = 0;
     while (i < list.items.len) : (i += 1) {
