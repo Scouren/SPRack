@@ -387,3 +387,7 @@ end
 # sweeps
 no step : VACASK has no sweep of the whole netlist; a sweep line applies only to the one analysis after it (docs/cmd-sweep.md)
 no data : VACASK has no data tables; a sweep lists its points in values= (docs/cmd-sweep.md)
+# lib/coresweep.cpp:45-63 and 130-143: points are counted with ceil() and no tolerance.
+caveat dc step : VACASK counts a stepped sweep's points with no rounding tolerance, so a stop a whole number of steps away may lose its last point (0.2 to 0.9 by 0.005 gives 140 points, not 141)
+caveat ac points : VACASK counts points per decade with no rounding tolerance and spaces a span that is not a whole number of steps evenly up to the stop, not on SPICE's per-decade grid
+caveat noise points : VACASK counts points per decade with no rounding tolerance and spaces a span that is not a whole number of steps evenly up to the stop, not on SPICE's per-decade grid

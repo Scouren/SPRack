@@ -2768,4 +2768,8 @@ test "sweeps: a step repeats the analyses it holds" {
     var r4: ir.Report = .init(a);
     _ = try tr(a, "espice", "vacask", src, &r4);
     try reported(&r4, .@"error", "VACASK has no sweep of the whole netlist");
+    // A .TEMP list in a deck with no analysis repeats nothing.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\nR1 a 0 1k\n.temp -40 85\n.end\n", &r5);
+    try reported(&r5, .@"error", "no analysis for the xyce sweep to repeat");
 }

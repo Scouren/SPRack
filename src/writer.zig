@@ -995,6 +995,9 @@ const Writer = struct {
             } else if (step == null) step = s else outside = true;
         }
         const st = step orelse return;
+        // HSPICE's .TEMP list in a deck with no analysis: nothing to repeat.
+        if (st.body.len == 0 and !std.mem.eql(u8, w.sourceOf(st), w.g.name))
+            w.report.add(.@"error", .invalid, st.line, "step: the netlist has no analysis for the {s} sweep to repeat", .{w.g.name});
         if (outside) w.report.add(.@"error", .invalid, st.line, "step: a {s} sweep applies to every analysis of the netlist; this one leaves some out", .{w.g.name});
     }
 
