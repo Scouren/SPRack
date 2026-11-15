@@ -236,15 +236,16 @@ Pass `manifest=` to use a PDK that has no manifest here.
 
   | PDK, all corners | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
   |---|---|---|---|---|---|---|
-  | sky130 (ngspice) | 280 | 0 errors | 2 | 2 | 8 | 4,303 |
-  | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 53 | 214 | 276 |
+  | sky130 (ngspice) | 280 | 0 errors | 2 | 3 | 2 | 8 |
+  | IHP SG13G2 (ngspice) | 37 | 0 | 0 | 59 | 8 | 8 |
   | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
   | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
-  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 133 | 0 |
+  | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
 
   Every error names a file and a line. They are: two lines in the sky130
-  repository that are not ngspice syntax; `gauss()` and `agauss()`,
-  which Spectre does not have; conditional blocks, which Xyce does not have;
+  repository that are not ngspice syntax; a sky130 parameter named `vt`,
+  which Xyce refuses; flags on IHP instances that Spectre has no spelling
+  for; conditional blocks, which Xyce does not have;
   Verilog-A models in Xyce;
   BSIM-CMG, which ngspice has only as a Verilog-A model; and, for VACASK,
   library sections and the BSIM model families, which its grammar does not

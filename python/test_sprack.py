@@ -302,7 +302,10 @@ def test_pdk_sky130():
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
     assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 3, str(e)
     xy = c.netlist("xyce", strict=False)
-    assert [x.code for x in xy.report.errors] == ["untranslated", "untranslated"] and "pm3.spice" in xy.report.errors[0].file
+    # Two lines that are not ngspice syntax, and a parameter named vt, which Xyce refuses.
+    codes = sorted(x.code for x in xy.report.errors)
+    assert codes == ["invalid", "untranslated", "untranslated"], codes
+    assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
     lib = open(os.path.join(tree, "models", "sky130.lib.spice")).read()
@@ -410,7 +413,7 @@ def test_pdk_gf180mcu():
     assert ng.count(".lib ") == 7 and "Mn out in 0 0 nfet_03v3 w=1u l=0.28u\n" in ng
     assert p.entries("sf")[1:3] == [(f"{m}/sm141064.spice", "sf"), (f"{m}/sm141064.spice", "bjt_typical")]
     assert abs(ngspice_op(ng) - 0.468) < 0.005   # Xyce, on the translated library: 0.46826
-    # Xyce has agauss(); Spectre has no spelling for it.
+    # Xyce has agauss(); into Spectre it becomes statistics variations.
     xy = unwrap(c.netlist("xyce"))
     assert f'.lib "{p.translate("xyce")}/sm141064.spice" typical\n' in xy
     errs = p.library_errors("spectre")
@@ -418,7 +421,7 @@ def test_pdk_gf180mcu():
     # The mismatch wrappers (subckt nfet_03v3 around model nfet_03v3.N):
     # Spectre resolves the transistor's model to the subcircuit itself.
     clash = [e for e in errs if "names both a model and a subcircuit" in e.message]
-    assert len(agauss) == 133 and clash and len(agauss) + len(clash) == len(errs), str(errs)
+    assert not agauss and clash and len(clash) == len(errs), str(errs)
 
 
 INSTALLED = os.environ.get("SPRACK_TEST_PDKS_INSTALLED", "")

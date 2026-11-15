@@ -126,7 +126,7 @@ Order, by deck count:
    which needs the analyses repeated per alter), the HSPICE `SWEEP` tail of
    an analysis line (one line that is a step and its analysis), Spectre
    `paramset`, `.data` from files (`MER`, `LAM`).
-2. [ ] **Analyses (4.2):** `pss`, HSPICE `pz`, `mc`/`variation`, `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
+2. [ ] **Analyses (4.2):** `pss`, HSPICE `pz`, ~~`mc`/`variation`~~ (done with 4.6), `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
    - [x] **Periodic small-signal (b3):** kinds `pac`, `pnoise`, `pxf`, `psp`,
      each with `engine=hb` for the harmonic-balance form. Spectre
      `pac`/`hbac`, `pnoise`/`hbnoise`, `pxf`/`hbxf`, `psp`/`hbsp`; HSPICE
@@ -165,7 +165,22 @@ Order, by deck count:
    *Out of scope:* `pwl file=` (ESPice refuses it; ngspice and HSPICE do not
    load it), HSPICE LFSR (its tap list is bracketed, which the HSPICE lexer
    here does not read), PAT with inline repeats (`b1011 r=1 rb=2`).
-5. [ ] **Spectre structure (4.6).** `statistics` blocks come first: they are the 179 IHP errors.
+5. [x] **Spectre structure (4.6).** `statistics` blocks come first: they are the 179 IHP errors.
+   *Done:* kinds `statistics`, `statgroup`, `vary`, `correlate`, `montecarlo`,
+   `library`, and `subckt.inline`. Spectre statistics blocks read and write;
+   into Spectre, agauss/gauss/aunif/unif become statistics variations
+   (`src/stats.zig`), and back, process variations become agauss()/aunif().
+   HSPICE `.VARIATION` (model-parameter variations), `sweep monte=`
+   (`spread`), Xyce `.sampling useexpr=true`; ngspice has no Monte Carlo
+   card (`no`). HSPICE `dev/gauss=` becomes agauss(); Xyce's reserved
+   parameter names (`vt`, `temp`, `time`, `freq`, `gmin`) are errors.
+   `simulator lang=spice` sections (`switch`), binned model groups both
+   ways, `library` blocks. IHP to Spectre: 325 errors to 8 (the rest are
+   instance flags). The IHP inverter switches at 0.62253 V in Spectre via
+   translation and 0.62253 V in ngspice. Left: HSPICE `parameter` lines in
+   `.VARIATION`, mismatch and correlation into SPICE, Spectre `truncate`;
+   a case-insensitive source needs `simulator lang=spectre insensitive=yes`
+   in Spectre when Verilog-A parameter names are upper case (PSP103).
 6. [x] **VACASK control language (4.7).** `print`, `postprocess`, `abort`,
    `elaborate` are `simctl` statements in the control block; every other
    dialect has a `no simctl` line saying why. An `embed` block written
