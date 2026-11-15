@@ -3932,3 +3932,52 @@ test "c5: HSPICE RELI and GMINDC that repeat reltol and gmin read back as one va
     _ = try tr(a, "hspice", "ngspice", "t\n.option reltol=1m reli=1e-2\n.end\n", &r2);
     try reported(&r2, .@"error", "options: 'reli=0.01' has no spelling in ngspice");
 }
+
+test "d2: ngspice .pz node pairs as HSPICE and Spectre output and source" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nvin in 0 dc 0 ac 1\nr1 in out 1k\nc1 out 0 1n\n.pz in 0 out 0 vol pz\n.end\n";
+    var r: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", src, &r);
+    try has(hs, ".pz v(out) vin\n");
+    try clean(&r);
+    // Round trip: the same .pz.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", hs, &r1), ".pz in 0 out 0 vol pz\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const sx = try tr(a, "ngspice", "spectre", src, &r2);
+    try has(sx, "pz1 (out 0) pz iprobe=vin\n");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", sx, &r3), ".pz in 0 out 0 vol pz\n");
+    var r3h: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "hspice", sx, &r3h), ".pz v(out) vin\n");
+
+    // A current input is the current source across the pair, either way round.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\niin 0 in ac 1\nr1 in 0 1k\n.pz in 0 in 0 cur pol\n.end\n", &r4), ".pz v(in) iin\n");
+    try reported(&r4, .info, "the reverse of the input pair; the transfer function changes sign, its poles and zeros do not");
+    try reported(&r4, .warning, "pz: hspice finds both poles and zeros; only the poles were asked for");
+
+    // A differential output: Spectre takes both nodes, HSPICE only the first.
+    const diff = "t\nvin in 0 ac 1\nr1 in a 1k\nr2 a b 1k\nc1 b 0 1n\n.pz in 0 a b vol pz\n.end\n";
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "spectre", diff, &r5), "pz1 (a b) pz iprobe=vin\n");
+    try clean(&r5);
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", diff, &r6);
+    try reported(&r6, .@"error", "hspice takes the poles and zeros of v(a) alone for v(a,b)");
+    var r7: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\nvin in 0 ac 1\nr1 in a 1k\nr2 a b 1k\n.pz v(a,b) vin\n.end\n", &r7), ".pz in 0 a b vol pz\n");
+    try reported(&r7, .warning, "hspice took the poles and zeros of v(a) alone for v(a,b)");
+
+    // No source across the pair, or two: no source is made up.
+    var r8: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", "t\nvin x 0 ac 1\nr1 x in 1k\nr2 in 0 1k\n.pz in 0 in 0 vol pz\n.end\n", &r8);
+    try reported(&r8, .@"error", "no voltage sources connect nodes in and 0");
+    var r9: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\ni1 in 0 1m\ni2 0 in 1m\nr1 in 0 1k\n.pz in 0 in 0 cur pz\n.end\n", &r9);
+    try reported(&r9, .@"error", "several current sources connect nodes in and 0");
+}

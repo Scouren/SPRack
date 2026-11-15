@@ -124,7 +124,9 @@ rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec 
 # from every source at once, so the source is not named, and an xf read
 # back names none: the form is write-only.
 write tf        = name?xf$# "(" out ref?0 ")" "xf" -src { freq==0 ...params }
-rule  pz        = name?pz$# "(" out "0" ")" "pz" { iprobe=src! ...params }
+# pz's terminals are the output pair, both used (a differential output gave
+# ngspice's poles and zeros); iprobe= is the input source, V or I.
+rule  pz        = name?pz$# "(" out_pos out_neg ")" "pz" { iprobe=src! ...params }
 rule  hb        = name?hb$# "hb" { fundfreqs=[freqs]! maxharms=[harms] ...params }
 # The Fourier analyser is an instance that watches one signal during tran.
 rule  four      = name?four$# "(" signals#1 "0" ")" "fourier" { fund=freq! ...params }

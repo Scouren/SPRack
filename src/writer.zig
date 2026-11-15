@@ -1773,57 +1773,154 @@ fn mentions(nodes: []const Node, slot: u8) bool {
     return false;
 }
 
-/// A pole-zero analysis given as an output and a source (HSPICE `.pz v(out)
-/// vin`) for a dialect that names the input and output node pairs: the
-/// input is the source's own nodes, `vol` for a voltage source and `cur` for
-/// a current source, and both poles and zeros are found.
-fn pzPorts(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+const PzForm = struct { writes: bool = false, by_src: bool = false, by_sig: bool = false };
+
+/// Whether `g` writes a pole-zero analysis, and does with a source for the
+/// input and a signal for the output.
+fn pzForm(g: *const Grammar) PzForm {
     const src_i = schema.slotIndex(.pz, "src").?;
+    const out_i = schema.slotIndex(.pz, "out").?;
+    var f: PzForm = .{};
+    for (g.rules) |r| if (r.kind == .pz and r.dir != .read) {
+        f.writes = true;
+        f.by_src = f.by_src or mentions(r.pat, src_i);
+        f.by_sig = f.by_sig or mentions(r.pat, out_i);
+    };
+    return f;
+}
+
+/// A pole-zero analysis names its input either as a source (HSPICE `.pz
+/// v(out) vin`, Spectre's iprobe=) or as a node pair with `vol` or `cur`
+/// (SPICE), and its output either as a signal (HSPICE) or as a node pair
+/// (SPICE, Spectre). Each half is put in the form `g` writes. A source's
+/// nodes are the input pair, `vol` for a voltage source and `cur` for a
+/// current source; a node pair is the one source of that kind across it.
+/// A signal-form dialect (HSPICE) takes the poles and zeros of the first
+/// node of v(a,b) only: measured, docs/verification.md.
+fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+    const g = w.g;
+    const src_i = schema.slotIndex(.pz, "src").?;
+    const out_i = schema.slotIndex(.pz, "out").?;
+    const ip_i = schema.slotIndex(.pz, "in_pos").?;
+    const in_i = schema.slotIndex(.pz, "in_neg").?;
+    const op_i = schema.slotIndex(.pz, "out_pos").?;
+    const on_i = schema.slotIndex(.pz, "out_neg").?;
+    const tr_i = schema.slotIndex(.pz, "transfer").?;
+    const fi_i = schema.slotIndex(.pz, "find").?;
+    const form = pzForm(g);
+    if (!form.writes) return stmts;
+    const by_src, const by_sig = .{ form.by_src, form.by_sig };
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
-        if (st.kind != .pz or st.at(src_i) != .atom or st.get("in_pos") != .none) continue;
-        const takes_src = for (g.rules) |r| {
-            if (r.kind == .pz and r.dir != .read and mentions(r.pat, src_i)) break true;
-        } else false;
-        if (takes_src) continue;
-        const name = st.at(src_i).atom;
-        const dev = for (stmts) |*d| {
-            if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and std.ascii.eqlIgnoreCase(d.get("name").atom, name)) break d;
-        } else {
-            report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its nodes, and no voltage or current source '{s}' is in this file to take them from", .{ g.name, name });
-            continue;
-        };
+        if (st.kind != .pz) continue;
+        const has_src = st.at(src_i) == .atom;
+        const has_sig = st.at(out_i) != .none;
+        const in_nodes = st.at(ip_i) == .atom and st.at(in_i) == .atom and st.at(tr_i) == .atom;
+        const out_nodes = st.at(op_i) == .atom and st.at(on_i) == .atom;
+        const move_in = (has_src and !by_src) or (!has_src and by_src and in_nodes);
+        const move_out = (has_sig and !by_sig) or (!has_sig and by_sig and out_nodes);
+        if (!move_in and !move_out) continue;
+
+        // The source for a node pair, or the node pair of a source.
+        var dev: ?*const ir.Stmt = null;
+        if (move_in and has_src) {
+            const name = st.at(src_i).atom;
+            dev = for (stmts) |*d| {
+                if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and std.ascii.eqlIgnoreCase(d.get("name").atom, name)) break d;
+            } else {
+                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its nodes, and no voltage or current source '{s}' is in this file to take them from", .{ g.name, name });
+                continue;
+            };
+        } else if (move_in) {
+            const p, const n = .{ st.at(ip_i).atom, st.at(in_i).atom };
+            const tr = st.at(tr_i).atom;
+            const want: schema.Kind = if (std.ascii.eqlIgnoreCase(tr, "cur")) .isource else .vsource;
+            var hits: usize = 0;
+            for (stmts) |*d| {
+                if (d.kind != want or d.get("name") != .atom or d.get("pos") != .atom or d.get("neg") != .atom) continue;
+                const dp, const dn = .{ d.get("pos").atom, d.get("neg").atom };
+                const fwd = std.ascii.eqlIgnoreCase(dp, p) and std.ascii.eqlIgnoreCase(dn, n);
+                const rev = std.ascii.eqlIgnoreCase(dp, n) and std.ascii.eqlIgnoreCase(dn, p);
+                if (!fwd and !rev) continue;
+                hits += 1;
+                dev = d;
+            }
+            if (hits != 1) {
+                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its source, and {s} {s} sources connect nodes {s} and {s} ({s} input); it takes exactly one", .{
+                    g.name, if (hits == 0) "no" else "several", if (want == .vsource) "voltage" else "current", p, n, tr,
+                });
+                continue;
+            }
+        }
         var args: [3][]const u8 = undefined;
-        const out = st.get("out");
-        const text: ?[]const u8 = switch (out) {
-            .expr, .atom, .str => |x| x,
-            else => null,
-        };
-        const form, const n = (if (text) |t| reader.signalParts(t, &args) else null) orelse {
-            report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
-            continue;
-        };
-        if (!(std.mem.eql(u8, form, "v") or std.mem.eql(u8, form, "vdiff")) or n == 0) {
-            report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
+        var n_args: usize = 0;
+        var out_text: []const u8 = "";
+        if (move_out and has_sig) {
+            const text: ?[]const u8 = switch (st.at(out_i)) {
+                .expr, .atom, .str => |x| x,
+                else => null,
+            };
+            out_text = text orelse "";
+            const sform, n_args = (if (text) |t| reader.signalParts(t, &args) else null) orelse .{ "", 0 };
+            if (!(std.mem.eql(u8, sform, "v") or std.mem.eql(u8, sform, "vdiff")) or n_args == 0) {
+                report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
+                continue;
+            }
+        } else if (move_out and !std.mem.eql(u8, st.at(on_i).atom, "0")) {
+            report.add(.@"error", .unsupported, st.line, "pz: {s} takes the poles and zeros of v({s}) alone for v({s},{s}), so the differential output has no {s} form", .{
+                g.name, st.at(op_i).atom, st.at(op_i).atom, st.at(on_i).atom, g.name,
+            });
             continue;
         }
+        if (n_args == 2 and !std.mem.eql(u8, args[1], "0")) if (w.sourceGrammar(st)) |sg| if (pzForm(sg).by_sig) {
+            report.add(.warning, .caveat, st.line, "pz: {s} took the poles and zeros of v({s}) alone for v({s},{s}); {s} finds those of the difference", .{
+                sg.name, args[0], args[0], args[1], g.name,
+            });
+        };
+
         const l = list orelse blk: {
             list = try arena.dupe(ir.Stmt, stmts);
             break :blk list.?;
         };
         const p = &l[k];
         try p.own(arena);
-        try p.set(arena, schema.slotIndex(.pz, "in_pos").?, dev.get("pos"));
-        try p.set(arena, schema.slotIndex(.pz, "in_neg").?, dev.get("neg"));
-        try p.set(arena, schema.slotIndex(.pz, "out_pos").?, .{ .atom = args[0] });
-        try p.set(arena, schema.slotIndex(.pz, "out_neg").?, .{ .atom = if (n > 1) args[1] else "0" });
-        try p.set(arena, schema.slotIndex(.pz, "transfer").?, .{ .atom = if (dev.kind == .vsource) "vol" else "cur" });
-        try p.set(arena, schema.slotIndex(.pz, "find").?, .{ .atom = "pz" });
-        try p.set(arena, src_i, .none);
-        try p.set(arena, schema.slotIndex(.pz, "out").?, .none);
-        report.add(.info, .oneway, st.line, "pz: the input is source {s}'s nodes and the output v({s}{s}{s}), as {s} names them", .{
-            name, args[0], if (n > 1) "," else "", if (n > 1) args[1] else "", g.name,
-        });
+        if (move_in and has_src) {
+            const d = dev.?;
+            try p.set(arena, ip_i, d.get("pos"));
+            try p.set(arena, in_i, d.get("neg"));
+            try p.set(arena, tr_i, .{ .atom = if (d.kind == .vsource) "vol" else "cur" });
+            try p.set(arena, fi_i, .{ .atom = "pz" });
+            try p.set(arena, src_i, .none);
+            report.add(.info, .oneway, st.line, "pz: the input is source {s}'s nodes, as {s} names it", .{ d.get("name").atom, g.name });
+        } else if (move_in) {
+            const d = dev.?;
+            const find = st.at(fi_i);
+            if (find == .atom and !std.ascii.eqlIgnoreCase(find.atom, "pz")) {
+                report.add(.warning, .caveat, st.line, "pz: {s} finds both poles and zeros; only the {s} were asked for", .{
+                    g.name, if (std.ascii.eqlIgnoreCase(find.atom, "pol")) "poles" else "zeros",
+                });
+            }
+            if (std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(in_i).atom) and !std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(ip_i).atom)) {
+                report.add(.info, .oneway, st.line, "pz: source {s} is connected from {s} to {s}, the reverse of the input pair; the transfer function changes sign, its poles and zeros do not", .{
+                    d.get("name").atom, d.get("pos").atom, d.get("neg").atom,
+                });
+            }
+            try p.set(arena, src_i, d.get("name"));
+            inline for (.{ ip_i, in_i, tr_i, fi_i }) |i| try p.set(arena, i, .none);
+            report.add(.info, .oneway, st.line, "pz: the input nodes {s} {s} are source {s}, as {s} names it", .{ st.at(ip_i).atom, st.at(in_i).atom, d.get("name").atom, g.name });
+        }
+        if (move_out and has_sig) {
+            try p.set(arena, op_i, .{ .atom = args[0] });
+            try p.set(arena, on_i, .{ .atom = if (n_args > 1) args[1] else "0" });
+            try p.set(arena, out_i, .none);
+            report.add(.info, .oneway, st.line, "pz: the output {s} is the node pair {s} {s}, as {s} names it", .{ out_text, args[0], if (n_args > 1) args[1] else "0", g.name });
+        } else if (move_out) {
+            const pos, const neg = .{ st.at(op_i).atom, st.at(on_i).atom };
+            const sig = if (std.mem.eql(u8, neg, "0")) try std.fmt.allocPrint(arena, "v({s})", .{pos}) else try std.fmt.allocPrint(arena, "v({s},{s})", .{ pos, neg });
+            try p.set(arena, out_i, .{ .atom = sig });
+            try p.set(arena, op_i, .none);
+            try p.set(arena, on_i, .none);
+        }
     }
     return list orelse stmts;
 }
@@ -1990,7 +2087,7 @@ pub fn write(
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
-    stmts = try pzPorts(arena, g, stmts, report);
+    stmts = try pzPorts(arena, &w, stmts, report);
     stmts = try idleCeilings(arena, stmts, report);
     var n_analyses: usize = 0;
     for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {

@@ -562,6 +562,61 @@ The ESPice suite's `hspice/gshunt.sp` (all six options at once) now
 translates with no error to ngspice and ESPice, and both give the
 oracle's 0.5 V.
 
+### 4.8 Pole-zero ports (d2)
+
+ngspice names a pole-zero analysis by its input and output node pairs
+(`.pz in 0 out 0 vol pz`); HSPICE by an output signal and a source
+(`.pz v(out) vin`); Spectre by its output terminals and a probe instance
+(`pz1 (out 0) pz iprobe=vin`). The writer turns each half into the form
+the target takes (`pzPorts` in `src/writer.zig`):
+
+- **Input.** A node pair becomes the one independent source of the
+  matching kind (V for `vol`, I for `cur`) that connects exactly those two
+  nodes, either way round. None or several is an error naming the pair; a
+  source is never made up. A source becomes its own nodes, `vol` or `cur`
+  by its kind.
+- **Output.** `out_pos 0` is `v(out_pos)`, and a signal `v(a)` or
+  `v(a,b)` is the pair `a 0` or `a b`. Spectre takes both terminals.
+- **`pol`, `zer`.** HSPICE and Spectre always find both: one alone is a
+  caveat. Read back, the find is `pz`.
+
+Measured on five decks written for this, ngspice 45 against HSPICE
+Y-2026.03 and Spectre 23.10, each ngspice deck translated by sprack. Poles
+and zeros in rad/s (Spectre reports Hz; multiplied by 2 pi here):
+
+| deck | ngspice | HSPICE | Spectre |
+|---|---|---|---|
+| RC low-pass, 1k, 1n | pole -1.000e6 | pole -1.000e6 | pole -1.000e6 |
+| same, source reversed (`vin 0 in`) | pole -1.000e6 | pole -1.000e6 | pole -1.000e6 |
+| RC, current input reversed, 1k shunt | pole -5.000e5 | pole -5.000e5 | pole -5.000e5 |
+| RLC band-pass, 1m, 1n, 100 | poles -5.000e4 +-9.98749e5j, zero 0 | same | same |
+| two-stage, differential output `o2p o2n` | 5 poles, 3 zeros (below) | no form | as ngspice to 6 digits |
+
+The two-stage deck: an RC input, two stages of transconductors with
+crossed 0.5 pF feedback capacitors, the halves deliberately unequal.
+ngspice and Spectre both give poles -1.000e9, -3.08083e8, -3.00079e8,
+-1.58688e5, -1.52747e5 and zeros -3.04051e8, -1.55722e5, 4.4512e9; the
+rational function they form matches the circuit's own response, computed
+by a separate nodal solve, to four digits from 1e5 to 1e10 rad/s.
+
+HSPICE accepts `.pz v(o2p,o2n) vin` without a word but gives poles
+-1.58688e5, -3.00079e8, -1.000e9 and zero 4.000e9: exactly what it gives
+for `.pz v(o2p) vin`, and `.pz v(o2n,o2p) vin` gives exactly `v(o2n)`'s.
+The second node is not used. So a differential output written for HSPICE
+is an error, and an HSPICE `v(a,b)` read for another dialect is a caveat
+that HSPICE found `v(a)`'s poles and zeros.
+
+A reversed source flips the sign of the transfer function and nothing
+else: same poles and zeros in all three, and in ngspice for both pair
+orders. HSPICE names no orientation, so ngspice `.pz in 0 ...` across
+`vin 0 in` comes back as `.pz 0 in ...` (an info note); with the source
+the same way round as the pair the round trip is exact.
+
+An exactly symmetric version of the two-stage deck has repeated roots;
+there ngspice reported one of the doubled poles (-3.01e8) as a zero, where
+Spectre agreed with the hand-worked answer. Not a translation
+matter; the deck above is unequal for that reason.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method
