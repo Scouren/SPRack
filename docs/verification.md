@@ -728,11 +728,15 @@ The first four have z=0, so `1meg/z` stands in the branch not taken:
 neither Xyce nor LTspice objects to it there.
 
 Only a device's value is made a choice. ngspice 45 does not make a `.param`
-in a branch conditional: with `.if (sw == 0)` `.param k=1` `.else` `.param
-k=2` `.endif` in a subcircuit (and the same at the top level on a
-parameter that is 2), instances with sw=0 and sw=1 both draw the current
-of k=2, the last definition. A block whose `.param` lines differ is
-therefore not merged.
+in a branch conditional. The deck: `.param top=2`, then `.if (top == 2)`
+`.param g=3` `.else` `.param g=5` `.endif` at the top level, and in a
+subcircuit with `sw=0` `.if (sw == 0)` `.param k=1` `.else` `.param k=2`
+`.endif` and `R1 a b {k*1k*g}`, instantiated with sw=0 and with sw=1,
+each across 1 V. Both instances draw -1.00000e-4 A: 10k, k=2 and g=5, the
+last definition of each. Conditional parameters would give -3.33e-4 (3k)
+and -1.67e-4 (6k). A block whose `.param` lines differ is therefore not
+merged, and its error says that only a device's value is written as a
+choice.
 
 IHP SG13G2, all corners, to Xyce: 27 conditional blocks were errors; 6 are
 now written (three blocks of the MIM capacitor subcircuit, in the plain and

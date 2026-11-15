@@ -5039,3 +5039,32 @@ test "s2: an EXP source's left-out values are written out where the target means
     try reported(&r10, .warning, "vsource.td1 is not given: xyce takes its own default for it, and what hspice takes is not measured; written as it was");
     try testing.expectEqual(0, r10.countCode(.synthesized));
 }
+
+// s4: a condition in parentheses is the text between them, as written.
+
+test "s4: a Spectre condition keeps its two-character operators, whatever its first token" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // The lexer cuts at every `=`; joined with blanks that was `a = = 1`.
+    // And `a` alone is a value, which the `)` does not follow.
+    const conds = [_][]const u8{ "a == 1", "a != 1", "a <= b", "a >= b", "a > 1 && b < 3", "a > 1 || b < 3", "a==1", "a<=b&&a>=b||a==b", "(a == 1) && (b != 2)" };
+    for (conds) |c| {
+        const src = try std.fmt.allocPrint(a, "// t\nsimulator lang=spectre\nparameters a=1 b=2\nif ({s}) {{\nR1 (p 0) resistor r=1k\n}} else if ({s}) {{\nR1 (p 0) resistor r=2k\n}} else {{\nR1 (p 0) resistor r=3k\n}}\n", .{ c, c });
+        var r: ir.Report = .init(a);
+        const nl = try readAs(a, "spectre", src, &r);
+        const block = for (nl.stmts) |*s| {
+            if (s.kind == .cond_if) break s;
+        } else return error.TestExpectedBlock;
+        try testing.expectEqualStrings(c, block.get("cond").expr);
+        try testing.expectEqualStrings(c, block.body[1].get("cond").expr);
+        var r2: ir.Report = .init(a);
+        const ng = try tr(a, "spectre", "ngspice", src, &r2);
+        try has(ng, try std.fmt.allocPrint(a, "\n.if ({s})\nR1 p 0 1k\n.elseif ({s})\nR1 p 0 2k\n.else\n", .{ c, c }));
+        try testing.expectEqual(0, r2.countCode(.untranslated));
+    }
+    // VACASK's condition is the rest of its line: the same operators.
+    var r3: ir.Report = .init(a);
+    const va = "t\nground 0\nparameters a=1 b=2\n@if a==1&&b<=2||b>=3\nR1 (p 0) resistor r=1k\n@elseif (a != 1) && (b >= 2)\nR1 (p 0) resistor r=2k\n@else\nR1 (p 0) resistor r=3k\n@end\n";
+    try has(try tr(a, "vacask", "ngspice", va, &r3), "\n.if (a==1&&b<=2||b>=3)\nR1 p 0 1k\n.elseif ((a != 1) && (b >= 2))\n");
+}

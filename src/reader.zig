@@ -428,21 +428,23 @@ const Matcher = struct {
                     self.log.shrinkRetainingCapacity(mark);
                     return false;
                 }
-                const v = (try self.capOne(node, t)) orelse {
-                    // `if (a > 1)`: where a dialect lexes parentheses as
-                    // tokens and the pattern closes one right after a value,
-                    // everything up to that `)` is the expression.
-                    const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(u8, rest[0].text, ")");
-                    if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value) return false;
-                    const j = self.parenRun(ti) orelse return false;
-                    try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } });
-                    if (try self.m(rest, j, k)) return true;
+                const one = try self.capOne(node, t);
+                if (one) |v| {
+                    if (followLit(rest, t)) return false;
+                    if (node.slot != grammar.wild_slot) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
+                    if (try self.m(rest, ti + 1, k)) return true;
                     self.log.shrinkRetainingCapacity(mark);
-                    return false;
-                };
-                if (followLit(rest, t)) return false;
-                if (node.slot != grammar.wild_slot) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
-                if (try self.m(rest, ti + 1, k)) return true;
+                }
+                // `if (a > 1)`: where a dialect lexes parentheses as tokens
+                // and the pattern closes one right after a value, everything
+                // up to that `)` is the expression, whether its first token
+                // is no value (`(`) or one the `)` does not follow (`a`).
+                const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(u8, rest[0].text, ")");
+                if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value) return false;
+                const j = self.parenRun(ti) orelse return false;
+                if (one != null and j == ti + 1) return false;
+                try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } });
+                if (try self.m(rest, j, k)) return true;
                 self.log.shrinkRetainingCapacity(mark);
                 return false;
             },
@@ -660,7 +662,16 @@ const Matcher = struct {
         return self.joinTokens(a, b);
     }
 
+    /// The text the tokens were cut from. On one line that is the line's
+    /// own text between them: the lexer cuts `a == b` at each `=`, and the
+    /// pieces joined with a blank each would be `a = = b`.
     fn joinTokens(self: *const Matcher, from: usize, to: usize) Allocator.Error![]const u8 {
+        const ts = self.toks()[from..to];
+        if (ts.len > 0 and ts[0].lno == ts[ts.len - 1].lno) {
+            const start = @intFromPtr(ts[0].raw.ptr);
+            const end = @intFromPtr(ts[ts.len - 1].raw.ptr) + ts[ts.len - 1].raw.len;
+            if (end >= start) return self.arena.dupe(u8, ts[0].raw.ptr[0 .. end - start]);
+        }
         var out: std.ArrayList(u8) = .empty;
         for (self.toks()[from..to], 0..) |t, i| {
             if (i > 0 and t.tag != .rparen and self.toks()[from + i - 1].tag != .lparen) try out.append(self.arena, ' ');
