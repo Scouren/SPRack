@@ -992,6 +992,43 @@ test "statement dialects are table indices; the JSON keeps the name" {
     try clean(&r2);
 }
 
+test "a name an expression refers to keeps its spelling when its definition is elsewhere" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // No .param here: VCM, Voff, Vamp, Rval and the subcircuit's Wn are
+    // defined in another file, or another block of a Python deck. Spectre
+    // is case-sensitive, so `vcm` would be an unknown parameter there.
+    const src =
+        \\t
+        \\VP inp 0 dc {VCM} ac 1
+        \\VDD vdd 0 {VDD}
+        \\V3 b 0 pulse(0 {VCM} 1n 1n 1n 5n 10n)
+        \\V4 c 0 sin({Voff} {Vamp} 1k)
+        \\V5 d 0 pwl(0 0 1n {VCM})
+        \\R1 a b {2*Rval}
+        \\X1 a b sub Wn=1u
+        \\X2 a b sub wn=2u
+        \\M1 d g 0 0 nch W=1u L=1u
+        \\.end
+        \\
+    ;
+    var r: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", src, &r);
+    for ([_][]const u8{
+        "VP (inp 0) vsource dc=VCM mag=1\n",
+        "VDD (VDD 0) vsource dc=VDD\n",
+        "V3 (b 0) vsource type=pulse val0=0 val1=VCM ",
+        "V4 (c 0) vsource type=sine sinedc=Voff ampl=Vamp freq=1k\n",
+        "V5 (d 0) vsource type=pwl wave=[0 0 1n VCM]\n",
+        "R1 (a b) resistor r=2*Rval\n",
+        // One spelling for the subcircuit's parameter; a device's are lower case.
+        "X1 (a b) sub Wn=1u\n",
+        "X2 (a b) sub Wn=2u\n",
+        "M1 (d g 0 0) nch w=1u l=1u\n",
+    }) |line| try has(sp, line);
+}
+
 test "a broken grammar file is reported with its path and line" {
     const io = testing.io;
     var tmp = testing.tmpDir(.{});

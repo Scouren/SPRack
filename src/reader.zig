@@ -942,7 +942,12 @@ const Spelling = struct {
                 .atom => &one,
                 .list => |l| l,
                 .params => |ps| {
-                    if (st.kind == .ic or st.kind == .nodeset) for (ps) |p| try sp.learn(p.key, arena);
+                    if (st.kind == .ic or st.kind == .nodeset or st.kind == .instance) for (ps) |p| try sp.learn(p.key, arena);
+                    for (ps) |p| try sp.exprNames(arena, p.val);
+                    continue;
+                },
+                .expr => {
+                    try sp.exprNames(arena, v);
                     continue;
                 },
                 else => continue,
@@ -962,6 +967,42 @@ const Spelling = struct {
                 var args: [3][]const u8 = undefined;
                 _, const n = signalParts(it.atom, &args) orelse continue;
                 for (args[0..n]) |a| try sp.learn(a, arena);
+            }
+        }
+    }
+
+    /// The names an expression refers to (`{VCM}`, `rload*2`): a parameter
+    /// defined in another file, or in another block of a Python deck, keeps
+    /// the spelling it is written with here. Calls are functions, not names.
+    fn exprNames(sp: *Spelling, arena: Allocator, v: Value) Allocator.Error!void {
+        const items: []const Value = switch (v) {
+            .expr => &.{v},
+            .list => |l| l,
+            else => return,
+        };
+        for (items) |it| {
+            if (it != .expr) continue;
+            const text = it.expr;
+            var i: usize = 0;
+            while (i < text.len) {
+                const c = text[i];
+                if (c == '"' or c == '\'') {
+                    i = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len) + 1;
+                    continue;
+                }
+                const word_char = std.ascii.isAlphanumeric(c) or c == '_' or c == '$' or c == '.';
+                if (!word_char) {
+                    i += 1;
+                    continue;
+                }
+                var j = i;
+                while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_' or text[j] == '$' or text[j] == '.')) j += 1;
+                var k = j;
+                while (k < text.len and (text[k] == ' ' or text[k] == '\t')) k += 1;
+                const call = k < text.len and text[k] == '(';
+                // A number (`1.5k`, `2e-3`) starts with a digit or a point.
+                if (!call and (std.ascii.isAlphabetic(c) or c == '_')) try sp.learn(text[i..j], arena);
+                i = j;
             }
         }
     }
@@ -1035,6 +1076,11 @@ const Spelling = struct {
                             if (gop.found_existing) p.key = gop.value_ptr.* else gop.value_ptr.* = p.key;
                         } else if (node_keys) {
                             p.key = sp.spell(p.key);
+                        } else if (st.kind == .instance) {
+                            // A subcircuit's parameter, which may be defined
+                            // in another file: spelled as the source does.
+                            const low = try lowered(arena, p.key);
+                            p.key = sp.params.get(low) orelse sp.mixed.getKey(low) orelse p.key;
                         } else p.key = sp.params.get(try lowered(arena, p.key)) orelse try lowered(arena, p.key);
                     }
                 },

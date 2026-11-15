@@ -191,6 +191,13 @@ def test_code():
     ctl.code(".control\nrun\n.endc\n")
     assert ".control\nrun\n.endc\n" in ctl.netlist("ngspice")
     raises(sprack.Unsupported, lambda: ctl.netlist("xyce"), "no ngspice rule understood this line")
+    # A parameter defined outside the block keeps its spelling inside it
+    # (Spectre is case-sensitive): the deck Schemify writes for Simulate.
+    pc = sprack.Circuit("cm")
+    pc.param(VCM=0.7, VDD=1.8)
+    pc.code("VP inp 0 dc {VCM} ac 1\nVDD vdd 0 {VDD}\n")
+    sp = pc.netlist("spectre", strict=False)
+    assert "parameters VCM=0.7 VDD=1.8\n" in sp and "VP (inp 0) vsource dc=VCM mag=1\n" in sp and "dc=VDD\n" in sp, sp
     # A dialect's own options survive a code block written in it.
     lt = sprack.Circuit("lt")
     lt.R("1", "a", 0, "1k")
