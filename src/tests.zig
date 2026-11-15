@@ -2376,7 +2376,6 @@ test "gap: Spectre user functions" {
     // a subcircuit, where the body may use the subcircuit's parameters
     // (checked with a synthetic deck). A library of model wrappers defines
     // its geometry helpers this way, so without it nothing loads.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2389,7 +2388,8 @@ test "gap: Spectre user functions" {
         \\.ends rr
         \\.end
     , &report);
-    try has(sp, "real f(real x) {\n  return x*w\n}\n");
+    // Loads in Spectre with the subcircuit's w (checked: f(3) is 6 ohm).
+    try has(sp, "real f(real x) {\nreturn (x*w)\n}\n");
     try clean(&report);
 }
 
