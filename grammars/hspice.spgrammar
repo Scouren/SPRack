@@ -24,7 +24,7 @@ lexer
   comment   line "*"
   comment   tail "$"
   continue  lead "+"
-  continue  trail "\\"
+  continue  trail "\"                  # `\\` too: the lexer takes a doubled one
   parens    space
   expr      "'" "'"
   values    idents

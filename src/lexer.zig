@@ -62,19 +62,31 @@ fn startsWithAny(s: []const u8, markers: []const []const u8) ?usize {
 
 /// Where a trailing comment starts. A marker only counts at the start of the
 /// line or after a blank, and never inside a string or an expression.
-fn tailStart(cfg: *const LexCfg, line: []const u8) ?struct { usize, usize } {
+/// `open` carries a string or expression left open at the end of a line
+/// into its continuation: the closing delimiter still to come.
+fn tailStart(cfg: *const LexCfg, line: []const u8, open: *[]const u8) ?struct { usize, usize } {
     if (cfg.tail_comments.len == 0) return null;
     var i: usize = 0;
+    if (open.len > 0) {
+        i = (std.mem.indexOfPos(u8, line, 0, open.*) orelse return null) + open.len;
+        open.* = "";
+    }
     while (i < line.len) {
         const c = line[i];
         if (c == '"') {
-            i = (std.mem.indexOfScalarPos(u8, line, i + 1, '"') orelse return null) + 1;
+            i = (std.mem.indexOfScalarPos(u8, line, i + 1, '"') orelse {
+                open.* = "\"";
+                return null;
+            }) + 1;
             continue;
         }
         var skipped = false;
         for (cfg.expr_delims) |d| {
             if (std.mem.startsWith(u8, line[i..], d[0])) {
-                const close = std.mem.indexOfPos(u8, line, i + d[0].len, d[1]) orelse return null;
+                const close = std.mem.indexOfPos(u8, line, i + d[0].len, d[1]) orelse {
+                    open.* = d[1];
+                    return null;
+                };
                 i = close + d[1].len;
                 skipped = true;
                 break;
@@ -138,6 +150,7 @@ const Joiner = struct {
 fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]const u8) Allocator.Error![]Line {
     var j: Joiner = .{ .arena = arena };
     var trail = false; // previous physical line ended with the trailing marker
+    var open: []const u8 = ""; // a string or expression still open at the end of the last line
     var no: u32 = 0;
     var it = std.mem.splitScalar(u8, src, '\n');
     var first = true;
@@ -201,7 +214,9 @@ fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]co
         }
         var body = lead;
         var tail: []const u8 = "";
-        if (tailStart(cfg, lead)) |cut| {
+        const continues = trail or (cfg.cont_lead.len > 0 and std.mem.startsWith(u8, lead, cfg.cont_lead));
+        if (!continues) open = "";
+        if (tailStart(cfg, lead, &open)) |cut| {
             body = lead[0..cut[0]];
             tail = commentText(lead[cut[0] + cut[1] ..]);
         }
@@ -226,7 +241,10 @@ fn joinLines(arena: Allocator, cfg: *const LexCfg, src: []const u8, title: *[]co
         trail = false;
         if (cfg.cont_trail.len > 0 and std.mem.endsWith(u8, body, cfg.cont_trail)) {
             trail = true;
-            body = std.mem.trimEnd(u8, body[0 .. body.len - cfg.cont_trail.len], " \t");
+            body = body[0 .. body.len - cfg.cont_trail.len];
+            // HSPICE's `\\` joins with no blank; a blank is harmless here.
+            if (std.mem.endsWith(u8, body, cfg.cont_trail)) body = body[0 .. body.len - cfg.cont_trail.len];
+            body = std.mem.trimEnd(u8, body, " \t");
         }
         if (!is_cont) {
             try j.flush();

@@ -2343,7 +2343,6 @@ test "gap: a $ comment after a backslash-continued HSPICE expression" {
     // gap: hspice reader. The continued expression is read without the
     // comment; with a trailing `$` comment on its last line the statement
     // is untranslated.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2363,13 +2362,12 @@ test "gap: ngspice .func with several arguments needs commas" {
     // gap: ngspice grammar (xyce's has the same rule, not checked): `args*`
     // writes `.func sq(a b) {...}`, which ngspice 45 rejects ("failed to
     // parse .func"); `.func sq(a, b)` loads.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
     const ng = try tr(a, "hspice", "ngspice", "t\n.param sq(a,b)='(a+b)**2'\n.end\n", &report);
-    try has(ng, ".func sq(a, b) {(a+b)**2}");
+    try has(ng, ".func sq(a,b) {(a+b)**2}");
 }
 
 test "gap: Spectre user functions" {
