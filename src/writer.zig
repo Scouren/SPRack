@@ -13,6 +13,7 @@ const sprack = @import("root.zig");
 const lexer = @import("lexer.zig");
 const expr = @import("expr.zig");
 const reader = @import("reader.zig");
+const stats = @import("stats.zig");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -1732,6 +1733,7 @@ pub fn write(
         stmts = list;
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
+    stmts = try stats.prepare(arena, g, stmts, report);
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }

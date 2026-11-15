@@ -16,6 +16,7 @@ pub const writer = @import("writer.zig");
 pub const expr = @import("expr.zig");
 pub const json = @import("json.zig");
 pub const project = @import("project.zig");
+pub const stats = @import("stats.zig");
 
 const Allocator = std.mem.Allocator;
 pub const Grammar = grammar.Grammar;
@@ -197,5 +198,6 @@ test {
     _ = expr;
     _ = json;
     _ = project;
+    _ = stats;
     _ = @import("tests.zig");
 }
