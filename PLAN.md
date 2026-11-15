@@ -50,18 +50,18 @@ the nightly audit is green.
 
 This is the biggest unknown. Until it is done, every grammar line is unverified.
 
-- [ ] **1.1 `tools/parse_check.py`.** For each error-free translation to
+- [x] **1.1 `tools/parse_check.py`.** For each error-free translation to
   ngspice, Xyce or VACASK, run the target in batch mode and require that it
   loads with no syntax error. Record failures in a TSV beside the audit.
-- [ ] **1.2 Fix or `caveat`** every failure. Each fix is a grammar edit plus a
+- [x] **1.2 Fix or `caveat`** every failure. Each fix is a grammar edit plus a
   regression test in `src/tests.zig`.
-- [ ] **1.3 `tools/sim_check.py` (2.1).** Simulate the source and the
+- [x] **1.3 `tools/sim_check.py` (2.1).** Simulate the source and the
   translation, then compare against `.expected.json`. Start with ngspice → Xyce
   (386 decks), then ngspice ↔ VACASK.
-- [ ] **1.4 PDK smoke (2.3).** One inverter per PDK through
+- [x] **1.4 PDK smoke (2.3).** One inverter per PDK through
   `Circuit.netlist()`: sky130 → Xyce, FreePDK45/ASAP7 → Xyce. The Spectre half
   waits for Phase 6.
-- [ ] **1.5 Real fuzzer (2.4).** Run `zig build test --fuzz` on a normal
+- [x] **1.5 Real fuzzer (2.4).** Run `zig build test --fuzz` on a normal
   machine; check that it works on Zig 0.18-dev.
 
 *Exit:* the parse-check failures TSV is empty for the three free targets, and
@@ -71,14 +71,14 @@ the sim-check mismatches are either fixed or covered by a `caveat`.
 
 Work this list in the order Phase 1's failures point to.
 
-- [ ] **2.1 VACASK (6.1).** Read the VACASK manual and source, then resolve all
+- [x] **2.1 VACASK (6.1).** Read the VACASK manual and source, then resolve all
   9 `assumed` lines. VACASK is free, so each fix is checked by 1.1.
-- [ ] **2.2 Model level tables (6.2)** for ngspice and Xyce, against their
+- [x] **2.2 Model level tables (6.2)** for ngspice and Xyce, against their
   reference manuals. HSPICE and Spectre are checked by running the tools (Phase 6).
-- [ ] **2.3 Function and operator tables (6.3)**, starting with `log`.
-- [ ] **2.4 All 31 `no` lines (6.4).** Each gets a source citation (open-source simulators) or an observed tool run (HSPICE, Spectre),
+- [x] **2.3 Function and operator tables (6.3)**, starting with `log`.
+- [x] **2.4 All 31 `no` lines (6.4).** Each gets a source citation (open-source simulators) or an observed tool run (HSPICE, Spectre),
   or is turned into a rule.
-- [ ] **2.5 Enum spellings (6.5)** and the Spectre device forms (6.6).
+- [x] **2.5 Enum spellings (6.5)** and the Spectre device forms (6.6).
 
 *Exit:* every `no` line cites a source, and no `assumed` line is left.
 
@@ -126,7 +126,7 @@ Order, by deck count:
    which needs the analyses repeated per alter), the HSPICE `SWEEP` tail of
    an analysis line (one line that is a step and its analysis), Spectre
    `paramset`, `.data` from files (`MER`, `LAM`).
-2. [ ] **Analyses (4.2):** `pss`, HSPICE `pz`, ~~`mc`/`variation`~~ (done with 4.6), `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
+2. [x] **Analyses (4.2):** `pss`, HSPICE `pz`, ~~`mc`/`variation`~~ (done with 4.6), `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
    - [x] **Periodic small-signal (b3):** kinds `pac`, `pnoise`, `pxf`, `psp`,
      each with `engine=hb` for the harmonic-balance form. Spectre
      `pac`/`hbac`, `pnoise`/`hbnoise`, `pxf`/`hbxf`, `psp`/`hbsp`; HSPICE
