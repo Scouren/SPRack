@@ -1282,6 +1282,16 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
     }
 }
 
+/// Is there a statement a `convert` line applies to? Copying a large
+/// netlist's statement list to convert none of it costs its size again.
+fn anyConverted(g: *const Grammar, stmts: []const ir.Stmt) bool {
+    for (stmts) |*s| {
+        for (g.converts) |cv| if (cv.kind == s.kind) return true;
+        if (anyConverted(g, s.body)) return true;
+    }
+    return false;
+}
+
 fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
         if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(ir.big, s.get("name").atom, {});
@@ -1361,7 +1371,7 @@ pub fn write(
         };
     }
     var stmts = try w.applyMoves(nl.stmts);
-    if (g.converts.len > 0) {
+    if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
         try expr.convert(arena, g, list, true);
         stmts = list;
