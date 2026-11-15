@@ -367,6 +367,15 @@ const Emit = struct {
                 i += 2;
                 continue;
             }
+            if (i + 1 < text.len and text[i + 1] == '+') {
+                // `$+values`: how many items the list slot holds.
+                var j = i + 2;
+                while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_')) j += 1;
+                const v = if (schema.slotIndex(e.st.kind, text[i + 2 .. j])) |si| e.st.at(si) else Value.none;
+                try out.print(e.arena, "{d}", .{if (v == .list) v.list.len else 0});
+                i = j;
+                continue;
+            }
             var j = i + 1;
             while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_')) j += 1;
             if (schema.slotIndex(e.st.kind, text[i + 1 .. j])) |si| {

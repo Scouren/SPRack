@@ -333,7 +333,7 @@ no single rule holds everything, which is how `.options timeint ...` and
 | `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot; `slot#n` as many items as slot `n` holds |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
 | `path!` | a path written without quotes when it has no blank |
-| `slot?default` | written when the slot is empty; `$other` and `$#` expand |
+| `slot?default` | written when the slot is empty; `$other` and `$#` expand, and `$+list` is the number of items in a list slot |
 | `slot:"lit"=atom` | the literal stands for a value of an atom slot (or a number in a value slot); a trailing `?` writes it even when the slot is unset |
 | `slot...` | the rest of the line as text, or as one expression for a value slot |
 | `-slot` | when writing, deliberately not written (a `caveat` says why) |
