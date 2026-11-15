@@ -206,17 +206,20 @@ host's bundle into `zig-out/python/`. A Windows build links an import library
 for `python3.dll` that `zig dlltool` makes from `src/python3.def`, so no
 Python is needed to build it. Checked: the x86_64 Linux bundle imports and
 runs under CPython 3.11 and 3.13; the macOS ones leave the Python symbols to
-flat-namespace lookup and the Windows one imports them from `python3.dll`,
-but neither has been loaded by a Python here.
+flat-namespace lookup and the Windows one imports them from `python3.dll`.
+CI installs the wheel on Linux, macOS and Windows and runs the package's
+tests with it, under CPython 3.10 and 3.13.
 
 The only file written outside the package is the translation cache,
 `~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=` says otherwise.
 `pip wheel .` (or `python -m build`, which also writes the sdist) packages
 the same files as a wheel, tagged by the libc Zig built against rather than
 the build host: `cp310-abi3-manylinux_2_28_x86_64` (or `_aarch64`) on Linux,
-and `cp310-abi3-macosx_11_0_arm64` (or `_x86_64`) on macOS, where
-`MACOSX_DEPLOYMENT_TARGET` overrides the 11.0. `auditwheel show` agrees with
-both Linux tags; the extension needs only glibc 2.28 and nothing to repair.
+`cp310-abi3-macosx_11_0_arm64` (or `_x86_64`) on macOS, where
+`MACOSX_DEPLOYMENT_TARGET` overrides the 11.0, and `cp310-abi3-win_amd64` on
+Windows. `auditwheel show` agrees with both Linux tags; the extension needs
+only glibc 2.28 and nothing to repair. `pip wheel . --config-settings
+target=x86_64-windows` builds the Windows wheel on another host.
 The sdist ships what `zig build py` needs: `build.zig`, `build.zig.zon`,
 `src`, `grammars`, `python`, `tools/wheel_backend.py`, `pyproject.toml`,
 `LICENSE` and this file.
@@ -235,7 +238,7 @@ it moves the version, tests, tags, and uploads the sdist and wheels to PyPI.
 | Simulators | output loaded and compared in ngspice, Xyce and VACASK; loaded in Spectre and HSPICE; the LTspice grammar measured on LTspice 26.0.2 |
 | PDKs | five open PDKs translated whole (table below); inverters simulated in ngspice |
 | Python | every statement kind and slot reachable through the builder |
-| CI | tests on every push (Linux), wheels on Linux and macOS for CPython 3.10 and 3.13, corpus audit nightly |
+| CI | tests on every push (Linux), wheels on Linux, macOS and Windows for CPython 3.10 and 3.13, corpus audit nightly |
 
 Whole model libraries, all corners, errors per target:
 

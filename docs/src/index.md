@@ -43,14 +43,15 @@ gives a shell with it).
 
 ```sh
 zig build            # the command: zig-out/bin/sprack
-zig build py         # the Python extension: python/sprack/_core.abi3.so
+zig build py         # the Python extension: python/sprack/_core.abi3.so (_core.pyd on Windows)
 zig build test       # the tests
 pip wheel .          # a wheel of the Python package (Zig on PATH)
 ```
 
 After `zig build py` the Python package runs from the checkout with
 `PYTHONPATH=python`. The package is one compiled extension module (CPython
-3.10 or later) and a thin Python layer; it has no other dependency.
+3.10 or later) and a thin Python layer; it has no other dependency. The
+wheel is built and tested on Linux, macOS and Windows.
 
 ## One minute with the command
 
