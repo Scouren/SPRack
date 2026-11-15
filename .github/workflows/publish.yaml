@@ -198,14 +198,14 @@ jobs:
 
   # The `wheel` job of test.yaml, once per platform: the extension is abi3,
   # so one wheel serves CPython 3.10 and later. Zig from setup-zig, not nix,
-  # so macOS needs no Nix install.
+  # so macOS and Windows need no Nix install.
   wheels:
     needs: version
     if: always() && needs.version.result == 'success'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -227,31 +227,41 @@ jobs:
         run: python -m pip wheel . -w dist --no-deps
 
       # The tag must match what the binary needs: glibc 2.28 on Linux, and on
-      # macOS the minos Zig wrote into LC_BUILD_VERSION.
+      # macOS the minos Zig wrote into LC_BUILD_VERSION. A Windows tag names
+      # no version: the wheel must hold the .pyd and no other extension.
       - name: Check the platform tag
+        shell: bash
         run: |
           ls dist
           if [ "$RUNNER_OS" = Linux ]; then
             ls dist/*-manylinux_2_28_x86_64.whl
             python -m pip install auditwheel
             python -m auditwheel show dist/*.whl | tr '\n' ' ' | grep -q '"manylinux_2_28_x86_64"'
-          else
+          elif [ "$RUNNER_OS" = macOS ]; then
             ls dist/*-macosx_11_0_arm64.whl
             unzip -p dist/*.whl sprack/_core.abi3.so > "$RUNNER_TEMP/core.so"
             otool -l "$RUNNER_TEMP/core.so" | grep -A4 LC_BUILD_VERSION | grep -q 'minos 11.0'
+          else
+            ls dist/*-win_amd64.whl
+            python -m zipfile -l dist/*.whl
+            [ "$(python -m zipfile -l dist/*.whl | grep -o '_core\.[a-z0-9.]*')" = _core.pyd ]
           fi
 
       # Run the tests from outside the checkout so `import sprack` finds the
-      # installed wheel, not python/sprack/.
+      # installed wheel, not python/sprack/. A venv on Windows keeps its
+      # interpreter in Scripts/.
       - name: Test the installed wheel
+        shell: bash
         run: |
           python -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/python" -m pip install dist/*.whl
+          py="$RUNNER_TEMP/venv/bin/python"
+          [ -x "$py" ] || py="$RUNNER_TEMP/venv/Scripts/python"
+          "$py" -m pip install dist/*.whl
           cp python/test_sprack.py "$RUNNER_TEMP/"
-          export SPRACK_GRAMMARS="$PWD/grammars"
+          export SPRACK_GRAMMARS="$GITHUB_WORKSPACE/grammars"
           cd "$RUNNER_TEMP"
-          venv/bin/python -c 'import sprack; print(sprack.__file__)'
-          venv/bin/python test_sprack.py
+          "$py" -c 'import sprack; print(sprack.__file__)'
+          "$py" test_sprack.py
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
