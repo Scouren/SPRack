@@ -371,6 +371,11 @@ no single rule holds everything, which is how `.options timeint ...` and
     unique param : ...                 # a parameter defined twice in one scope,
     unique master : ...                # or a name both a model and a subcircuit
                                        # define, is refused here: an error
+    reserved vt temp : ...             # parameter names the simulator refuses
+    spread montecarlo                  # a block written by adding its rule to each
+                                       # analysis of its body (`sweep monte=30`)
+    switch "simulator lang=spice" -> hspice   # from such a line on, read with
+                                       # another grammar, until the next switch
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
     differs pow : the exponent is cut to an integer  # a shared function or operator
                                                      # evaluated differently: a caveat
