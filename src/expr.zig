@@ -416,6 +416,25 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
                 const w = st.at(cv.when_slot);
                 if (w != .atom or !std.mem.eql(u8, w.atom, cv.when_atom)) continue;
             }
+            if (cv.op == .wrap) {
+                // Forward: a == b becomes l = [a]. Back: a one-item l with no a.
+                const a = st.at(cv.src);
+                const l = st.at(cv.dst);
+                if (forward and (a == .none or !a.eql(st.at(cv.when_eq)))) continue;
+                if (!forward and (a != .none or l != .list or l.list.len != 1)) continue;
+                if (!copied) {
+                    try st.own(arena);
+                    copied = true;
+                }
+                if (forward) {
+                    try st.set(arena, cv.dst, .{ .list = try arena.dupe(ir.Value, &.{a}) });
+                    try st.set(arena, cv.src, .none);
+                } else {
+                    try st.set(arena, cv.src, l.list[0]);
+                    try st.set(arena, cv.dst, .none);
+                }
+                continue;
+            }
             const from = if (forward) cv.src else cv.dst;
             const to = if (forward) cv.dst else cv.src;
             const v = st.at(from);
@@ -426,6 +445,7 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
             const out: ir.Value = switch (cv.op) {
                 .copy => v,
                 .recip => try arith(arena, .recip, v, .none),
+                .wrap => unreachable,
                 // A missing operand counts as zero: nothing to do.
                 .sub, .add => if (arg == .none) continue else try arith(arena, if ((cv.op == .sub) == forward) .sub else .add, v, arg),
                 .mul, .div => if (arg == .none) continue else try arith(arena, if ((cv.op == .mul) == forward) .mul else .div, v, arg),

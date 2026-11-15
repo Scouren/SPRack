@@ -175,14 +175,18 @@ pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const [
 /// `convert kind [slot=atom] : a = b op c`: this dialect's slot `a` holds a
 /// function of canonical slots. Writing computes it; reading inverts it.
 /// `op` is `-` or `+` (`c` a slot or a number), `1/` (`a = 1 / a`), or none
-/// (`a = b`, the value only changes slot).
+/// (`a = b`, the value only changes slot). `convert kind a==b : l = [a]`:
+/// when `a` equals `b`, `a` is written as the one item of the list `l`
+/// (Spectre refuses a sweep whose stop is its start, but takes `values=[f]`).
 pub const Convert = struct {
     kind: Kind,
     when_slot: u8 = no_slot,
     when_atom: []const u8 = "",
+    /// `a==b`: the slot `src` must equal.
+    when_eq: u8 = no_slot,
     dst: u8,
     src: u8,
-    op: enum { copy, sub, add, recip, mul, div } = .copy,
+    op: enum { copy, sub, add, recip, mul, div, wrap } = .copy,
     /// The other operand of `-` or `+`: a slot, or else a number.
     arg_slot: u8 = no_slot,
     arg_num: []const u8 = "",
@@ -1147,11 +1151,24 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (ks.len < 1 or ks.len > 2) return c.fail(no, "convert needs a kind and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
             var cv: Convert = .{ .kind = kind, .dst = 0, .src = 0 };
-            if (ks.len == 2) cv.when_slot, cv.when_atom = try condition(c, no, kind, ks[1]);
+            var eq: ?[2]u8 = null;
+            if (ks.len == 2) {
+                if (std.mem.indexOf(u8, ks[1], "==")) |at| {
+                    eq = .{ try slotNamed(c, no, kind, ks[1][0..at]), try slotNamed(c, no, kind, ks[1][at + 2 ..]) };
+                } else cv.when_slot, cv.when_atom = try condition(c, no, kind, ks[1]);
+            }
             const e = try args(c, no, rest[colon + 3 ..]);
             if (e.len < 3 or !std.mem.eql(u8, e[1], "=")) return c.fail(no, "expected `a = b [op c]` after ':'", .{});
             cv.dst = try slotNamed(c, no, kind, e[0]);
-            if (e.len == 3) {
+            if (eq) |pair| {
+                const inner = if (e.len == 3 and e[2].len > 2 and e[2][0] == '[' and e[2][e[2].len - 1] == ']') e[2][1 .. e[2].len - 1] else "";
+                if (inner.len == 0 or !std.mem.eql(u8, inner, ks[1][0..std.mem.indexOf(u8, ks[1], "==").?]))
+                    return c.fail(no, "with `a==b` the conversion is `l = [a]`", .{});
+                if (!schema.info(kind).slots[cv.dst].list) return c.fail(no, "`l = [a]` needs a list slot", .{});
+                cv.op = .wrap;
+                cv.src = pair[0];
+                cv.when_eq = pair[1];
+            } else if (e.len == 3) {
                 cv.src = try slotNamed(c, no, kind, e[2]);
             } else if (e.len == 5 and std.mem.eql(u8, e[2], "1") and std.mem.eql(u8, e[3], "/")) {
                 cv.op = .recip;
