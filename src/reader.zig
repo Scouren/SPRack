@@ -895,11 +895,52 @@ const Spelling = struct {
     // The table can be large and is rebuilt as it grows, so it lives
     // outside the arena and is freed when reading is done.
 
-    fn scan(sp: *Spelling, toks: []const Tok) Allocator.Error!void {
-        for (toks) |t| {
-            // The lexer folds a word into a fresh copy only if it has capitals.
-            if (t.tag != .word or t.text.ptr == t.raw.ptr or t.text.len != t.raw.len) continue;
-            _ = try sp.mixed.getOrPut(ir.big, t.raw);
+    /// The capitalised names of a statement read in the first pass: the
+    /// values of its name, node, model and reference slots, the nodes of
+    /// its signals and of `.ic` keys. Keywords and parameter keys are not
+    /// names, so `DC` on a source does not respell a node `dc`.
+    fn names(sp: *Spelling, arena: Allocator, st: *const ir.Stmt) Allocator.Error!void {
+        for (schema.info(st.kind).slots, 0..) |sl, i| {
+            const v = st.at(i);
+            const one = [1]Value{v};
+            const items: []const Value = switch (v) {
+                .atom => &one,
+                .list => |l| l,
+                .params => |ps| {
+                    if (st.kind == .ic or st.kind == .nodeset) for (ps) |p| try sp.learn(p.key, arena);
+                    continue;
+                },
+                else => continue,
+            };
+            switch (sl.ty) {
+                .name => if (st.kind == .func) continue,
+                .ident => if (st.kind == .model and std.mem.eql(u8, sl.name, "type")) continue,
+                .node, .ref, .signal => {},
+                else => continue,
+            }
+            for (items) |it| {
+                if (it != .atom) continue;
+                if (sl.ty != .signal) {
+                    try sp.learn(it.atom, null);
+                    continue;
+                }
+                var args: [3][]const u8 = undefined;
+                _, const n = signalParts(it.atom, &args) orelse continue;
+                for (args[0..n]) |a| try sp.learn(a, arena);
+            }
+        }
+    }
+
+    /// `copy`: the name was built for this statement, not sliced from the
+    /// source text (which outlives the table), so the table keeps a copy.
+    fn learn(sp: *Spelling, name: []const u8, copy: ?Allocator) Allocator.Error!void {
+        for (name) |c| {
+            if (!std.ascii.isUpper(c)) continue;
+            const gop = try sp.mixed.getOrPut(ir.big, name);
+            if (!gop.found_existing) if (copy) |a| {
+                gop.key_ptr.* = try a.dupe(u8, name);
+            };
+            return;
         }
     }
 
@@ -1272,39 +1313,51 @@ const Reader = struct {
             _ = scratch.reset(.retain_capacity);
             self.m.log = .empty;
             if (!try win.has(0)) break;
+            // A line with capitals is read in full, so the spelling table
+            // learns its names and nodes, and not its keywords (`DC`).
+            var caps = false;
+            if (fold_case) {
+                var k = ti;
+                while (self.toks()[k].tag != .nl) : (k += 1) {
+                    const t = self.toks()[k];
+                    // The lexer folds a word into a fresh copy only if it has capitals.
+                    if (t.text.ptr != t.raw.ptr) caps = true;
+                }
+            }
             var found: ?ir.Stmt = null;
             for (self.g.rules) |*rule| {
-                if ((rule.kind != .model and rule.kind != .param) or rule.dir == .write) continue;
+                if (rule.dir == .write) continue;
+                if (!caps and rule.kind != .model and rule.kind != .param) continue;
                 if (try self.m.run(rule.kind, rule.pat, ti)) {
                     found = try self.m.build(0);
                     break;
                 }
             }
             if (found == null) {
-                for (self.g.blocks) |*b| {
-                    if (b.kind != .subckt) continue;
-                    if (try self.m.run(.subckt, b.open, ti)) {
-                        found = try self.m.build(0);
-                        break;
-                    }
-                    for (b.inner) |pat| {
-                        if (try self.m.run(.subckt, pat, ti)) {
-                            found = try self.m.build(0);
-                            break;
+                blocks: for (self.g.blocks) |*b| {
+                    if (!caps and b.kind != .subckt) continue;
+                    for ([_][]const []const Node{ &.{b.open}, b.inner, if (caps) &.{b.close} else &.{} }) |pats| {
+                        for (pats) |pat| {
+                            if (try self.m.run(b.kind, pat, ti)) {
+                                found = try self.m.build(0);
+                                break :blocks;
+                            }
                         }
                     }
                 }
             }
             if (found) |*st| {
-                if (fold_case) try self.spell.statement(self.arena, st);
-                const n = st.get("name");
-                if (st.kind != .param and n == .atom) {
-                    try declared.put(self.arena, if (fold_case) try Spelling.lowered(self.arena, n.atom) else n.atom, {});
+                if (caps) try self.spell.names(self.arena, st);
+                if (st.kind == .model or st.kind == .param or st.kind == .subckt) {
+                    if (fold_case) try self.spell.statement(self.arena, st);
+                    const n = st.get("name");
+                    if (st.kind != .param and n == .atom) {
+                        try declared.put(self.arena, if (fold_case) try Spelling.lowered(self.arena, n.atom) else n.atom, {});
+                    }
                 }
             }
             while (self.toks()[ti].tag != .nl) ti += 1;
             ti += 1;
-            if (fold_case) try self.spell.scan(self.toks()[0..ti]);
         }
         win.rewind();
     }

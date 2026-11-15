@@ -2960,3 +2960,15 @@ test "a zero or missing pulse rise is SPICE's .tran step, written out where the 
     _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 pulse(0 1 0 0 0 10n 20n)\n.op\n.end\n", &r3);
     try reported(&r3, .@"error", "vsource.rise is 0: Spectre refuses a zero rise time");
 }
+
+test "the spelling table holds names only: a keyword DC does not respell a node dc" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", "t\nV1 a 0 DC 1\nR1 a dc 1k\nR2 dc Out 1k\nC1 out 0 1p W=1\n.save v(OUT)\n.end\n", &r);
+    try has(sp, "R1 (a dc) resistor r=1k\n");
+    // A name is still spelled the way it is first capitalised, everywhere.
+    try has(sp, "C1 (Out 0) capacitor c=1p");
+    try has(sp, "R2 (dc Out) resistor r=1k\n");
+}
