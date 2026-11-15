@@ -84,8 +84,8 @@ def fold(plots):
         name = PLOT.get(name.lower(), name)
         swept = any(SWEEP.fullmatch(c.lower()) for c in cols)
         if name.lower() in ("dc transfer characteristic", "operating point"):
-            # Xyce writes .op as a one-point DC sweep; VACASK writes a DC sweep as an operating point.
-            name = "DC transfer characteristic" if swept and rows > 1 else "Operating Point"
+            # Xyce writes .op as a one-point DC sweep over `sweep`; VACASK writes a DC sweep (over `sweep1`) as an operating point.
+            name = "DC transfer characteristic" if swept and (rows > 1 or any(re.fullmatch(r"sweep\d+", c.lower()) for c in cols)) else "Operating Point"
             if name == "Operating Point" and swept:
                 keep = [i for i, c in enumerate(cols) if not SWEEP.fullmatch(c.lower())]
                 cols, tab = [cols[i] for i in keep], [[r[i] for i in keep] for r in tab]
