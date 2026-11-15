@@ -805,18 +805,6 @@ netlist/invalid/ac_negative_frequency.sp	ngspice	vacask	runtime	loaded	Failed to
 netlist/invalid/ac_negative_frequency.sp	hspice	vacask	runtime	loaded	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
 netlist/invalid/ac_zero_density.sp	ngspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
 netlist/invalid/ac_zero_density.sp	hspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
-netlist/invalid/bench_topology_floating_node.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/bench_topology_floating_node.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/cccs_word_on_e_refused.sp	ngspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/cccs_word_on_e_refused.sp	hspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/contradictory_voltage_loop.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/contradictory_voltage_loop.sp	hspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/contradictory_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/contradictory_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_capacitor_dc.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_capacitor_dc.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_open_node.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_open_node.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/dc_wrong_step_direction.sp	ngspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
 netlist/invalid/dc_wrong_step_direction.sp	hspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
 netlist/invalid/dc_zero_step.sp	ngspice	vacask	excluded:syntax	syntax	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=0 | Failed to set up sweep for analysis 'dc1'.
@@ -831,18 +819,12 @@ netlist/invalid/noise_zero_frequency.sp	ngspice	vacask	excluded:runtime	syntax	F
 netlist/invalid/source_pwl_file_refused.sp	hspice	vacask	excluded:syntax	syntax	Syntax error, unexpected string. :: ... (a 0) vsource dc=pwl file=nonexist.txt
 netlist/invalid/source_pwl_repeat_unmatched.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
 netlist/invalid/source_pwl_repeat_unmatched.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
-netlist/invalid/topology_parallel_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/topology_parallel_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/tran_negative_stop.sp	ngspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
 netlist/invalid/tran_negative_stop.sp	hspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
-netlist/invalid/unknown_instance_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/vx/w/parse_check.47k0uk7k/tmpre59_h98/unknown_instance_parameter.x.sim
-netlist/invalid/unknown_instance_parameter.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/vx/w/parse_check.47k0uk7k/tmptyam_xqr/unknown_instance_parameter.x.sim
+netlist/invalid/unknown_instance_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/c3/work/parse_check.qvcv27c6/tmp794c9h26/unknown_instance_parameter.x.sim
+netlist/invalid/unknown_instance_parameter.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/c3/work/parse_check.qvcv27c6/tmp4gdcztc9/unknown_instance_parameter.x.sim
 netlist/invalid/unresolved_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Master 'rv' not found. :: r1 (a 0) rv
 netlist/invalid/unresolved_parameter.sp	hspice	vacask	excluded:syntax	syntax	exit 1
-netlist/layout/capacitive_divider_tran.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/capacitive_divider_tran.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/metal_island_tran.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/metal_island_tran.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/convergence/monotonic_cubic_0p001.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
 netlist/convergence/monotonic_cubic_1.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
 netlist/convergence/monotonic_cubic_1000.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
@@ -855,12 +837,10 @@ netlist/tran/bench_tline_terminated.sp	ngspice	vacask	runtime	loaded	Homotopy fa
 netlist/tran/bench_tline_terminated.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/tran/device_tline.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/tran/device_tline.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/equal_current_sources.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/equal_current_sources.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/island_series_short.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/island_series_short.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/stress/scaling_inverter_chain_4k.sp	ngspice	vacask	timeout	loaded	killed after 10s
 netlist/stress/scaling_inverter_chain_4k.sp	hspice	vacask	timeout	loaded	killed after 10s
+netlist/stress/scaling_rc_ladder_100k.sp	ngspice	vacask	timeout	loaded	killed after 10s
+netlist/stress/scaling_rc_ladder_100k.sp	hspice	vacask	timeout	loaded	killed after 10s
 netlist/stress/vacask_ring.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Device 'psp103va' not found. :: model psp103n psp103va (
 netlist/stress/vacask_mul.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Failed to add device. :: load "spice/sn/diode.osdi"
 netlist/stress/vacask_graetz.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Failed to add device. :: load "spice/sn/diode.osdi"
@@ -870,10 +850,7 @@ netlist/multi_analysis/bsource_power_ngspice.sp	ngspice	vacask	syntax	runtime	De
 netlist/hdl/veriloga_pre_osdi_va.sp	ngspice	vacask	excluded:syntax	syntax	File 'veriloga_hdl_errors.assets/va_rh.osdi' not found. :: load "veriloga_hdl_errors.assets/va_rh.osdi"
 netlist/ac/device_tline_delay.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
 netlist/ac/device_tline_delay.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
-netlist/ac/kinduc_k_exact.sp	ngspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
-netlist/ac/kinduc_k_exact.sp	hspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
 netlist/syntax/hspice_suffix.sp	ngspice	vacask	excluded:syntax	syntax	Master 'cval' not found. :: C1 (out 0) cval
-netlist/syntax/subckt_params.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=6, rank=2. | Factorization failed, size=6, rank=2, zero pivot @ node 'mid1'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/dc/device_mos3.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
 netlist/dc/device_mos3.sp	hspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
 netlist/dc/device_mos3_transfer.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 45 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/501 (0).

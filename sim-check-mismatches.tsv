@@ -89,20 +89,14 @@ netlist/dc/device_jfet2_temp.sp	xyce	mismatch	values differ	DC transfer characte
 netlist/dc/diode_area_sidewall.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/dc/single_point.sp	xyce	mismatch	plot missing	plot DC transfer characteristic	got=missing want=present
 netlist/regression/sensed_vsource_two_sensors.sp	xyce	mismatch	no raw file / timeout	raw file	got=raw: no Title want=a binary raw file
-netlist/invalid/cccs_word_on_e_refused.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/contradictory_voltage_loop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/contradictory_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/dc_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/hspice_unquoted_expression.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/noise_missing_output.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/noise_zero_frequency.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/options_negative_reltol.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/options_reltol_zero.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/topology_parallel_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/tran_negative_stop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/tran_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/layout/capacitive_divider_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/layout/metal_island_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/convergence/monotonic_cubic_0p001.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/convergence/monotonic_cubic_1.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/convergence/monotonic_cubic_1000.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
@@ -122,13 +116,10 @@ netlist/tran/bench_tran_sffm_source.sp	vacask	mismatch	values differ	Transient A
 netlist/tran/device_kinduc.sp	vacask	mismatch	values differ	Transient Analysis:v(s)	[7] got=0.00266677323+0j want=0.00185991089+0j
 netlist/tran/device_mos1_large_signal.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[33] got=4.97492035+0j want=4.99582365+0j
 netlist/tran/device_tline.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/equal_current_sources.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/island_series_short.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/tran/pwl_isource_breakpoints.sp	vacask	mismatch	values differ	Transient Analysis:v(a)	[6] got=0.000392070315+0j want=6.20394502e-05+0j
 netlist/stress/scaling_inverter_chain_256.sp	vacask	mismatch	values differ	Transient Analysis:v(s10)	[24] got=0.25502154+0j want=0.232152114+0j
-netlist/stress/scaling_inverter_chain_4k.sp	vacask	mismatch	no raw file / timeout	run	timeout
 netlist/stress/scaling_parallel_inverters_100.sp	vacask	mismatch	values differ	Transient Analysis:v(out3)	[7] got=1.77218117+0j want=1.74656999+0j
-netlist/stress/scaling_parallel_inverters_2000.sp	vacask	mismatch	values differ	Transient Analysis:v(out86)	[7] got=1.77216608+0j want=1.74656999+0j
+netlist/stress/scaling_parallel_inverters_2000.sp	vacask	mismatch	no raw file / timeout	raw file	TimeoutError: judging took over 60 s
 netlist/stress/scaling_rc_ladder_1k.sp	vacask	mismatch	values differ	Transient Analysis:i(vin)	[2] got=-1.88850395e-05+0j want=-1.97077581e-05+0j
 netlist/op/bsource_ln_zero_start.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/op/nodeset_latch.sp	vacask	mismatch	values differ	Operating Point:v(q)	[0] got=0.0735699125+0j want=4.61988106+0j
@@ -165,12 +156,10 @@ netlist/ac/bsim4_zero_bias_junction_cap.sp	vacask	mismatch	values differ	AC Anal
 netlist/ac/dec_lane_tail_16.sp	vacask	mismatch	values differ	AC Analysis rows	got=17 want=16
 netlist/ac/dec_lane_tail_31.sp	vacask	mismatch	values differ	AC Analysis rows	got=32 want=31
 netlist/ac/device_tline_delay.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/ac/kinduc_k_exact.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/ac/rc_dec_3_10_730.sp	vacask	mismatch	values differ	AC Analysis rows	got=7 want=6
 netlist/reference/cmos_inverter_dc.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=33 want=34
 netlist/reference/mos_common_source_ac.sp	vacask	mismatch	values differ	AC Analysis:i(vin)	[28] got=0+0j want=-4.07401319e-10-1.33536788e-08j
 netlist/syntax/hspice_suffix.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/syntax/subckt_params.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/dc/bench_sweep_amp_bias_sweep.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=330 want=331
 netlist/dc/device_bjt_npn_gummel.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=140 want=141
 netlist/dc/device_bjt_npn_temp.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=440 want=444
