@@ -424,6 +424,52 @@ See 1.5.
 | Spectre | function table | **incomplete** | observed: `pwr(-2,2)` is -4 (sign kept), `sgn(-3)` is -1, `sign(3,-1)` is -3, `nint(2.5)` is 2 and `nint(3.5)` 4 (halves to even), `db(10)` is 20 and `db(-10)` -20, `int(-2.5)` is -2 (truncation), `floor(-2.5)` -3, `ceil(-2.5)` -2; `limit` is not defined; `sqrt(-4)` stops the run. Added: `pwr sgn nint db` and `sign2 = sign`. |
 | VACASK | see 1.2 item 8 | names correct, table incomplete | `lib/context.cpp:37-116` |
 
+### 4.4 Measured for 8.2 (decks written for this, values read back)
+
+| expression | ngspice `.param` | ngspice B source | Xyce 7.10 | HSPICE | Spectre |
+|---|---|---|---|---|---|
+| `-2**2` | -4 | -4 | -4 | -4 | -4 |
+| `1+-2**2` | **5** | -3 | -3 | -3 | -3 |
+| `2*-2**2` | **8** | | | | |
+| `(-2)**3` | **8** | **8** | -8 | -8 | -8 |
+| `pwr(-2,2)` | 4 | -4 | **4** | -4 | -4 |
+| `pwr(-2,3)` | 8 | -8 | -8 | -8 | -8 |
+| `nint(2.5)`, `nint(-2.5)` | 2, -2 | 2, -2 | **3, -3** | 3, -3 | 2, -2 |
+| `int(-2.7)`, `floor(-2.5)` | -2, -3 | no `int`; -3 | -2, -3 | -2, -3 | -2, -3 |
+| `log10(-100)` | error | error | **2** | **-2** | error |
+| `sqrt(-4)` | error | error | 0 | -2 | error |
+| `0 ? 1 : 1 ? 5 : 6` | 5 | 5 | 5 | 5 | 5 |
+| `if(1,3,4)` | refused | refused | 3 | refused | refused |
+| `ternary_fcn(1,3,4)` | 3 | 3 | refused | refused | n/a |
+
+A minus after `(` or `,` or at the start binds as everywhere else in ngspice's
+`.param`; only one right after another operator binds before the power.
+VACASK loads and runs `p=(x > 1 ? 3 : 4)`. The `sqrt` rows are not written
+as `differs`: they differ only where the others stop with an error, and the
+caveat would follow nearly every PDK expression.
+
+### 4.5 Instance parameters (7.3)
+
+ngspice from `devhelp` (ngspice 45), Xyce from `Xyce -param` (7.10). HSPICE
+and Spectre: one deck per device and name, against a made-up name as
+control; a name is taken when it raises no warning or error the control
+raises. Observed in HSPICE: a resistor takes `noise`, not `noisy`; `temp` is
+taken by no device tried; a diode's `w`/`l` are taken at level 3; `m` of zero
+or less stops the run for every device tried (in Spectre too); a current
+source's PWL takes `r` and `td`; a capacitor takes `Q=`. In Spectre: a
+resistor's noise switch is `isnoisy` (0 and 1 load), `trise` and `dtemp`
+are both taken, no device tried takes `temp` except the inductor, and
+`ic`/`off` on a diode, BJT or JFET draw a warning. Xyce refuses `m` of zero
+or less on R, L and C, and takes negative `m` on D, Q and M; ngspice takes
+`m=-2` and `m=0` on a resistor.
+
+### 4.6 Pulse rise and fall (item 2)
+
+A current pulse of width 10 ns into 1 F: with HSPICE `.tran 1n`, `tr=tf=0`
+gives the same charge as `tr=tf=1n` (10.94 nC both), so zero means the time
+step, as in ngspice (11.0 nC at step 1 ns, 12.0 nC at 2 ns). Spectre refuses
+`rise=0`; left out, the charge is 10.08 nC, a default far below a 1 ns step.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

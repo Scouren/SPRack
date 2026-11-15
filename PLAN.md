@@ -185,7 +185,7 @@ supported simulator defines.
   error-free run, loads it in Spectre 25.10 / HSPICE Y-2026.03 on a host
   given by arguments, and runs the source deck in its own simulator as a
   control. Left (source loads, translation does not): `rise=0`
-  pulses, `%` and braces inside `.meas` text, `agauss` inline in HSPICE
+  pulses (now the `.tran` step, written by a `default` line), `%` and braces inside `.meas` text, `agauss` inline in HSPICE
   instance expressions, and decks whose values the commercial tools reject
   at run time (zero step, 0 K, m <= 0, V/L loops).
 
@@ -195,7 +195,12 @@ supported simulator defines.
   and package the `.abi3.so`.
 - [x] **7.2 Installed PDK layouts (7.1)** and the IHP corner map and `load`
   list (7.2), checked against IHP's documentation.
-- [ ] **7.3 Parameter check for model-card devices (7.3).**
+- [x] **7.3 Parameter check for model-card devices (7.3).** `params kind ...
+  end` tables (ngspice/ESPice, Xyce, HSPICE, Spectre) for resistors,
+  capacitors, inductors, current sources, diodes, BJTs, JFETs and HSPICE
+  MOSFETs: renamed, or a loss, or `m>0` refused. The Python API checks a
+  PDK model card's parameters against its dialect's table. Left: vsource,
+  MOSFET tables outside HSPICE, VACASK (vacask-fix adds its own).
 - [x] **7.4 CI matrix (7.4):** CPython 3.10 and 3.13, on Linux and macOS.
 - [x] **7.5 C API (7.7).** Add one test, or delete `src/capi.zig`.
 - [x] **7.6 GF180MCU manifest (7.6).** Optional.
@@ -210,12 +215,16 @@ supported simulator defines.
   Next lever: streaming read→write, or a 16-byte `Value` (the mesh's bound
   values alone are 2.6×). Smaller ones: free the logical-line list (1×) and
   shrink the 72-byte `Stmt` (1.8×).
-- [ ] **8.2 Expression semantics (5.4).** Add a `caveat` for `pwr`, `log`,
-  `int`, ternary forms and unary minus with power.
-- [ ] **8.3 Report the model-parameter caveat once per file (5.5).**
-- [ ] **8.4 Corner-aware `sprack project` (5.6).**
-- [ ] **8.5 Fix the spelling table for name slots only** (`Spelling.scan`).
-- [ ] **8.6 Doc cleanup:** the "spx" caption and the directive table.
+- [x] **8.2 Expression semantics (5.4).** `?:` and `if()` are restructured
+  into the form the target has; `differs` for ngspice `**`/`pwr`/`int`/
+  `negpow`, Xyce `pwr`/`nint`/`log10`, HSPICE `ln`/`log10`, all measured
+  (`docs/verification.md` 4.4). `int` and `floor` agree everywhere measured.
+- [x] **8.3 Report the model-parameter caveat once per file (5.5).**
+- [x] **8.4 Corner-aware `sprack project` (5.6).** `--section`; the Python
+  PDK translates its corner only.
+- [x] **8.5 Fix the spelling table for name slots only** (`Spelling.scan`).
+- [x] **8.6 Doc cleanup:** the directive table lists every directive; no
+  "spx" caption is left anywhere in the repository.
 
 ## Order and size
 

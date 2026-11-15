@@ -13,7 +13,7 @@ the same canonical statements, and every writer consumes them.
 
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
-    zig build test                 # 55 tests
+    zig build test                 # 100 tests
     python -m build                # dist/sprack-<ver>.tar.gz and a wheel (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
@@ -80,7 +80,9 @@ built-in ones.
 
 `project` follows every `.include` and `.lib` from the files it is given and
 writes a translated copy of the whole tree, with the include lines rewritten as
-relative paths. It reads the set twice: once to learn which models,
+relative paths, and the Verilog-A files `.hdl` names copied beside them.
+`--section tt` (repeatable) follows only the library sections named and those
+their `.lib` lines name; the log lists each section not followed. It reads the set twice: once to learn which models,
 subcircuits and functions each file declares, once with that knowledge. That
 is what lets a Spectre instance line be recognised as a MOSFET when its model
 is declared three includes away. `$NAME` in include paths is expanded from the
@@ -219,7 +221,7 @@ Pass `manifest=` to use a PDK that has no manifest here.
 
 ## What was run
 
-* `zig build test`: 55 tests, among them the 64 translations of one circuit
+* `zig build test`: 100 tests (3 of them skipped reproducers of open gaps), among them the 64 translations of one circuit
   between the eight dialects with a read-back comparison (into CDL, the
   sources and analyses are each an `unsupported` error and the rest reads
   back the same), 20,000 randomly
@@ -288,6 +290,7 @@ compile error with the file and line.
       oddscale  mil=25.4e-6            # multipliers that are not powers of ten
       units     ignore                 # letters after a number; or: after-scale
       numbers   strict                 # a malformed number (3.3.0) is refused
+      vectors   comma                  # `[a, b]` written with commas; or: space
       end       ".end"
     end
 
@@ -354,10 +357,24 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # before it, and absorbs it if only comments
                                        # stand between them
     caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
+    caveat hdl path=*.osdi : ...       # only where the value ends so
     threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
+    convert pss : fund = 1 / fund      # a value this dialect says differently:
+    convert vsource wave=exp : td2 = td2 - td1    # a = b, a = a +/- c, a = 1 / a;
+                                       # inverted when reading
+    invalid vsource rise=0 wave=pulse : ...  # left out (or 0) it means something
+                                       # else here: an error crossing in or out
+    default vsource rise=0 wave=pulse : tran.step  # left out (or 0) by a dialect
+                                       # that means its default by that: written
+                                       # out from the netlist's first .tran
+    unique param : ...                 # a parameter defined twice in one scope,
+    unique master : ...                # or a name both a model and a subcircuit
+                                       # define, is refused here: an error
     no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
     differs pow : the exponent is cut to an integer  # a shared function or operator
                                                      # evaluated differently: a caveat
+                                                     # (`negpow`: a minus after an
+                                                     # operator, before `**`)
 
     signals                            # how recordable things are written
       v = "v(%)"
@@ -368,16 +385,30 @@ no single rule holds everything, which is how `.options timeint ...` and
       ln = log
     end
     variables  temper = temp  end
-    operators  pow "**" "^"   end
+    operators                          # pow, xor; ternary "?" if it has c ? a : b
+      pow "**" "^"
+    end
+    params resistor                    # the instance parameters a device takes,
+      same ac dtemp l m>0 w            # by canonical (ngspice) name; m>0: refused
+      noisy = noise                    # at zero or less; canonical = spelling
+    end
     models
       bsim4 n = nmos level=14 | nmos level=54     # first spelling is written
     end
+
+A device's instance parameters that cross into a dialect with a `params`
+table for its kind are renamed to that dialect's spelling (an info
+`rename`); one its device does not take is a `loss` error and is not
+written. A kind without a table is not checked.
 
 Expressions are translated token by token: numbers, function names, simulator
 variables and the two operators that differ (`**`/`^` for power, `^` for
 exclusive-or in Spectre). Spacing, parentheses and operand order stay as
 written. A function with no spelling in the target is an error naming the
-dialects that have it; so is one that nothing defines.
+dialects that have it; so is one that nothing defines. The one
+restructuring is a choice: `c ? a : b` is written `if(c, a, b)` for a
+dialect that has only `if()` (LTspice), and the other way round for one that
+has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
 
 ## Report codes
 
@@ -436,6 +467,8 @@ dialects that have it; so is one that nothing defines.
   the vocabulary: HSPICE's `.alter` and the `SWEEP` tail of an analysis
   line, Spectre's `alter`, `altergroup` and `paramset`, and `.data` read
   from files (`MER`, `LAM`).
-* Parameters of model cards are copied by name, with a warning: the simulators
-  ship different versions of the same model.
+* Parameters of model cards are copied by name, with one warning per file:
+  the simulators ship different versions of the same model. Instance
+  parameters are checked (`params` tables) for resistors, capacitors,
+  inductors, current sources, diodes, BJTs and JFETs, and HSPICE MOSFETs.
 * The whole netlist is held in memory, at about 4 to 7 times its size.
