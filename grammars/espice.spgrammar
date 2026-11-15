@@ -367,3 +367,15 @@ end
 # lines on top of those of the alters before it, as in HSPICE.
 rule  alter     = ".alter" [name]
 read  alter     = ".alter" ...
+# topology (d1)
+# Measured on decks written for it (ESPice, Nov 2026): a capacitor-only
+# island makes the operating point, DC sweep and AC analysis refuse
+# (FloatingNode); a transient solves it as ngspice does (0.25 V on a 1p:3p
+# divider). An unbalanced current cutset is refused everywhere. A loop of
+# voltage sources, consistent or not, or of a source and an inductor, is
+# refused, even with UIC. One of inductors only is solved, the current
+# split evenly whatever the inductances (ngspice splits 1u:3u otherwise).
+requires dc-path   error   : ESPice's operating point, DC sweep and AC analysis refuse it (FloatingNode), where its transient and ngspice divide the charge among the capacitors
+requires no-vloop  error   : ESPice refuses it
+requires no-vlloop error   : ESPice refuses it, where ngspice gets through with its transient operating point
+requires no-lloop  warning : ESPice solves it, but splits the current around the loop evenly whatever the inductances

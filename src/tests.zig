@@ -3561,6 +3561,13 @@ test "topology: no alarm where the netlist does not say enough" {
         "t\nVp out 0 DC 0 AC 1 portnum 1 z0 50\nL1 out 0 1m\n.ac dec 3 1k 1meg\n.end\n",
         // An .alter's redefinition replaces the source; it is not a second one.
         "t\nV1 a 0 1\nR1 a 0 1k\n.op\n.alter\nV1 a 0 2\n.end\n",
+        // A subcircuit's path through a behavioural source, a Verilog-A
+        // module or an unknown cell is no source path; nor one in a body
+        // no rule understood.
+        "t\n.subckt bs p n\nB1 p n V={1}\n.ends\n.subckt un p n\nXu p n elsewhere\n.ends\n.subckt op p n\n.foo bar\nV1 p n 1\n.ends\nV1 a 0 1\nX1 a 0 bs\nX2 a 0 un\nX3 a 0 op\n.op\n.end\n",
+        // A source in series between two ports of a subcircuit, and a
+        // source to ground behind a resistor: no loop with the parent's.
+        "t\n.subckt sr p n\nV1 p m 0\nR1 m n 1k\nV2 k 0 1\nR2 k p 1k\n.ends\nV1 a 0 1\nX1 a 0 sr\n.op\n.end\n",
     };
     for (cases) |src| {
         const r = try topo(a, "vacask", src);
@@ -3569,6 +3576,59 @@ test "topology: no alarm where the netlist does not say enough" {
             return error.TestUnexpectedReport;
         }
     }
+}
+
+test "topology: a loop through subcircuit instances, one and two levels down" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const lib =
+        \\.subckt ref p n
+        \\Vr p n 1
+        \\.ends
+        \\.subckt wrap a b
+        \\X2 a b ref
+        \\.ends
+        \\.subckt ind a b
+        \\L1 a m 1u
+        \\Vm m b 0
+        \\.ends
+        \\.subckt choke a b
+        \\L1 a b 1u
+        \\.ends
+        \\.subckt gref p
+        \\Vg p 0 1
+        \\.ends
+        \\
+    ;
+    // A source in the parent, one in the subcircuit, one level down.
+    var r = try topo(a, "vacask", "t\n" ++ lib ++ "V1 in 0 1\nX1 in 0 ref\n.op\n.end\n");
+    try reported(&r, .@"error", "V1, X1(in,0) form a loop of voltage sources through 'in' and '0'");
+    try testing.expectEqual(1, r.items.items.len);
+    // Two levels down, between two parent sources.
+    r = try topo(a, "vacask", "t\n" ++ lib ++ "V1 a 0 1\nXw a b wrap\nV2 b 0 1\n.op\n.end\n");
+    try reported(&r, .@"error", "V1, Xw(a,b), V2 form a loop of voltage sources through 'b' and '0'");
+    try testing.expectEqual(1, r.items.items.len);
+    // A subcircuit's source to its ground.
+    r = try topo(a, "vacask", "t\n" ++ lib ++ "V1 a 0 1\nXg a gref\n.op\n.end\n");
+    try reported(&r, .@"error", "V1, Xg(a,0) form a loop of voltage sources");
+    // A path of a source and an inductor; one of inductors only.
+    r = try topo(a, "vacask", "t\n" ++ lib ++ "V1 a 0 1\nX1 a 0 ind\nV2 c 0 1\nR2 c p 1k\nL2 p 0 1u\nX2 p 0 choke\n.op\n.end\n");
+    try reported(&r, .@"error", "V1, X1(a,0) form a loop of voltage sources and inductors through 'a' and '0'");
+    try reported(&r, .@"error", "L2, X2(p,0) form a loop of inductors through 'p' and '0'");
+    try testing.expectEqual(2, r.items.items.len);
+    // ngspice has no inductor-loop rule; Xyce warns on it.
+    const lsrc = "t\n" ++ lib ++ "V2 c 0 1\nR2 c p 1k\nL2 p 0 1u\nX2 p 0 choke\n.op\n.end\n";
+    try testing.expectEqual(0, (try topo(a, "ngspice", lsrc)).items.items.len);
+    try reported(&(try topo(a, "xyce", lsrc)), .warning, "form a loop of inductors");
+    // ESPice, measured: it refuses islands at an operating point and every
+    // source loop, and solves an inductor loop.
+    try reported(&(try topo(a, "espice", lsrc)), .warning, "L2, X2(p,0) form a loop of inductors");
+    try reported(&(try topo(a, "espice", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.op\n.end\n")), .@"error", "node 'x' has no DC path to ground");
+    // A loop inside a subcircuit is reported there, not again at each instance.
+    r = try topo(a, "vacask", "t\n.subckt dbl p n\nV1 p n 1\nV2 p n 1\n.ends\nX1 a 0 dbl\nR1 a 0 1k\nX2 b 0 dbl\nR2 b 0 1k\n.op\n.end\n");
+    try reported(&r, .@"error", "subcircuit 'dbl': V1, V2 form a loop of voltage sources");
+    try testing.expectEqual(1, r.items.items.len);
 }
 
 // c4: HSPICE-reader gaps from the ESPice project

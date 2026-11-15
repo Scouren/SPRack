@@ -512,9 +512,12 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   parameters are checked (`params` tables) for resistors, capacitors,
   inductors, current sources, diodes, BJTs and JFETs, and HSPICE MOSFETs.
 * The topology check (`requires`) runs when translating between two
-  dialects, not on a deck written back in its own. It follows DC paths
-  through subcircuit instances but finds a loop of sources and inductors
-  only within one subcircuit or the top level. A device whose DC behaviour
+  dialects, not on a deck written back in its own. It does not flatten:
+  each subcircuit is summarised by which ports its body joins at DC, and
+  by which it joins through voltage sources only, inductors only, or both;
+  an instance stands for those paths in its parent, so a loop through
+  instances (`V1, X1(a,b), V2`) is found at any depth. LTspice states no
+  `requires` lines: its severities are unmeasured. A device whose DC behaviour
   depends on its model (behavioural sources, Verilog-A, transmission lines,
   cells defined in other files) is taken to join all its terminals, and the
   branches of a conditional all count, so it errs towards no alarm.

@@ -6,8 +6,10 @@
 //!
 //! Each subcircuit is checked on its own, and the top level with each
 //! instance standing for the DC paths its subcircuit makes between its
-//! ports. A device whose DC behaviour depends on its model (a behavioural
-//! source, a Verilog-A module, a transmission line, an instance of
+//! ports, and for the paths of voltage sources and inductors between them:
+//! a loop that runs through instances is found without flattening. A
+//! device whose DC behaviour depends on its model (a behavioural source, a
+//! Verilog-A module, a transmission line, an instance of
 //! something not defined here) joins all its terminals: it hides an alarm
 //! rather than raise a false one.
 
@@ -29,11 +31,16 @@ const max_reports = 20;
 const max_names = 4;
 const grounded = std.math.maxInt(u32);
 
-/// For each port of a subcircuit, the first port its body joins it to at
-/// DC (itself if none), or `grounded`.
-const Summary = []const u32;
+/// What an instance stands for in its parent: for each port, the first
+/// port its body joins it to at DC (itself if none) or `grounded`; and a
+/// forest of port pairs (`b` may be `grounded`) the body joins by a path of
+/// voltage sources only, of inductors only, or of both (at most one edge
+/// per port, so linear in the ports).
+const Summary = struct { dc: []const u32, edges: []const PortEdge };
+const PortEdge = struct { a: u32, b: u32, kind: Mix };
 
-const Edge = struct { a: u32, b: u32, s: *const Stmt, volt: bool };
+/// A voltage source or inductor, or an instance's path of them.
+const Edge = struct { a: u32, b: u32, s: *const Stmt, kind: Mix };
 const Term = struct { node: u32, conducts: bool };
 
 /// Union-find over the node indices of one scope.
@@ -197,7 +204,8 @@ fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!
         if (schema.info(s.kind).class != .device) continue;
         const sum = try instanceSummary(cx, s);
         const ts = try terms(cx, sc, s, true);
-        if (sum) |group| {
+        if (sum) |su| {
+            const group = su.dc;
             for (ts[0..@min(ts.len, group.len)], group[0..@min(ts.len, group.len)]) |t, gi| {
                 sc.dc.join(t.node, if (gi == grounded) 0 else ts[gi].node);
             }
@@ -213,19 +221,75 @@ fn walk(cx: *Cx, sc: *Scope, stmts: []const Stmt, branch: bool) Allocator.Error!
                 if (first) |f| sc.dc.join(f, t.node) else first = t.node;
             };
         }
-        const volt = switch (s.kind) {
+        if (branch) continue;
+        if (sum) |su| {
+            if (su.edges.len == 0 or !try fresh(cx, sc, s)) continue;
+            for (su.edges) |pe| {
+                if (pe.a >= ts.len or (pe.b != grounded and pe.b >= ts.len)) continue;
+                const b = if (pe.b == grounded) 0 else ts[pe.b].node;
+                try sc.edges.append(cx.gpa, .{ .a = ts[pe.a].node, .b = b, .s = s, .kind = pe.kind });
+            }
+            continue;
+        }
+        const kind: Mix = switch (s.kind) {
             // An RF port (portnum) has its z0 in series: not a voltage source.
-            .vsource => if (s.get("portnum") != .none) continue else true,
-            .vcvs, .ccvs => true,
-            .inductor => false,
+            .vsource => if (s.get("portnum") != .none) continue else .volt,
+            .vcvs, .ccvs => .volt,
+            .inductor => .induct,
             else => continue,
         };
-        if (ts.len < 2 or !ts[0].conducts or !ts[1].conducts or branch) continue;
-        if (nodeName(s.get("name"))) |name| {
-            if ((try sc.edge_names.fetchPut(cx.gpa, name, {})) != null) continue;
-        }
-        try sc.edges.append(cx.gpa, .{ .a = ts[0].node, .b = ts[1].node, .s = s, .volt = volt });
+        if (ts.len < 2 or !ts[0].conducts or !ts[1].conducts) continue;
+        if (!try fresh(cx, sc, s)) continue;
+        try sc.edges.append(cx.gpa, .{ .a = ts[0].node, .b = ts[1].node, .s = s, .kind = kind });
     }
+}
+
+/// False for a second definition of a name already in `sc.edges` (an `.alter`).
+fn fresh(cx: *Cx, sc: *Scope, s: *const Stmt) Allocator.Error!bool {
+    const name = nodeName(s.get("name")) orelse return true;
+    return (try sc.edge_names.fetchPut(cx.gpa, name, {})) == null;
+}
+
+/// The port pairs the body of `sc` joins by voltage sources, inductors or
+/// both: for each relation, each port to the first of its class (ground
+/// first), skipping a pair the edges so far already join, so the edges
+/// form a forest and make no loop of their own in the parent.
+fn portEdges(cx: *Cx, sc: *Scope, idx: []const u32) Allocator.Error![]const PortEdge {
+    if (sc.edges.items.len == 0) return &.{};
+    const kinds = [_]Mix{ .volt, .induct, .both };
+    var sets: [3]Sets = .{ .{}, .{}, .{} };
+    defer for (&sets) |*u| u.up.deinit(cx.gpa);
+    for (&sets) |*u| try u.reset(cx.gpa, sc.names.items.len);
+    for (sc.edges.items) |e| for (&sets, kinds) |*u, k| {
+        if (k == .both or k == e.kind) u.join(e.a, e.b);
+    };
+    const gnd: u32 = @intCast(idx.len);
+    var ports: Sets = .{};
+    defer ports.up.deinit(cx.gpa);
+    try ports.reset(cx.gpa, idx.len + 1);
+    var first: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    defer first.deinit(cx.gpa);
+    var out: std.ArrayList(PortEdge) = .empty;
+    for (&sets, kinds) |*u, k| {
+        first.clearRetainingCapacity();
+        try first.put(cx.gpa, u.find(0), gnd);
+        for (idx, 0..) |n, i| {
+            // A port that is ground, or another port's node, is a wire:
+            // not a path this check can name.
+            if (n == 0) continue;
+            const gop = try first.getOrPut(cx.gpa, u.find(n));
+            if (!gop.found_existing) {
+                gop.value_ptr.* = @intCast(i);
+                continue;
+            }
+            const j = gop.value_ptr.*;
+            if (j != gnd and idx[j] == n) continue;
+            if (ports.find(@intCast(i)) == ports.find(j)) continue;
+            ports.join(@intCast(i), j);
+            try out.append(cx.arena, if (j == gnd) .{ .a = @intCast(i), .b = grounded, .kind = k } else .{ .a = j, .b = @intCast(i), .kind = k });
+        }
+    }
+    return out.items;
 }
 
 fn summarize(cx: *Cx, def: *const Stmt) Allocator.Error!?Summary {
@@ -247,10 +311,11 @@ fn summarize(cx: *Cx, def: *const Stmt) Allocator.Error!?Summary {
             if (sc.dc.find(m) == r) break @intCast(j);
         } else @intCast(i);
     }
+    const sum: Summary = .{ .dc = group, .edges = try portEdges(cx, &sc, idx) };
     const label = try cx.arena.print("subcircuit '{s}': ", .{nodeName(def.get("name")) orelse "?"});
     try finish(cx, &sc, def.body, idx, label);
-    try cx.done.put(cx.gpa, def, group);
-    return group;
+    try cx.done.put(cx.gpa, def, sum);
+    return sum;
 }
 
 const Island = struct {
@@ -375,11 +440,15 @@ fn loops(cx: *Cx, sc: *Scope, label: []const u8) Allocator.Error!void {
     var more = [_]usize{ 0, 0, 0 };
     for (sc.edges.items, 0..) |e, k| {
         if (e.a == e.b) continue;
-        const own = if (e.volt) &v else &l;
-        const mix: ?Mix = if (own.find(e.a) == own.find(e.b))
-            (if (e.volt) .volt else .induct)
+        const own: ?*Sets = switch (e.kind) {
+            .volt => &v,
+            .induct => &l,
+            .both => null,
+        };
+        const mix: ?Mix = if (own != null and own.?.find(e.a) == own.?.find(e.b))
+            e.kind
         else if (vl.find(e.a) == vl.find(e.b)) .both else null;
-        own.join(e.a, e.b);
+        if (own) |o| o.join(e.a, e.b);
         vl.join(e.a, e.b);
         const m = mix orelse continue;
         const what: Topo = switch (m) {
@@ -397,8 +466,8 @@ fn loops(cx: *Cx, sc: *Scope, label: []const u8) Allocator.Error!void {
         }
         shown += 1;
         var names: std.ArrayList([]const u8) = .empty;
-        try path(cx, sc.edges.items[0..k], m, e.a, e.b, &names);
-        try names.append(cx.arena, nodeName(e.s.get("name")) orelse "?");
+        try path(cx, sc, sc.edges.items[0..k], m, e.a, e.b, &names);
+        try names.append(cx.arena, try edgeName(cx, sc, e));
         cx.report.add(if (rq.err) .@"error" else .warning, .invalid, e.s.line, "{s}{s} form a loop of {s} through '{s}' and '{s}'; {s}", .{
             label,
             try list(cx.arena, names.items, names.items.len, false),
@@ -423,7 +492,7 @@ fn loops(cx: *Cx, sc: *Scope, label: []const u8) Allocator.Error!void {
 /// ponytail: rescans the edge list per BFS level, O(edges * depth) per
 /// loop and at most `max_reports` loops; build an adjacency list if a
 /// netlist ever has very many voltage sources and inductors.
-fn path(cx: *Cx, edges: []const Edge, m: Mix, from: u32, to: u32, out: *std.ArrayList([]const u8)) Allocator.Error!void {
+fn path(cx: *Cx, sc: *const Scope, edges: []const Edge, m: Mix, from: u32, to: u32, out: *std.ArrayList([]const u8)) Allocator.Error!void {
     var via: std.AutoHashMapUnmanaged(u32, usize) = .empty;
     defer via.deinit(cx.gpa);
     try via.put(cx.gpa, from, grounded);
@@ -431,7 +500,7 @@ fn path(cx: *Cx, edges: []const Edge, m: Mix, from: u32, to: u32, out: *std.Arra
     while (grew and !via.contains(to)) {
         grew = false;
         for (edges, 0..) |e, i| {
-            if ((m == .volt and !e.volt) or (m == .induct and e.volt)) continue;
+            if (m != .both and e.kind != m) continue;
             const ina = via.contains(e.a);
             if (ina == via.contains(e.b)) continue;
             try via.put(cx.gpa, if (ina) e.b else e.a, i);
@@ -442,9 +511,16 @@ fn path(cx: *Cx, edges: []const Edge, m: Mix, from: u32, to: u32, out: *std.Arra
     while (via.get(at)) |i| {
         if (i == grounded) break;
         const e = edges[i];
-        try out.append(cx.arena, nodeName(e.s.get("name")) orelse "?");
+        try out.append(cx.arena, try edgeName(cx, sc, e));
         at = if (e.a == at) e.b else e.a;
     }
+}
+
+/// An element's name; an instance's with the nodes its path joins, `X1(a,b)`.
+fn edgeName(cx: *Cx, sc: *const Scope, e: Edge) Allocator.Error![]const u8 {
+    const name = nodeName(e.s.get("name")) orelse "?";
+    if (e.s.kind != .instance) return name;
+    return cx.arena.print("{s}({s},{s})", .{ name, sc.names.items[e.a], sc.names.items[e.b] });
 }
 
 fn collect(cx: *Cx, stmts: []const Stmt) Allocator.Error!void {

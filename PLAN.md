@@ -226,8 +226,18 @@ supported simulator defines.
   loop of sources. Corpus: 13 decks reported for VACASK (the islands,
   current cutsets, V/L loops and `subckt_params`), no false alarm among
   them; parse ngspice>vacask 34 -> 22, hspice>vacask 24 -> 13; sim 90
-  mismatches -> 79. Left: a loop that runs through a subcircuit instance
-  is not seen; ESPice and LTspice state no `requires` (not measured).
+  mismatches -> 79. (d1) Each subcircuit's summary also carries a forest
+  of the port pairs its body joins by voltage sources only, inductors only,
+  or both (one edge per port at most); an instance adds them in its parent
+  as elements of that class, so a loop through instances is found at any
+  depth and named by them (`V1, Xw(a,b), V2`). Anything not understood adds
+  no edge. ESPice measured: islands refuse .op/.dc/.ac (FloatingNode) but
+  its transient solves them as ngspice does, unbalanced cutsets and every
+  source loop (even consistent, even UIC) are refused, inductor loops are
+  solved with the current split evenly: dc-path, no-vloop, no-vlloop
+  errors, no-lloop warning. Left: LTspice states no `requires` (no binary);
+  ESPice refuses a source-inductor loop under UIC, which the check (that
+  skips it there for every target) does not report.
 
 - [x] **6.3 HSPICE reader gaps from ESPice (c4).** Per-dialect TNOM/TEMP
   defaults (`implied options`, written where the target's differ), SFFM
