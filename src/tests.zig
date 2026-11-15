@@ -2611,10 +2611,32 @@ test "verification: an inductor's model between ngspice, Xyce and VACASK; a loss
     try reported(&r7, .@"error", "inductor.master = lmod has no spelling in ltspice");
     try reported(&r7, .@"error", "ltspice.spgrammar has no spelling for model family 'inductor'");
 
-    // No HSPICE here to measure a form in: the model is an error, not a guess.
+    // HSPICE Y-2026.03-SP2-1 refuses every form tried (docs/verification.md
+    // 9.6): the model stays an error.
     var r8: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", ng, &r8), "L1 a 0 1m tc1=0.03\n");
     try reported(&r8, .@"error", "inductor.master = lmod has no spelling in hspice");
+}
+
+test "y2: a Spectre inductor names its model as its master" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Measured: docs/verification.md 9.6. A line that gives no value takes
+    // the card's.
+    const ng = "t\nI1 0 a dc 0 ac 1\nL1 a 0 lmod 1m tc1=0.03\nI2 0 b dc 0 ac 1\nL2 b 0 lmod\n.model lmod l tc1=0.01\n.end\n";
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
+    try has(sp, "L1 (a 0) lmod l=1m tc1=0.03\n");
+    try has(sp, "L2 (b 0) lmod\n");
+    try has(sp, "model lmod inductor tc1=0.01\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try has(back, "L1 a 0 lmod 1m tc1=0.03\n");
+    try has(back, "L2 b 0 lmod\n");
+    try has(back, ".model lmod l tc1=0.01\n");
+    try clean(&r2);
 }
 
 // Each written form below was loaded in Spectre 25.10 or HSPICE Y-2026.03.

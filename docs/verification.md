@@ -1669,7 +1669,7 @@ source, a load resistance) is copied into the other dialects as written;
 `R=` there is ngspice's repeat. The instance parameters of the other
 devices were not checked. The levels of 8.12 are not in the models table.
 
-## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
+## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2, HSPICE Y-2026.03-SP2-1, Spectre 25.10)
 
 Observed: every statement below is what the simulator did with a deck of
 a few lines written for the question. The deck is a 1 A AC current source
@@ -1701,7 +1701,8 @@ The card is `.model lmod l tc1=0.01` unless the row says otherwise.
 | `L1 a 0 lmod l=1m` | | 127 | refused: "unknown parameter (l)" | 2.000 |
 | `L1 a 0 l=1m lmod` | | 127 | refused: "unknown parameter (lmod)" | refused: "Unrecognized parameter LMOD" |
 | `L1 a 0 lmod` | `.model lmod l ind=3m` | 27 | 3.000 | refused: "Could not find L parameter in instance", after "No model parameter IND found" |
-| `L1 a 0 lmod 1m` | `.model lmod l ind=3m` | 27 | 1.000 | not run |
+| `L1 a 0 lmod 1m` | `.model lmod l ind=3m` | 27 | 1.000 | 1.000, with a netlist warning: "No model parameter IND found for model LMOD of type L, parameter ignored." |
+| `L1 a 0 lmod 1m` | `.model lmod l ind=3m tc1=0.01` | 127 | not run | 2.000, with the warning |
 | `L1 a 0 lmod` | | 27 | 0.000 | refused: "Could not find L parameter in instance" |
 | `L1 a 0 lmod` | `.model lmod l l=3m` | 27 | not run | refused, the same |
 | `L1 a 0 lmod 1m` | `.model lmod l l=3` | 27 | not run | 3.000 |
@@ -1719,7 +1720,8 @@ type word is `l`, the model changes the result, and what the line says
   without one); Xyce refuses it whatever the card says.
 * Xyce also takes `ind` for the card's type word.
 * A card's `l` multiplies the line's value in Xyce (3 for 1 mH) and does
-  not in ngspice; `ind` is ngspice's alone.
+  not in ngspice; `ind` is ngspice's alone (Xyce ignores it with a warning
+  and reads the line's value).
 
 ngspice also takes the value after the model as a bare parameter name
 (`L1 a 0 lmod lv`: 2.000) and in quotes (`L1 a 0 lmod 'lv*2'`: 4.000);
@@ -1800,7 +1802,8 @@ such a card, saying so.
 ngspice: `L pos neg master [l]`. Xyce: the same with the value required,
 and it reads the value before the model and `l=` after it; its table
 reads `ind` as well as `l`. VACASK: `L (pos neg) master l=`, written, and
-read as any instance of a declared model is. LTspice: nothing.
+read as any instance of a declared model is. Spectre (9.6): the same form
+as VACASK's, written and read the same way. LTspice and HSPICE: nothing.
 
 Each source deck run, translated, and the translation run:
 
@@ -1818,14 +1821,58 @@ Each source deck run, translated, and the translation run:
 (The two decks written from VACASK got a `.print ac vm(a)` by hand: the
 VACASK deck has no such line to translate.)
 
+Into Spectre, ngspice `L1 a 0 lmod 1m tc1=0.03`, `L2 b 0 lmod` and `.model
+lmod l tc1=0.01` are written `L1 (a 0) lmod l=1m tc1=0.03`, `L2 (b 0)
+lmod` and `model lmod inductor tc1=0.01`: the line forms of the second to
+fourth rows of the Spectre table in 9.6.
+
 Into LTspice the line is written without its model, `L1 a 0 1m tc1=0.03`,
 with two errors: `inductor.master = lmod has no spelling in ltspice` and
-`ltspice.spgrammar has no spelling for model family 'inductor'`.
+`ltspice.spgrammar has no spelling for model family 'inductor'`. Into
+HSPICE it is the first of the two errors (9.6: no form names a model),
+and the card is written.
 
-Left open: there is no HSPICE, Spectre or ESPice here, so their grammars
-have no form for an inductor's model. Crossing into them it is the same
-`loss` error (their tables, older than this section, do write the card),
-and `L1 a 0 lmod 1m` in a deck of theirs is a line no rule understands. A
-Xyce line with a model and no value is read, though Xyce refuses it. The
-card's parameters are copied as written, with the standing caveat: a Xyce
-card's `l`, a multiplier there, means something else in ngspice.
+Left open: a Xyce line with a model and no value is read, though Xyce
+refuses it. The card's parameters are copied as written, with the standing
+caveat: a Xyce card's `l`, a multiplier there, means something else in
+ngspice, and ngspice's `ind` is `l` in a Spectre card.
+
+### 9.6 HSPICE and Spectre
+
+The same deck: 1 A AC into the inductor at 159.15494309 Hz, so the
+magnitude of v(a) in volts is the inductance in mH, and a `tc1=0.01`
+doubles it 100 degrees above the nominal temperature.
+
+HSPICE Y-2026.03-SP2-1 (nominal temperature 25: `.temp 27 127`):
+
+| line | card | result |
+|---|---|---|
+| `l1 a 0 1m tc1=0.01` | none | 1.0200000000 and 2.0200000000: the line's `tc1` is taken |
+| `l1 a 0 1m` | `.model lmod l tc1=0.01` (unused) | 999.9999999881m at both: an unused card loads and does nothing |
+| `l1 a 0 lmod 1m` | `.model lmod l tc1=0.01` | refused |
+| `l1 a 0 1m lmod` | `.model lmod l tc1=0.01` | refused |
+| `l1 a 0 lmod l=1m` | `.model lmod l tc1=0.01` | refused |
+| `l1 a 0 1m lmod` | `.model lmod l` | refused |
+| `l1 a 0 lmod 1m` | `.model lmod l` | refused |
+| `l1 a 0 1m lmod` | `.model lmod ind tc1=0.01` | refused |
+| `l1 a 0 1m lmod` | `.model lmod inductor tc1=0.01` | refused |
+
+So no form tried lets an HSPICE inductor name a model: the `loss` error
+stays.
+
+Spectre 25.10 (two `ac` analyses with `alter param=temp value=127` between
+them; the single-point form sprack writes, `ac1 ac start=159.15494309
+lin=0 values=[159.15494309]`, loads and gives the value):
+
+| line | card | 27 | 127 |
+|---|---|---|---|
+| `l1 (a 0) inductor l=1m tc1=0.01` | none | 0.99999999998809 | 1.99999999997618 |
+| `l1 (a 0) lmod l=1m` | `model lmod inductor tc1=0.01` | 0.99999999998809 | 1.99999999997618 |
+| `l1 (a 0) lmod` | `model lmod inductor l=3m tc1=0.01` | 2.99999999996427 | 5.99999999992855 |
+| `l1 (a 0) lmod l=1m tc1=0.03` | `model lmod inductor tc1=0.01` | 0.99999999998809 | 3.99999999995237 |
+| `l1 (a 0) inductor l=1m` | `model lmod inductor tc1=0.01` (unused) | 0.99999999998809 | 0.99999999998809 |
+
+So a Spectre inductor names its model as its master (`L1 (a 0) lmod
+l=1m`), the card is `model lmod inductor ...`, the card's `l` is the
+inductance of a line that gives none (ngspice's card says `ind` for that),
+and the line's `tc1` beats the card's, as in ngspice.

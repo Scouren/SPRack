@@ -150,9 +150,11 @@ rule  qpss      = name?qpss$# "qpss" { funds=[funds]! maxharms=[harms] ...params
 read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "sweep" | "envlp" | "qpss" ) ...
 
 # With a model of its own the device keeps it; these forms are write-only
-# because any two-terminal instance would match them when reading.
+# because any two-terminal instance would match them when reading. An
+# inductor's: docs/verification.md 9.6.
 write resistor  = name "(" pos neg ")" master { r=r ...params }
 write capacitor = name "(" pos neg ")" master { c=c ...params }
+write inductor  = name "(" pos neg ")" master { l=l ...params }
 rule  resistor  = name ["("] pos neg [")"] "resistor" { r=r ...params }
 rule  capacitor = name ["("] pos neg [")"] "capacitor" { c=c ...params }
 rule  inductor  = name ["("] pos neg [")"] "inductor" { l=l ...params }
