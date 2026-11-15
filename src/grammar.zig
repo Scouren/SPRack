@@ -425,6 +425,8 @@ fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8 {
             i += 1;
         } else if (ch == '"' or ch == '\'') {
             const end = std.mem.indexOfScalarPos(u8, line, i + 1, ch) orelse return c.fail(line_no, "unterminated string", .{});
+            // An empty word matches everywhere and consumes nothing.
+            if (end == i + 1) return c.fail(line_no, "empty string", .{});
             out = try c.add([]const u8, out, line[i + 1 .. end]);
             i = end + 1;
         } else {

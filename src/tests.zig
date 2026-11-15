@@ -1330,6 +1330,26 @@ test "20,000 randomly damaged netlists, no crash" {
     }
 }
 
+// Grammar files the fuzzer broke, minimised. Each must be refused with a
+// diagnostic, not crash the compiler or hang the reader it would build.
+const fuzzed_grammars = [_]struct { src: []const u8, msg: []const u8 }{
+    // An empty model spelling word indexed past its end.
+    .{ .src = "dialect x\nlexer\nend\nmodels\n  bjt npn = npn ''\nend\n", .msg = "f.spgrammar:5: empty string" },
+    // An empty operator spelling matched without moving: the reader looped
+    // on `B1 o 0 V={v(a)+1}` until it ran out of memory.
+    .{ .src = "dialect x\nlexer\n  expr after-equals\nend\nrule bsource = name~\"B\" pos neg { v=v ...params }\noperators\n  pow \"\"\nend\n", .msg = "f.spgrammar:7: empty string" },
+};
+
+test "fuzz: mutated grammars are refused with a diagnostic" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    for (fuzzed_grammars) |cs| {
+        var diag: sprack.grammar.Diag = .{};
+        try testing.expectError(error.BadGrammar, sprack.grammar.compile(arena_state.allocator(), cs.src, "f.spgrammar", &diag));
+        try has(diag.msg, cs.msg);
+    }
+}
+
 // The tests below reproduce, in small, what running the VAMS Conformance
 // Suite decks through the translator turned up.
 
