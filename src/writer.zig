@@ -2417,6 +2417,7 @@ pub const Stream = struct {
             .refs = sv.refs,
             .lower = stats.Stream.init(k, g, report),
         };
+        errdefer s.deinit();
         const w = &s.w;
         w.refs = &s.refs;
         const nl = &s.nl;
@@ -2609,6 +2610,13 @@ pub const Stream = struct {
             try t.end();
         }
         s.refs.settle(report);
+    }
+
+    /// The tables outside the arena: after `end`, or an error after `begin`
+    /// (which frees them itself when it fails).
+    pub fn deinit(s: *Stream) void {
+        if (s.topo) |*t| t.deinit();
+        s.params.deinit(ir.big);
         s.seen.deinit();
         s.w.scratch.deinit();
     }

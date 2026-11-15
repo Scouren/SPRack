@@ -707,6 +707,10 @@ pub const Stream = struct {
     pub fn init(gpa: Allocator, arena: Allocator, g: *const grammar.Grammar, report: *ir.Report, src: []const u8, library: bool, facts: Facts, globals: []const []const u8, early: []const Stmt) Allocator.Error!?Stream {
         if (g.requires.len == 0 or !facts.any) return null;
         var cx: Cx = .{ .gpa = gpa, .arena = arena, .g = g, .report = report, .src = src, .no_op = facts.no_op, .has = facts.has };
+        errdefer {
+            cx.subckts.deinit(gpa);
+            cx.globals.deinit(gpa);
+        }
         for (globals) |n| try cx.globals.put(gpa, try cx.keep(n), {});
         for (early) |*st| {
             const d = try arena.create(Def);
@@ -743,12 +747,12 @@ pub const Stream = struct {
     }
 
     pub fn end(s: *Stream) Allocator.Error!void {
-        defer s.deinit();
         if (s.library or s.top.unread) return;
         try finishFound(&s.cx, &s.top, &s.isl, "");
     }
 
-    fn deinit(s: *Stream) void {
+    /// The tables are outside the arena: after `end`, or an error before it.
+    pub fn deinit(s: *Stream) void {
         const gpa = s.cx.gpa;
         s.isl.found.deinit(gpa);
         s.top.deinit(gpa);

@@ -2216,6 +2216,12 @@ pub const Source = struct {
         if (opts.library) s.cfg.title = false;
         s.lines = .init(&s.cfg, src, null);
         s.win = .init(&s.cfg, &s.lines);
+        // The lines and tokens are outside the arena: freed on the way out
+        // with an error too.
+        errdefer {
+            s.win.deinit();
+            s.lines.deinit();
+        }
         s.declared = .empty;
         if (opts.env) |e| {
             var it = e.declared.keyIterator();
@@ -2239,6 +2245,7 @@ pub const Source = struct {
             .folded_boiler = folded.items,
             .m = .{ .g = g, .arena = perm, .win = &s.win, .lines = &s.lines, .declared = &s.declared },
         };
+        errdefer s.r.spell.deinit();
         // The spelling table is filled in the first pass: nothing that pass
         // decides depends on it.
         try s.r.collectDeclared(&s.declared);

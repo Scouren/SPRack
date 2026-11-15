@@ -103,6 +103,7 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     s.rewind(scratch.allocator(), null);
     var ws: writer.Stream = undefined;
     try ws.begin(gt, keep, out, &sv.w, report, caps, opts.env);
+    defer ws.deinit();
     while (true) {
         s.between();
         _ = scratch.reset(.retain_capacity);
