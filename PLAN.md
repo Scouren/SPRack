@@ -215,6 +215,19 @@ supported simulator defines.
   pulses (now the `.tran` step, written by a `default` line), `%` and braces inside `.meas` text, `agauss` inline in HSPICE
   instance expressions, and decks whose values the commercial tools reject
   at run time (zero step, 0 K, m <= 0, V/L loops).
+- [x] **6.2 Circuits a target cannot solve (c3).** `src/topology.zig` checks
+  each subcircuit and the top level for nodes with no DC path to ground and
+  for loops of voltage sources, of sources and inductors, and of inductors;
+  each grammar's `requires` lines set the severity, from decks written for
+  each simulator: VACASK errors on all four; Spectre 23.10/25.10 and HSPICE
+  warn on islands (solved, but at 0 V where ngspice divides the charge) and
+  stop on every loop; Xyce warns on islands and inductor loops and fails
+  the rest; ngspice warns on islands and source-inductor loops and fails a
+  loop of sources. Corpus: 13 decks reported for VACASK (the islands,
+  current cutsets, V/L loops and `subckt_params`), no false alarm among
+  them; parse ngspice>vacask 34 -> 22, hspice>vacask 24 -> 13; sim 90
+  mismatches -> 79. Left: a loop that runs through a subcircuit instance
+  is not seen; ESPice and LTspice state no `requires` (not measured).
 
 ## Phase 7: Python and PDKs (section 7)
 
