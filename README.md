@@ -14,7 +14,7 @@ the same canonical statements, and every writer consumes them.
     zig build                      # the sprack command, zig-out/bin/sprack
     zig build py                   # the Python extension, python/sprack/_core.abi3.so
     zig build test                 # 55 tests
-    pip wheel . -w dist            # sprack-<ver>-cp310-abi3-<platform>.whl (Zig on PATH)
+    python -m build                # dist/sprack-<ver>.tar.gz and a wheel (Zig on PATH)
 
 Built and tested with Zig 0.18.0-dev.349 (pinned in flake.lock; `nix develop`).
 
@@ -177,7 +177,15 @@ but neither has been loaded by a Python here.
 
 The only file written outside the package is the translation cache,
 `~/.cache/sprack` unless `SPRACK_CACHE` or `cache_dir=` says otherwise.
-`pip wheel .` packages the same files as a wheel for the host.
+`pip wheel .` (or `python -m build`, which also writes the sdist) packages
+the same files as a wheel, tagged by the libc Zig built against rather than
+the build host: `cp310-abi3-manylinux_2_28_x86_64` (or `_aarch64`) on Linux,
+and `cp310-abi3-macosx_11_0_arm64` (or `_x86_64`) on macOS, where
+`MACOSX_DEPLOYMENT_TARGET` overrides the 11.0. `auditwheel show` agrees with
+both Linux tags; the extension needs only glibc 2.28 and nothing to repair.
+The sdist ships what `zig build py` needs: `build.zig`, `build.zig.zon`,
+`src`, `grammars`, `python`, `tools/wheel_backend.py`, `pyproject.toml`,
+`LICENSE` and this file.
 
 ### PDKs
 

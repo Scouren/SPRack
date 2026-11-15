@@ -1,4 +1,4 @@
-# The wheel is built by tools/wheel_backend.py: `zig build py` plus a zip.
+# The wheel and sdist are built by tools/wheel_backend.py: `zig build py` plus a zip.
 # Zig must be on PATH. Version comes from build.zig.zon.
 [build-system]
 requires = []

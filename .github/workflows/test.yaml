@@ -60,6 +60,21 @@ jobs:
       - name: Build the wheel
         run: python -m pip wheel . -w dist --no-deps
 
+      # The tag must match what the binary needs: glibc 2.28 on Linux, and on
+      # macOS the minos Zig wrote into LC_BUILD_VERSION.
+      - name: Check the platform tag
+        run: |
+          ls dist
+          if [ "$RUNNER_OS" = Linux ]; then
+            ls dist/*-manylinux_2_28_x86_64.whl
+            python -m pip install auditwheel
+            python -m auditwheel show dist/*.whl | tr '\n' ' ' | grep -q '"manylinux_2_28_x86_64"'
+          else
+            ls dist/*-macosx_11_0_arm64.whl
+            unzip -p dist/*.whl sprack/_core.abi3.so > "$RUNNER_TEMP/core.so"
+            otool -l "$RUNNER_TEMP/core.so" | grep -A4 LC_BUILD_VERSION | grep -q 'minos 11.0'
+          fi
+
       # Run the tests from outside the checkout so `import sprack` finds the
       # installed wheel, not python/sprack/.
       - name: Test the installed wheel
