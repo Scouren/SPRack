@@ -100,7 +100,7 @@ was translated into the cache and the netlist references the copy.
 | field | required | meaning |
 |---|---|---|
 | `name` | yes | the PDK's name; also the name of its directory in the cache |
-| `dialect` | yes | the dialect the PDK's files are written in: a built-in name, or the path of a `.spgrammar` file |
+| `dialect` | yes | the dialect the PDK's files are written in: a built-in name (in any case), or the path of a `.spgrammar` file; in a manifest file, a path relative to that file |
 | `layouts` | yes | a list of the directory layouts the PDK is found in; see below |
 | `corners` | yes | each corner's name and the files that make it up; see below |
 | `default_corner` | no | the corner used when none is asked for; without it, the first one of `corners` |
@@ -202,7 +202,8 @@ ff 4 devices
 The device list and the translated copies are cached under the PDK's name
 (see [The cache](pdks.md#the-cache)). The cache follows the manifest: a
 change to its `dialect`, `corners` or `define`, or to any file the libraries
-read, makes a new entry.
+read, makes a new entry. So does another value of an environment variable
+that an include path of the libraries names.
 
 Then:
 

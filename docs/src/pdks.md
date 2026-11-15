@@ -94,7 +94,9 @@ tran1 tran step=10p stop=8n
 
 The copy is made as `sprack project --lib` makes one, and is reused while
 every file it was made from is unchanged. `$VAR` in the path is expanded
-from the environment. A library that is not there is an `invalid` error.
+from the environment, and so is one in an include path inside the library;
+the copy is made again when such a variable has another value. A library
+that is not there is an `invalid` error.
 What the library cannot say in the target is in the netlist's report, with
 file and line.
 
@@ -137,10 +139,10 @@ Xn out in 0 0 mine_nfet
 warning[caveat]: line 1: "mine/models.lib" is still sprack syntax; translate that file too (`sprack project` follows includes)
 ```
 
-On-the-fly translation needs the library's dialect to be a built-in one.
-A library named in a `code` block of a dialect given by its grammar file is
-left as written, with the same caveat; translate it with `sprack project`
-(which takes a grammar path for `--from`), or describe it in a manifest.
+The library's dialect may be one given by its
+[grammar file](python.md#a-dialect-by-its-grammar-file) too. A library named
+in a `code` block of such a dialect, or in a netlist read in it, is
+translated by that grammar, and again when the grammar file changes.
 
 This way the devices are ordinary instances (`c.X(...)` of a subcircuit,
 `c.M(...)` with a model card's name). Nothing checks their terminals or
@@ -236,6 +238,12 @@ the dialect the PDK ships in, they reference the PDK's own files.
 define. A subcircuit entry has `ports` and `params` (with defaults); a model
 card has `device`, `family` and `polarity`. `pdk.device(name)` finds one with
 or without the PDK's prefix (`sky130_fd_pr__`), in any case.
+
+What the libraries define is known where the circuit is written and where a
+`code` block is read. A model card or a function of the PDK is a declared
+one, so a resistor that names a PDK model is not reported as naming a model
+that is nowhere; and in a `code` block of another dialect, a device that
+names a PDK model is the device that model describes.
 
 On a circuit built with `pdk=`, each device is a method: the instance name,
 the terminals, then parameters by keyword. The number of terminals and the
@@ -351,7 +359,11 @@ you name.
 | `<pdk>/catalog-<stamp>.json` | the device list of a `sprack.PDK` |
 | `<pdk>/<dialect>-<corner>-<stamp>/` | a `sprack.PDK`'s library translated for a dialect, with `sprack.log` |
 
-The stamp of a `sprack.PDK` entry is made from the PDK's root, the size and
-time of the files its corners name, and the SPRack build. A change to a file
-deeper in the library, or to the manifest's `dialect`, does not change it;
-delete the PDK's directory in the cache after such an edit.
+The stamp of a `sprack.PDK` entry is made from the PDK's root, the
+manifest's `dialect`, `corners` and `define`, the size and time of the files
+its corners name, and the SPRack build. An entry is used only while every
+file it was made from, the included ones too, is unchanged, and while every
+`$NAME` an include path named has the value it had (from `define`, or else
+from the environment); otherwise it is made again. A variable no include
+path names does not matter. The same holds for a `libs/` entry, whose
+variables are the environment's.

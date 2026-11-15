@@ -182,12 +182,15 @@ stands here for the directory the command was run in.
 $ sprack catalog --from ngspice tree/inc/sub.sp
 {"devices":[
 {"name":"rdiv","file":"…/tree/inc/sub.sp","section":"","kind":"subckt","ports":["a","b"],"params":{}}
-],"files":["…/tree/inc/sub.sp"],"sections":[],"root":"…/tree/inc","errors":0,"warnings":0,"missing":0}
+],"files":["…/tree/inc/sub.sp"],"sections":[],"env":{"models":{},"declared":["rdiv"],"subckts":["rdiv"],"funcs":[],"used":["resistor","subckt"],"families":[]},"vars":{},"root":"…/tree/inc","errors":0,"warnings":0,"missing":0}
 1 file, 0 errors, 0 warnings
 ```
 
 A subcircuit entry has its `ports` and its `params` with their defaults; a
-model entry has `device`, `family` and `polarity` instead. This is the list
+model entry has `device`, `family` and `polarity` instead. `env` is what the
+files declare, by name: models, subcircuits, functions, and the statement
+kinds and model families in use. `vars` is every `$NAME` an include path
+named, with the value it was given (`null` where none was). This is the list
 [`sprack.PDK`](pdks.md) builds its device methods from.
 
 ## dialects, caps, info
