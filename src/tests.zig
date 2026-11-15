@@ -2292,7 +2292,6 @@ test "gap: an unquoted function call is a value in an HSPICE .param" {
     // gap: hspice reader. `( , )` are blanks in the HSPICE lexer, so a bare
     // call such as agauss(0,1,3) splits and the whole .param is untranslated.
     // Model libraries write Monte Carlo parameters this way.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2323,7 +2322,6 @@ test "gap: HSPICE coupling written with k=" {
 test "gap: function definitions and values in one HSPICE .param" {
     // gap: hspice reader. A .param holding one function definition is read;
     // several definitions, or a definition next to a plain value, are not.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2402,7 +2400,6 @@ test "gap: binned HSPICE models become one Spectre model group" {
     // for an instance of `nch` from those: it reports `nch` undefined.
     // A model group `model nch bsim4 { 1: ... 2: ... }` loads and selects
     // by lmin/lmax (checked with a synthetic deck). No diagnostic today.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2494,6 +2491,8 @@ test "gap: a project keeps Verilog-A sources and section spellings" {
     const va_copied = if (tmp.dir.access(io, "out/cap.va", .{})) |_| true else |_| false;
     try testing.expect(va_copied or std.mem.indexOf(u8, top, "ahdl_include \"./cap.va\"") == null);
     try testing.expect(std.mem.indexOf(u8, log.written(), "OSDI") == null);
+}
+
 // b2: statistics and structure
 
 fn writeLib(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
