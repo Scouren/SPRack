@@ -542,8 +542,9 @@ const Matcher = struct {
                 for (node.bag) |e| {
                     if (!e.required) continue;
                     var seen = false;
+                    const want = if (e.form == .fixed) e.tag_slot else e.slot;
                     for (self.log.items[mark..]) |c| {
-                        if (c.slot == e.slot and c.key.len == 0) seen = true;
+                        if (c.slot == want and c.key.len == 0) seen = true;
                     }
                     if (!seen) {
                         self.log.shrinkRetainingCapacity(mark);

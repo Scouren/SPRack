@@ -569,7 +569,17 @@ const Emit = struct {
             .bag => {
                 for (n.bag) |b| {
                     switch (b.form) {
-                        .fixed => try e.tok(try e.arena.print("{s}={s}", .{ b.key, b.fixed })),
+                        .fixed => {
+                            if (b.tag_slot != grammar.no_slot) {
+                                const tv = e.st.at(b.tag_slot);
+                                if (tv != .atom or !std.mem.eql(u8, tv.atom, b.tag_atom)) {
+                                    if (tv == .atom) e.why = try e.arena.print("{s} = {s}", .{ e.slot(b.tag_slot).name, tv.atom });
+                                    return false;
+                                }
+                                e.mark(b.tag_slot);
+                            }
+                            try e.tok(try e.arena.print("{s}={s}", .{ b.key, b.fixed }));
+                        },
                         .rest, .call => {
                             if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
                             for (e.st.at(b.slot).params) |p| {

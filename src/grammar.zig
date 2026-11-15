@@ -766,6 +766,11 @@ const P = struct {
                     p.i += 1;
                     e.form = .fixed;
                     e.fixed = p.bare();
+                    // `param==temp!@var:temp`: the fixed pair stands for an atom.
+                    if (std.mem.indexOfAny(u8, e.fixed, "!@")) |at| {
+                        p.i -= e.fixed.len - at;
+                        e.fixed = e.fixed[0..at];
+                    }
                 },
                 '"' => {
                     e.form = .quoted;
