@@ -36,7 +36,13 @@ fn hasFunction(g: *const Grammar, canon: []const u8) bool {
     return false;
 }
 
-pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+    var stmts = stmts_in;
+    // ponytail: HSPICE is the one dialect named here, as the home of the
+    // `dev/gauss=` form; a grammar directive if a second one needs it.
+    if (!std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice") and usesDevLot(stmts))
+        stmts = try devLot(arena, stmts, report);
+    checkReserved(g, stmts, report);
     if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) {
         if (!usesRandom(stmts)) return stmts;
         var l: Lower = .{ .arena = arena, .report = report, .g = g };
@@ -49,6 +55,79 @@ pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report:
         return fold(arena, g, stmts, report);
     }
     return stmts;
+}
+
+/// HSPICE's `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run),
+/// or `/unif`: an entry of its own after the parameter it varies.
+fn devLotKey(key: []const u8) ?enum { gauss, unif } {
+    const slash = std.mem.indexOfScalar(u8, key, '/') orelse return null;
+    const who = key[0..slash];
+    if (!std.ascii.eqlIgnoreCase(who, "dev") and !std.ascii.eqlIgnoreCase(who, "lot")) return null;
+    const dist = key[slash + 1 ..];
+    if (std.ascii.eqlIgnoreCase(dist, "gauss")) return .gauss;
+    if (std.ascii.eqlIgnoreCase(dist, "unif")) return .unif;
+    return null;
+}
+
+fn usesDevLot(stmts: []const Stmt) bool {
+    for (stmts) |*s| {
+        if (s.kind == .param and s.get("params") == .params) {
+            for (s.get("params").params) |p| if (devLotKey(p.key) != null) return true;
+        }
+        if (usesDevLot(s.body)) return true;
+    }
+    return false;
+}
+
+/// `p=nom dev/gauss=s` as `p=agauss(nom, s, 1)`, which the rest of this
+/// file and every dialect with agauss() understand.
+fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+    const out = try arena.dupe(Stmt, stmts);
+    const pi = schema.slotIndex(.param, "params").?;
+    for (out) |*st| {
+        if (st.body.len > 0) st.body = @constCast(try devLot(arena, st.body, report));
+        if (st.kind != .param or st.at(pi) != .params) continue;
+        var ps: std.ArrayList(ir.Param) = .empty;
+        var changed = false;
+        for (st.at(pi).params) |p| {
+            const dist = devLotKey(p.key) orelse {
+                try ps.append(arena, p);
+                continue;
+            };
+            if (ps.items.len == 0) {
+                try ps.append(arena, p);
+                continue;
+            }
+            const prev = &ps.items[ps.items.len - 1];
+            const nom = try valueText(arena, prev.val);
+            const s = try valueText(arena, p.val);
+            prev.val = .{ .expr = switch (dist) {
+                .gauss => try std.fmt.allocPrint(arena, "agauss({s}, {s}, 1)", .{ nom, s }),
+                .unif => try std.fmt.allocPrint(arena, "aunif({s}, {s})", .{ nom, s }),
+            } };
+            changed = true;
+            report.add(.warning, .caveat, st.line, "{s}={s} on parameter '{s}': written as a random function in its definition, so it is drawn per instance inside a subcircuit and per run at the top level, whatever dev or lot said", .{ p.key, s, prev.key });
+        }
+        if (!changed) continue;
+        try st.own(arena);
+        try st.set(arena, pi, .{ .params = ps.items });
+    }
+    return out;
+}
+
+/// A parameter named like a variable the target keeps for itself (Xyce
+/// `vt`, `temp`) is refused there.
+fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report) void {
+    if (g.reserved.len == 0) return;
+    for (stmts) |*s| {
+        checkReserved(g, s.body, report);
+        if (s.kind != .param and s.kind != .subckt) continue;
+        const v = s.get("params");
+        if (v != .params) continue;
+        for (v.params) |p| for (g.reserved) |r| for (r.names) |n| {
+            if (std.ascii.eqlIgnoreCase(n, p.key)) report.add(.@"error", .invalid, s.line, "parameter '{s}': {s}", .{ p.key, r.reason });
+        };
+    }
 }
 
 fn usesKind(stmts: []const Stmt, kind: schema.Kind) bool {

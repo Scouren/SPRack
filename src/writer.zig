@@ -1733,7 +1733,7 @@ pub fn write(
         stmts = list;
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
-    stmts = try stats.prepare(arena, g, stmts, report);
+    stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }

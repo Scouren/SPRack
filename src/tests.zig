@@ -2584,6 +2584,25 @@ test "statistics: Spectre blocks, SPICE random functions, HSPICE variation" {
     try reported(&r6, .@"error", "vary.model = rm has no spelling in spectre");
 }
 
+test "HSPICE dev/gauss= and names Xyce keeps for itself" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.param vt=3.5m\n.param czero=1p dev/gauss=0.1p\nC1 a 0 {czero}\n.end\n";
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".param czero={agauss(1p, 0.1p, 1)}\n");
+    try reported(&r1, .warning, "dev/gauss=");
+    try reported(&r1, .@"error", "parameter 'vt': Xyce keeps this name");
+    // Into Spectre the variation becomes a statistics block.
+    var r2: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", src, &r2);
+    try has(sp, "vary czero dist=gauss std=0.1p\n");
+    // HSPICE reads the form itself.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", src, &r3), "dev/gauss=0.1p");
+}
+
 test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
