@@ -1091,13 +1091,26 @@ def _sweep(base: str, name: str) -> None:
             _rmtree(path)
 
 
-def _cached(final: str, marker: str = "sprack.json") -> dict | None:
-    """The metadata of a cache entry that is complete and still valid."""
+def _variables(defs: dict[str, str] = {}) -> dict[str, str]:
+    """What `$NAME` in an include path stands for: the environment, and
+    over it `defs`."""
+    return {k: v for k, v in {**os.environ, **defs}.items() if "\n" not in v}
+
+
+def _lines(variables: dict[str, str]) -> str:
+    return "\n".join(f"{k}={v}" for k, v in variables.items())
+
+
+def _cached(final: str, marker: str = "sprack.json", variables: dict[str, str] | None = None) -> dict | None:
+    """The metadata of a cache entry that is complete and still valid: every
+    file read is unchanged, and every `$NAME` an include path named (the
+    entry's `vars`) still has the value it had."""
     try:
         with open(os.path.join(final, marker)) as f:
             meta = json.load(f)
-        return meta if _fresh(meta["files"]) else None
-    except (OSError, ValueError, KeyError, TypeError):
+        now = _variables() if variables is None else variables
+        return meta if all(now.get(k) == v for k, v in meta["vars"].items()) and _fresh(meta["files"]) else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
 
@@ -1106,7 +1119,8 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     the cache; returns the translated `src` and the translation's log.
 
     Keyed by the source path, the target grammar and the core; valid while
-    every file read is unchanged. A copy is built in a temporary directory
+    every file read is unchanged and every `$NAME` in their include paths
+    has the value it had. A copy is built in a temporary directory
     and renamed into place, so parallel writers never see half of one; a
     stale copy is renamed aside before it is replaced, and what a writer
     leaves behind is swept by the next one (`_sweep`).
@@ -1123,11 +1137,10 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     tmp: str | None = tempfile.mkdtemp(prefix=f".{name}-{os.getpid()}-", dir=base)
     try:
         tree = os.path.join(tmp, "tree")
-        defines = "\n".join(f"{k}={v}" for k, v in os.environ.items() if "\n" not in v)
-        text, log = _core.project(frm, to, src, tree, defines, True)
+        text, log = _core.project(frm, to, src, tree, _lines(_variables()), True)
         summary = json.loads(text)
         root = summary["root"]
-        meta = {"top": os.path.relpath(src, root), "files": _sources(tree, root), "summary": summary, "log": log}
+        meta = {"top": os.path.relpath(src, root), "files": _sources(tree, root), "vars": summary["vars"], "summary": summary, "log": log}
         with open(os.path.join(tmp, "sprack.json"), "w") as f:
             json.dump(meta, f)
         try:
@@ -1277,9 +1290,8 @@ class PDK:
         pairs = self.manifest["corners"][corner or self.corner]
         return [(os.path.normpath(os.path.join(self.root, self._fmt(f))), sec) for f, sec in pairs]
 
-    def _defines(self) -> str:
-        defs = {k: os.path.normpath(self._fmt(val)) for k, val in self.manifest.get("define", {}).items()}
-        return "\n".join(f"{k}={val}" for k, val in {**os.environ, **defs}.items() if "\n" not in val)
+    def _defines(self) -> dict[str, str]:
+        return _variables({k: os.path.normpath(self._fmt(val)) for k, val in self.manifest.get("define", {}).items()})
 
     def _tops(self) -> list[str]:
         seen: list[str] = []
@@ -1311,9 +1323,9 @@ class PDK:
         """
         if self._devices is None:
             base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
-            data = _cached(base, cache)
-            if data is None or "env" not in data:
-                text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", self._defines(), True)
+            data = _cached(base, cache, self._defines())
+            if data is None:
+                text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", _lines(self._defines()), True)
                 data = json.loads(text)
                 # Kept while every file read, through includes too, is unchanged.
                 data["files"] = _stats(data["files"])
@@ -1379,13 +1391,13 @@ class PDK:
         sections = [sec for _, sec in pairs if sec] if all(sec for _, sec in pairs) else []
         tag = f"{_dialect_tag(d)}-{self.corner}" if sections else _dialect_tag(d)
         out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
-        summary = _cached(out)
+        summary = _cached(out, variables=self._defines())
         if summary is not None:
             with open(os.path.join(out, "sprack.log")) as f:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
-            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, self._defines(), True, "\n".join(sections))
+            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections))
             summary = json.loads(text)
             # Kept while every file translated is unchanged.
             summary["files"] = _sources(out, summary["root"])

@@ -190,6 +190,7 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     const gt: ?*const sprack.Grammar = if (to.len > 0) try dialect(arena, to) else null;
     var log: std.Io.Writer.Allocating = .init(arena);
     var cat: std.Io.Writer.Allocating = .init(arena);
+    var expanded: std.Io.Writer.Allocating = .init(arena);
     const sum = sprack.project.run(threaded.io(), std.heap.page_allocator, .{
         .from = gf,
         .to = gt,
@@ -201,11 +202,12 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
         .sections = if (args != null and PyTuple_Size(args.?) > 6) try lines(arena, try arg(args, 6)) else &.{},
         .log = &log.writer,
         .catalog = if (gt == null) &cat.writer else null,
+        .expanded = &expanded.writer,
         .caps = &sprack.caps,
     }) catch return error.OutOfMemory;
     if (gt == null) return pair(cat.written(), log.written());
-    const summary = try std.fmt.allocPrint(arena, "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d},\"root\":{f}}}", .{
-        sum.files, sum.errors, sum.warnings, sum.missing, std.json.fmt(sum.root(), .{}),
+    const summary = try std.fmt.allocPrint(arena, "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d},\"root\":{f},\"vars\":{s}}}", .{
+        sum.files, sum.errors, sum.warnings, sum.missing, std.json.fmt(sum.root(), .{}), expanded.written(),
     });
     return pair(summary, log.written());
 }

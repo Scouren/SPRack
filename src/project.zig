@@ -62,6 +62,11 @@ pub const Options = struct {
     /// file reached by `.lib file name`, is followed only if it is named
     /// here or by a `.lib` line in what is followed. Empty: every one.
     sections: []const []const u8 = &.{},
+    /// Written at the end: a JSON object of every `$NAME` an include path
+    /// named and what it was replaced by (null: `vars` does not define it).
+    /// Another value would reach other files, so a kept result is good
+    /// only while these are the same. A catalogue says it as its `vars`.
+    expanded: ?*Writer = null,
 };
 
 // ------------------------------------------------------------------- paths
@@ -156,6 +161,8 @@ const Run = struct {
     /// Directories an include not found beside its file is looked up in
     /// (HSPICE `.option search='dir'`), absolute.
     search: std.ArrayList([]const u8) = .empty,
+    /// Every `$NAME` an include path named, with the value it was given.
+    expanded: std.StringArrayHashMapUnmanaged(?[]const u8) = .empty,
 
     /// A section not followed (yet): what following it would reach.
     const Skipped = struct { path: []const u8, name: []const u8, refs: []const Ref, released: bool = false };
@@ -203,6 +210,7 @@ const Run = struct {
             const value = for (r.opts.vars) |kv| {
                 if (std.mem.eql(u8, kv[0], name)) break kv[1];
             } else null;
+            if (name.len > 0 and !r.expanded.contains(name)) try r.expanded.put(r.arena, try r.arena.dupe(u8, name), value);
             if (braced and j < path.len and path[j] == '}') j += 1;
             try out.appendSlice(a, value orelse path[i..j]);
             i = j;
@@ -221,6 +229,15 @@ const Run = struct {
             if (exists(r, there)) return there;
         }
         return here;
+    }
+
+    fn writeExpanded(r: *const Run, w: *Writer) Writer.Error!void {
+        try w.writeByte('{');
+        for (r.expanded.keys(), r.expanded.values(), 0..) |name, value, i| {
+            if (i > 0) try w.writeByte(',');
+            try w.print("{f}:{f}", .{ std.json.fmt(name, .{}), std.json.fmt(value, .{}) });
+        }
+        try w.writeByte('}');
     }
 
     fn exists(r: *Run, path: []const u8) bool {
@@ -558,6 +575,8 @@ const Run = struct {
             }
             try w.writeAll("],\"env\":");
             try json.writeEnv(w, &r.env);
+            try w.writeAll(",\"vars\":");
+            try r.writeExpanded(w);
             try w.print(",\"root\":{f},\"errors\":{d},\"warnings\":{d},\"missing\":{d}}}\n", .{
                 std.json.fmt(root_dir, .{}), r.sum.errors, r.sum.warnings, r.sum.missing,
             });
@@ -582,6 +601,7 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
     for (opts.tops) |t| try r.enqueue(try resolve(r.arena, r.cwd, t));
     try r.discover();
     try r.process();
+    if (opts.expanded) |w| try r.writeExpanded(w);
     return r.sum;
 }
 
@@ -640,6 +660,7 @@ test "a small project: includes followed, declarations shared, tree copied" {
     const spectre = @import("root.zig").find("spectre").?.*;
 
     var log: Writer.Allocating = .init(a);
+    var expanded: Writer.Allocating = .init(a);
     const sum = try run(io, std.testing.allocator, .{
         .from = &hspice,
         .to = &spectre,
@@ -647,10 +668,12 @@ test "a small project: includes followed, declarations shared, tree copied" {
         .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
         .vars = &.{.{ "MODELS", "models" }},
         .log = &log.writer,
+        .expanded = &expanded.writer,
         // Only the corner asked for: ff.mod (which does not exist) is not reached.
         .sections = &.{"tt"},
     });
     try std.testing.expectEqual(3, sum.files);
+    try std.testing.expectEqualStrings("{\"MODELS\":\"models\"}", expanded.written());
     try std.testing.expectEqual(1, sum.missing);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "missing.mod: error[invalid]: cannot open this file") != null);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed") != null);

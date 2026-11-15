@@ -711,6 +711,51 @@ def test_tiny_pdk_cache_is_not_stale():
     _tiny(body)
 
 
+def test_cache_follows_include_variables():
+    def body(make, d):
+        # Two sets of cells; $TINY_CELLS in the library's include path says which.
+        for sub, cell in (("one", "first"), ("two", "second")):
+            os.mkdir(os.path.join(d, sub))
+            with open(os.path.join(d, sub, "cells.inc"), "w") as f:
+                f.write(f"* {sub}\n.subckt {cell} a b\nR1 a b 1k\n.ends {cell}\n")
+        with open(os.path.join(d, "m.lib"), "w") as f:
+            f.write('* tiny\n.lib tt\n.include "$TINY_CELLS/cells.inc"\n.endl tt\n')
+        pdk = lambda: make(manifest={**TINY, "define": {}})
+        c = sprack.Circuit("t")
+        c.code(f'.lib "{d}/m.lib" tt\n')
+
+        def included(tree):
+            path = os.path.join(tree, open(os.path.join(tree, "m.lib")).read().split('.include "')[1].split('"')[0])
+            text = open(path).read() if os.path.isfile(path) else ""
+            return [n for n in ("first", "second") if f".subckt {n} a b" in text]
+
+        def read():
+            """The subcircuits in the catalogue, in what the PDK's copy for
+            Xyce includes, and in what the copy of a code block's library does."""
+            copy = unwrap(c.netlist("xyce", strict=False)).split('.lib "')[1].split('"')[0]
+            return [sorted(pdk().devices), included(pdk().translate("xyce", strict=False)), included(os.path.dirname(copy))]
+        try:
+            os.environ["TINY_CELLS"] = os.path.join(d, "one")
+            assert read() == [["first"]] * 3, read()
+            assert read() == [["first"]] * 3
+            # Another value reaches other files: nothing read with the old one is kept.
+            os.environ["TINY_CELLS"] = os.path.join(d, "two")
+            assert read() == [["second"]] * 3, read()
+            del os.environ["TINY_CELLS"]
+            assert read() == [[]] * 3, read()
+            os.environ["TINY_CELLS"] = os.path.join(d, "one")
+            assert read() == [["first"]] * 3, read()
+            # A variable no include path names is not looked at: the entries stay.
+            marks = lambda: sorted((p, os.stat(p).st_mtime_ns) for at, _, names in os.walk(d) for n in names if n.endswith(".json") for p in [os.path.join(at, n)])
+            before = marks()
+            os.environ["TINY_OTHER"] = "x"
+            assert read() == [["first"]] * 3 and marks() == before and len(before) == 2
+        finally:
+            os.environ.pop("TINY_CELLS", None)
+            os.environ.pop("TINY_OTHER", None)
+    _with_cache(lambda cache: _tiny(body))
+
+
 def test_tiny_pdk_corner_must_be_there():
     def body(make, d):
         corners = {**TINY["corners"], "ff": [["m.lib", "ff"]], "ss": [["gone.lib", "ss"]]}
