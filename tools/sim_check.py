@@ -89,6 +89,12 @@ def fold(plots):
             if name == "Operating Point" and swept:
                 keep = [i for i, c in enumerate(cols) if not SWEEP.fullmatch(c.lower())]
                 cols, tab = [cols[i] for i in keep], [[r[i] for i in keep] for r in tab]
+        low = [c.lower() for c in cols]
+        if "onoise" in low and "gain" in low:
+            # VACASK writes noise as power densities and the power gain; ngspice as V/sqrt(Hz), in and out.
+            o, g = low.index("onoise"), low.index("gain")
+            tab = [r[:o] + [abs(r[o]) ** 0.5] + r[o + 1:] + [abs(r[o] / r[g]) ** 0.5 if r[g] else float("inf")] for r in tab]
+            cols = cols + ["inoise_spectrum"]
         out.append((name, [column(c) for c in cols], rows, cplx, tab))
     return out
 
