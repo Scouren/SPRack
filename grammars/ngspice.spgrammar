@@ -170,7 +170,7 @@ no qpss       : ngspice has no quasi-periodic steady-state analysis
 # unbalanced current source into one is driven to about 1e4 V. A loop of
 # voltage sources fails; one with an inductor in it, or of inductors only,
 # is solved the same way, with an arbitrary current around it.
-requires dc-path   warning : ngspice solves it only through its transient operating point, after gmin and source stepping fail
+requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : ngspice solves it only through its transient operating point, after gmin and source stepping fail
 requires no-vloop  error   : ngspice's operating point fails on it
 requires no-vlloop warning : ngspice solves it only through its transient operating point, and the current around the loop is arbitrary
 

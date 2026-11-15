@@ -247,7 +247,7 @@ caveat hdl path=*.osdi : ahdl_include expects Verilog-A source, not a compiled O
 # current source into one drives it to about 1e9 V. A loop of voltage
 # sources, of a voltage source and an inductor, or of inductors only stops
 # the run.
-requires dc-path   warning : Spectre solves it but starts such nodes at 0 V, where ngspice divides the charge among the capacitors
+requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : Spectre solves it but starts such nodes at 0 V, where ngspice divides the charge among the capacitors
 requires no-vloop  error   : Spectre stops on it
 requires no-vlloop error   : Spectre stops on it, where ngspice gets through with its transient operating point
 requires no-lloop  error   : Spectre stops on it, where ngspice and Xyce solve it

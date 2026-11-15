@@ -478,6 +478,36 @@ def test_pdk_inverters_solvable():
     raises(sprack.Unsupported, lambda: c.netlist("vacask"), "node 'x' has no DC path to ground: only C1, C2 reach it")
 
 
+def test_topology_needs_an_analysis():
+    """Schemify's component decks: a cell netlisted on its own, no analysis,
+    built from `code` blocks and written back in their own dialect."""
+    def alarms(c, d):
+        return [e for e in c.netlist(d, strict=False).report if "DC path" in e.message or "form a loop" in e.message]
+    def inv(extra=""):
+        c = sprack.Circuit("inv (schemify espice)")
+        c.global_("vdd!")
+        c.param(wn=1, wp=2)
+        c.code("MMN Y A 0 0 nmos W=wn L=1\nMMP Y A vdd! vdd! pmos W=wp L=1\n.model nmos nmos level=1\n.model pmos pmos level=1\n" + extra, "espice")
+        return c
+    # No analysis: nothing to report, in its own dialect or another.
+    assert "MMN Y A 0 0 nmos" in inv().netlist("espice")
+    assert not alarms(inv(), "vacask")
+    # Same dialect in and out: no report even with an operating point.
+    assert not alarms(inv(".op\n"), "espice")
+    # Translated, an operating point refuses it.
+    c = sprack.Circuit("inv")
+    c.code("MMN Y A 0 0 nmos W=1 L=1\n.model nmos nmos level=1\n.op\n", "ngspice")
+    raises(sprack.Unsupported, lambda: c.netlist("espice"), "node 'A' has no DC path to ground")
+    # A transient alone: ESPice solves an island, VACASK's operating point fails.
+    c = sprack.Circuit("island")
+    c.V("1", "in", 0, 1)
+    c.C("1", "in", "x", "1p")
+    c.C("2", "x", 0, "1p")
+    c.tran("1n", "10n")
+    assert not alarms(c, "espice")
+    raises(sprack.Unsupported, lambda: c.netlist("vacask"), "node 'x' has no DC path to ground")
+
+
 INSTALLED = os.environ.get("SPRACK_TEST_PDKS_INSTALLED", "")
 
 

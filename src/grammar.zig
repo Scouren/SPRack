@@ -297,9 +297,11 @@ pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
 /// nodes with no DC path to ground, or a loop of voltage sources only, of
 /// voltage sources and inductors, or of inductors only.
 pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop" };
-/// `requires dc-path error : reason`: such a topology is reported here, an
-/// error when the simulator fails on it, a warning when it solves it its own way.
-pub const Require = struct { what: Topo, err: bool, reason: []const u8 };
+/// `requires dc-path error [op dc ac] : reason`: such a topology is reported
+/// here, an error when the simulator fails on it, a warning when it solves it
+/// its own way. Only in a netlist with one of `analyses` (`tran`: one without
+/// UIC); with none listed, with any analysis.
+pub const Require = struct { what: Topo, err: bool, analyses: []const Kind = &.{}, reason: []const u8 };
 
 pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
 pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv };
@@ -1509,13 +1511,21 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (lits.len != 1) return c.fail(no, "switch needs one quoted line start", .{});
             switches = try c.add(Switch, switches, .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") });
         } else if (std.mem.eql(u8, head, "requires")) {
-            const usage = "requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning : reason`";
+            const usage = "requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`";
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, usage, .{});
-            var it = std.mem.tokenizeAny(u8, rest[0..colon], " \t");
+            var it = std.mem.tokenizeAny(u8, rest[0..colon], " \t[]");
             const what = std.meta.stringToEnum(Topo, it.next() orelse "") orelse return c.fail(no, usage, .{});
             const sev = it.next() orelse "";
-            if (it.next() != null or !(std.mem.eql(u8, sev, "error") or std.mem.eql(u8, sev, "warning"))) return c.fail(no, usage, .{});
-            requires = try c.add(Require, requires, .{ .what = what, .err = sev[0] == 'e', .reason = rest[colon + 3 ..] });
+            if (!(std.mem.eql(u8, sev, "error") or std.mem.eql(u8, sev, "warning"))) return c.fail(no, usage, .{});
+            const open = std.mem.indexOfScalar(u8, rest[0..colon], '[');
+            if ((open == null) != (it.peek() == null) or (open != null and std.mem.indexOfScalar(u8, rest[open.?..colon], ']') == null)) return c.fail(no, usage, .{});
+            var analyses: []const Kind = &.{};
+            while (it.next()) |w| {
+                const k = std.meta.stringToEnum(Kind, w) orelse return c.fail(no, "requires: '{s}' is not an analysis", .{w});
+                if (schema.info(k).class != .analysis) return c.fail(no, "requires: '{s}' is not an analysis", .{w});
+                analyses = try c.add(Kind, analyses, k);
+            }
+            requires = try c.add(Require, requires, .{ .what = what, .err = sev[0] == 'e', .analyses = analyses, .reason = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "reserved")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
             reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
@@ -1641,7 +1651,8 @@ test "a broken grammar at run time names the file and line" {
         .{ .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n", .msg = "x/bad.spgrammar:4: missing ']' in pattern" },
         .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
         .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
-        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning : reason`" },
+        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
+        .{ .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n", .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis" },
     };
     for (cases) |cs| {
         var diag: Diag = .{};

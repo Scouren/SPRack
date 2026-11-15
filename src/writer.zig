@@ -2056,6 +2056,26 @@ pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist
     return if (any) st else null;
 }
 
+/// Whether `nl` is written back in its own dialect: read in `g`, or built
+/// (Python, JSON) from statements read in `g` (`Stmt.dialect`) and others
+/// that name no dialect, such as a subcircuit built around them.
+fn sameDialect(nl: *const ir.Netlist, g: *const grammar.Grammar) bool {
+    if (std.mem.eql(u8, nl.dialect, g.name)) return true;
+    var tagged = false;
+    return allFrom(nl.stmts, g.name, &tagged) and tagged;
+}
+
+fn allFrom(stmts: []const ir.Stmt, name: []const u8, tagged: *bool) bool {
+    for (stmts) |*s| {
+        if (s.dialect != 0) {
+            if (!std.ascii.eqlIgnoreCase(sprack.dialectName(s.dialect), name)) return false;
+            tagged.* = true;
+        }
+        if (!allFrom(s.body, name, tagged)) return false;
+    }
+    return true;
+}
+
 pub fn write(
     g: *const Grammar,
     arena: Allocator,
@@ -2130,8 +2150,8 @@ pub fn write(
             }
             try uniqueMasters(arena, nl.stmts, env, report, g);
         }
-        try topology.check(ir.big, arena, nl, g, report);
     }
+    if (!sameDialect(nl, g)) try topology.check(ir.big, arena, nl, g, report);
     const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
         try w.check(g, filled);

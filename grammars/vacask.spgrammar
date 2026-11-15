@@ -333,7 +333,8 @@ caveat save signals : in VACASK's ac, noise, acxf and dcinc analyses v() saves t
 # sources and inductors, where ngspice gets through with its transient
 # operating point. A transient with icmode="uic" needs no DC path and
 # integrates through inductors; a loop of voltage sources fails it too.
-requires dc-path   error : VACASK's operating point fails on it, where ngspice gets through with its transient operating point; a large resistor to ground gives one
+# A transient without it solves the operating point first: tran is listed.
+requires dc-path   error [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : VACASK's operating point fails on it, where ngspice gets through with its transient operating point; a large resistor to ground gives one
 requires no-vloop  error : VACASK's operating point fails on it
 requires no-vlloop error : VACASK's operating point fails on it, where ngspice gets through with its transient operating point
 requires no-lloop  error : VACASK's operating point fails on it, where ngspice and Xyce solve it

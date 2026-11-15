@@ -4043,3 +4043,46 @@ test "c6: a model renamed for Spectre across the files of a project" {
     try has(out[2], "X1 (d g 0 0) nch\n");
     try testing.expectEqual(0, r.count(.@"error"));
 }
+
+// e1: the analyses decide whether a topology is reported (src/topology.zig)
+
+test "e1: a deck with no analysis reports no topology; the analyses a rule lists gate it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A cell netlisted on its own (Schemify's inv.shcomp): its input is
+    // driven by whatever uses it, and nothing solves it as it stands.
+    const inv = "t\n.global vdd!\nMMN Y A 0 0 nm\nMMP Y A vdd! vdd! pm\n.model nm nmos level=1\n.model pm pmos level=1\n";
+    try testing.expectEqual(0, (try topo(a, "espice", inv ++ ".end\n")).items.items.len);
+    try testing.expectEqual(0, (try topo(a, "vacask", "t\nV1 a 0 1\nV2 a 0 1\nC1 a x 1p\n.end\n")).items.items.len);
+    // An operating point refuses it in ESPice.
+    try reported(&(try topo(a, "espice", inv ++ ".op\n.end\n")), .@"error", "node 'A' has no DC path to ground: only MMN, MMP reach it");
+    // ESPice's transient solves an island; VACASK's solves the operating
+    // point first, and fails.
+    const island = "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.tran 1n 10n\n.end\n";
+    try testing.expectEqual(0, (try topo(a, "espice", island)).items.items.len);
+    try reported(&(try topo(a, "vacask", island)), .@"error", "node 'x' has no DC path to ground");
+    // ESPice refuses an unbalanced current cutset in every analysis.
+    try reported(&(try topo(a, "espice", "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n.tran 1n 10n\n.end\n")), .@"error", "node 'a' has no DC path to ground");
+    // A loop needs only some analysis.
+    try reported(&(try topo(a, "espice", "t\nV1 a 0 1\nV2 a 0 1\n.tran 1n 10n\n.end\n")), .@"error", "V1, V2 form a loop of voltage sources");
+}
+
+test "e1: statements all read in the target's dialect are not translated: no topology report" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // As Python's `code(..., "espice")` builds it: a netlist of no dialect,
+    // each statement tagged with the one it was read in.
+    var nl = try readAs(a, "espice", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.op\n.end\n", &report);
+    nl.dialect = "sprack";
+    const espice = (try sprack.internDialect("espice")).?;
+    for (nl.stmts) |*s| s.dialect = espice;
+    _ = try writeAs(a, "espice", &nl, &report);
+    try testing.expect(!report.contains(.@"error", "DC path"));
+    // One statement from another dialect makes it a translation.
+    nl.stmts[1].dialect = (try sprack.internDialect("ngspice")).?;
+    _ = try writeAs(a, "espice", &nl, &report);
+    try reported(&report, .@"error", "node 'x' has no DC path to ground");
+}

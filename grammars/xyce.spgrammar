@@ -158,7 +158,7 @@ no qpss       : Xyce has no quasi-periodic steady-state analysis; a multitone .H
 # capacitive divider, as ngspice); an unbalanced current source into one
 # fails the operating point. A loop of voltage sources, or of a voltage
 # source and an inductor, fails it; one of inductors only is solved.
-requires dc-path   warning : Xyce solves it with a warning, but fails the operating point when the currents of sources into it do not balance
+requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : Xyce solves it with a warning, but fails the operating point when the currents of sources into it do not balance
 requires no-vloop  error   : Xyce's operating point fails on it
 requires no-vlloop error   : Xyce's operating point fails on it, where ngspice gets through with its transient operating point
 requires no-lloop  warning : Xyce solves it, but the current around the loop is not set by the circuit

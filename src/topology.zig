@@ -12,6 +12,10 @@
 //! Verilog-A module, a transmission line, an instance of
 //! something not defined here) joins all its terminals: it hides an alarm
 //! rather than raise a false one.
+//!
+//! Nothing is reported for a netlist with no analysis (a cell netlisted on
+//! its own: nothing solves it as it stands), and a rule that lists analyses
+//! only where one of them is present.
 
 const std = @import("std");
 const ir = @import("ir.zig");
@@ -108,8 +112,19 @@ const Cx = struct {
     done: std.AutoHashMapUnmanaged(*const Stmt, ?Summary) = .empty,
     /// Every analysis skips the DC solve (UIC): nothing needs a DC path.
     no_op: bool = false,
+    /// The analyses present; `tran` only for one that solves DC first.
+    has: [schema.kind_count]bool = @splat(false),
 
+    /// The rule for `what`, if the netlist has an analysis it lists.
     fn rule(cx: *const Cx, what: Topo) ?grammar.Require {
+        const r = cx.anyRule(what) orelse return null;
+        if (r.analyses.len == 0) return r;
+        for (r.analyses) |k| if (cx.has[@backingInt(k)]) return r;
+        return null;
+    }
+
+    /// The rule for `what` whichever analyses are present.
+    fn anyRule(cx: *const Cx, what: Topo) ?grammar.Require {
         for (cx.g.requires) |r| if (r.what == what) return r;
         return null;
     }
@@ -342,11 +357,14 @@ fn list(arena: Allocator, names: []const []const u8, total: usize, quote: bool) 
 /// Report the nodes of `sc` that reach neither ground nor a port, and the
 /// loops among its voltage sources and inductors.
 fn finish(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8) Allocator.Error!void {
-    if (cx.rule(.@"dc-path")) |rq| if (!cx.no_op) try islands(cx, sc, stmts, ports, label, rq);
+    // An unbalanced current into an island fails every analysis that solves
+    // DC (ESPice's transient too): reported whichever analyses there are.
+    if (cx.anyRule(.@"dc-path")) |rq| if (!cx.no_op) try islands(cx, sc, stmts, ports, label, rq, cx.rule(.@"dc-path") != null);
     if (sc.edges.items.len > 0) try loops(cx, sc, label);
 }
 
-fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8, rq: grammar.Require) Allocator.Error!void {
+/// With `listed` false, only islands fed by a current source are reported.
+fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: []const u8, rq: grammar.Require, listed: bool) Allocator.Error!void {
     const n = sc.names.items.len;
     const reach = try cx.gpa.alloc(bool, n);
     defer cx.gpa.free(reach);
@@ -376,6 +394,7 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
     if (found.count() == 0) return;
     try crossings(cx, sc, stmts, &found);
     for (found.values()) |*isl| {
+        if (!listed and !isl.current) continue;
         var names: [max_names][]const u8 = undefined;
         const shown = @min(isl.n, max_names);
         for (isl.nodes[0..shown], 0..) |x, i| names[i] = sc.names.items[x];
@@ -396,7 +415,7 @@ fn islands(cx: *Cx, sc: *Scope, stmts: []const Stmt, ports: []const u32, label: 
             rq.reason,
         });
     }
-    if (more > 0) cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, more, rq.reason });
+    if (more > 0 and listed) cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more groups of nodes have no DC path to ground; {s}", .{ label, more, rq.reason });
 }
 
 /// Name, for each island, the devices that cross its boundary: they
@@ -483,7 +502,7 @@ fn loops(cx: *Cx, sc: *Scope, label: []const u8) Allocator.Error!void {
     }
     for (more, 0..) |c, i| if (c > 0) {
         const what: Topo = @fromBackingInt(@intCast(@backingInt(Topo.@"no-vloop") + i));
-        const rq = cx.rule(what).?;
+        const rq = cx.rule(what) orelse continue;
         cx.report.add(if (rq.err) .@"error" else .warning, .invalid, 0, "{s}{d} more such loops; {s}", .{ label, c, rq.reason });
     };
 }
@@ -538,18 +557,24 @@ fn collect(cx: *Cx, stmts: []const Stmt) Allocator.Error!void {
     }
 }
 
-/// Whether the netlist has analyses and every one starts without a DC
-/// solve (a transient with UIC).
-fn skipsOp(stmts: []const Stmt, any: *bool) bool {
+/// Marks the analyses in `stmts` in `cx.has` (a transient with UIC is not
+/// `tran`); sets `any` for each, and clears `cx.no_op` for each but such a
+/// transient.
+fn analyses(cx: *Cx, stmts: []const Stmt, any: *bool) void {
     for (stmts) |*s| {
         if (s.kind == .subckt) continue;
-        if (s.body.len > 0 and !skipsOp(s.body, any)) return false;
-        if (schema.info(s.kind).class != .analysis or s.kind == .step or s.kind == .montecarlo) continue;
+        analyses(cx, s.body, any);
+        if (schema.info(s.kind).class != .analysis) continue;
+        switch (s.kind) {
+            .step, .montecarlo, .alter => continue,
+            else => {},
+        }
         any.* = true;
         const uic = s.get("skip_dc");
-        if (s.kind != .tran or uic != .atom or !std.mem.eql(u8, uic.atom, "yes")) return false;
+        if (s.kind == .tran and uic == .atom and std.mem.eql(u8, uic.atom, "yes")) continue;
+        cx.no_op = false;
+        cx.has[@backingInt(s.kind)] = true;
     }
-    return true;
 }
 
 /// Report what of the netlist's topology `g` says its simulator cannot
@@ -560,9 +585,12 @@ pub fn check(gpa: Allocator, arena: Allocator, nl: *const ir.Netlist, g: *const 
     defer cx.subckts.deinit(gpa);
     defer cx.globals.deinit(gpa);
     defer cx.done.deinit(gpa);
-    try collect(&cx, nl.stmts);
     var any = false;
-    cx.no_op = skipsOp(nl.stmts, &any) and any;
+    cx.no_op = true;
+    analyses(&cx, nl.stmts, &any);
+    // A cell netlisted on its own: how it will be used is not known.
+    if (!any) return;
+    try collect(&cx, nl.stmts);
     // Every definition, in the order written; instances reuse the summary.
     var it = cx.subckts.valueIterator();
     var defs: std.ArrayList(*const Stmt) = .empty;

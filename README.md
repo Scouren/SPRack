@@ -398,6 +398,9 @@ no single rule holds everything, which is how `.options timeint ...` and
                                        # voltage sources, of sources and inductors,
                                        # of inductors). An `invalid` entry naming
                                        # the nodes or elements; src/topology.zig
+    requires dc-path error [op dc ac] : ...  # only in a netlist with one of these
+                                       # analyses (`tran`: one without UIC); with
+                                       # no list, with any analysis
     spread montecarlo                  # a block written by adding its rule to each
                                        # analysis of its body (`sweep monte=30`)
     spread step "sweep"                # the same; only the rules starting with
@@ -522,7 +525,11 @@ has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
   parameters are checked (`params` tables) for resistors, capacitors,
   inductors, current sources, diodes, BJTs and JFETs, and HSPICE MOSFETs.
 * The topology check (`requires`) runs when translating between two
-  dialects, not on a deck written back in its own. It does not flatten:
+  dialects, not on a deck written back in its own (read in it, or built in
+  Python from `code` blocks all of it). A deck with no analysis, a cell
+  netlisted on its own, gets no report; a rule that lists analyses fires
+  only where one of them is present, except that an island fed by a
+  current source is reported with any analysis. It does not flatten:
   each subcircuit is summarised by which ports its body joins at DC, and
   by which it joins through voltage sources only, inductors only, or both;
   an instance stands for those paths in its parent, so a loop through
