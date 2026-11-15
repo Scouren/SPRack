@@ -1345,19 +1345,23 @@ class PDK:
     def statements(self, dialect: str, *, strict: bool = True) -> list[dict]:
         """The statements that bring this PDK's corner into a netlist for `dialect`."""
         d = _dialect(dialect)
+        # Each statement says the file it names is in the target's dialect
+        # already (the PDK's own, or the translated copy): a statement that
+        # says nothing is taken to be in the circuit's.
+        name = _grammar_name(d)
         out: list[dict] = []
         if d == self.dialect:
             mapped = self.entries()
             for item in self.manifest.get("load", []):
                 path = os.path.normpath(os.path.join(self.root, self._fmt(item)))
                 if os.path.isfile(path):
-                    out.append({"kind": "hdl", "path": path})
+                    out.append({"kind": "hdl", "path": path, "dialect": name})
         else:
             tree = self.translate(d, strict=strict)
             src_root = self._roots[d][1]
             mapped = [(os.path.join(tree, os.path.relpath(p, src_root)), sec) for p, sec in self.entries()]
         for path, section in mapped:
-            out.append({"kind": "lib", "path": path, "section": section} if section else {"kind": "include", "path": path})
+            out.append({"kind": "lib", "path": path, "section": section, "dialect": name} if section else {"kind": "include", "path": path, "dialect": name})
         return out
 
     def __repr__(self) -> str:

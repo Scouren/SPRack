@@ -644,6 +644,22 @@ def test_tiny_pdk_model_cards():
     _tiny(body)
 
 
+def test_tiny_pdk_library_is_not_foreign():
+    def body(make, d):
+        # Also for a circuit in another dialect's terms than the PDK's.
+        for own in (None, "hspice"):
+            c = sprack.Circuit("t", pdk=make(), dialect=own)
+            c.cell("X1", "a", 0)
+            c.V("1", "a", 0, 1)
+            c.op()
+            # The PDK's own file, or its translated copy: neither is left to translate.
+            for target, path in (("ngspice", os.path.join(d, "m.lib")), ("xyce", os.path.join(d, "cache", "tiny"))):
+                out = c.netlist(target)
+                assert f'.lib "{path}' in unwrap(out), out
+                assert not [e for e in out.report if "translate that file too" in e.message], out.report
+    _tiny(body)
+
+
 # One deck that says a bit of everything, in ngspice.
 DECK = """Rich deck
 * a comment
