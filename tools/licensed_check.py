@@ -2,7 +2,7 @@
 
 Usage (local):
   python3 -I tools/licensed_check.py <sprack> <suite/tests> <audit.tsv> <out.tsv>
-      --host HOST --env SCRIPT --dir DIR [--targets spectre,hspice] [--only REGEX] [--keep]
+      --host HOST --env SCRIPT --dir DIR [--targets spectre,hspice] [--only REGEX] [--jobs N] [--keep]
 
 HOST is the ssh host with the licensed tools, SCRIPT a file on it that the
 login shell sources to put `spectre` and `hspice` on PATH, and DIR a scratch
@@ -11,7 +11,8 @@ Each may instead come from SPRACK_LC_HOST, SPRACK_LC_ENV and SPRACK_LC_DIR.
 
 Every run in <audit.tsv> from ngspice or hspice to a target with rc 0 and
 0 errors is translated here, shipped with the suite tree to the host, and
-run there in batch mode, at most 4 jobs at once and 60 s each. As a control,
+run there in batch mode, at most 4 jobs at once (--jobs or SPRACK_LC_JOBS
+to change it) and 60 s each. As a control,
 each hspice-source deck is also run natively in HSPICE, and each
 ngspice-source deck in the local ngspice (when one is on PATH). A target
 failure counts as a translation failure only when the control loaded.
@@ -104,7 +105,7 @@ def version(cmd):
     return next((l.strip() for l in out.splitlines() if "ersion" in l), "?")
 
 
-def remote(jobs_tsv, out_tsv):
+def remote(jobs_tsv, out_tsv, n=JOBS):
     jobs = list(csv.reader(open(jobs_tsv), delimiter="\t"))
     print("spectre:", version(["spectre", "-V"]), "| hspice:", version(["hspice", "-v"]), flush=True)
 
@@ -113,7 +114,7 @@ def remote(jobs_tsv, out_tsv):
         status, errs = simulate(tool, deck, os.path.abspath("scratch/%d" % i))
         return [rel, frm, to, role, status, " | ".join(errs)[:2000]]
 
-    with ThreadPoolExecutor(max_workers=JOBS) as ex:
+    with ThreadPoolExecutor(max_workers=n) as ex:
         rows = list(ex.map(one, enumerate(jobs)))
     with open(out_tsv, "w") as f:
         for r in rows:
@@ -129,7 +130,7 @@ def ssh(host, cmd):
 
 def main(argv):
     if argv[1] == "--remote":
-        return remote(argv[2], argv[3])
+        return remote(argv[2], argv[3], int(argv[4]) if len(argv) > 4 else JOBS)
     sprack, suite, audit, out_tsv = (os.path.abspath(a) for a in argv[1:5])
     opts = argv[5:]
     get = lambda k, d: opts[opts.index(k) + 1] if k in opts else d
@@ -137,6 +138,7 @@ def main(argv):
     if not (host and env and rdir):
         sys.exit("--host, --env and --dir (or SPRACK_LC_HOST, _ENV, _DIR) are required")
     targets, only = get("--targets", "spectre,hspice").split(","), get("--only", "")
+    njobs = int(get("--jobs", os.environ.get("SPRACK_LC_JOBS", JOBS)))
 
     picked = [r for r in csv.DictReader(open(audit), delimiter="\t", quoting=csv.QUOTE_NONE)
               if r["from"] in ("ngspice", "hspice") and r["to"] in targets and r["from"] != r["to"] and r["rc"] == "0"
@@ -188,7 +190,7 @@ def main(argv):
     subprocess.run(["scp", "-q", tgz, "%s:%s/" % (host, rdir)], check=True)
     # `source A && B` reads the same in csh and sh login shells.
     ssh(host, "source %s && cd ~/%s && tar xzf batch.tgz && rm batch.tgz && "
-              "python3 licensed_check.py --remote jobs.tsv results.tsv" % (env, rdir))
+              "python3 licensed_check.py --remote jobs.tsv results.tsv %d" % (env, rdir, njobs))
     subprocess.run(["scp", "-q", "%s:%s/results.tsv" % (host, rdir), os.path.join(work, "results.tsv")], check=True)
     if "--keep" not in opts:
         ssh(host, "rm -rf ~/%s/tests" % rdir)
