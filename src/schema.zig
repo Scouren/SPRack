@@ -378,7 +378,9 @@ pub const functions = [_][]const u8{
 pub const variables = [_][]const u8{ "temper", "time", "hertz" };
 
 /// Operators that are not spelled the same everywhere.
-pub const operators = [_][]const u8{ "pow", "xor", "ternary" };
+/// `negpow` has no spelling: it names, for `differs`, a minus right after
+/// another operator before a power (`1+-2**2`).
+pub const operators = [_][]const u8{ "pow", "xor", "ternary", "negpow" };
 
 /// Signal forms a `signals` section may spell.
 pub const signal_forms = [_][]const u8{

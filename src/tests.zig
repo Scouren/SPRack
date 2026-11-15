@@ -2967,3 +2967,31 @@ test "the spelling table holds names only: a keyword DC does not respell a node 
     try has(sp, "C1 (Out 0) capacitor c=1p");
     try has(sp, "R2 (dc Out) resistor r=1k\n");
 }
+
+test "expression semantics: a choice in the target's form, and what evaluates differently" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice ternary_fcn is if() here; HSPICE and Spectre have only ?:.
+    var r1: ir.Report = .init(a);
+    const hs = try tr(a, "ngspice", "hspice", "t\n.param x=2\n.param p={ternary_fcn(x > 1, 3, 4)}\n.end\n", &r1);
+    try has(hs, ".param p='(x > 1 ? 3 : 4)'\n");
+    try clean(&r1);
+    // LTspice has if() and no ?:.
+    var r2: ir.Report = .init(a);
+    const lt = try tr(a, "ngspice", "ltspice", "t\n.param x=2\n.param q={x>1 ? 1 : 0}\n.end\n", &r2);
+    try has(lt, ".param q={if(x>1, 1, 0)}\n");
+    // CDL has neither.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "cdl", "t\n.param q={x>1 ? 1 : 0}\n.end\n", &r3);
+    try reported(&r3, .@"error", "operator 'ternary' has no spelling in cdl");
+    // Measured differences: ngspice's .param pwr, Xyce's nint, HSPICE's log.
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param p={pwr(x,2)+nint(y)+1+-2**2}\n.end\n", &r4);
+    try reported(&r4, .warning, "pwr in ngspice: in .param the sign of a negative base is dropped");
+    try reported(&r4, .warning, "nint in xyce: halves round away from zero");
+    try reported(&r4, .warning, "negpow in ngspice");
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "hspice", "// t\nparameters p=log(x)\n", &r5);
+    try reported(&r5, .warning, "ln in hspice: a negative argument gives -ln|x|");
+}

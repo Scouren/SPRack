@@ -20,7 +20,9 @@ const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 
 pub const Problem = struct {
-    kind: enum { function, variable, operator },
+    /// `form`: not a problem but a note, the expression was restructured
+    /// for the target (`?:` as `if()`), so it reads back in another shape.
+    kind: enum { function, variable, operator, form },
     text: []const u8,
 };
 
@@ -132,7 +134,7 @@ pub fn read(
             }
         }
         if (best) |b| {
-            try out.appendSlice(arena, if (std.mem.eql(u8, b.canon, "pow")) canon_pow else canon_xor);
+            try out.appendSlice(arena, if (std.mem.eql(u8, b.canon, "pow")) canon_pow else if (std.mem.eql(u8, b.canon, "xor")) canon_xor else src[i .. i + b.len]);
             i += b.len;
             continue;
         }
@@ -160,14 +162,29 @@ pub const Funcs = std.StringHashMapUnmanaged(void);
 /// Canonical spelling to dialect spelling. `foreign` is false when the
 /// expression came from this same dialect; names its tables do not list
 /// are then written back as they were read.
+///
+/// The one restructuring: a choice is written `c ? a : b` or `if(c, a, b)`,
+/// whichever the target has (`operators ternary "?"`, `functions if`).
 pub fn write(
     arena: Allocator,
     g: *const Grammar,
-    text: []const u8,
+    text_in: []const u8,
     user_funcs: ?*const Funcs,
     foreign: bool,
     problems: *std.ArrayList(Problem),
 ) Allocator.Error![]const u8 {
+    var text = text_in;
+    const has_ternary = spellingOf(g.operators, "ternary") != null;
+    const has_if = spellingOf(g.functions, "if") != null;
+    if (foreign and !has_ternary and has_if and uses(text, "ternary")) {
+        text = try ternaryToIf(arena, text);
+        try problems.append(arena, .{ .kind = .form, .text = "if" });
+    } else if (foreign and has_ternary and !has_if and uses(text, "if")) {
+        text = try ifToTernary(arena, text);
+        try problems.append(arena, .{ .kind = .form, .text = "ternary" });
+    } else if (foreign and !has_ternary and uses(text, "ternary")) {
+        try problems.append(arena, .{ .kind = .operator, .text = "ternary" });
+    }
     var aw: std.Io.Writer.Allocating = .init(arena);
     const w = &aw.writer;
     const cfg = &g.lex;
@@ -460,15 +477,177 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
     }
 }
 
-/// Does a canonical expression call function `name`, or (for `pow`) use
-/// the power operator?
+/// Does a canonical expression call function `name`, or (for `pow`, `xor`,
+/// `ternary`) use that operator? `negpow` is a minus right after another
+/// operator, before a power (`1+-2**2`), where dialects disagree on which
+/// binds first.
 pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "pow") and std.mem.indexOf(u8, text, canon_pow) != null) return true;
     if (std.mem.eql(u8, name, "xor") and std.mem.indexOf(u8, text, canon_xor) != null) return true;
+    if (std.mem.eql(u8, name, "ternary")) return nested(text, '?');
+    if (std.mem.eql(u8, name, "negpow")) return negPow(text);
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;
         if ((at == 0 or !isWordChar(text[at - 1])) and (end == text.len or !isWordChar(text[end])) and nextIsCall(text, end)) return true;
+    }
+    return false;
+}
+
+fn nested(text: []const u8, c: u8) bool {
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        if (text[i] == '"' or text[i] == '\'') {
+            i = std.mem.indexOfScalarPos(u8, text, i + 1, text[i]) orelse return false;
+            continue;
+        }
+        if (text[i] == c) return true;
+    }
+    return false;
+}
+
+/// The index of the first `c` in `text[from..]` outside parentheses and
+/// quotes, or null.
+fn topLevel(text: []const u8, from: usize, c: u8) ?usize {
+    var depth: usize = 0;
+    var i = from;
+    while (i < text.len) : (i += 1) {
+        if (depth == 0 and text[i] == c) return i;
+        switch (text[i]) {
+            '"', '\'' => i = std.mem.indexOfScalarPos(u8, text, i + 1, text[i]) orelse return null,
+            '(', '[' => depth += 1,
+            ')', ']' => depth -|= 1,
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// The `:` that closes the `?` at `q`: nested choices pair inside it.
+fn colonOf(text: []const u8, q: usize) ?usize {
+    var open: usize = 0;
+    var i = q + 1;
+    while (topLevelAny(text, i)) |at| : (i = at + 1) {
+        if (text[at] == '?') {
+            open += 1;
+        } else if (open == 0) return at else open -= 1;
+    }
+    return null;
+}
+
+fn topLevelAny(text: []const u8, from: usize) ?usize {
+    const a = topLevel(text, from, '?');
+    const b = topLevel(text, from, ':');
+    if (a == null) return b;
+    if (b == null) return a;
+    return @min(a.?, b.?);
+}
+
+/// `c ? a : b` as `if(c, a, b)`, in every group and argument.
+pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
+    if (topLevel(text, 0, ',')) |comma| {
+        return std.fmt.allocPrint(arena, "{s},{s}", .{ try ternaryToIf(arena, text[0..comma]), try ternaryToIf(arena, text[comma + 1 ..]) });
+    }
+    if (topLevel(text, 0, '?')) |q| if (colonOf(text, q)) |colon| {
+        const t = " \t";
+        return std.fmt.allocPrint(arena, "if({s}, {s}, {s})", .{
+            std.mem.trim(u8, try ternaryToIf(arena, text[0..q]), t),
+            std.mem.trim(u8, try ternaryToIf(arena, text[q + 1 .. colon]), t),
+            std.mem.trim(u8, try ternaryToIf(arena, text[colon + 1 ..]), t),
+        });
+    };
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == '"' or c == '\'') {
+            const end = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
+            try out.appendSlice(arena, text[i..end]);
+            i = end;
+        } else if (c == '(') {
+            const close = matching(text, i) orelse text.len;
+            try out.append(arena, '(');
+            try out.appendSlice(arena, try ternaryToIf(arena, text[i + 1 .. close]));
+            if (close < text.len) try out.append(arena, ')');
+            i = close + 1;
+        } else {
+            try out.append(arena, c);
+            i += 1;
+        }
+    }
+    return out.items;
+}
+
+fn matching(text: []const u8, open: usize) ?usize {
+    const close = topLevel(text, open + 1, ')') orelse return null;
+    return close;
+}
+
+/// `if(c, a, b)` as `(c ? a : b)`.
+pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == '"' or c == '\'') {
+            const end = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
+            try out.appendSlice(arena, text[i..end]);
+            i = end;
+            continue;
+        }
+        const word = std.mem.startsWith(u8, text[i..], "if") and (i == 0 or !isWordChar(text[i - 1])) and
+            (i + 2 == text.len or !isWordChar(text[i + 2])) and nextIsCall(text, i + 2);
+        if (!word) {
+            try out.append(arena, c);
+            i += 1;
+            continue;
+        }
+        const open = std.mem.indexOfScalarPos(u8, text, i + 2, '(').?;
+        const close = matching(text, open) orelse {
+            try out.appendSlice(arena, text[i..]);
+            break;
+        };
+        const inner = text[open + 1 .. close];
+        const c1 = topLevel(inner, 0, ',');
+        const c2 = if (c1) |x| topLevel(inner, x + 1, ',') else null;
+        if (c1 == null or c2 == null or topLevel(inner, c2.? + 1, ',') != null) {
+            try out.appendSlice(arena, text[i .. open + 1]);
+            try out.appendSlice(arena, try ifToTernary(arena, inner));
+            try out.append(arena, ')');
+        } else {
+            const t = " \t";
+            const parts = [3][]const u8{ inner[0..c1.?], inner[c1.? + 1 .. c2.?], inner[c2.? + 1 ..] };
+            try out.append(arena, '(');
+            for (parts, 0..) |part, k| {
+                const conv = std.mem.trim(u8, try ifToTernary(arena, part), t);
+                // A choice inside a choice keeps its own parentheses.
+                const wrap = topLevel(conv, 0, '?') != null;
+                if (k == 1) try out.appendSlice(arena, " ? ");
+                if (k == 2) try out.appendSlice(arena, " : ");
+                if (wrap) try out.append(arena, '(');
+                try out.appendSlice(arena, conv);
+                if (wrap) try out.append(arena, ')');
+            }
+            try out.append(arena, ')');
+        }
+        i = close + 1;
+    }
+    return out.items;
+}
+
+/// A unary minus right after another operator, in an operand of `**`.
+fn negPow(text: []const u8) bool {
+    if (std.mem.indexOf(u8, text, canon_pow) == null) return false;
+    var prev: u8 = 0;
+    var prev2: u8 = 0;
+    for (text) |c| {
+        if (c == ' ' or c == '\t') continue;
+        if (c == '-' and prev != 0 and std.mem.indexOfScalar(u8, "+-*/^?:<>=!&|%", prev) != null) {
+            // After `**` it is the exponent's sign: `2**-1`.
+            if (!(prev == '*' and prev2 == '*')) return true;
+        }
+        prev2 = prev;
+        prev = c;
     }
     return false;
 }
@@ -539,6 +718,21 @@ test "expressions between two small tables" {
     problems.clearRetainingCapacity();
     _ = try write(a, &spectre, "abs(x) + mystery(y)", null, true, &problems);
     try testing.expectEqual(2, problems.items.len);
+}
+
+test "a choice is written in the form the target has" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    try testing.expectEqualStrings("if(x > 1, 3, 4)", try ternaryToIf(a, "x > 1 ? 3 : 4"));
+    try testing.expectEqualStrings("if(0, 1, if(1, 5, 6))", try ternaryToIf(a, "0 ? 1 : 1 ? 5 : 6"));
+    try testing.expectEqualStrings("2 + (if(x > 1, 3, 4))", try ternaryToIf(a, "2 + (x > 1 ? 3 : 4)"));
+    try testing.expectEqualStrings("max(if(a, b, c),d)", try ternaryToIf(a, "max(a ? b : c,d)"));
+    try testing.expectEqualStrings("(x > 1 ? 3 : 4)", try ifToTernary(a, "if(x > 1, 3, 4)"));
+    try testing.expectEqualStrings("2*(a ? (b ? 1 : 2) : 3)", try ifToTernary(a, "2*if(a, if(b,1,2), 3)"));
+    try testing.expectEqualStrings("diff(x)", try ifToTernary(a, "diff(x)"));
+    try testing.expect(uses("1+-2**2", "negpow") and uses("2*-x**2", "negpow"));
+    try testing.expect(!uses("-2**2", "negpow") and !uses("2**-1", "negpow") and !uses("max(-2**2,0)", "negpow") and !uses("1-2", "negpow"));
 }
 
 test "convert arithmetic is exact where it can be" {

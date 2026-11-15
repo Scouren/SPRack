@@ -208,6 +208,8 @@ end
 
 differs pow  : the exponent is cut to an integer first, so pow(2,2.5) and 2**2.5 are 4
 differs nint : halves round away from zero (nint(2.5) is 3), not to even
+differs ln   : a negative argument gives -ln|x| instead of an error: log(-2) is -0.693
+differs log10 : a negative argument gives -log10|x| instead of an error: log10(-100) is -2
 
 variables
   same temper time hertz
@@ -215,6 +217,7 @@ end
 
 operators
   pow "**" "^"
+  ternary "?"
 end
 
 models

@@ -357,6 +357,7 @@ end
 operators
   pow "**"
   xor "^"
+  ternary "?"
 end
 
 # A netlist may give a module any model name (`model r sp_resistor`);

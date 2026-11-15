@@ -176,16 +176,7 @@ const Emit = struct {
             .atom => |s| if (quoted) w.print("\"{s}\"", .{s}) catch return error.OutOfMemory else w.writeAll(s) catch return error.OutOfMemory,
             .num => |n| lexer.renderNumber(w, cfg, n) catch return error.OutOfMemory,
             .expr => |canon| {
-                var problems: std.ArrayList(expr.Problem) = .empty;
-                const s = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
-                e.semantics(canon);
-                if (!e.quiet) for (problems.items) |pb| {
-                    const who = if (e.caps) |c| c.word(pb.text) else "";
-                    e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
-                        canon,                                                @tagName(pb.kind), pb.text, e.g.name,
-                        if (who.len > 0) ". Dialects that have it: " else "", who,
-                    });
-                };
+                const s = try e.exprText(canon);
                 if (cfg.bare_expr) {
                     const needs_parens = std.mem.indexOfAny(u8, s, " \t") != null;
                     (if (needs_parens) w.print("({s})", .{s}) else w.writeAll(s)) catch return error.OutOfMemory;
@@ -207,6 +198,28 @@ const Emit = struct {
             },
         }
         return aw.written();
+    }
+
+    /// A canonical expression in this dialect's spelling, with what it
+    /// cannot say (an error) and what it says differently (a caveat) reported.
+    fn exprText(e: *Emit, canon: []const u8) Allocator.Error![]const u8 {
+        var problems: std.ArrayList(expr.Problem) = .empty;
+        const s = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
+        e.semantics(canon);
+        if (!e.quiet) for (problems.items) |pb| {
+            if (pb.kind == .form) {
+                e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}, so the choice is written {s}; it reads back in that form", .{
+                    canon, e.g.name, if (std.mem.eql(u8, pb.text, "if")) "?: operator" else "if() function", if (std.mem.eql(u8, pb.text, "if")) "if(c, a, b)" else "c ? a : b",
+                });
+                continue;
+            }
+            const who = if (e.caps) |c| c.word(pb.text) else "";
+            e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
+                canon,                                                @tagName(pb.kind), pb.text, e.g.name,
+                if (who.len > 0) ". Dialects that have it: " else "", who,
+            });
+        };
+        return s;
     }
 
     /// The items of a `[...]` vector, with the dialect's separator.
@@ -531,12 +544,7 @@ const Emit = struct {
                     // An expression taken from the rest of a line is written
                     // in plain parentheses, as it was read.
                     .expr => |canon| {
-                        var problems: std.ArrayList(expr.Problem) = .empty;
-                        const text = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
-                        e.semantics(canon);
-                        if (!e.quiet) for (problems.items) |pb| {
-                            e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}", .{ canon, @tagName(pb.kind), pb.text, e.g.name });
-                        };
+                        const text = try e.exprText(canon);
                         try e.tok(try e.arena.print("({s})", .{text}));
                     },
                     else => |v| try e.tok(try e.valueText(v, false)),

@@ -200,7 +200,13 @@ end
 operators
   pow "**"
   xor "^"
+  ternary "?"
 end
+
+# Measured with Xyce 7.10 on decks written for it.
+differs pwr    : pwr(x,y) is pow(x,y) here: pwr(-2,2) is 4, where HSPICE and Spectre keep the sign (-4)
+differs nint   : halves round away from zero (nint(2.5) is 3), not to even
+differs log10  : a negative argument is taken by its magnitude: log10(-100) is 2, an error elsewhere
 
 models
   resistor   = r

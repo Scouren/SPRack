@@ -216,7 +216,14 @@ end
 
 operators
   pow "**" "^"
+  ternary "?"
 end
+
+# As ngspice: measured with ngspice 45 on decks written for it (.param and a B source).
+differs pow    : a negative base loses its sign, in .param and B sources alike: (-2)**3 is 8
+differs pwr    : in .param the sign of a negative base is dropped (pwr(-2,3) is 8); B sources keep it (-8)
+differs int    : only .param expressions have int(); a B source refuses it
+differs negpow : in .param a minus right after another operator binds before the power: 1+-2**2 is 5, not -3
 
 models
   resistor   = r
