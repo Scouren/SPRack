@@ -230,6 +230,7 @@ class _Stmt(dict):
         body = _Scope(self._scope._pdk)
         body.statements = self.setdefault("body", [])
         body._report = self._scope._report
+        body._grammars = self._scope._grammars
         return body
 
     def __exit__(self, *exc: Any) -> None:
@@ -328,6 +329,9 @@ class _Scope:
         self._pdk = pdk
         # What `code` could not read; shared by a circuit and its subcircuits.
         self._report = Report()
+        # The grammar file of each dialect read here that is not built in,
+        # by the name the dialect calls itself; shared likewise.
+        self._grammars: dict[str, str] = {}
 
     def _push(self, st: dict) -> _Stmt:
         out = _Stmt(st)
@@ -544,8 +548,11 @@ class _Scope:
         # With a PDK, its libraries' names are known to the reader too: a
         # Spectre instance of one of their models is the device it models.
         env = () if self._pdk is None else (json.dumps({"env": self._pdk._env}),)
-        out, rep = _core.read(_dialect(dialect), text, True, *env)
+        d = _dialect(dialect)
+        out, rep = _core.read(d, text, True, *env)
         data = json.loads(out)
+        if d != data["dialect"]:
+            self._grammars[data["dialect"]] = d
         stmts = data["stmts"]
         # Each statement remembers its dialect, so a target of the same
         # dialect writes its own options and parameters as they were.
@@ -581,9 +588,12 @@ class Circuit(_Scope):
     @classmethod
     def read(cls, source: str, dialect: str) -> "Circuit":
         """A circuit from an existing netlist in any dialect."""
-        text, rep = _core.read(_dialect(dialect), source)
+        d = _dialect(dialect)
+        text, rep = _core.read(d, source)
         data = json.loads(text)
         c = cls(data.get("title") or "untitled", dialect=data.get("dialect", ""))
+        if d != c._source_dialect:
+            c._grammars[c._source_dialect] = d
         c.statements = data["stmts"]
         c.folds_case = bool(data.get("folds_case"))
         c.read_report = Report._from_json(rep)
@@ -636,7 +646,7 @@ class Circuit(_Scope):
         lib_report = Report()
         # Both give back the statements, those they change as copies: the
         # circuit's own stay as they are, and the rest is not copied at all.
-        data["stmts"] = _translate_libraries(data["stmts"], data["dialect"], d, lib_report, renames)
+        data["stmts"] = _translate_libraries(data["stmts"], data["dialect"], d, lib_report, renames, self._grammars)
         data["stmts"] = _rename_masters(data["stmts"], renames)
         text, rep = _core.write(d, json.dumps(data))
         report = Report(self._report + lib_report + Report._from_json(rep))
@@ -1118,14 +1128,14 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     """`src` and every file it includes, translated from `frm` to `to` into
     the cache; returns the translated `src` and the translation's log.
 
-    Keyed by the source path, the target grammar and the core; valid while
+    Keyed by the source path, both grammars and the core; valid while
     every file read is unchanged and every `$NAME` in their include paths
     has the value it had. A copy is built in a temporary directory
     and renamed into place, so parallel writers never see half of one; a
     stale copy is renamed aside before it is replaced, and what a writer
     leaves behind is swept by the next one (`_sweep`).
     """
-    key = hashlib.sha1(f"{src}\0{frm}\0{_dialect_tag(to)}\0{_core.info()}".encode()).hexdigest()[:16]
+    key = hashlib.sha1(f"{src}\0{_dialect_tag(frm)}\0{_dialect_tag(to)}\0{_core.info()}".encode()).hexdigest()[:16]
     base = os.path.join(_cache_root(), "libs")
     name = f"{os.path.basename(src)}-{key}"
     final = os.path.join(base, name)
@@ -1168,20 +1178,21 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     return os.path.join(final, "tree", meta["top"]), log
 
 
-def _translate_libraries(stmts: list[dict], default: str, target: str, report: Report, renames: dict[str, str]) -> list[dict]:
+def _translate_libraries(stmts: list[dict], default: str, target: str, report: Report, renames: dict[str, str], grammars: dict[str, str]) -> list[dict]:
     """Point every `lib` and `include` written in another dialect than
     `target` at a translated copy of the file tree it reaches (see
     `_library_copy`). Returns the statements, those it changed as copies;
     adds what the libraries could not say to `report` and the models they
-    renamed to `renames`."""
+    renamed to `renames`. `grammars`: the grammar file of each dialect
+    that is not built in, by its name."""
     name = _grammar_name(target)
 
     def change(st: dict) -> dict:
         frm = st.get("dialect", default)
         body = st.get("body")
-        if body and (new := _translate_libraries(body, frm, target, report, renames)) is not body:
+        if body and (new := _translate_libraries(body, frm, target, report, renames, grammars)) is not body:
             st = {**st, "body": new}
-        if st.get("kind") not in ("lib", "include") or frm == name or frm not in DIALECTS:
+        if st.get("kind") not in ("lib", "include") or frm == name or not (frm in DIALECTS or frm in grammars):
             return st
         path = st.get("path")
         path = path.get("str") if isinstance(path, dict) else path
@@ -1191,7 +1202,7 @@ def _translate_libraries(stmts: list[dict], default: str, target: str, report: R
         if not os.path.isfile(src):
             report.append(Entry("error", "invalid", st.get("line", 0), f"{st['kind']}: cannot open {src}"))
             return st
-        copy, log = _library_copy(src, frm, target)
+        copy, log = _library_copy(src, grammars.get(frm, frm), target)
         report.extend(_errors(log))
         renames.update(_renames(log))
         return {**st, "path": {"str": copy}, "dialect": name}

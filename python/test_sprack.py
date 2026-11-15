@@ -285,6 +285,36 @@ def test_library_translated_on_the_fly():
     _with_cache(body)
 
 
+def test_library_of_a_grammar_file_dialect():
+    def body(cache):
+        with tempfile.TemporaryDirectory() as d:
+            # A dialect of one's own: ngspice under another name.
+            mine = os.path.join(d, "mine.spgrammar")
+            with open(os.path.join(GRAMMARS, "ngspice.spgrammar")) as f, open(mine, "w") as g:
+                g.write(f.read().replace("\ndialect ngspice\n", "\ndialect mine\n"))
+            lib = os.path.join(d, "x.lib")
+            with open(lib, "w") as f:
+                f.write("* lib\n.lib tt\n.model nch nmos level=54\n.endl tt\n")
+            deck = f'.lib "{lib}" tt\nM1 d g 0 0 nch w=1u l=1u\n.op\n'
+            c = sprack.Circuit("t")
+            c.code(deck, mine)
+            # Its own dialect keeps the library; another gets a translated copy.
+            assert f'.lib "{lib}" tt\n' in unwrap(c.netlist(mine))
+            libs = os.path.join(cache, "libs")
+            for circuit in (c, sprack.read("t\n" + deck + ".end\n", mine)):
+                out = circuit.netlist("xyce")
+                (key,) = os.listdir(libs)
+                assert f'.lib "{libs}/{key}/tree/x.lib" tt\n' in unwrap(out), out
+                assert not [e for e in out.report if "translate that file too" in e.message], out.report
+            assert ".model nch nmos level=14" in open(os.path.join(libs, key, "tree", "x.lib")).read()
+            # The copy is of that grammar's reading: another grammar, another copy.
+            with open(mine, "a") as g:
+                g.write("# changed\n")
+            c.netlist("xyce")
+            assert len(os.listdir(libs)) == 2, os.listdir(libs)
+    _with_cache(body)
+
+
 PDKS = os.environ.get("SPRACK_TEST_PDKS", "")
 
 
