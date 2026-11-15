@@ -1738,13 +1738,15 @@ pub fn write(
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }
     for (g.wraps) |*wr| {
+        // A control block runs in order (VACASK), so settings come before
+        // every analysis: SPICE applies them wherever they stand.
         var any = false;
-        for (stmts) |*s| {
-            if (g.wrapOf(s.kind) != wr) continue;
+        for ([_]bool{ false, true }) |analyses| for (stmts) |*s| {
+            if (g.wrapOf(s.kind) != wr or (schema.info(s.kind).class == .analysis) != analyses) continue;
             if (!any) try w.line(wr.open);
             any = true;
             try w.stmt(s);
-        }
+        };
         if (any) try w.line(wr.close);
     }
     if (g.lex.end_marker.len > 0 and !nl.library) try w.line(g.lex.end_marker);

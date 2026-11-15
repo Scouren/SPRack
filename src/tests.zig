@@ -3189,3 +3189,13 @@ test "expression semantics: a choice in the target's form, and what evaluates di
     _ = try tr(a, "spectre", "hspice", "// t\nparameters p=log(x)\n", &r5);
     try reported(&r5, .warning, "ln in hspice: a negative argument gives -ln|x|");
 }
+
+test "VACASK: options and saves come before the analyses in the control block" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // VACASK runs a control block in order; options after an analysis do not reach it.
+    const va = try tr(a, "ngspice", "vacask", "t\nV1 in 0 AC 1\nR1 in 0 1k\n.noise v(in) V1 dec 4 10 10k\n.options temp=0\n.save v(in)\n.end\n", &report);
+    try has(va, "control\noptions temp=0\nsave v(in)\nanalysis noise1 noise");
+}
