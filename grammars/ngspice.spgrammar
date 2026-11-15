@@ -107,6 +107,9 @@ rule  diode     = name~"D" pos neg master { area=area ...params? }
 rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 # With a substrate node and a thermal node (self-heating models).
 rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
+# A transistor of a model that is a compiled Verilog-A module (PSP103) is
+# an N device; read as `device`, it is a MOSFET once its model is known.
+write mosfet[psp103] = name~"N" d g s b master {...params}
 rule  mosfet    = name~"M" d g s b master {...params}
 # Three-terminal power MOSFETs (VDMOS) have no bulk node.
 rule  mosfet    = name~"M" d g s master {...params}
@@ -181,6 +184,7 @@ requires no-vlloop warning : ngspice solves it only through its transient operat
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit
 caveat hdl path=*.va : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
+caveat model type=*psp103va : ngspice has PSP103 only as a compiled Verilog-A module; the deck must load psp103.osdi with pre_osdi
 
 # How this dialect writes the things a simulator can record.
 # statistics
@@ -287,6 +291,10 @@ models
   hisimhv n  = nmos level=73
   hisimhv p  = pmos level=73
   vdmos      = vdmos
+  # PSP103 has no C model and no level: it is the module of psp103.osdi,
+  # which a deck loads with pre_osdi.
+  psp103 n   = psp103va type=1
+  psp103 p   = psp103va type=-1
   vswitch    = sw
   cswitch    = csw
   # b4

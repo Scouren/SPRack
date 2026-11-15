@@ -354,7 +354,8 @@ BSIM-BULK, BSIM-CMG and PSP103 have no C model and no level in ngspice; they
 exist only as OSDI. They are absent from `inpdomod.c`, and 48-dev
 `src/spinit.in:33-41` lists `BSIMBULK107.osdi`, `BSIMCMG.osdi` and
 `psp103.osdi`, loaded only when `osdi_enabled` is set (it is unset at `:17`).
-The grammar is right to give them no level.
+The grammar is right to give them no level. PSP103 is listed by the name of
+its module instead (3.5).
 
 ### 3.2 Xyce
 
@@ -389,6 +390,53 @@ See 1.5.
 | HSPICE | MOSFET levels | correct | a deck per level (`.model mm nmos level=N`, one M element, `.op`, `.option list`) loads, and the listing names the model: 49 and 53 BSIM3v3, 54 BSIM4, 57 BSIM-SOI (3.x, PD), 70 BSIM-SOI 4, 72 BSIM-CMG, 77 BSIM6 (BSIM-BULK), 69 PSP, 68 HiSIM2, 73 HiSIM-HV; levels 1, 2, 3 and no level load |
 | HSPICE | BJT levels 4 (`vbic`) and 8 (`hicum2`) | loads; family not shown | `.model mm npn level=4` and `level=8` both load with a Q element; the run does not name the model family |
 | HSPICE | `mesfet` | added | see H3 |
+
+### 3.5 PSP103 between ngspice and Xyce (r1)
+
+A PDK written for ngspice declares PSP103 as the module of a compiled
+Verilog-A file: `.model m psp103va type=1 ...`, its transistors on `N`
+cards. The ngspice grammar now lists that spelling (`psp103 n = psp103va
+type=1`) and writes a PSP103 transistor on an `N` card; read, an `N` card
+is a MOSFET once its model is known to be PSP103. ngspice 45 with the
+`psp103.osdi` and `psp103_nqs.osdi` of IHP SG13G2, Xyce 7.10; one NMOS,
+W 1u, L 0.13u, source and bulk grounded, drain 1.2 V; the drain current.
+
+| deck | gate | ngspice 45 | Xyce 7.10 |
+|---|---|---|---|
+| a card of defaults (`psp103va type=1 tr=27`; in Xyce `nmos level=103 tr=27`), each written from the other by SPRack | 0.6 V | 102.076 uA | 102.076 uA |
+| IHP `sg13_lv_nmos`, tt corner, as the PDK has it | 0.6 V | 24.0222 uA | |
+| the same device, the branch of the subcircuit ngspice takes written out (Xyce has no conditional blocks), translated | 0.6 V | 24.0222 uA | 26.8396 uA |
+| that card without the seven parameters below | 0.6 V | 26.8396 uA | |
+| the translated device | 1.2 V | 400.526 uA | 462.471 uA |
+| that card without the seven parameters | 1.2 V | 462.471 uA | |
+
+* The two simulators agree to the six digits printed on the same
+  parameters. The 12 % (0.6 V) and 15 % (1.2 V) between them on the IHP
+  card are parameters Xyce 7.10's PSP103 does not have: it loads the card
+  with a warning for each (`No model parameter THECSO found for model ...,
+  parameter ignored`), 14 in all: `st2vfbo ctgo ctbo stcto thecso stthecso
+  nsubedgelexp` and the seven of IHP's operating-area check (`swsoa`,
+  `vgs_max` and the like). With the first seven removed from the card,
+  ngspice gives Xyce's number. SPRack copies them and says the two ship
+  different versions of the model (a `caveat`).
+* The module's own `level` (`level=103.6` on the IHP cards) changes nothing
+  in ngspice: without it, with 103, 103.6 or 7 the current is the same
+  102.076 uA. In Xyce, HSPICE and ESPice `level` is what names the model, so
+  the card's own is not written (a `loss` warning). Xyce itself loads
+  `level=103.6` as 103.
+* The instance parameters of the IHP cards (`w l nf mult as ad ps pd dta
+  ngcon delvto factuo`) are all instance parameters of Xyce's level 103
+  (`Xyce -param M 103`). HSPICE's level 69 was not tried with `dta` and
+  `factuo` (no HSPICE where this was measured): they are not in its
+  `params mosfet` table, and stay errors.
+* The NQS module (`pspnqs103va`, the PDK's `_rf` cards) has no Xyce form:
+  `Xyce -param M 103` lists no NQS parameter, and a level 103 card with
+  `swnqs=5 munqs=1` loads with `No model parameter SWNQS found ...
+  parameter ignored` for both. Such a card stays an error.
+* ngspice 45 without the module loaded refuses the card (`Unknown model
+  type psp103va - ignored`): a PSP103 card written for ngspice carries a
+  caveat that the deck must load `psp103.osdi` with `pre_osdi`.
+* ESPice was not there to try `psp103va` on; its grammar is unchanged.
 
 ---
 

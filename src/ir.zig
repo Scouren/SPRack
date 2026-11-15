@@ -386,6 +386,8 @@ pub const Env = struct {
     declared: std.StringHashMapUnmanaged(void) = .empty,
     /// Model name to the device kind its family belongs to.
     models: std.StringHashMapUnmanaged(Kind) = .empty,
+    /// Model name to its family, for a writer's forms that depend on it.
+    family_of: std.StringHashMapUnmanaged([]const u8) = .empty,
     /// Names of subcircuits.
     subckts: CaselessSet = .empty,
     /// Lower-cased names of user-defined functions.
@@ -410,6 +412,7 @@ pub const Env = struct {
                 if (s.kind == .model) {
                     const fam = s.get("family");
                     const kind: ?Kind = if (fam == .atom) schema.familyKind(fam.atom) else if (s.get("type") == .atom) .device else null;
+                    if (fam == .atom) try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
                     if (kind) |k| {
                         try env.models.put(arena, own, k);
                         if (binBase(own)) |base| {
@@ -879,13 +882,15 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
         try retag(arena, s.body, models, subckts);
         // One element letter, two device kinds told apart by the model
         // (HSPICE writes a MESFET as a J element with a MESFET level).
-        if (s.kind != .instance and schema.info(s.kind).class == .device) {
+        if (s.kind != .instance and s.kind != .device and schema.info(s.kind).class == .device) {
             const m = s.get("master");
             const want = if (m == .atom) models.get(m.atom) orelse continue else continue;
             if (want != s.kind and want != .device and sameSlots(s.kind, want)) s.kind = want;
             continue;
         }
-        if (s.kind != .instance) continue;
+        // An instance of a Verilog-A module (ngspice N) whose model is of a
+        // family the tables know is that family's device, as an instance is.
+        if (s.kind != .instance and s.kind != .device) continue;
         const master = s.get("master");
         // A subcircuit of the name wins over a model of it.
         if (master != .atom or subckts.contains(master.atom)) continue;

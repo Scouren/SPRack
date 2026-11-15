@@ -376,7 +376,11 @@ def test_pdk_ihp():
     ng = unwrap(c.netlist("ngspice"))
     assert ng.count(".lib ") == 6 and '/cornerMOSlv.lib" mos_tt\n' in ng and '/cornerHBT.lib" hbt_typ\n' in ng
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
-    hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
+    # HSPICE: the library translates, conditionals and all, but for two instance
+    # parameters of PSP103 its level 69 was not measured to take (docs/verification.md 3.5).
+    e = raises(sprack.Unsupported, lambda: c.netlist("hspice"), "has no spelling in hspice")
+    assert all("mosfet: 'dta=" in x.message or "mosfet: 'factuo=" in x.message for x in e.report.errors), e.report.errors
+    hs = unwrap(c.netlist("hspice", strict=False))
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
     # Spectre has no agauss(): written as statistics variations. What is
     # left is reported per file and line. Conditional blocks translate.

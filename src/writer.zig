@@ -824,9 +824,10 @@ const Writer = struct {
     /// The one analysis of the netlist, when it has one: a spread step
     /// around it may be the kind's own line (HSPICE `.temp 0 27`).
     sole: ?*const ir.Stmt = null,
-    /// Model name to its family, for rules that depend on it (`bjt[hicum2]`).
-    // ponytail: models of this file only; one declared in another file of a project leaves its instances on the plain rules.
+    /// Model name to its family, for rules that depend on it (`bjt[hicum2]`):
+    /// the models of this file, then those of the project's other files.
     families: std.StringHashMapUnmanaged([]const u8) = .empty,
+    env: ?*const ir.Env = null,
     /// Model cards whose parameters were copied by name: one caveat per
     /// file, naming the first, not one per card (sky130 has thousands).
     copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 = "", source: []const u8 = "", line: u32 = 0 } = .{},
@@ -927,6 +928,11 @@ const Writer = struct {
         return if (st.dialect != 0) sprack.dialectName(st.dialect) else w.source;
     }
 
+    fn familyOf(w: *const Writer, model: []const u8) []const u8 {
+        if (w.families.get(model)) |f| return f;
+        return if (w.env) |e| e.family_of.get(model) orelse "" else "";
+    }
+
     fn supporters(w: *Writer, kind: Kind) []const u8 {
         const c = w.caps orelse return "";
         return c.kinds[@backingInt(kind)];
@@ -1012,16 +1018,24 @@ const Writer = struct {
             const v: Value = if (lexer.parseNumber(a, &w.g.lex, kv.val)) |n| .{ .num = n } else .{ .atom = kv.val };
             try ps.append(a, .{ .key = kv.key, .val = v });
         }
+        const selectors = ps.items.len;
         if (st.get("params") == .params) try ps.appendSlice(a, st.get("params").params);
         if (!same) {
             // A key given twice: SPICE keeps the last, Xyce rejects the card.
+            // But a key that names the model here (`level=103`) stays, and
+            // the card's own parameter of that name (PSP's LEVEL) goes.
             var i: usize = ps.items.len;
             while (i > 0) {
                 i -= 1;
                 const k = ps.items[i].key;
-                for (ps.items[i + 1 ..]) |later| if (std.ascii.eqlIgnoreCase(later.key, k)) {
-                    w.report.add(.warning, .invalid, st.line, "model '{s}': '{s}' is given twice; the last value is kept", .{ st.get("name").atom, k });
-                    _ = ps.orderedRemove(i);
+                for (ps.items[i + 1 ..], i + 1..) |later, j| if (std.ascii.eqlIgnoreCase(later.key, k)) {
+                    if (i < selectors) {
+                        w.report.add(.warning, .loss, st.line, "model '{s}': its own '{s}' is not written: in {s} that parameter names the model", .{ st.get("name").atom, later.key, w.g.name });
+                        _ = ps.orderedRemove(j);
+                    } else {
+                        w.report.add(.warning, .invalid, st.line, "model '{s}': '{s}' is given twice; the last value is kept", .{ st.get("name").atom, k });
+                        _ = ps.orderedRemove(i);
+                    }
                     break;
                 };
             }
@@ -1492,7 +1506,7 @@ const Writer = struct {
         var best_loss: usize = std.math.maxInt(usize);
         var best_renames: usize = 0;
         var why: []const u8 = "";
-        const fam: []const u8 = if (st.get("master") == .atom) w.families.get(st.get("master").atom) orelse "" else "";
+        const fam: []const u8 = if (st.get("master") == .atom) w.familyOf(st.get("master").atom) else "";
         // A model this file does not declare: the plain forms first, then
         // any form at all rather than none.
         for ([_]bool{ false, true }) |loose| {
@@ -1509,6 +1523,11 @@ const Writer = struct {
                 if (!try e.seq(rule.pat)) {
                     if (why.len == 0) why = e.why;
                     continue;
+                }
+                // The form of the model's own family, whatever a plain one keeps.
+                if (rule.family.len > 0 and std.mem.eql(u8, rule.family, fam)) {
+                    best = rule;
+                    break;
                 }
                 // Least lost first; among equals, the form that keeps the name.
                 const loss = try e.lossCount();
@@ -2313,6 +2332,7 @@ pub fn write(
 
     try collectDeclared(arena, nl.stmts, &w.declared);
     try ir.collectFamilies(arena, nl.stmts, &w.families, null);
+    w.env = env;
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
@@ -2602,6 +2622,7 @@ pub const Stream = struct {
         const nl = &s.nl;
         w.declared = sv.declared;
         w.families = sv.families;
+        w.env = env;
         w.funcs = sv.funcs;
         if (env) |e| {
             var it = e.declared.keyIterator();

@@ -4799,6 +4799,71 @@ test "c6: a model renamed for Spectre across the files of a project" {
     try testing.expectEqual(0, r.count(.@"error"));
 }
 
+test "r1: ngspice's psp103va is PSP103; its N instances are transistors" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // The module's own LEVEL parameter and the NQS module are on the cards
+    // of a PDK; Xyce 7.10's PSP103 has no NQS (docs/verification.md 3.2).
+    const src = "t\n.model nm psp103va type=+1 level=103.6 tr=27\n.model pm PSP103VA type = -1 tr=27\n.model nq pspnqs103va type=1 tr=27\n" ++
+        "N1 d g 0 0 nm w=1u l=0.13u nf=1 mult=1 dta=0\nN2 d g v v pm w=1u l=0.13u\nN3 d g 0 0 nq w=1u l=0.13u\n" ++
+        "Vd d 0 1.2\nVg g 0 0.6\nVv v 0 1.2\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".model nm nmos level=103 tr=27\n.model pm pmos level=103 tr=27\n");
+    try has(xy, "MN1 d g 0 0 nm w=1u l=0.13u nf=1 mult=1 dta=0\nMN2 d g v v pm w=1u l=0.13u\n");
+    try reported(&r1, .warning, "model 'nm': its own 'level' is not written: in xyce that parameter names the model");
+    try reported(&r1, .@"error", "model 'nq' is of the Verilog-A module 'pspnqs103va'");
+    try testing.expectEqual(2, r1.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", src, &r2);
+    try has(sp, "model nm psp103 type=n level=103.6 tr=27\nmodel pm psp103 type=p tr=27\n");
+    try has(sp, "N1 (d g 0 0) nm w=1u l=0.13u nf=1 mult=1 dta=0\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    var r3: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", src, &r3);
+    try has(va, "load \"psp103v4.osdi\"\nmodel nm psp103va (type=1 level=103.6 tr=27)\n");
+    try testing.expectEqual(0, r3.count(.@"error"));
+    // Within ngspice nothing changes: an N card stays an N card.
+    var r4: ir.Report = .init(a);
+    const ng = try tr(a, "ngspice", "ngspice", src, &r4);
+    try has(ng, ".model nm psp103va type=1 level=103.6 tr=27\n");
+    try has(ng, "N1 d g 0 0 nm w=1u l=0.13u nf=1 mult=1 dta=0\nN2 d g v v pm w=1u l=0.13u\nN3 d g 0 0 nq w=1u l=0.13u\n");
+    try testing.expectEqual(0, r4.items.items.len);
+    // Into ngspice a PSP103 transistor is an N card whatever its name was,
+    // and the deck is told to load the module.
+    var r5: ir.Report = .init(a);
+    const back = try tr(a, "xyce", "ngspice", "t\n.model nm nmos level=103 tr=27\nM1 d g 0 0 nm w=1u l=0.13u\nVd d 0 1.2\nVg g 0 0.6\n.op\n.end\n", &r5);
+    try has(back, ".model nm psp103va type=1 tr=27\nNM1 d g 0 0 nm w=1u l=0.13u\n");
+    try reported(&r5, .warning, "the deck must load psp103.osdi with pre_osdi");
+    try testing.expectEqual(0, r5.count(.@"error"));
+}
+
+test "r1: a model in another file of a project decides its instances' form" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const g = sprack.find("ngspice").?;
+    const files = [_][]const u8{
+        ".model nm psp103va type=1 tr=27\n",
+        ".subckt nfet d g s b w=1u l=1u\nN1 d g s b nm w=w l=l\n.ends nfet\n",
+    };
+    var env: ir.Env = .{};
+    for (files) |f| {
+        var r: ir.Report = .init(a);
+        const nl = try sprack.reader.read(g, a, f, &r, .{ .library = true });
+        try env.absorb(a, nl.stmts);
+    }
+    var r: ir.Report = .init(a);
+    const nl = try sprack.reader.read(g, a, files[1], &r, .{ .env = &env, .library = true });
+    inline for (.{ "xyce", "ngspice" }, .{ "MN1 d g s b nm w={w} l={l}\n", "N1 d g s b nm w={w} l={l}\n" }) |to, want| {
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.writeIn(a, sprack.find(to).?, &aw.writer, &nl, &r, &env);
+        try has(aw.written(), want);
+    }
+    try testing.expectEqual(0, r.count(.@"error"));
+}
+
 // e1: the analyses decide whether a topology is reported (src/topology.zig)
 
 test "e1: a deck with no analysis reports no topology; the analyses a rule lists gate it" {
