@@ -5135,7 +5135,7 @@ test "s1: a conditional block of the same statements is written once, with condi
     // CDL has neither: the error it was.
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "cdl", "t\n" ++ sub ++ ".end\n", &r3);
-    try reported(&r3, .@"error", "statement 'cond_if' cannot be written for cdl: CDL has no conditional blocks. Dialects");
+    try reported(&r3, .@"error", "statement 'cond_if' cannot be written for cdl: CDL has no conditional blocks; nor is its subcircuit written once for each branch: 'floor' in the condition 'floor(n/2)*2 != n' is not a number, an operator or one of the subcircuit's own parameters. Dialects");
     // A file of a project.
     var r4: ir.Report = .init(a);
     var env: ir.Env = .{};
@@ -5146,7 +5146,8 @@ test "s1: a conditional block of the same statements is written once, with condi
     try testing.expectEqual(0, r4.count(.@"error"));
 
     // What is not the same statements with other values stays an error,
-    // which says what it was.
+    // which says what it was, where the subcircuit's own parameters do not
+    // decide the condition (`s` is not one of them).
     const refused = [_][2][]const u8{
         .{ ".if (s == 0)\nR1 p n 1k\n.endif\n", "it has no else branch" },
         .{ ".if (s == 0)\nR1 p n 1k\n.else\nR1 p n 2k\nR2 p n 2k\n.endif\n", "a statement is in one branch only" },
@@ -5162,11 +5163,136 @@ test "s1: a conditional block of the same statements is written once, with condi
     };
     for (refused) |c| {
         var rr: ir.Report = .init(a);
-        const out = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, "t\n.subckt q p n s=0\n{s}.ends\n.end\n", .{c[0]}), &rr);
+        const out = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, "t\n.subckt q p n\n{s}.ends\n.end\n", .{c[0]}), &rr);
         try has(out, "* [sprack] not written: statement 'cond_if' has no xyce form\n");
         try testing.expectEqual(1, rr.countCode(.unsupported));
-        try reported(&rr, .@"error", try std.fmt.allocPrint(a, "Xyce has no conditional blocks in a netlist, and this block is not the same statements with other values in every branch: {s}. Dialects", .{c[1]}));
+        try reported(&rr, .@"error", try std.fmt.allocPrint(a, "Xyce has no conditional blocks in a netlist, and this block is not the same statements with other values in every branch: {s}; nor is its subcircuit written once for each branch: ", .{c[1]}));
     }
+}
+
+// v1: a conditional block in a subcircuit that is not the same statements
+// with other values: the subcircuit once for each branch (`cond.split`).
+// Measured: docs/verification.md 4.17.
+
+const split_lib =
+    \\.model ra r tc1=0
+    \\.model rb r tc1=0.01
+    \\.subckt msel a b r0=1k rfmode=0
+    \\.if (rfmode == 0)
+    \\R1 a b ra r=r0
+    \\.else
+    \\R1 a b rb r=r0
+    \\.endif
+    \\.ends
+    \\.subckt csel a b
+    \\.param r0=1k
+    \\.param tc=1E10
+    \\.if (tc>1E9)
+    \\R1 a b r=r0
+    \\.else
+    \\R1 a b r=r0 tc1=tc
+    \\.endif
+    \\.ends
+    \\.subckt dsel a b
+    \\.param xd=0 scaling=1e-6 xds=xd/scaling
+    \\.if (xds<0.6)
+    \\Rin a b ra r=4k
+    \\.else
+    \\Rout a b rb r=4k
+    \\.endif
+    \\.ends
+    \\
+;
+
+test "v1: a subcircuit is written once for each branch of a conditional block" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // By default and by value: a header parameter, a body parameter, one derived from it.
+    const top = "V1 1 0 1\nX1 1 0 msel\nX2 1 0 msel rfmode=0\nX3 1 0 msel r0=2k rfmode=1\nX4 1 0 csel\nX5 1 0 csel tc=0.03\nX6 1 0 dsel\nX7 1 0 dsel xd=1u\n";
+    const instances = "X1 1 0 msel\nX2 1 0 msel params: rfmode=0\nX3 1 0 msel__1 params: r0=2k rfmode=1\nX4 1 0 csel\nX5 1 0 csel__1 params: tc=0.03\nX6 1 0 dsel\nX7 1 0 dsel__1 params: xd=1u\n";
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", "t\n" ++ split_lib ++ top ++ ".op\n.end\n", &r);
+    try has(out,
+        \\* [sprack] 'msel' where (rfmode == 0)
+        \\.subckt msel a b params: r0=1k rfmode=0
+        \\R1 a b {r0} ra
+        \\.ends msel
+        \\* [sprack] 'msel' where !(rfmode == 0)
+        \\.subckt msel__1 a b params: r0=1k rfmode=0
+        \\R1 a b {r0} rb
+        \\.ends msel__1
+        \\* [sprack] 'csel' where (tc>1e9)
+        \\.subckt csel a b
+    );
+    try has(out, "R1 a b {r0}\n.ends csel\n* [sprack] 'csel' where !(tc>1e9)\n.subckt csel__1 a b");
+    try has(out, "R1 a b {r0} tc1={tc}\n.ends csel__1\n* [sprack] 'dsel' where (xds<0.6)\n.subckt dsel a b");
+    try has(out, "Rin a b 4k ra\n.ends dsel\n* [sprack] 'dsel' where !(xds<0.6)\n.subckt dsel__1 a b");
+    try has(out, "Rout a b 4k rb\n.ends dsel__1\n");
+    try has(out, instances);
+    try testing.expectEqual(0, r.count(.@"error"));
+    // One for each subcircuit, and one for the body's parameters on the header.
+    try testing.expectEqual(4, r.countCode(.oneway));
+    try reported(&r, .info, "subckt 'csel': xyce has no conditional blocks, so the subcircuit is written once for each branch of the block at line 14: 'csel' where (tc>1e9), 'csel__1' where !(tc>1e9); an instance is written with the one its parameters select; it reads back as 2 subcircuits");
+    // A target with no choice in an expression either: every block is the subcircuit's branches.
+    var rc: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "cdl", "t\n" ++ split_lib ++ top ++ ".end\n", &rc), "X5 1 0 / csel__1 tc=0.03\n");
+}
+
+test "v1: where a subcircuit is not written once for each branch, the error says why" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // An instance whose deciding value is its parent's: never the default one silently.
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", "t\n" ++ split_lib ++ ".subckt wrap a b mode=0\nX1 a b msel rfmode=mode\nX2 a b msel r0={mode*1k} rfmode=1\n.ends\n.end\n", &r);
+    try has(out, "\n* [sprack] not written: instance 'X1'\nX2 a b msel__1 params: r0={mode*1k} rfmode=1\n");
+    try testing.expectEqual(1, r.count(.@"error"));
+    try reported(&r, .@"error", "instance 'X1': subcircuit 'msel' is written once for each branch of its conditional block, and which of them this instance is depends on parameter 'rfmode', which is not a number here");
+
+    const refused = [_][2][]const u8{
+        // A global, a function: not the subcircuit's own parameters.
+        .{ ".if (g == 0)\nR1 p n 1k\n.endif\n", "'g' in the condition 'g == 0' is not a number, an operator or one of the subcircuit's own parameters" },
+        .{ ".if (floor(k) == 0)\nR1 p n 1k\n.endif\n", "'floor' in the condition 'floor(k) == 0' is not a number, an operator or one of the subcircuit's own parameters" },
+        .{ ".param d=g\n.if (d == 0)\nR1 p n 1k\n.endif\n", "'g' in the condition 'd == 0' is not a number, an operator or one of the subcircuit's own parameters" },
+        .{ ".if (k == 0)\n.param z=1\nR1 p n 1k\n.endif\n", "a branch of the block at line 3 holds something other than devices" },
+        .{ ".if (k == 0)\nR1 p n 1k\n.endif\n.ends\n.subckt q__1 p n\n", "'q__1', the name one of them would take, is already declared" },
+    };
+    for (refused) |c| {
+        var rr: ir.Report = .init(a);
+        _ = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, "t\n.subckt q p n k=0\n{s}.ends\n.param g=1\n.end\n", .{c[0]}), &rr);
+        try testing.expectEqual(1, rr.countCode(.unsupported));
+        try reported(&rr, .@"error", try std.fmt.allocPrint(a, "it has no else branch; nor is its subcircuit written once for each branch: {s}. Dialects", .{c[1]}));
+    }
+    // What a statement outside the block reports is said once, though each subcircuit holds it.
+    var r2: ir.Report = .init(a);
+    const twice = try tr(a, "ngspice", "xyce", "t\n.subckt q p n k=0\nR9 p n r={nosuch(2)}\n.if (k == 0)\nR1 p n 1k\n.endif\n.ends\n.end\n", &r2);
+    try testing.expectEqual(2, std.mem.count(u8, twice, "R9 p n {nosuch(2)}\n"));
+    try testing.expectEqual(1, r2.count(.@"error"));
+    // A parameter of the header that the body gives again: the later value is the default.
+    var r7: ir.Report = .init(a);
+    const later = try tr(a, "ngspice", "xyce", "t\n.subckt q p n k=0\n.param k=1\n.if (k == 0)\nR1 p n 1k\n.endif\n.ends\nX1 1 0 q\nX2 1 0 q k=0\n.end\n", &r7);
+    try has(later, "R1 p n 1k\n.ends q__1\n");
+    try has(later, "X1 1 0 q\nX2 1 0 q__1 params: k=0\n");
+    // An instance of one that a name keeps from it.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.subckt q p n k=0\n.if (k == 0)\nR1 p n 1k\n.endif\n.ends\n.subckt q__1 p n\n.ends\nX1 1 0 q k=1\n.end\n", &r3);
+    try reported(&r3, .@"error", "instance 'X1': subcircuit 'q' holds a conditional block, which xyce has not, and is not written once for each branch: 'q__1', the name one of them would take, is already declared");
+    // No else, and a block after it: a subcircuit for every choice, up to eight.
+    var r4: ir.Report = .init(a);
+    const many = "t\n.subckt q p n k=0\n.if (k == 0)\nR1 p n 1k\n.elseif (k == 1)\nR1 p n 2k\n.endif\n.if (k < 2)\nR2 p n 1k\n.endif\n.ends\nX1 1 0 q k=1\nX2 1 0 q k=7\n.end\n";
+    const out4 = try tr(a, "ngspice", "xyce", many, &r4);
+    try has(out4, "* [sprack] 'q' where !(k == 0) && (k == 1) && (k < 2)\n.subckt q__2 p n params: k=0\nR1 p n 2k\nR2 p n 1k\n.ends q__2\n");
+    try has(out4, "* [sprack] 'q' where !(k == 0) && !(k == 1) && !(k < 2)\n.subckt q__5 p n params: k=0\n.ends q__5\nX1 1 0 q__2 params: k=1\nX2 1 0 q__5 params: k=7\n");
+    try reported(&r4, .info, "written once for each branch of the blocks from line 3: 'q' where (k == 0) && (k < 2), 'q__1' where");
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.subckt q p n k=0\n.if (k == 0)\nR1 p n 1k\n.endif\n.if (k == 1)\nR2 p n 1k\n.endif\n.if (k == 2)\nR3 p n 1k\n.endif\n.if (k == 3)\nR4 p n 1k\n.endif\n.ends\n.end\n", &r5);
+    try testing.expectEqual(4, r5.countCode(.unsupported));
+    try reported(&r5, .@"error", "nor is its subcircuit written once for each branch: that would be more than 8 subcircuits. Dialects");
+    // Outside any subcircuit: the error it was.
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param k=0\n.if (k == 0)\nR1 1 0 1k\n.endif\n.end\n", &r6);
+    try reported(&r6, .@"error", "in every branch: it has no else branch. Dialects");
 }
 
 // s2: what an EXP source leaves out. Measured: docs/verification.md 4.12.

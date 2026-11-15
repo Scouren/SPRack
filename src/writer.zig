@@ -842,6 +842,11 @@ const Writer = struct {
     /// measured: one entry a file each, naming the first (a PDK has hundreds).
     hoisted: Hoisted = .{},
     unhoisted: Hoisted = .{},
+    /// The subcircuits written once for each branch of a conditional block
+    /// (`cond.split`), or that would be but for a name, for their instances.
+    splits: std.ArrayList(struct { name: []const u8, split: cond.Split }) = .empty,
+    /// Why the subcircuit being written is not one of them.
+    unsplit: []const u8 = "",
 
     const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 = "", line: u32 = 0 };
 
@@ -1290,16 +1295,30 @@ const Writer = struct {
         // A conditional block where there are none, but a choice inside an
         // expression: the same statements in every branch are written once,
         // their values as choices (`cond.zig`).
-        if (st.kind == .cond_if and !w.g.canWrite(.cond_if)) if (expr.choiceForm(w.g)) |form| {
-            switch (try cond.merge(w.arena, st, form)) {
+        // What is left in a subcircuit, when its own parameters decide the
+        // conditions: the subcircuit once for each branch (`split`).
+        const outer = w.unsplit;
+        defer w.unsplit = outer;
+        if (st.kind == .subckt) w.unsplit = "";
+        if (st.kind == .subckt and !w.g.canWrite(.cond_if)) switch (try cond.split(w.arena, st, expr.choiceForm(w.g), &w.declared)) {
+            .none => {},
+            .refused => |why| w.unsplit = why,
+            .clash => |name| w.unsplit = try std.fmt.allocPrint(w.arena, "'{s}', the name one of them would take, is already declared", .{name}),
+            .variants => |v| return w.split(st, &v),
+        };
+        if (st.kind == .cond_if and !w.g.canWrite(.cond_if)) {
+            var also: []const u8 = "";
+            if (expr.choiceForm(w.g)) |form| switch (try cond.merge(w.arena, st, form)) {
                 .merged => |stmts| {
                     w.report.add(.info, .oneway, st.line, "cond_if: {s} has no conditional blocks; every branch holds the same statements, so they are written once, each value that differs as a choice between the branches' values by their conditions; it reads back as those statements, not as a block", .{w.g.name});
                     for (stmts) |*s| try w.stmt(s);
+                    return;
                 },
-                .refused => |why| try w.unsupported(w.arena, st, try std.fmt.allocPrint(w.arena, ", and this block is not the same statements with other values in every branch: {s}", .{why})),
-            }
-            return;
-        };
+                .refused => |why| also = try std.fmt.allocPrint(w.arena, ", and this block is not the same statements with other values in every branch: {s}", .{why}),
+            };
+            if (w.unsplit.len > 0) also = try std.fmt.allocPrint(w.arena, "{s}; nor is its subcircuit written once for each branch: {s}", .{ also, w.unsplit });
+            return w.unsupported(w.arena, st, also);
+        }
         // A block kind this dialect has only a rule for: the rule says the
         // header, the body follows it (Xyce `.sampling` ahead of its
         // analyses), or the rule is added to each statement of the body
@@ -1342,6 +1361,81 @@ const Writer = struct {
         // A sweep this dialect writes as one line for the whole netlist
         // (`.step`): what it sweeps follows it.
         if (schema.info(st.kind).class == .analysis) for (st.body) |*child| try w.stmt(child);
+    }
+
+    /// The subcircuit `st` once for each of `v`, a comment above each
+    /// saying where it is the one.
+    fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void {
+        const name = st.get("name").atom;
+        var listed: std.ArrayList(u8) = .empty;
+        for (v.list, 0..) |x, i| try listed.print(w.arena, "{s}'{s}' where {s}", .{ if (i > 0) ", " else "", x.name, x.cond });
+        w.report.add(.info, .oneway, v.line, "subckt '{s}': {s} has no conditional blocks, so the subcircuit is written once for each branch of the {s} {d}: {s}; an instance is written with the one its parameters select; it reads back as {d} subcircuits", .{
+            name, w.g.name, if (v.more) "blocks from line" else "block at line", v.line, listed.items, v.list.len,
+        });
+        // A statement outside the blocks is in every one of them: what it
+        // reports is said once.
+        var said: std.StringHashMapUnmanaged(void) = .empty;
+        var new: std.ArrayList([]const u8) = .empty;
+        for (v.list) |x| {
+            try w.comment(try std.fmt.allocPrint(w.arena, "[sprack] '{s}' where {s}", .{ name, x.cond }));
+            var one = st.*;
+            try one.own(w.arena);
+            try one.set(w.arena, schema.slotIndex(.subckt, "name").?, .{ .atom = x.name });
+            one.body = x.body;
+            const from = w.report.items.items.len;
+            try w.stmt(&one);
+            var kept = from;
+            for (w.report.items.items[from..]) |d| {
+                const key = try std.fmt.allocPrint(w.arena, "{d} {s} {s}", .{ d.line, @tagName(d.code), d.msg });
+                if (said.contains(key)) continue;
+                try new.append(w.arena, key);
+                w.report.items.items[kept] = d;
+                kept += 1;
+            }
+            w.report.items.shrinkRetainingCapacity(kept);
+            for (new.items) |key| try said.put(w.arena, key, {});
+            new.clearRetainingCapacity();
+        }
+    }
+
+    /// Notes every subcircuit of `stmts` that is written as several.
+    fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!void {
+        for (stmts) |*s| {
+            if (s.kind == .subckt) {
+                const sp = try cond.split(w.perm, s, expr.choiceForm(w.g), &w.declared);
+                if (sp == .variants or sp == .clash) try w.splits.append(w.perm, .{ .name = s.get("name").atom, .split = sp });
+            }
+            try w.noteSplits(s.body);
+        }
+    }
+
+    /// The subcircuit name an instance is written with: of a subcircuit
+    /// written as several, the one its parameters select. Null, reported,
+    /// when that cannot be told.
+    fn variantOf(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?[]const u8 {
+        const master = st.get("master").atom;
+        var name: ?[]const u8 = null;
+        for (w.splits.items) |*sp| {
+            if (!std.ascii.eqlIgnoreCase(sp.name, master)) continue;
+            var stop: []const u8 = "";
+            const pick = switch (sp.split) {
+                .variants => |*v| try cond.choose(a, v, if (st.get("params") == .params) st.get("params").params else &.{}, &stop) orelse {
+                    w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' is written once for each branch of its conditional block, and which of them this instance is depends on parameter '{s}', which is not a number here", .{ st.get("name").atom, master, stop });
+                    return null;
+                },
+                .clash => |taken| {
+                    w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' holds a conditional block, which {s} has not, and is not written once for each branch: '{s}', the name one of them would take, is already declared", .{ st.get("name").atom, master, w.g.name, taken });
+                    return null;
+                },
+                else => unreachable,
+            };
+            if (name) |other| if (!std.mem.eql(u8, other, pick)) {
+                w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' is declared more than once, and this instance is '{s}' by one declaration, '{s}' by another", .{ st.get("name").atom, master, other, pick });
+                return null;
+            };
+            name = pick;
+        }
+        return name orelse master;
     }
 
     /// Where a step is one line that sweeps every analysis of the netlist, a
@@ -1490,6 +1584,16 @@ const Writer = struct {
         if ((class == .device or st.kind == .model) and st.get("name") != .atom) {
             w.report.add(.@"error", .invalid, st.line, "{s}: a statement without a name cannot be written", .{@tagName(st.kind)});
             return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
+        }
+        var chosen: ir.Stmt = undefined;
+        if (st.kind == .instance and w.splits.items.len > 0 and st.get("master") == .atom) {
+            const name = try w.variantOf(a, st) orelse return w.comment(try a.print("[sprack] not written: instance '{s}'", .{st.get("name").atom}));
+            if (!std.ascii.eqlIgnoreCase(name, st.get("master").atom)) {
+                chosen = st.*;
+                try chosen.own(a);
+                try chosen.set(a, schema.slotIndex(.instance, "master").?, .{ .atom = name });
+                st = &chosen;
+            }
         }
         w.ordinals[@backingInt(st.kind)] += 1;
 
@@ -2570,6 +2674,9 @@ pub fn write(
         w.sole = s;
     };
     if (n_analyses != 1) w.sole = null;
+    if (!g.canWrite(.cond_if)) {
+        try w.noteSplits(stmts);
+    }
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
     }

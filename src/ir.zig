@@ -432,6 +432,12 @@ pub const Env = struct {
     }
 };
 
+/// A conditional block stands in the subcircuit's body.
+pub fn holdsCond(subckt: *const Stmt) bool {
+    for (subckt.body) |*s| if (s.kind == .cond_if) return true;
+    return false;
+}
+
 /// How a file is to be read.
 pub const ReadOptions = struct {
     env: ?*const Env = null,

@@ -16,7 +16,8 @@
 //! A few constructs make a pass of `read` or `write` move or merge
 //! statements across the netlist (alters, sweeps, Monte Carlo, two option
 //! statements, a move between them, binned models into Spectre,
-//! statistics, pole-zero ports). Where the survey meets one, the netlist
+//! statistics, pole-zero ports, a subcircuit written once for each branch
+//! of a conditional block). Where the survey meets one, the netlist
 //! is read and written whole instead, as `read` and `write` do; so is a
 //! file that switches language.
 //!
@@ -255,6 +256,8 @@ const Survey = struct {
             for (gf.merges) |mg| if (st.kind == mg.into) sv.reason("a statement read as two");
             sv.noteMoves(st);
         }
+        // `cond.split`: an instance may come before the subcircuit it names.
+        if (!gt.canWrite(.cond_if) and conditional(stmts)) sv.reason("a conditional block in a subcircuit");
         if (ir.hasSweep(stmts)) sv.sweep = true;
         if (stats.changes(gt, stmts)) sv.stats = true;
         try sv.masters(k, stmts);
@@ -450,6 +453,12 @@ const Survey = struct {
         return sv.why != null;
     }
 };
+
+/// A subcircuit of `stmts` holds a conditional block.
+fn conditional(stmts: []const Stmt) bool {
+    for (stmts) |*s| if ((s.kind == .subckt and ir.holdsCond(s)) or conditional(s.body)) return true;
+    return false;
+}
 
 fn isBound(v: ir.Value) bool {
     return switch (v) {
