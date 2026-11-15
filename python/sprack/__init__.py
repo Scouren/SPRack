@@ -479,7 +479,10 @@ class _Scope:
             for key in params:
                 if key.lower() not in table:
                     raise TypeError(f"{dev['name']} is a {kind} of a {self._pdk.dialect} model card, which takes no parameter {key!r}; it takes: {', '.join(table)}")
-        return self.add(kind, str(name), *nodes, dev["name"], **params)
+        if "master" not in _slots(kind):
+            raise TypeError(f"{dev['name']} is a model card for kind {kind!r}, which takes no model in sprack's vocabulary")
+        # By keyword: positionally a resistor or capacitor takes its value there.
+        return self.add(kind, str(name), *nodes, master=dev["name"], **params)
 
     # -- structure --------------------------------------------------------
     def param(self, **values: Any) -> dict:

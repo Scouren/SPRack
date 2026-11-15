@@ -611,6 +611,39 @@ def test_pdk_errors():
         raises(sprack.SprackError, lambda: sprack.PDK("ASAP7", root=os.path.join(PDKS, "asap7"), corner="fs"), "has no corner 'fs'; it has: tt, ff, ss")
 
 
+# A PDK small enough to write here: one ngspice library whose section holds
+# model cards and includes a file of subcircuits.
+TINY = {"name": "tiny", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["m.lib", "tt"]]}}
+
+
+def _tiny(fn, **manifest):
+    """Run `fn(make, d)` with the tiny PDK's files in directory `d`;
+    `make(**kw)` is that PDK, its cache in `d` too."""
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "m.lib"), "w") as f:
+            f.write('* tiny\n.lib tt\n.model rmod r rsh=10\n.model cmod c cj=1m\n.model lmod l ind=1n\n'
+                    '.model nch nmos level=54\n.include "cells.inc"\n.endl tt\n')
+        with open(os.path.join(d, "cells.inc"), "w") as f:
+            f.write("* cells\n.subckt cell a b\nR1 a b 1k\n.ends cell\n")
+        return fn(lambda **kw: sprack.PDK("tiny", **{"root": d, "cache_dir": os.path.join(d, "cache"), "manifest": {**TINY, **manifest}, **kw}), d)
+
+
+def test_tiny_pdk_model_cards():
+    def body(make, d):
+        c = sprack.Circuit("t", pdk=make())
+        # The model is the device's model, also where a value could stand.
+        c.rmod("R1", "a", 0, w="1u", l="10u")
+        c.cmod("C1", "a", 0, w="1u", l="10u")
+        c.nch("M1", "a", "a", 0, 0, w="1u", l="1u")
+        c.cell("X1", "a", 0)
+        c.V("1", "a", 0, 1)
+        c.op()
+        assert "R1 a 0 rmod w=1u l=10u\nC1 a 0 cmod w=1u l=10u\nM1 a a 0 0 nch w=1u l=1u\nX1 a 0 cell\n" in c.netlist("ngspice")
+        assert "R1 (a 0) rmod w=1u l=10u\nC1 (a 0) cmod w=1u l=10u\n" in c.netlist("spectre", strict=False)
+        raises(TypeError, lambda: c.lmod("L1", "a", 0), "lmod is a model card for kind 'inductor', which takes no model")
+    _tiny(body)
+
+
 # One deck that says a bit of everything, in ngspice.
 DECK = """Rich deck
 * a comment
