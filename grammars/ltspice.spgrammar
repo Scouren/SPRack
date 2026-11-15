@@ -30,7 +30,7 @@ lexer
 end
 
 block subckt
-  open   ".subckt" name ports* ( {...params} | "params:" {...params} )
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
   close  ".ends" [name]
 end
 
@@ -138,6 +138,24 @@ no envelope   : LTspice has no envelope-following analysis
 no qpss       : LTspice has no quasi-periodic steady-state analysis
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic values; other simulators seed the first time point differently
+
+# statistics
+# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
+# definition; a statistics block's process variations are written that way
+# when the varied parameter is defined in the same file.
+no statistics : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no statgroup : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no vary : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no correlate : LTspice has no statement that correlates two random parameters
+no montecarlo : LTspice has no Monte Carlo statement; a run is a .step over a dummy parameter with mc() or gauss() in the values
+# A library file has no wrapper around its sections; the name is carried
+# as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : LTspice has no library wrapper around its sections; it is written as a comment
+caveat subckt inline : LTspice has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
 
 signals
   vdiff = "v(%,%)"

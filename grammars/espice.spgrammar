@@ -42,7 +42,7 @@ end
 raw ".control" ".endc"
 
 block subckt
-  open   ".subckt" name ports* ( {...params} | "params:" {...params} )
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
   close  ".ends" [name]
 end
 
@@ -179,6 +179,24 @@ caveat tran step : the first .tran number is a suggested step for ESPice, as for
 caveat hdl path=*.osdi : ESPice compiles Verilog-A source named by .hdl and never loads a compiled OSDI file
 
 # How this dialect writes the things a simulator can record.
+# statistics
+# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
+# definition; a statistics block's process variations are written that way
+# when the varied parameter is defined in the same file.
+no statistics : ESPice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no statgroup : ESPice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no vary : ESPice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no correlate : ESPice has no statement that correlates two random parameters
+no montecarlo : ESPice has no Monte Carlo statement; as in ngspice, a run is a loop in a .control script
+# A library file has no wrapper around its sections; the name is carried
+# as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : ESPice has no library wrapper around its sections; it is written as a comment
+caveat subckt inline : ESPice has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+
 signals
   vdiff = "v(%,%)"
   v     = "v(%)"

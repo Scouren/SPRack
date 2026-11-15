@@ -326,9 +326,10 @@ def test_pdk_ihp():
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
     hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
-    # Spectre has no agauss(): reported, per file and line. Conditional blocks translate.
-    e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "function 'agauss' has no spelling in spectre")
-    assert not any("cond_if" in x.message for x in e.report.errors)
+    # Spectre has no agauss(): written as statistics variations. What is
+    # left is reported per file and line. Conditional blocks translate.
+    e = raises(sprack.Unsupported, lambda: c.netlist("spectre"), "has no spelling in spectre")
+    assert not any("agauss" in x.message or "cond_if" in x.message for x in e.report.errors)
     assert sprack.PDK("ihp", root=os.path.join(PDKS, "ihp"), corner="ss").entries()[0][1] == "mos_ss"
 
 

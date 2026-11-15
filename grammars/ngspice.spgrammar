@@ -31,7 +31,7 @@ end
 raw ".control" ".endc"
 
 block subckt
-  open   ".subckt" name ports* ( {...params} | "params:" {...params} )
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
   close  ".ends" [name]
 end
 
@@ -157,6 +157,24 @@ caveat tran step : the first .tran number is a suggested step for ngspice, not a
 caveat hdl path=*.va : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first
 
 # How this dialect writes the things a simulator can record.
+# statistics
+# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
+# definition; a statistics block's process variations are written that way
+# when the varied parameter is defined in the same file.
+no statistics : ngspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no statgroup : ngspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no vary : ngspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no correlate : ngspice has no statement that correlates two random parameters
+no montecarlo : ngspice has no Monte Carlo statement; a Monte Carlo run is a loop in a .control script that resets the circuit
+# A library file has no wrapper around its sections; the name is carried
+# as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : ngspice has no library wrapper around its sections; it is written as a comment
+caveat subckt inline : ngspice has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+
 signals
   vdiff = "v(%,%)"
   v     = "v(%)"

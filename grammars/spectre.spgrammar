@@ -10,10 +10,10 @@
 # The integration method is a parameter of the tran analysis here, not a
 # global option; the `move` line carries it over in both directions.
 #
-# Not expressible in this grammar: `simulator lang=spice` sections, inline
-# subckt, statistics blocks, and any analysis in the last opaque list that no
-# rule above it reads. Such lines are kept verbatim for Spectre output and
-# reported as errors for any other target.
+# Not expressible in this grammar: any analysis in the last opaque list that
+# no rule above it reads. Such lines are kept verbatim for Spectre output and
+# reported as errors for any other target. A `simulator lang=spice` section
+# is read with the HSPICE grammar, up to the next `simulator lang=spectre`.
 #
 # Checked by loading decks in Spectre 25.10: every rule below that writes a
 # statement was run, and the expression and model tables were measured.
@@ -46,7 +46,7 @@ preamble
 end
 
 block subckt
-  open   "subckt" name ["("] ports* [")"]
+  open   [ inline:"inline"=yes ] "subckt" name ["("] ports* [")"]
   inner  "parameters" {...params}
   close  "ends" [name]
 end
@@ -84,7 +84,7 @@ rule  nodeset   = "nodeset" { ...values }
 
 # Statements this grammar recognises but cannot express. Listing them keeps
 # the generic instance rule at the bottom from misreading them.
-read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "statistics" | "library" | "endlibrary" | "real" ) ...
+read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "real" ) ...
 read  opaque    = _ ( "options" | "info" | "alter" | "altergroup" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
 
 # A dc analysis that sweeps something is a DC sweep; any other is an
@@ -127,7 +127,7 @@ rule  dcmatch   = name?dcmatch$# "(" out ref?0 ")" "dcmatch" {...params}
 rule  envelope  = name?envlp$# "envlp" { clockname="clock"! stop=stop ...params }
 # The fundamentals are named; each source says which it drives (fundname=).
 rule  qpss      = name?qpss$# "qpss" { funds=[funds]! maxharms=[harms] ...params }
-read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "montecarlo" | "sweep" | "envlp" | "qpss" ) ...
+read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "sweep" | "envlp" | "qpss" ) ...
 
 # With a model of its own the device keeps it; these forms are write-only
 # because any two-terminal instance would match them when reading.
@@ -162,6 +162,36 @@ rule  vsource   = name ["("] pos neg [")"] "port" { num=portnum! r=z0 dc=dc mag=
 write ctlsrc    = name~"E" "(" pos neg cpos#1 cneg#1 ")" form:"pvcvs"=poly -dim { coeffs=[coeffs]! }
 write ctlsrc    = name~"G" "(" pos neg cpos#1 cneg#1 ")" form:"pvccs"=poly -dim { coeffs=[coeffs]! }
 rule  instance  = name ["("] nodes+ [")"] master {...params}
+
+# statistics
+block statistics
+  open   "statistics" "{"
+  close  "}"
+end
+block statgroup
+  open   ( scope:"process" | scope:"mismatch" ) "{"
+  close  "}"
+end
+# A uniform distribution's N is its half width; an std given instead is
+# turned into N with a factor of sqrt(3).
+rule  vary      = "vary" param { dist=dist std=std N=range ...params }
+rule  correlate = "correlate" { param=[names]! cc=cc ...params }
+block montecarlo
+  open   name?mc$# "montecarlo" { numruns=runs seed=seed ...params } "{"
+  close  "}"
+end
+block library
+  open   "library" name
+  close  "endlibrary" [name]
+end
+# A binned model: `model nch bsim4 {`, then one line per bin (`1: lmin=...`).
+# Each bin is read as the model card `nch.1`, as SPICE names it, and cards
+# so named are grouped back when written.
+block model
+  open   "model" name type "{"
+  close  "}"
+end
+rule  model     = name {...params}
 
 move options.method -> tran.method
 enum tran method : trap=trap gear=gear2 euler=euler

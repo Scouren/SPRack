@@ -36,7 +36,7 @@ lexer
 end
 
 block subckt
-  open   ".subckt" name ports* {...params}
+  open   ".subckt" name ports* {...params} -inline
   close  ".ends" [name]
 end
 
@@ -161,6 +161,33 @@ implied phasenoise ref = 0
 no xf       : this grammar has no HSPICE form for an AC transfer-function sweep; .TF is the DC one
 no envelope : this grammar has no form for HSPICE's envelope analyses (.ENV and its kin)
 no qpss     : HSPICE has no shooting quasi-periodic analysis; a multitone .HB is its quasi-periodic steady state
+# statistics
+# A .VARIATION block varies model parameters: `nmos nch vth0=0.01` is an
+# absolute sigma, `vth0=10 %` a relative one. A parameter of the netlist is
+# varied with agauss() or aunif() in its .PARAM instead: Spectre's `vary x`
+# is written that way when `x` is defined in the same file.
+block statistics
+  open   ".variation"
+  close  ".end_variation"
+end
+block statgroup
+  open   ( scope:".global_variation"=process | scope:".local_variation"=mismatch )
+  close  ( scope:".end_global_variation"=process | scope:".end_local_variation"=mismatch )
+end
+rule  vary      = mtype model param ~"=" std [ rel:"%"=yes ]
+no correlate : HSPICE has no statement that sets a correlation coefficient between two varied parameters; correlated variation comes from sharing one random variable
+# A library file has no wrapper around its .LIB sections; the name is
+# carried as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : HSPICE has no library wrapper around .LIB sections; it is written as a comment
+caveat subckt inline : HSPICE has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+# Monte Carlo is a sweep added to each analysis: `.tran 1n 1u sweep monte=30`.
+spread montecarlo
+rule  montecarlo = "sweep" "monte" ~"=" runs -seed
+caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, which is not written
 
 implied tf ref = 0
 implied noise ref = 0

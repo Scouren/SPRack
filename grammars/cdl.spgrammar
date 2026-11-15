@@ -31,7 +31,7 @@ lexer
 end
 
 block subckt
-  open   ".subckt" name ports* {...params}      # params on the header: assumed
+  open   ".subckt" name ports* {...params} -inline      # params on the header: assumed
   close  ".ends" [name]
 end
 
@@ -109,6 +109,24 @@ no lossyline : CDL has no transmission lines
 no ctlsrc  : CDL describes connectivity for LVS; it has no sources
 no relay   : CDL has no switches
 no simctl  : CDL is a netlist, not a simulation deck; it has no commands
+
+# statistics
+# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
+# definition; a statistics block's process variations are written that way
+# when the varied parameter is defined in the same file.
+no statistics : CDL has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no statgroup : CDL has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no vary : CDL has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no correlate : CDL has no statement that correlates two random parameters
+no montecarlo : CDL is a netlist, not a simulation deck; it has no analyses
+# A library file has no wrapper around its sections; the name is carried
+# as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : CDL has no library wrapper around its sections; it is written as a comment
+caveat subckt inline : CDL has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
 
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh

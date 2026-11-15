@@ -226,6 +226,9 @@ _POSITIONAL = {
     "lossyline": "*", "ctlsrc": ["pos", "neg", "form"], "relay": ["pos", "neg", "cpos", "cneg"], "simctl": ["cmd", "args"],
     # b1: sweeps
     "step": ["param", "start", "stop", "step"], "data": ["name", "cols", "values"],
+    # b2: statistics and structure
+    "statistics": [], "statgroup": ["scope"], "vary": ["param", "dist", "std"], "correlate": ["names", "cc"],
+    "montecarlo": ["runs"], "library": ["name"],
 }
 
 _WAVES = {

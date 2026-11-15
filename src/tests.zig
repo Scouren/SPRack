@@ -1055,13 +1055,16 @@ test "expressions: functions, operators and variables are mapped" {
     const hs = try tr(a, "ngspice", "hspice", src, &r1);
     try has(hs, ".param a=2 b='a**2 + log(a)*temper'\n.param dbl(x) = '2*x'\nR1 n 0 'dbl(b) * 1k'\n");
 
-    // Spectre's `^` has no ngspice spelling; a statistical function has no Spectre one.
+    // Spectre's `^` has no ngspice spelling; a statistical function is a
+    // statistics variation in Spectre.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "spectre", "ngspice", "// t\nparameters m=(3 ^ 5)\n", &r2);
     try reported(&r2, .@"error", "operator 'xor' has no spelling in ngspice. Dialects that have it: ltspice, spectre");
     var r3: ir.Report = .init(a);
-    _ = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
-    try reported(&r3, .@"error", "function 'agauss' has no spelling in spectre. Dialects that have it: espice, hspice, ngspice, vacask, xyce");
+    const st = try tr(a, "ngspice", "spectre", "t\n.param vth={agauss(0.4, 0.01, 3)}\n.end\n", &r3);
+    try clean(&r3);
+    try has(st, "parameters vth=0.4\n");
+    try has(st, "vary vth dist=gauss std=(0.01)/(3)\n");
     // A function nobody defines is not passed along on trust.
     var r4: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\n.param q={mystery(2)}\n.end\n", &r4);
@@ -2491,6 +2494,149 @@ test "gap: a project keeps Verilog-A sources and section spellings" {
     const va_copied = if (tmp.dir.access(io, "out/cap.va", .{})) |_| true else |_| false;
     try testing.expect(va_copied or std.mem.indexOf(u8, top, "ahdl_include \"./cap.va\"") == null);
     try testing.expect(std.mem.indexOf(u8, log.written(), "OSDI") == null);
+// b2: statistics and structure
+
+fn writeLib(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
+    const nl = try sprack.reader.read(sprack.find(from).?, a, src, report, .{ .library = true });
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, sprack.find(to).?, &aw.writer, &nl, report);
+    return aw.written();
+}
+
+test "statistics: Spectre blocks, SPICE random functions, HSPICE variation" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const scs =
+        \\// t
+        \\parameters x=1 y=2 z=3
+        \\statistics {
+        \\process {
+        \\vary x dist=gauss std=0.1
+        \\vary y dist=unif N=0.2
+        \\}
+        \\mismatch {
+        \\vary z dist=gauss std=0.05
+        \\}
+        \\correlate param=[x y] cc=0.5
+        \\}
+        \\
+    ;
+    // Read and written back the same.
+    var r1: ir.Report = .init(a);
+    const same = try tr(a, "spectre", "spectre", scs, &r1);
+    try clean(&r1);
+    try has(same, "statistics {\nprocess {\nvary x dist=gauss std=0.1\nvary y dist=unif N=0.2\n}\nmismatch {\nvary z dist=gauss std=0.05\n}\ncorrelate param=[x y] cc=0.5\n}\n");
+    // Process variations become random functions where the parameter is
+    // defined; a mismatch variation and a correlation have no SPICE form.
+    var r2: ir.Report = .init(a);
+    const ng = try tr(a, "spectre", "ngspice", scs, &r2);
+    try has(ng, ".param x={agauss(1, 0.1, 1)} y={aunif(2, 0.2)} z=3\n");
+    try reported(&r2, .@"error", "statement 'statistics' cannot be written for ngspice");
+    try reported(&r2, .warning, "vary x: written as a random function");
+    var r3: ir.Report = .init(a);
+    const hs = try tr(a, "spectre", "hspice", scs, &r3);
+    try has(hs, ".param x='agauss(1, 0.1, 1)'");
+    try reported(&r3, .@"error", "statement 'correlate' cannot be written for hspice");
+
+    // Random functions into Spectre: a whole-parameter call keeps the
+    // parameter and varies it per run; a call inside a subcircuit is a new
+    // parameter varied per instance, with ngspice's zero-sigma case kept.
+    const lib =
+        \\.lib tt
+        \\.param p1 = agauss(1k, 100, 1) n0 = 0
+        \\.subckt rr a b
+        \\r1 a b {agauss(1k, 100, n0)}
+        \\r2 a b {gauss(1k, 0.1, 1)}
+        \\.ends
+        \\.endl tt
+        \\
+    ;
+    var r4: ir.Report = .init(a);
+    const sp = try writeLib(a, "ngspice", "spectre", lib, &r4);
+    try clean(&r4);
+    try has(sp, "parameters p1=1k n0=0\n");
+    try has(sp, "r1 (a b) resistor r=((1k + ((n0) == 0 ? 0 : (100)/(n0))*sprack_rv_rr_r1))\n");
+    try has(sp, "r2 (a b) resistor r=((1k)*(1 + 0.1*sprack_rv_rr_r2))\n");
+    try has(sp, "parameters sprack_rv_rr_r1=0 sprack_rv_rr_r2=0\nstatistics {\nprocess {\nvary p1 dist=gauss std=100\n}\nmismatch {\nvary sprack_rv_rr_r1 dist=gauss std=1\nvary sprack_rv_rr_r2 dist=gauss std=1\n}\n}\nendsection tt\n");
+    try reported(&r4, .warning, "written as spectre statistics variations");
+
+    // HSPICE's .VARIATION varies model parameters, absolutely or in percent.
+    const hsv =
+        \\t
+        \\.model rm r rsh=1
+        \\.variation
+        \\.global_variation
+        \\r rm rsh=0.1
+        \\.end_global_variation
+        \\.local_variation
+        \\r rm rsh=5 %
+        \\.end_local_variation
+        \\.end_variation
+        \\.end
+        \\
+    ;
+    var r5: ir.Report = .init(a);
+    const back = try tr(a, "hspice", "hspice", hsv, &r5);
+    try clean(&r5);
+    try has(back, ".variation\n.global_variation\nr rm rsh=0.1\n.end_global_variation\n.local_variation\nr rm rsh=5 %\n.end_local_variation\n.end_variation\n");
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", hsv, &r6);
+    try reported(&r6, .@"error", "vary.model = rm has no spelling in spectre");
+}
+
+test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const scs = "// t\nr1 (a 0) resistor r=1k\nmc1 montecarlo numruns=30 seed=1 {\ntr1 tran stop=1u\n}\n";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", scs, &r1), "mc1 montecarlo numruns=30 seed=1 {\ntr1 tran stop=1u\n}\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "hspice", scs, &r2), ".tran '1u/1000' 1u sweep monte=30\n");
+    try reported(&r2, .warning, "HSPICE takes the Monte Carlo seed from .OPTION SEED");
+    var r3: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre", "t\nr1 a 0 1k\n.tran 1n 1u sweep monte=30\n.end\n", &r3);
+    try clean(&r3);
+    try has(sp, "montecarlo numruns=30 {\ntran1 tran step=1n stop=1u\n}\n");
+    var r4: ir.Report = .init(a);
+    const xy = try tr(a, "spectre", "xyce", scs, &r4);
+    try clean(&r4);
+    try has(xy, ".sampling useexpr=true\n.options samples numsamples=30 seed=1\n.tran {1u/1000} 1u\n");
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "spectre", xy, &r5), "montecarlo numruns=30 seed=1 {\n");
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "ngspice", scs, &r6);
+    try reported(&r6, .@"error", "ngspice has no Monte Carlo statement");
+}
+
+test "Spectre structure: binned models, inline subcircuits, libraries" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // SPICE bins are separate cards; Spectre groups them under one model.
+    const ng = "t\n.model nch.1 nmos level=54 lmin=0.1u lmax=1u\n.model nch.2 nmos level=54 lmin=1u lmax=10u\nM1 d g 0 0 nch w=1u l=2u\n.end\n";
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
+    try clean(&r1);
+    try has(sp, "model nch bsim4 {\n1: type=n lmin=0.1u lmax=1u\n2: type=n lmin=1u lmax=10u\n}\n");
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try clean(&r2);
+    try has(back, ".model nch.1 nmos level=14 lmin=0.1u lmax=1u\n.model nch.2 nmos level=14 lmin=1u lmax=10u\nM1 d g 0 0 nch w=1u l=2u\n");
+    // An inline subcircuit is an ordinary one elsewhere, with a caveat.
+    const inl = "// t\ninline subckt cell (a b)\ncell (a b) resistor r=1k\nends cell\nx1 (n 0) cell\n";
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", inl, &r3), "inline subckt cell (a b)\n");
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", inl, &r4), ".subckt cell a b\n");
+    try reported(&r4, .warning, "ngspice has no inline subcircuits");
+    // A library wraps sections; elsewhere its name is a comment.
+    var r5: ir.Report = .init(a);
+    const libs = "simulator lang=spectre\nlibrary mylib\nsection tt\nparameters r0=1k\nendsection tt\nendlibrary mylib\n";
+    try has(try writeLib(a, "spectre", "spectre", libs, &r5), "library mylib\nsection tt\nparameters r0=1k\nendsection tt\nendlibrary mylib\n");
+    try has(try writeLib(a, "spectre", "ngspice", libs, &r5), "* library mylib\n.lib tt\n.param r0=1k\n.endl tt\n* endlibrary\n");
 }
 
 test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stability" {

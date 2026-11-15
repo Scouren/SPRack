@@ -25,7 +25,7 @@ lexer
 end
 
 block subckt
-  open   ".subckt" name ports* [ "params:" {...params} ]
+  open   ".subckt" name ports* [ "params:" {...params} ] -inline
   close  ".ends" [name]
 end
 
@@ -160,6 +160,26 @@ caveat options gmin : Xyce adds GMIN differently from ngspice, which puts it acr
 caveat nodeset values : Xyce and ngspice apply nodesets with different algorithms; a circuit with several operating points may settle in another one (sim check: op/nodeset_latch)
 
 # How this dialect writes the things a simulator can record.
+# statistics
+# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
+# definition; a statistics block's process variations are written that way
+# when the varied parameter is defined in the same file.
+no statistics : Xyce has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no statgroup : Xyce has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no vary : Xyce has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+no correlate : Xyce has no statement that correlates two random parameters
+# Monte Carlo over the expressions that call agauss() and its kin: every
+# analysis of the netlist is run once per sample.
+rule  montecarlo = ".sampling" "useexpr" ~"=" "true" / ".options" "samples" { numsamples=runs! seed=seed ...params }
+# A library file has no wrapper around its sections; the name is carried
+# as a comment.
+block library
+  open   "*" "library" name
+  close  "*" "endlibrary"
+end
+caveat library name : Xyce has no library wrapper around its sections; it is written as a comment
+caveat subckt inline : Xyce has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+
 signals
   vdiff = "v(%,%)"
   v     = "v(%)"
