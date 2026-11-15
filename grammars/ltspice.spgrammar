@@ -115,6 +115,17 @@ no cond_elif : LTspice has no conditional netlist blocks; use if() in an express
 no cond_else : LTspice has no conditional netlist blocks; use if() in an expression
 no xspice : XSPICE code models are ngspice's; LTspice's A devices are its own digital primitives with fixed pins
 no verilog : LTspice cannot load Verilog
+# analyses (b3)
+no pac        : LTspice has no periodic steady-state analysis
+no pnoise     : LTspice has no periodic steady-state analysis
+no pxf        : LTspice has no periodic steady-state analysis
+no psp        : LTspice has no periodic steady-state analysis
+no xf         : LTspice has no AC transfer-function sweep
+no dcmatch    : LTspice has no DC mismatch analysis
+no trannoise  : LTspice has no transient-noise analysis card
+no phasenoise : LTspice has no oscillator phase-noise analysis
+no envelope   : LTspice has no envelope-following analysis
+no qpss       : LTspice has no quasi-periodic steady-state analysis
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic values; other simulators seed the first time point differently
 

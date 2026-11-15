@@ -447,6 +447,22 @@ def test_pdk_installed_ihp():
     assert v["fs"] < v["ss"] < v["tt"] < v["ff"] < v["sf"], v
 
 
+def test_periodic_analyses():
+    c = sprack.Circuit("t")
+    c.V("in", "in", 0, 0, sin=(0, 1, "1k"))
+    c.R("1", "in", "out", "1k")
+    c.pss("1k", 5)
+    c.pac("dec", 4, 10, "10k")
+    c.pnoise("out", "Vin", "dec", 3, 10, "10k")
+    c.add("pxf", "out", "dec", 4, 10, "10k", engine="hb")
+    sp = c.netlist("spectre", strict=False)
+    for line in ["pac1 pac start=10 stop=10k dec=4", "pnoise1 (out 0) pnoise iprobe=Vin refsideband=0 start=10 stop=10k dec=3",
+                 "pxf1 (out 0) hbxf start=10 stop=10k dec=4"]:
+        assert line + "\n" in sp, f"missing {line!r} in\n{sp}"
+    assert ".snac dec 4 10 10k\n" in c.netlist("hspice")
+    assert "ngspice has no periodic steady state" in sprack.why_not("pac", "ngspice")
+
+
 def test_pdk_errors():
     raises(sprack.SprackError, lambda: sprack.PDK("tsmc28", root="/nowhere"), "no manifest for PDK 'tsmc28'; known: ASAP7, FreePDK45, gf180mcuD, ihp-sg13g2, sky130A")
     raises(sprack.SprackError, lambda: sprack.PDK("sky130A", root="/nowhere"), "no model library found", "sky130.lib.spice")

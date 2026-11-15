@@ -11,9 +11,9 @@
 # global option; the `move` line carries it over in both directions.
 #
 # Not expressible in this grammar: `simulator lang=spice` sections, inline
-# subckt, statistics blocks and the RF analyses in the last opaque list. Such
-# lines are kept verbatim for Spectre output and reported as errors for any
-# other target.
+# subckt, statistics blocks, and any analysis in the last opaque list that no
+# rule above it reads. Such lines are kept verbatim for Spectre output and
+# reported as errors for any other target.
 #
 # Checked by loading decks in Spectre 25.10: every rule below that writes a
 # statement was run, and the expression and model tables were measured.
@@ -109,6 +109,20 @@ rule  pz        = name?pz$# "(" out "0" ")" "pz" { iprobe=src! ...params }
 rule  hb        = name?hb$# "hb" { fundfreqs=[freqs]! maxharms=[harms] ...params }
 # The Fourier analyser is an instance that watches one signal during tran.
 rule  four      = name?four$# "(" signals#1 "0" ")" "fourier" { fund=freq! ...params }
+# analyses (b3). Each was loaded in Spectre 25.10. A pac, pnoise or pxf
+# follows a pss; hbac, hbnoise and hbxf follow an hb, and neither kind runs
+# after the other's steady state. An input-referred pnoise needs refsideband.
+rule  pac       = name?pac$# ( engine:"hbac"=hb | "pac" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  pnoise    = name?pnoise$# "(" out ref?0 ")" ( engine:"hbnoise"=hb | "pnoise" ) { iprobe=src! refsideband==0 start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  pnoise    = name?pnoise$# "(" out ref?0 ")" ( engine:"hbnoise"=hb | "pnoise" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  pxf       = name?pxf$# "(" out ref?0 ")" ( engine:"hbxf"=hb | "pxf" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+# The ports and the harmonic each one is driven at (portharmsvec) are parameters.
+rule  psp       = name?psp$# ( engine:"hbsp"=hb | "psp" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  xf        = name?xf$# "(" out ref?0 ")" "xf" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  dcmatch   = name?dcmatch$# "(" out ref?0 ")" "dcmatch" {...params}
+rule  envelope  = name?envlp$# "envlp" { clockname="clock"! stop=stop ...params }
+# The fundamentals are named; each source says which it drives (fundname=).
+rule  qpss      = name?qpss$# "qpss" { funds=[funds]! maxharms=[harms] ...params }
 read  opaque    = _ ["("] _* [")"] ( "pss" | "pac" | "pnoise" | "pxf" | "psp" | "hb" | "hbac" | "hbnoise" | "sp" | "xf" | "stb" | "pz" | "sens" | "dcmatch" | "montecarlo" | "sweep" | "envlp" | "qpss" ) ...
 
 # With a model of its own the device keeps it; these forms are write-only
@@ -146,10 +160,19 @@ no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found wit
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : this grammar has no form that loads a digital Verilog design
+# analyses (b3)
+implied pnoise ref = 0
+implied pxf ref = 0
+implied xf ref = 0
+implied dcmatch ref = 0
+invalid psp params : Spectre's psp and hbsp stop without the ports and the harmonic each is driven at (ports=, portharmsvec=), which other dialects do not state
+no trannoise  : Spectre runs transient noise as parameters of the tran analysis (noisefmax=, noiseseed=); this grammar has no form that puts the HSPICE card there
+no phasenoise : Spectre finds oscillator phase noise with pnoise or hbnoise on an autonomous steady state; this grammar has no form that marks one apart
 
 caveat tran skip_dc : skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
 caveat tran method : the integration methods are near equivalents, not the same algorithm
 caveat print signals : Spectre has no print statement; the signals are saved instead
+caveat pac fstart : Spectre drives pac from each source's pacmag, not from the ac mag; a deck whose sources have no pacmag stops with an error
 caveat tf src : xf gives the transfer function from every source, the named one among them; the input and output resistances are not reported
 caveat hdl path : ahdl_include expects Verilog-A source, not a compiled OSDI file
 

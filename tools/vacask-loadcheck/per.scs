@@ -6,3 +6,4 @@ R1 (a out) resistor r=1k
 C1 (out 0) capacitor c=100p
 pss1 pss fund=1M harms=10 tstab=1u
 stb1 stb start=1k stop=1G dec=10 probe=Vp
+xf1 (out 0) xf start=1k stop=1G dec=10

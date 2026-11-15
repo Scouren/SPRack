@@ -93,6 +93,17 @@ no pss       : CDL is a netlist, not a simulation deck; it has no analyses
 no stb       : CDL is a netlist, not a simulation deck; it has no analyses
 no xspice : CDL has no XSPICE code models
 no verilog : CDL cannot load Verilog
+# analyses (b3)
+no pac        : CDL is a netlist, not a simulation deck; it has no analyses
+no pnoise     : CDL is a netlist, not a simulation deck; it has no analyses
+no pxf        : CDL is a netlist, not a simulation deck; it has no analyses
+no psp        : CDL is a netlist, not a simulation deck; it has no analyses
+no xf         : CDL is a netlist, not a simulation deck; it has no analyses
+no dcmatch    : CDL is a netlist, not a simulation deck; it has no analyses
+no trannoise  : CDL is a netlist, not a simulation deck; it has no analyses
+no phasenoise : CDL is a netlist, not a simulation deck; it has no analyses
+no envelope   : CDL is a netlist, not a simulation deck; it has no analyses
+no qpss       : CDL is a netlist, not a simulation deck; it has no analyses
 
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh

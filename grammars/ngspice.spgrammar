@@ -138,6 +138,17 @@ no hb  : ngspice has no harmonic-balance analysis
 no pss : ngspice's .pss is an experimental oscillator analysis with a different meaning; there is no driven periodic steady state
 no stb : ngspice has no loop-stability analysis
 no verilog : ngspice runs digital Verilog through an XSPICE d_cosim model of a design compiled with Icarus Verilog (vvp); no card loads Verilog source
+# analyses (b3)
+no pac        : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)
+no pnoise     : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)
+no pxf        : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)
+no psp        : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)
+no xf         : ngspice has no AC transfer-function sweep
+no dcmatch    : ngspice has no DC mismatch analysis
+no trannoise  : ngspice has no transient-noise analysis card; transient noise comes from TRNOISE sources
+no phasenoise : ngspice has no oscillator phase-noise analysis
+no envelope   : ngspice has no envelope-following analysis
+no qpss       : ngspice has no quasi-periodic steady-state analysis
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit

@@ -128,6 +128,17 @@ no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command
 no device : Xyce instantiates a Verilog-A model through its compiled plugin's own device letter and level; there is no netlist form for an arbitrary module
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
 no verilog : Xyce has no netlist card that loads a digital Verilog design
+# analyses (b3)
+no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
+no pnoise     : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
+no pxf        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
+no psp        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
+no xf         : Xyce has no AC transfer-function sweep
+no dcmatch    : Xyce has no DC mismatch analysis
+no trannoise  : Xyce has no transient-noise analysis card
+no phasenoise : Xyce has no oscillator phase-noise analysis
+no envelope   : Xyce has no envelope-following analysis
+no qpss       : Xyce has no quasi-periodic steady-state analysis; a multitone .HB is the closest
 
 caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed the first time point differently
 caveat tran step : the first .TRAN number only sets the initial step in Xyce

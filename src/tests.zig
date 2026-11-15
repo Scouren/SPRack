@@ -2369,4 +2369,75 @@ test "gap: a project keeps Verilog-A sources and section spellings" {
     const va_copied = if (tmp.dir.access(io, "out/cap.va", .{})) |_| true else |_| false;
     try testing.expect(va_copied or std.mem.indexOf(u8, top, "ahdl_include \"./cap.va\"") == null);
     try testing.expect(std.mem.indexOf(u8, log.written(), "OSDI") == null);
+
+test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stability" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // HSPICE SN and HB forms keep their engine through Spectre and back.
+    const hs =
+        \\t
+        \\Vin in 0 ac 1 sin(0 1 1k)
+        \\R1 in out 1k
+        \\E1 b 0 0 fb 10
+        \\Vprobe b fb 0
+        \\.sn tone=1k nharms=8
+        \\.snac lin 3 100 300
+        \\.snnoise v(out) Vin dec 3 10 10k
+        \\.snxf v(out,in) dec 3 10 10k
+        \\.hb tones=1k nharms=5
+        \\.hbac dec 4 10 10k
+        \\.hbnoise v(out) Vin dec 3 10 10k
+        \\.hbxf v(out) dec 3 10 10k
+        \\.dcmatch v(out)
+        \\.ac dec 10 1 1meg
+        \\.lstb mode=single vsource=Vprobe
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre", hs, &r1);
+    try clean(&r1);
+    try has(sp, "pac1 pac start=100 stop=300 lin=3\n");
+    try has(sp, "pnoise1 (out 0) pnoise iprobe=Vin refsideband=0 start=10 stop=10k dec=3\n");
+    try has(sp, "pxf1 (out in) pxf start=10 stop=10k dec=3\n");
+    try has(sp, "pac2 hbac start=10 stop=10k dec=4\n");
+    try has(sp, "pnoise2 (out 0) hbnoise iprobe=Vin refsideband=0 start=10 stop=10k dec=3\n");
+    try has(sp, "pxf2 (out 0) hbxf start=10 stop=10k dec=3\n");
+    try has(sp, "dcmatch1 (out 0) dcmatch\n");
+    try has(sp, "stb1 stb start=1 stop=1M dec=10 probe=Vprobe\n");
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "hspice", sp, &r2);
+    try clean(&r2);
+    try has(back, ".snac lin 3 100 300\n");
+    try has(back, ".hbnoise v(out) Vin dec 3 10 10k\n");
+    try has(back, ".snxf v(out,in) dec 3 10 10k\n");
+    try has(back, ".ac dec 10 1 1meg\n.lstb mode=single vsource=Vprobe\n");
+
+    // Spectre-only analyses read as statements, not as instances.
+    var r3: ir.Report = .init(a);
+    const only = try readAs(a, "spectre", "t\nxf1 (out 0) xf start=1 stop=1k dec=10\nenv1 envlp clockname=\"clk\" stop=5m\nqp1 qpss funds=[\"f1\" \"f2\"] maxharms=[2 2]\n", &r3);
+    try testing.expectEqual(1, countKind(only, .xf));
+    try testing.expectEqual(1, countKind(only, .envelope));
+    try testing.expectEqual(1, countKind(only, .qpss));
+
+    // VACASK: acxf, and pac on the period it is given.
+    var r4: ir.Report = .init(a);
+    const va = try tr(a, "spectre", "vacask", "t\nxf1 (out 0) xf start=1 stop=1k dec=10\n", &r4);
+    try clean(&r4);
+    try has(va, "analysis xf1 acxf out=\"out\" from=1 to=1k mode=\"dec\" points=10\n");
+    var r5: ir.Report = .init(a);
+    const vp = try tr(a, "vacask", "vacask", "t\ncontrol\nanalysis pac1 pac tper=1m from=10 to=10k mode=\"lin\" points=9\nendc\n", &r5);
+    try clean(&r5);
+    try has(vp, "analysis pac1 pac tper=1m from=10 to=10k mode=\"lin\" points=9\n");
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "vacask", "t\npss1 pss fund=1k\npac1 pac start=10 stop=10k dec=4\n", &r6);
+    try reported(&r6, .@"error", "pac: no vacask form of this statement can say a statement without 'fund'");
+
+    // HSPICE transient noise: its own card there, an error naming why elsewhere.
+    var r7: ir.Report = .init(a);
+    const tn = try tr(a, "hspice", "espice", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2 seed=1\n", &r7);
+    try has(tn, ".trannoise v(out) samples=2 seed=1\n");
+    var r8: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2\n", &r8);
+    try reported(&r8, .@"error", "Spectre runs transient noise as parameters of the tran analysis");
 }

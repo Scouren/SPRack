@@ -110,7 +110,8 @@ statements of the canonical vocabulary and the core writes them.
   `B`, `E`, `G`, `F`, `H`, `D`, `Q`, `M`, `J`, `Z`, `S`, `W`, `T`, `X`) or by
   kind (`c.resistor(...)`). Analyses and the rest are methods too: `op`, `dc`,
   `ac`, `tran`, `noise`, `tf`, `pz`, `sens`, `four`, `hb`, `sp`, `pss`, `stb`,
-  `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
+  `pac`, `pnoise`, `pxf`, `psp`, `xf`, `dcmatch`, `trannoise`, `phasenoise`,
+  `envelope`, `qpss`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
   `func`, `include`, `lib`, `hdl`, `global_`, `subckt`.
 * The vocabulary is closed. `c.tran("1n", "1u", errpreset="moderate")` raises
   `TypeError: tran has no 'errpreset'; it has: name, step, stop, ...`. There is
@@ -417,8 +418,12 @@ dialects that have it; so is one that nothing defines.
   libraries, initial conditions), where the syntax could not be confirmed.
   Spectre and HSPICE have none.
 * HSPICE noise is written as `.AC` plus `.NOISE`. A `.NOISE` read takes its
-  sweep from the `.AC` before it, as `.LIN` does for `sp`. Spectre's `xf`
-  stands for `.tf` one way only: it names no source. Parameter sweeps (`.dc` of
+  sweep from the `.AC` before it, as `.LIN` does for `sp` and `.LSTB` for
+  `stb`. Spectre's `xf` at 0 Hz stands for `.tf` one way only: it names no
+  source; read back, an `xf` is an AC transfer function. Spectre's and
+  HSPICE's `pac`, `pnoise` and `pxf` follow a separate `pss` or `hb`, while
+  VACASK's take the period on the same statement, so between them they are
+  an error. Parameter sweeps (`.dc` of
   a parameter, `.step`, `.alter`, `.data`) are not in the vocabulary;
   temperature sweeps are.
 * Parameters of model cards are copied by name, with a warning: the simulators

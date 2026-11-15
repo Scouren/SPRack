@@ -215,6 +215,13 @@ _POSITIONAL = {
     "stb": ["probe", "sweep", "points", "fstart", "fstop"],
     "include": ["path"], "lib": ["path", "section"], "hdl": ["path"], "measure": ["analysis", "name", "spec"],
     "func": ["name", "args", "expr"], "print": ["analysis", "signals"], "save": ["signals"], "global": ["nodes"],
+    # b3: analyses
+    "pac": ["sweep", "points", "fstart", "fstop"],
+    "pnoise": ["out", "src", "sweep", "points", "fstart", "fstop"],
+    "pxf": ["out", "sweep", "points", "fstart", "fstop"], "psp": ["sweep", "points", "fstart", "fstop"],
+    "xf": ["out", "sweep", "points", "fstart", "fstop"], "dcmatch": ["out"], "trannoise": ["out"],
+    "phasenoise": ["out", "sweep", "points", "fstart", "fstop"], "envelope": ["clock", "stop"],
+    "qpss": ["funds", "harms"],
 }
 
 _WAVES = {

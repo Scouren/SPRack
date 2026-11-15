@@ -96,6 +96,17 @@ pub const Kind = enum(u8) {
     stb,
     @"opaque",
     comment,
+    // b3: analyses
+    pac,
+    pnoise,
+    pxf,
+    psp,
+    xf,
+    dcmatch,
+    trannoise,
+    phasenoise,
+    envelope,
+    qpss,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -191,6 +202,28 @@ const defs = [_]Def{
     .{ .stb, .analysis, "name " ++ sweep_spec ++ " probe:ref params:params" ++ ns },
     .{ .@"opaque", .other, "" },
     .{ .comment, .other, "" },
+    // b3: analyses
+    // Small-signal analyses around a periodic steady state. `engine` is `hb`
+    // when that state is the harmonic balance one (Spectre hbac, HSPICE
+    // .HBAC); unset, it is the shooting one (pss). Spectre and HSPICE take
+    // the state from the pss or hb statement before; VACASK solves it on the
+    // same statement, from `fund`, `harms` and `tstab`.
+    .{ .pac, .analysis, "name engine:atom " ++ sweep_spec ++ " fund:value harms:value tstab:value params:params" },
+    .{ .pnoise, .analysis, "name engine:atom out:node ref:node src:ref " ++ sweep_spec ++ " fund:value harms:value tstab:value params:params" },
+    .{ .pxf, .analysis, "name engine:atom out:node ref:node " ++ sweep_spec ++ " params:params" },
+    .{ .psp, .analysis, "name engine:atom " ++ sweep_spec ++ " params:params" },
+    // The AC transfer function to one output from every source.
+    .{ .xf, .analysis, "name out:node ref:node " ++ sweep_spec ++ " params:params" },
+    // The DC output spread from device mismatch, from sensitivities.
+    .{ .dcmatch, .analysis, "name out:node ref:node params:params" },
+    // Device noise sampled during the transient analysis of the netlist.
+    .{ .trannoise, .analysis, "name out:node ref:node method:atom samples:value seed:value fmin:value fmax:value scale:value time:value params:params" },
+    // Oscillator phase noise about an autonomous steady state.
+    .{ .phasenoise, .analysis, "name out:node ref:node " ++ sweep_spec ++ " params:params" },
+    // Envelope following: the carrier is named by its fundamental.
+    .{ .envelope, .analysis, "name clock:atom stop:value params:params" },
+    // Quasi-periodic steady state by shooting, the tones named by fundamental.
+    .{ .qpss, .analysis, "name funds:atom* harms:value* params:params" },
 };
 
 pub const kind_count = defs.len;

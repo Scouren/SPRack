@@ -121,7 +121,7 @@ needs psp103
   load "psp103v4.osdi"
 end
 
-wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb
+wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb pac pnoise xf
 
 # A file carried inside the netlist (a Python post-processing script, say).
 raw "embed" ">>>FILE"
@@ -173,6 +173,28 @@ rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] nodeset
 rule  sp        = "analysis" name?sp$# "acsp" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
 rule  stb       = "analysis" name?stb$# "acstb" { probe="probe"! from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
 rule  pss       = "analysis" name?pss$# "pss" { tper=fund! tstab=tstab maxharm=harms ic={ic} nodeset={nodeset} ...params }
+
+# analyses (b3). docs/cmd-analysis-pac.md, cmd-analysis-pnoise.md and
+# cmd-analysis-acxf.md. pac and pnoise solve their own periodic steady
+# state from the period on the same statement; one written from a Spectre or
+# HSPICE pac, which leaves the period to the pss before it, has no form here.
+rule  pac       = "analysis" name?pac$# "pac" { tper=fund! tstab=tstab maxharm=harms from=fstart to=fstop mode="sweep" points=points ...params }
+rule  pnoise    = "analysis" name?pnoise$# "pnoise" { out="out" in="src" tper=fund! tstab=tstab maxharm=harms from=fstart to=fstop mode="sweep" points=points ...params }
+rule  xf        = "analysis" name?xf$# "acxf" { out="out" from=fstart to=fstop mode="sweep" points=points ...params }
+implied pnoise ref = 0
+implied xf ref = 0
+convert pac : fund = 1 / fund
+convert pnoise : fund = 1 / fund
+convert pac sweep=lin : points = points - 1
+convert pnoise sweep=lin : points = points - 1
+convert xf sweep=lin : points = points - 1
+no pxf        : VACASK has no periodic transfer-function analysis (none among the analysis ids in include/an*.h)
+no psp        : VACASK has no periodic S-parameter analysis; acsp is around the operating point
+no dcmatch    : VACASK has no DC mismatch analysis
+no trannoise  : VACASK runs transient noise as parameters of tran (noisefmax=, docs/cmd-analysis-trannoise.md); this grammar has no form that puts the HSPICE card there
+no phasenoise : VACASK has no oscillator phase-noise analysis; its pnoise warns that it does not compute one (docs/cmd-analysis-pnoise.md)
+no envelope   : VACASK has no envelope-following analysis
+no qpss       : VACASK has no shooting quasi-periodic analysis; a multitone hb is its quasi-periodic steady state
 
 # With a model of its own the device keeps it; these forms are write-only
 # because any two-terminal instance would match them when reading.
@@ -281,6 +303,7 @@ caveat hdl path : VACASK loads compiled OSDI files, or compiles a .va file it is
 caveat save signals : in VACASK's ac, noise, acxf and dcinc analyses v() saves the operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)
 caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
+caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
 caveat cond_if cond : a VACASK @if branch may hold instances, models and nested blocks, but not parameters (lib/dflparser.y:467-499)
 

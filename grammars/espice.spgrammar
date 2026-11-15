@@ -15,8 +15,9 @@
 # - The model levels follow ESPice's tables (ngspice's, plus BSIM-CMG 72,
 #   BSIM-BULK 77 and PSP 103 at 1040).
 #
-# The ESPice HSPICE cards outside the vocabulary (.alter, .data, .lstb,
-# .pac, .pnoise, ...) are not here; they read as untranslated lines.
+# The ESPice HSPICE cards outside the vocabulary (.alter, .data, .lstb, ...)
+# and its own .pac, .pnoise, .pxf, .qpss, .envelope, .matex are not here;
+# they read as untranslated lines.
 
 dialect espice
 
@@ -141,6 +142,25 @@ implied tf ref = 0
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
 no xspice : ESPice has no XSPICE code models; a digital block is a Verilog design loaded with .verilog and instantiated with an N card
+# analyses (b3). ESPice reads these HSPICE cards as HSPICE writes them
+# (docs/using/dialects.md). Its own .pac, .pnoise, .pxf, .qpss, .envelope,
+# .matex and .acxf cards are not here (PLAN.md: ESPice-only syntax is out
+# of scope), so the shooting forms have no rule.
+rule  pac        = engine:".hbac"=hb ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  pnoise     = engine:".hbnoise"=hb "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  pxf        = engine:".hbxf"=hb "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  psp        = engine:".hblin"=hb ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop {...params}
+rule  dcmatch    = ".dcmatch" "v" ~"(" out [ ~"," ref ] ~")"
+rule  trannoise  = ".trannoise" "v" ~"(" out [ ~"," ref ] ~")" { method=method samples=samples seed=seed fmin=fmin fmax=fmax scale=scale time=time ...params }
+rule  phasenoise = ".phasenoise" "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop {...params}
+implied pnoise ref = 0
+implied pxf ref = 0
+implied dcmatch ref = 0
+implied trannoise ref = 0
+implied phasenoise ref = 0
+no xf       : ESPice's own .acxf card is outside this grammar (ESPice-only syntax)
+no envelope : ESPice's own .envelope card is outside this grammar (ESPice-only syntax)
+no qpss     : ESPice's own .qpss card is outside this grammar (ESPice-only syntax)
 
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values, and ESPice uses .ic only under UIC; other simulators seed the first time point differently

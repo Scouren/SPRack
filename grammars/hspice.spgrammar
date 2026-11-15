@@ -124,6 +124,31 @@ rule  four      = ".four" freq signals+
 rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {...params}
 read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
 
+# analyses (b3). Each was loaded in HSPICE Y-2026.03. The SN forms follow a
+# .SN (pss), the HB forms a .HB.
+rule  pac        = ( engine:".hbac"=hb | ".snac" ) ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  pnoise     = ( engine:".hbnoise"=hb | ".snnoise" ) "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  pxf        = ( engine:".hbxf"=hb | ".snxf" ) "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+# S-parameters of the P ports around the .HB solution.
+rule  psp        = engine:".hblin"=hb ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop {...params}
+# Without a .VARIATION block HSPICE warns and has no mismatch to report.
+rule  dcmatch    = ".dcmatch" "v" ~"(" out [ ~"," ref ] ~")"
+# Runs on the deck's .TRAN.
+rule  trannoise  = ".trannoise" "v" ~"(" out [ ~"," ref ] ~")" { method=method samples=samples seed=seed fmin=fmin fmax=fmax scale=scale time=time ...params }
+rule  phasenoise = ".phasenoise" "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop {...params}
+# .LSTB breaks the loop at a voltage source and sweeps over the .AC before it.
+write stb        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lstb" { mode==single vsource=probe! ...params }
+read  stb        = ".lstb" { mode==single vsource=probe! ...params }
+merge ac -> stb
+implied pnoise ref = 0
+implied pxf ref = 0
+implied dcmatch ref = 0
+implied trannoise ref = 0
+implied phasenoise ref = 0
+no xf       : this grammar has no HSPICE form for an AC transfer-function sweep; .TF is the DC one
+no envelope : this grammar has no form for HSPICE's envelope analyses (.ENV and its kin)
+no qpss     : HSPICE has no shooting quasi-periodic analysis; a multitone .HB is its quasi-periodic steady state
+
 implied tf ref = 0
 implied noise ref = 0
 enum options method : trap=trap gear=gear
@@ -132,7 +157,6 @@ enum dc var : temp=temp
 no vswitch : HSPICE has no S switch element; a voltage-controlled resistor (G element, VCR) is the closest form
 no cswitch : HSPICE's W element is a transmission line; there is no current-controlled switch
 no disto   : HSPICE's .DISTO measures distortion power into a named load resistor; the SPICE form has no load resistor to name
-no stb     : HSPICE's loop stability analysis (.LSTB) probes a voltage source and has no counterpart of the probe-based form
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : this grammar has no form that loads a digital Verilog design
 
