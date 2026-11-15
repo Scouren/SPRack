@@ -241,11 +241,11 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 280 | 0 | 2 | 3 | 7 | 4120 |
+| sky130 (ngspice) | 280 | 0 | 2 | 3 | 7 | 9 |
 | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 55 | 2 | 14 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
-| FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 24 |
-| GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 200 |
+| FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
+| GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
 
 Every error names a file and a line. They are: lines in the sky130
 repository that are not ngspice syntax; a sky130 parameter named `vt`, which
@@ -253,8 +253,8 @@ Xyce refuses; HSPICE's `dev/gauss` repeated on one sky130 card, which Spectre
 takes as one parameter defined several times; flags on IHP instances that
 Spectre has no spelling for; conditional blocks and Verilog-A models, which
 Xyce does not have; BSIM-CMG, which ngspice has only as a Verilog-A model;
-and, for VACASK, the BSIM model versions and families its shipped modules do
-not cover.
+and, for VACASK, BSIM-CMG again, the `pwr` function and instance parameters
+(a capacitor's `ic`) that its shipped modules do not have.
 
 ## Tests
 
@@ -263,7 +263,7 @@ not cover.
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 159 tests |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 160 tests |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 29 runs |
 | The Python package | `python/test_sprack.py` | 23 tests, 10 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |

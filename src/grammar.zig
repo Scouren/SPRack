@@ -212,10 +212,12 @@ pub const Convert = struct {
 /// thresholds as the levels where it is fully on and fully off, where SPICE
 /// gives a midpoint and a hysteresis half-width: on = mid + half,
 /// off = mid - half. The names are model parameters, as written.
-/// `noparam family key[=value] : text`: a model parameter this dialect's
-/// module for the family does not take (or not with that value); an error
-/// when a card of that family crosses into this dialect.
-pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, text: []const u8 };
+/// `noparam family key[=value] warning|error : text`: a model parameter this
+/// dialect's module for the family does not take (or not with that value);
+/// not written when a card of that family crosses into this dialect, and
+/// reported as a loss with the severity given (warning: the card still
+/// means the same model, said once per file; error: it does not, card by card).
+pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
 
 pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
 
@@ -1389,9 +1391,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
             thresholds = try c.add(Threshold, thresholds, .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] });
         } else if (std.mem.eql(u8, head, "noparam")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] warning|error : text`", .{});
             const e = try args(c, no, rest[0..colon]);
-            if (e.len != 2) return c.fail(no, "noparam needs a model family and a parameter", .{});
+            if (e.len != 3) return c.fail(no, "noparam needs a model family, a parameter and a severity", .{});
+            if (!(std.mem.eql(u8, e[2], "error") or std.mem.eql(u8, e[2], "warning"))) return c.fail(no, "noparam severity is warning or error, not '{s}'", .{e[2]});
             if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
             const eq = std.mem.indexOfScalar(u8, e[1], '=') orelse e[1].len;
             if (eq < e[1].len) _ = std.fmt.parseFloat(f64, e[1][eq + 1 ..]) catch return c.fail(no, "noparam takes a plain number after '='", .{});
@@ -1399,6 +1402,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .family = e[0],
                 .key = e[1][0..eq],
                 .value = if (eq < e[1].len) e[1][eq + 1 ..] else "",
+                .err = std.mem.eql(u8, e[2], "error"),
                 .text = rest[colon + 3 ..],
             });
         } else if (std.mem.eql(u8, head, "convert")) {
@@ -1674,6 +1678,7 @@ test "a broken grammar at run time names the file and line" {
         .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
         .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
         .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
+        .{ .src = "dialect x\nlexer\nend\nnoparam bsim4 version : why\n", .msg = "x/bad.spgrammar:4: noparam needs a model family, a parameter and a severity" },
         .{ .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n", .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis" },
     };
     for (cases) |cs| {

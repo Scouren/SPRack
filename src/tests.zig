@@ -926,7 +926,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     const va = try tr(a, "ngspice", "vacask", src, &r4);
     try has(va, "load \"spice/bsim4v8.osdi\"\n");
     try has(va, "model nch sp_bsim4v8 (type=1 vth0=0.4)\n");
-    try reported(&r4, .@"error", "model 'nch': version not written");
+    try reported(&r4, .warning, "model 'nch' and 1 more card in this file: version not written");
     try has(va, "M1 (out in 0 0) nch w=1u l=0.18u\n");
     // It ships no HiSIM2: say so, and say who has.
     _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
@@ -3849,17 +3849,45 @@ test "VACASK nodeset: a caveat, since it holds for one Newton iteration only" {
     try reported(&report, .warning, "op.nodeset: VACASK pulls toward a nodeset only during its first Newton iteration");
 }
 
-test "VACASK model cards: parameters the shipped modules refuse are a loss" {
+test "VACASK model cards: a refused version is a warning, a refused JFET level 2 an error" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
-    const va = try tr(a, "ngspice", "vacask", "t\n.model n3 nmos level=8 version=3.3 vth0=0.4\n.model nj njf level=2 vto=-1\n.end\n", &report);
+    const va = try tr(a, "ngspice", "vacask", "t\n.model n3 nmos level=8 version=3.3 vth0=0.4\n.model nj njf level=2 vto=-1\n.model n1 njf level=1 vto=-2\n.end\n", &report);
     try has(va, "model n3 sp_bsim3v3 (type=1 vth0=0.4)\n");
     try has(va, "model nj sp_jfet1 (type=1 vto=-1)\n");
-    try reported(&report, .@"error", "model 'n3': version not written: sp_bsim3v3 implements BSIM3 3.3.0 only");
+    try has(va, "model n1 sp_jfet1 (type=1 vto=-2)\n");
+    try reported(&report, .warning, "model 'n3': version not written: sp_bsim3v3 implements BSIM3 3.3.0 only");
     try reported(&report, .@"error", "model 'nj': level not written: sp_jfet1 is the level 1 JFET");
-    try testing.expectEqual(2, report.count(.@"error"));
+    try reported(&report, .warning, "model 'n1': level not written: sp_jfet1 is the level 1 JFET");
+    try testing.expectEqual(1, report.count(.@"error"));
+}
+
+test "VACASK model cards: a refused version is one warning per file, a refused level an error per card" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const two = "t\n.model b.0 nmos level=54 version=4.5\n.model b.1 nmos level=54 version=4.5\n.end\n";
+    var report: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", two, &report);
+    // Read whole and as a stream: one entry for the two cards, and no error.
+    for ([_]bool{ true, false }) |whole| {
+        var r: ir.Report = .init(a);
+        var aw: std.Io.Writer.Allocating = .init(a);
+        const why = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find("vacask").?, two, &aw.writer, &r, &sprack.caps, .{ .whole = whole });
+        if (!whole) try testing.expectEqual(null, why);
+        try reported(&r, .warning, "model 'b.0' and 1 more card in this file: version not written: VACASK ships BSIM4 4.8");
+        var n: usize = 0;
+        for (r.items.items) |d| n += @intFromBool(std.mem.indexOf(u8, d.msg, "version not written") != null);
+        try testing.expectEqual(1, n);
+        try testing.expectEqual(0, r.count(.@"error"));
+    }
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\n.model j.0 njf level=2\n.model j.1 njf level=2\n.end\n", &r2);
+    try reported(&r2, .@"error", "model 'j.0': level not written");
+    try reported(&r2, .@"error", "model 'j.1': level not written");
+    try testing.expectEqual(2, r2.count(.@"error"));
 }
 
 test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no place" {

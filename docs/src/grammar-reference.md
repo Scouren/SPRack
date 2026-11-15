@@ -163,8 +163,10 @@ rerun alter                        # analyses run where they stand: written
                                    # again after each statement of the kind
 switch "simulator lang=spice" -> hspice   # from such a line on, read with
                                    # another grammar, until the next switch
-noparam jfet level=2 : ...         # a model parameter (with that value) the
-                                   # family's model here refuses: not written, a loss
+noparam jfet level=2 error : ...   # a model parameter (with that value) the
+                                   # family's model here refuses: not written, a loss;
+                                   # error (the card is another model now, said card
+                                   # by card) or warning (the same model, once a file)
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
@@ -218,7 +220,7 @@ Every entry of a translation's report has one of these codes.
 |---|---|---|
 | `untranslated` | error | no rule of the source grammar understood the line |
 | `unsupported` | error | the target has no statement, model family, function or operator for it |
-| `loss` | error | one value of a statement has no place in the target form |
+| `loss` | error or warning | one value of a statement has no place in the target form |
 | `invalid` | error or warning | the input is wrong or cannot be right in the target |
 | `synthesized` | warning | the target needs a value the source did not give; one was written |
 | `caveat` | warning | written, but the two simulators do not mean quite the same |

@@ -817,6 +817,10 @@ const Writer = struct {
     copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 = "", source: []const u8 = "", line: u32 = 0 } = .{},
     /// Written as a stream, the instances that references name (`Refs`).
     refs: ?*Refs = null,
+    /// Model parameters not written with a warning (`noparam ... warning`),
+    /// per rule: one report per file, naming the first card (sky130 has a
+    /// version on every bin). An error is reported card by card.
+    refused: std.AutoArrayHashMapUnmanaged(*const grammar.NoParam, struct { n: usize, name: []const u8, line: u32 }) = .empty,
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -1000,14 +1004,20 @@ const Writer = struct {
                 };
             }
             // Parameters this dialect's module for the family refuses.
-            for (w.g.noparams) |np| {
+            for (w.g.noparams) |*np| {
                 if (!std.mem.eql(u8, np.family, fam.atom)) continue;
                 var j: usize = 0;
                 while (j < ps.items.len) : (j += 1) {
                     const p = ps.items[j];
                     if (!std.ascii.eqlIgnoreCase(p.key, np.key)) continue;
                     if (np.value.len > 0 and (p.val != .num or p.val.num.toFloat() != (std.fmt.parseFloat(f64, np.value) catch unreachable))) continue;
-                    w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s}", .{ st.get("name").atom, p.key, np.text });
+                    const name = st.get("name").atom;
+                    if (np.err) {
+                        w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s}", .{ name, p.key, np.text });
+                    } else {
+                        const r = try w.refused.getOrPut(w.perm, np);
+                        if (r.found_existing) r.value_ptr.n += 1 else r.value_ptr.* = .{ .n = 1, .name = try w.perm.dupe(u8, name), .line = st.line };
+                    }
                     _ = ps.orderedRemove(j);
                     break;
                 }
@@ -1026,6 +1036,18 @@ const Writer = struct {
             w.copied.n += 1;
         }
         return out;
+    }
+
+    /// After the last statement: what `refused` gathered, one entry a rule.
+    /// A loss, so that the cards reading back without the parameter is explained.
+    fn refusals(w: *Writer) void {
+        for (w.refused.keys(), w.refused.values()) |np, r| {
+            if (r.n == 1) {
+                w.report.add(.warning, .loss, r.line, "model '{s}': {s} not written: {s}", .{ r.name, np.key, np.text });
+            } else {
+                w.report.add(.warning, .loss, r.line, "model '{s}' and {d} more card{s} in this file: {s} not written: {s}", .{ r.name, r.n - 1, if (r.n == 2) "" else "s", np.key, np.text });
+            }
+        }
     }
 
     /// The grammar of the dialect `st` was read in, when it is a built-in one.
@@ -2248,6 +2270,7 @@ pub fn write(
         if (any) try w.line(wr.close);
     }
     if (g.lex.end_marker.len > 0 and !nl.library) try w.line(g.lex.end_marker);
+    w.refusals();
     const cp = w.copied;
     if (cp.n == 1) {
         report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
@@ -2594,6 +2617,7 @@ pub const Stream = struct {
         }
         if (g.lex.end_marker.len > 0 and !s.nl.library) try w.line(g.lex.end_marker);
         report.phase = ir.Phase.caveat;
+        w.refusals();
         const cp = w.copied;
         if (cp.n == 1) {
             report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{

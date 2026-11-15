@@ -94,7 +94,7 @@ nothing.
 |---|---|---|
 | `untranslated` | error | no rule of the source grammar understood the line |
 | `unsupported` | error | the target has no statement, model family, function or operator for it |
-| `loss` | error | one value of a statement has no place in the target form |
+| `loss` | error or warning | one value of a statement has no place in the target form |
 | `invalid` | error or warning | the input is wrong or cannot be right in the target |
 | `synthesized` | warning | the target needs a value the source did not give; one was written |
 | `caveat` | warning | written, but the two simulators do not mean quite the same |
