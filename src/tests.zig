@@ -457,8 +457,8 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
                 // (A device with a model may be written as an instance of it: `inst` in `sprack caps`.)
                 const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null;
                 // Nothing to write is not a loss: an options statement that is
-                // only a heading, a statistics block that varies nothing.
-                const empty = (info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package")) or info.kind == .statistics;
+                // only a heading.
+                const empty = info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package");
                 if (!g.canWrite(info.kind) and g.movedTo(info.kind) == null and !as_instance and !empty and r1.count(.@"error") == 0) {
                     std.debug.print("SILENT {s} slot {?d} to {s}\n", .{ @tagName(info.kind), only, to });
                     silent += 1;
@@ -3379,6 +3379,31 @@ test "statistics: a variation said the other way reads back that way, and one no
     _ = try tr(a, "ngspice", "spectre", "t\n.param vth=0.4\n.end\n", &r4);
     _ = try tr(a, "spectre", "ngspice", "// t\nparameters vth=0.4\n", &r4);
     try testing.expectEqual(0, r4.items.items.len);
+}
+
+test "statistics: the block's own parameters are a loss where its variations are random functions" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // No grammar reads or writes them: the block is `statistics {` in
+    // Spectre and `.variation` in HSPICE, with no value of its own.
+    var rj: ir.Report = .init(a);
+    const with = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"statistics\",\"params\":[[\"k1\",1],[\"flag\",null]]}]}", &rj);
+    const bare = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"statistics\"}]}", &rj);
+    try testing.expectEqual(0, rj.items.items.len);
+    // (Spectre is the one that keeps the block: its writer says the same.)
+    for ([_][]const u8{ "ngspice", "xyce", "vacask", "espice", "hspice", "spectre" }) |to| {
+        errdefer std.debug.print("to {s}\n", .{to});
+        var r1: ir.Report = .init(a);
+        _ = try writeAs(a, to, &with, &r1);
+        try reported(&r1, .@"error", try std.fmt.allocPrint(a, "statistics: 'k1=1' has no spelling in {s}", .{to}));
+        try reported(&r1, .@"error", try std.fmt.allocPrint(a, "statistics: 'flag' has no spelling in {s}", .{to}));
+        try testing.expectEqual(2, r1.countCode(.loss));
+        // A block that says nothing is nothing to write, and no loss.
+        var r2: ir.Report = .init(a);
+        _ = try writeAs(a, to, &bare, &r2);
+        try testing.expectEqual(0, r2.items.items.len);
+    }
 }
 
 test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {

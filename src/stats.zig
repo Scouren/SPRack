@@ -550,6 +550,12 @@ fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Re
         var any = false;
         for (groups.items) |grp| any = any or grp.kind != .comment;
         if (!any) {
+            // The emptied block goes. Its own parameters have no place in
+            // any grammar, and do not go with it unsaid.
+            if (st.get("params") == .params) for (st.get("params").params) |p| {
+                const val = if (p.val == .none) "" else try valueText(arena, p.val);
+                report.add(.@"error", .loss, st.line, "statistics: '{s}{s}{s}' has no spelling in {s}", .{ p.key, if (p.val == .none) "" else "=", val, g.name });
+            };
             _ = out.orderedRemove(i);
             continue;
         }
