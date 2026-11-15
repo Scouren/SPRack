@@ -946,3 +946,35 @@ Each circuit with `.op`, with `.tran 1u 1m` and with `.tran 1u 1m uic`.
 | two voltage sources in parallel, 1 V and 1 V, or 1 V and 2 V | stops in all three: "paralleled making an over-defined circuit matrix" | `no-vloop error` |
 | 1 V source across an inductor | runs, 1000 A in the inductor: 1 milliohm in series | `no-vlloop warning` |
 | two inductors in parallel fed through 1k | runs, 0.5 mA each and 0.5 uV across them | `no-lloop warning` |
+
+### 8.6 Does a translation load
+
+40 decks of the conformance suite, spread over its directories, read as
+ngspice, with no include and an error-free translation to LTspice, and the
+five core samples of `src/tests.zig` (ngspice, HSPICE, Spectre, Xyce,
+VACASK), each translated and loaded.
+
+| | before | after |
+|---|---|---|
+| suite decks loaded, of 40 | 37 | 37 |
+| core samples loaded, of 5 | 0 | 0 |
+
+The three suite decks that do not load are the same before and after: one
+names a node that does not exist (a deck of the suite's `invalid` set),
+one has a `pwl(...) r=` repeat, which LTspice calls an unknown parameter
+and the grammar passes on with the source's other parameters, and a
+100 x 100 resistor grid was still running at the 90 s limit. The five
+samples are refused for one reason: "More than one analysis specified."
+LTspice runs one analysis a deck (`.op`, `.dc`, `.ac`, `.tran`, `.noise`
+together are refused); cut to their `.op` all five load. The grammar has no
+way to say this yet, so a deck with several analyses is translated without
+a word and does not load.
+
+What changed for these decks is not whether they load but what they say:
+`.temp 27` and `.options tnom=27` are no longer written, and a pulse
+written with fewer values or zero edges now carries ngspice's meaning.
+
+Left open: `.lib file` with no section in an LTspice deck is read as the
+start of a section and reported as a block that is not closed; a seventh
+value of `sine` (a cycle count: `sine(0 1 1k 0 0 0 3)` stops after three)
+has no slot; the instance parameters of devices were not checked.
