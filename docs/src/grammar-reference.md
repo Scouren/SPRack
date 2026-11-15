@@ -244,7 +244,52 @@ branches' values by their conditions (`{(c) ? (a) : (b)}` or `{if(c, a,
 b)}`), nested blocks first, and an `oneway` info says so. Any other block
 (no `else`, a statement or a parameter in one branch only, another model or
 node, a `.param` that differs, a model card or a subcircuit in a branch) is
-the `unsupported` error it would be, which says which of these it was.
+written as below when it stands in a subcircuit, and is otherwise the
+`unsupported` error it would be, which says which of these it was.
+
+### A subcircuit for each branch
+
+A block that is not written as conditional values, or any block where the
+target has no choice in an expression either (CDL), is written by writing
+its subcircuit once for each branch, when the subcircuit's own parameters
+decide every condition: the parameters of its header and the `.param`
+values of its body (a later value of a name being its default) that are
+numbers, or expressions of those, compared and combined with `+ - * /`,
+comparisons, `&&`, `||`, `!` and parentheses. From ngspice to Xyce:
+
+```text
+.subckt cap a b                 * [sprack] 'cap' where (ic>1e9)
+.param ic=1e10                  .subckt cap a b params: ic=1e10
+.if (ic>1e9)                    C1 a b 1p
+C1 a b 1p                       .ends cap
+.else                           * [sprack] 'cap' where !(ic>1e9)
+C1 a b 1p ic=ic                 .subckt cap__1 a b params: ic=1e10
+.endif                          C1 a b 1p ic={ic}
+.ends                           .ends cap__1
+X1 n 0 cap                      X1 n 0 cap
+X2 n 0 cap ic=0.5               X2 n 0 cap__1 params: ic=0.5
+```
+
+The subcircuit that the defaults select keeps the name, so a netlist that
+relies on them means what it meant; the others are `<name>__<n>`, each with
+the whole parameter list, and a comment above each says where it is the
+one. An instance is written with the one its own values select, over the
+defaults, whether the subcircuit is in the same file, in another file of a
+project or in a PDK's catalogue. Blocks left in a branch are written as
+conditional values, or the subcircuit is written once more for each of
+their branches, up to eight in all. An `oneway` info names the subcircuits
+and their conditions: the output reads back as that many subcircuits.
+
+What stays an `unsupported` error, with the reason added to it: a condition
+that uses anything else (a function, a global parameter, a parameter with
+no number for its value); a branch that holds something other than devices
+(ngspice takes a `.param` in a branch whichever branch holds); more than
+eight subcircuits; a name `<name>__<n>` that is already declared; a block
+outside any subcircuit.
+And an instance whose deciding value is not a number, such as one passed
+down from the parameters of the subcircuit around it, is an `unsupported`
+error that names the parameter and is not written: it is never taken for
+the default one.
 
 ## Report codes
 

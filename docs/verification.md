@@ -811,7 +811,7 @@ IHP SG13G2, all corners, to Xyce: 27 conditional blocks were errors; 6 are
 now written (three blocks of the MIM capacitor subcircuit, in the plain and
 the mismatch file), 21 are still errors: 12 choose the transistor's model
 by a parameter, 8 give `ic` in one branch only, 1 holds a device of another
-name and model in each branch.
+name and model in each branch. Those 21 are written since 4.17.
 
 ### 4.12 What an EXP source leaves out (s2)
 
@@ -955,8 +955,6 @@ nothing, `l=10u w=10u`, `l=20u`, nothing, each across a 1 V AC source,
 | Xyce 7.10, the translation before | -4.61814120e-7 | -9.42477796e-7 | -1.31946891e-6 | **-1.31946891e-6** |
 | Xyce 7.10, the translation now | -4.61814120e-7 | -9.42477796e-7 | -1.31946891e-6 | -4.61814120e-7 |
 
----
-
 ### 4.15 A parameter named like a variable of Xyce (r1)
 
 Xyce 7.10 stops on a parameter called `vt`: `.param vt=3.5m` gives
@@ -993,6 +991,75 @@ Spectre or HSPICE was run for this.
 | diode `off` (0.8 V through 100 ohms, `is=1e-14 n=1.05 rs=2 area=2`) | 1.23893 mA and 0.6761068 V on the diode with and without it, at `reltol=1e-9` (at the default tolerance the sixth digit differs: another starting point, the same solution) | VACASK: `Parameter 'off' not found`. Spectre warns on it (4.5) | ngspice `inert diode off`: left out with a note where the target's diode has none |
 | capacitor `ic=0.5` (1 n, charged from 1 V through 1 k) | without `uic` the node starts at 1 V with or without it; with `uic` it starts at 0.5 V (0 V without `ic`), 0.524385 V at 50 ns against 0.048770 V | VACASK: `Parameter 'ic' not found`; it sets initial conditions on the analysis, not on a device | stays an error for VACASK |
 | capacitor `q='...'`, a charge as an expression of its own voltage | a nonlinear capacitor | VACASK: `Parameter 'q' not found`; it has no behavioural device | stays an error for VACASK |
+
+### 4.17 A subcircuit for each branch of a conditional block (v1)
+
+The three shapes 4.11 left as errors, in one deck at 127 degrees, where a
+resistor of model `rb` (`tc1=0.01`) is twice its value and one of `ra`
+(`tc1=0`) is its value: a model picked by a header parameter, a parameter
+in one branch only decided by a parameter of the body, and another device
+name and model decided by a parameter derived from one of the body.
+
+```text
+.subckt msel a b r0=1k rfmode=0    .subckt csel a b       .subckt dsel a b
+.if (rfmode == 0)                  .param r0=1k           .param xd=0 scaling=1e-6 xds=xd/scaling
+R1 a b ra r=r0                     .param tc=1E10         .if (xds<0.6)
+.else                              .if (tc>1E9)           Rin a b ra r=4k
+R1 a b rb r=r0                     R1 a b r=r0            .else
+.endif                             .else                  Rout a b rb r=4k
+.ends                              R1 a b r=r0 tc1=tc     .endif
+                                   .endif                 .ends
+                                   .ends
+```
+
+Nine instances, each across its own 1 V source. ngspice 45 runs the blocks;
+Xyce 7.10 runs the translation, which holds each subcircuit twice (`msel`
+with `R1 a b {r0} ra` and `msel__1` with `R1 a b {r0} rb`; `csel` and
+`csel__1`, the second with `tc1={tc}`; `dsel` with `Rin` and `dsel__1` with
+`Rout`) and names one of them on each instance line. Source currents
+(ngspice `print`, Xyce `.print dc`):
+
+| instance | selects | written as | ngspice 45 | Xyce 7.10 |
+|---|---|---|---|---|
+| `msel` | default, `ra`: 1k | `msel` | -1.00000000e-3 | -1.000000000e-3 |
+| `msel rfmode=0` | `ra`: 1k | `msel` | -1.00000000e-3 | -1.000000000e-3 |
+| `msel rfmode=1` | `rb`: 2k | `msel__1` | -5.00000000e-4 | -5.000000000e-4 |
+| `msel r0=2k rfmode=1` | `rb`: 4k | `msel__1` | -2.50000000e-4 | -2.500000000e-4 |
+| `csel` | default, no `tc1`: 1k | `csel` | -1.00000000e-3 | -1.000000000e-3 |
+| `csel tc=0.03` | `tc1=0.03`: 4k | `csel__1` | -2.50000000e-4 | -2.500000000e-4 |
+| `csel tc=0.01` | `tc1=0.01`: 2k | `csel__1` | -5.00000000e-4 | -5.000000000e-4 |
+| `dsel` | default, `Rin`: 4k | `dsel` | -2.50000000e-4 | -2.500000000e-4 |
+| `dsel xd=1u` | `xds` is 1, `Rout`: 8k | `dsel__1` | -1.25000000e-4 | -1.250000000e-4 |
+
+So ngspice 45 lets an instance set a parameter that only a `.param` of the
+body declares, decides the block with it, and decides it with a parameter
+derived from it; and the subcircuit that the instance's values select, over
+the defaults, is the same circuit in Xyce 7.10. The body's parameters are on
+the header in the translation (4.14), each subcircuit of the two with all
+of them: `.subckt csel__1 a b params: r0=1k tc=1e10`, `.subckt dsel__1 a b
+params: xd=0 scaling=1u xds={xd/scaling}`. A value the body gives again
+after the header is the default there (4.14), and is the one the block is
+decided with.
+
+Where the deciding value is an expression of the surrounding subcircuit's
+parameters, ngspice 45 decides instance by instance after expansion:
+`.subckt wrap a b mode=0` holding `X1 a b msel rfmode=mode`, instantiated
+as `wrap` and as `wrap mode=1`, draws -1.00000000e-3 and -5.00000000e-4.
+The translation does not follow it there: `X1` is an `unsupported` error
+that names `rfmode`, and is not written.
+
+IHP SG13G2, all corners, to Xyce: the 21 blocks are written, as 21
+subcircuits twice (`sg13_lv_nmos` and `sg13_lv_nmos__1` for `rfmode`, and
+so on); from the Python package, `sg13_lv_nmos` with `rfmode=1` is written
+`sg13_lv_nmos__1` and `cap_cmim` with `ic=0.5` is `cap_cmim__1`, the others
+by their own names. The errors of the whole translation go from 45 to 37.
+The 21 blocks are no longer among them, and two things they hid are: the
+device of the `rfmode` branch of each of the 12 transistor subcircuits,
+whose model is the Verilog-A module `pspnqs103va` (the other branch is
+PSP103, which Xyce has), and the one instance in `diodes.lib` that passes
+`xds` down from its parent.
+
+---
 
 ## 5. Enum spellings (6.5): integration method
 
