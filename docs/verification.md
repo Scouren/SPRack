@@ -13,6 +13,7 @@ meant to be pasted in later; they have not been compiled.
 | ngspice | `https://git.code.sf.net/p/ngspice/ngspice` (source); manual: see section 0 | see section 0 |
 | Xyce | `https://github.com/Xyce/Xyce` (source, `doc/` LaTeX Reference Guide) | see section 0 |
 | HSPICE, Spectre | behaviour observed by running tiny decks we wrote | HSPICE Y-2026.03-SP2-1, Spectre 25.10 |
+| LTspice | behaviour observed by running tiny decks we wrote (section 8) | LTspice 26.0.2 |
 
 Paths below are relative to each repository root. Line numbers are for the
 revision above.
@@ -487,8 +488,8 @@ TEMP set to 100 it gives the default TNOM.
 | Spectre | 27 | 27 | |
 | HSPICE | 25 | TNOM | `.OPTION TNOM=0` with no `.TEMP` ran at 0 (the `temper` column) |
 
-These are the `implied options` lines; LTspice and CDL have none, so a
-translation into LTspice always states both.
+These are the `implied options` lines; CDL has none. LTspice's are 27 and
+27 (section 8.3), so a translation into it states neither.
 
 **SFFM.** ngspice 45 is `SFFM(VO VA FM MDI FC TD PHASEM PHASEC)`
 (`vsrcload.c`: the modulating frequency third, the carrier fifth, MDI 90
@@ -804,3 +805,144 @@ In `alt_em` (HSPICE against Spectre), v(b) is 0.5, 0.25, 0.4, 0.4966,
 0.4966 in both; the diode voltage agrees at 27 degrees (0.6551) and moves
 the same way with each change, 0.015 V lower in Spectre at 75 degrees,
 where the two diode models' temperature terms differ.
+
+## 8. LTspice (LTspice 26.0.2)
+
+Observed: every statement below is what LTspice 26.0.2 did, in batch mode
+(`tools/ltspice-batch.sh`), with a deck of a few lines written for the
+question. Values were read back from `.meas` lines in the log (`.meas tran
+m param p` for a parameter, `find v(n) at t` for a node) or from the
+operating point in the `.raw` file. "Refused" means LTspice named the line
+and ran nothing. Each expression was measured twice, in a `.param` and in a
+B source whose operands are node voltages; the two agree unless said.
+
+### 8.1 The `assumed` lines
+
+| grammar line | verdict | observed |
+|---|---|---|
+| `block libsection` (`.lib name` ... `.endl [name]`) | correct | a file with sections `fast` (rv = 100) and `slow` (rv = 400), closed by `.endl fast` and by a bare `.endl`: loaded by section `slow`, a 100 ohm / rv divider from 1 V gives 0.8 V. The same file loaded whole, by `.lib file` or `.include`, is refused: there `.lib fast` is taken for a file name |
+| `rule lib = ".lib" path section` | correct, as written (the path quoted) | `.lib "f.lib" slow` and `.lib 'f.lib' slow` load the section; `.lib f.lib slow` is refused, the section read as part of the file name. `.lib file` with no section loads the whole of a file without sections |
+| `E`, `G` with `value=` | correct | `E1 b 0 value={3*v(a)}` with 2 V on `a` gives 6 V; `G1 0 c value={v(a)/1k}` into 1k gives 2 V; unbraced `value=4*v(a)` gives 8 V |
+| `tline` with `zo=` | correct; `Z0=` is read too | 50 ohm source into `T1 b 0 c 0 Zo=50 Td=5n` and 50 ohm: half the step at the input, 5.0 ns to the far end. With `Zo=100` the input sits at 0.667; `Z0=100` gives the same 0.667 (now a `read` rule) |
+| `O` with an LTRA model | correct | `.model lmod ltra(R=0 L=250n C=100p len=1)`: the far end follows 5.0 ns later, sqrt(LC) |
+| POLY controlled sources | correct | `E poly(1) a 0 1 2 3` with 2 V: 17; `G poly(1) a 0 0 1m` into 1k: 2 V; `F poly(1) V1 0 1` and `H poly(1) V1 0 1k` with -2 mA in V1: -2 V each; `E poly(2) a 0 x 0 0 1 10 100` with 2 V and 3 V: 432, the SPICE coefficient order |
+| `no print` | **wrong** | `.print tran v(a)`, `.print ac vdb(b)` and `.plot tran v(a)` load; nothing is printed and the `.raw` file holds every node as without them. `.probe v(a)` and an unknown `.foobar` are refused. Now a `print` rule for `.print` and `.plot` with a caveat |
+| `nint = round` | spelling correct, value differs | `nint(2.5)` is refused (no such function). `round` of 0.5, 1.5, 2.5, 3.5, -0.5, -1.5, -2.5: 1, 2, 3, 4, -1, -2, -3, halves away from zero. Now `differs nint` |
+| `hertz = freq` | **wrong** | `B1 b 0 V=v(a)*freq` and `R2 b 0 R=1k*freq/100` under `.ac` are refused ("no such parameter"), and so is `hertz`. Removed: the frequency has no name in an expression |
+| `xor "^"` | correct | `2^3` and `5^3` are 0, `1^0` and `0^1` are 1, `0.4^0.6` is 1: exclusive-or of truth values, true above 0.5 (bitwise, `2^3` would be 1). It binds below `+`: `5 + 2 ^ 1` is 0. `2**3` is 8 |
+| `mesfet p = pmf` | correct | `Z` devices on `.model mp pmf` and `.model mn nmf` at -2 V and 2 V: 6.25 mA and -6.25 mA |
+| `bsim4` = level 14 or 54 | correct | both load and draw the same 116.14 uA at 1 V, 1 V (levels 8 and 49: 80.47 uA both). Of `toxe pclm theta neff` a level 14 card knows the first two, level 8 only `pclm`, level 3 only `theta`, level 2 only `neff`, level 1 and a card with no level none |
+| `ltra = ltra` | correct | the model card above |
+
+The comment on a DC value beside a waveform: `V1 a 0 dc 3 sine(1 2 1k)`
+loads; the operating point has 3 V, the transient starts at 1 V (the
+waveform) and reaches 3 V at a quarter period. `dc 3 ac 1 sine(...)`, the AC
+part before the waveform, loads too.
+
+### 8.2 Functions and operators
+
+| expression | `.param` | B source |
+|---|---|---|
+| `-2**2`, `1+-2**2`, `2*-2**2` | 4, 5, 8 | 4, 5, 8 |
+| `-(1+1)**2`, `0-2**2`, `2**-1` | 4, -4, 0.5 | same |
+| `(-2)**3`, `(-2)**2.5`, `2**3**2` | -8, 0, 512 | same |
+| `pwr(-2,2)`, `pwr(-2,3)`, `pow(-2,3)`, `pow(2,2.5)` | 4, 8, -8, 5.657 | same |
+| `int(-2.7)`, `int(2.7)`, `floor(-2.5)`, `ceil(-2.5)` | -2, 2, -3, -2 | same |
+| `log(100)`, `ln(100)`, `log10(100)` | 4.605, 4.605, 2 | same |
+| `log10(-100)`, `sqrt(-4)` | -3.8e101, 0 | 0, 0 |
+| `sgn(0)`, `sgn(-3)`, `u(0)`, `u(1)`, `stp(0)`, `stp(1)` | 0, -1, 0, 1, 0, 1 | same |
+| `limit(5,0,2)`, `limit(-5,0,2)`, `limit(5,2,0)` | 2, 0, 2 | same |
+| `uramp(-1)`, `uramp(2)`, `min(1,2)`, `max(1,2)`, `abs(-2)` | 0, 2, 1, 2, 2 | same |
+| `atan2(1,-1)`, `hypot(3,4)`, `asinh(1)`, `acosh(2)`, `atanh(0.5)` | 2.356, 5, 0.8814, 1.317, 0.5493 | same |
+| `sin(1)`, `cos(1)`, `tan(1)`, `asin(0.5)`, `acos(0.5)`, `atan(1)` | 0.8415, 0.5403, 1.557, 0.5236, 1.047, 0.7854 (radians) | same |
+| `sinh(1)`, `cosh(1)`, `tanh(1)`, `exp(1)` | 1.175, 1.543, 0.7616, 2.718 | same |
+| `if(1,3,4)`, `if(0,3,4)`, `if(0.4,3,4)`, `if(0.6,3,4)` | 3, 4, 4, 3 | same |
+| `1 > 0 ? 5 : 6`, `0 ? 1 : 1 ? 5 : 6`, `1 ? 2 : 3 + 10` | 5, 5, 2 | same |
+| `2 == 2`, `2 != 2`, `2 <= 2`, `2 >= 3`, `1 <> 2`, `!1`, `!0`, `5 % 3` | 1, 0, 1, 0, 1, 0, 1, 2 | same |
+| `1 & 0`, `1 \| 0`, `3 & 5`, `1 \| 0 & 0`, `1 + 2 & 0` | 0, 1, 1, 0, 0 | same |
+| `1 && 0`, `1 \|\| 0` | refused | refused |
+| `agauss(1,0.1,3)`, `aunif(1,0.1)`, `unif(1,0.1)` | refused | |
+| `mc(1,0.1)` twice, `gauss(0.1)` twice | 1.094 and 0.944; -0.015 and -0.187 | `mc` loads, `gauss` is refused |
+
+What the grammar now says from this:
+
+* A minus binds before `**` wherever it stands, also at the start and
+  before a group, where every other simulator of section 4.4 gives -4 for
+  `-2**2`: `differs minuspow`, a new name for `differs` that finds a unary
+  minus on the base of a power.
+* `pwr` drops the sign (`differs pwr`); `round` is `nint` with halves away
+  from zero (`differs nint`).
+* `&&` and `||` do not exist; `&` and `|` are the logical operators, of one
+  precedence and taken from the left (`1 | 0 & 0` is 0), so they are not
+  written for `&&` and `||`: `differs andor` says so on each use.
+* `!` and `%` exist (`not`, `mod` in the operators table, which had made
+  them errors); `stp` is a second spelling of `u`.
+* `?:` exists beside `if()`; the grammar keeps writing `if()`, which is the
+  same choice. `if` and the logical operators take a value above 0.5 as
+  true; not written as `differs`, a condition being 0 or 1 in practice.
+* The variables: `time` (a B source `V=time*1k` is 0.5 at 0.5 ms), `temp`
+  (40 under `.temp 40`, 27 with none); `temper` is refused.
+* `agauss`, `aunif` and `unif` do not exist, so the reason on the
+  `statistics` lines now names `gauss()` and `mc()`.
+* Expressions need no braces after `=`: `.param s = 2 * 3 t = 5` gives 6
+  and 5, `B2 c 0 V=v(a) * 2 + 1` gives 5 for 2 V, `R2 a 0 R=2*500` is 1k.
+  The lexer now has `expr after-equals`; before, such lines of an LTspice
+  deck were not read. Braces in a B source load too (`v={v(a)*2}`).
+
+### 8.3 Models, sources, measures, defaults
+
+* MOS levels that load: 1 to 9, 12, 14, 44, 49, 54, 55, 73. Refused
+  ("invalid level"): 10, 11, 13, 15, 16, 17, 47, 53, 57, 58, 60, 68, 70,
+  72, 77. Which model levels 4 to 7, 9, 12, 44, 55 and 73 select was not
+  established; the table claims only 1, 2, 3, 8/49 and 14/54.
+* `d`, `npn`, `pnp`, `njf`, `pjf`, `vdmos` (an `M` with three nodes), `sw`
+  and `csw` load and conduct the right way. A `sw` with `vt=1 vh=0.2`
+  closes at 1.2 V rising and opens at 0.8 V falling; a `csw` with `it=1m
+  ih=0.2m` at 1.2 mA and 0.8 mA.
+* Sources, the same deck in ngspice 45 and (translated) in LTspice: pulse
+  edges and period, `sin(1 2 1k 0.25m 500 90)` before and after its delay
+  (3, 1.000, -0.557), `exp(0 1 1m 0.5m 3m 0.5m)` (0.8647 at 2 ms, 0.1329 at
+  4 ms: the second delay is absolute in both), `pwl`, and a current source
+  agree to four digits. `sffm(0 1 1k 5 10k)` is -0.985 at 20 us: the
+  carrier is the third value, the signal the fifth.
+* A pulse of two or three values is refused ("minimum of 4 parameters").
+  With four the pulse stays up; with five (a fall time and no width) it is
+  back at 0 at 5 ms, where ngspice holds it for the stop time. A zero rise or fall time is made a tenth of the width (0.1 ms for
+  1 ms, 0.2 ms for 2 ms), where ngspice takes the .tran step (10 us). So
+  the rule now needs delay and rise, and `default` lines write rise and
+  fall from the .tran step and the width from its stop time.
+* `sine(0 1)` without a frequency loads and stays at 0 (ngspice: one period
+  over the run), so the frequency is required and such a source is an
+  error, as for Xyce.
+* `.meas`: `find .. at=`, `find .. when`, `when .. rise= / fall= / cross=`,
+  `trig .. targ` with `val=`, `td=`, `avg`, `rms`, `min`, `max`, `pp`,
+  `integ` with `from=` `to=`, `param expr` and `param={expr}` load and
+  give the values expected of a 1 ms pulse (average 0.2875 over 4 ms, 80 us
+  from 10% to 90%). The grammar had only the text form, so a measure from
+  another dialect was an error; it now has ngspice's rules.
+* `.tran 1m`, one number, runs to 1 ms: a `read` rule.
+* Every log states `tnom = 27` and `temp = 27`: `implied options`.
+
+### 8.4 The `no` lines
+
+One deck with a line of each: `.pz`, `.sens`, `.disto`, `.hb`, `.pss`,
+`.sp`, `.stb`, `.lstb`, `.hdl`, `.if` / `.elseif` / `.else` / `.endif`,
+`.data` / `.enddata`, `.alter`, `.control` / `.endc`, `.xf`, `.dcmatch`,
+`.pac`, `.pnoise`, `.pxf`, `.psp`, `.qpss`, `.envelope`, `.phasenoise`,
+`.trannoise`, `.montecarlo` and `.probe` are each refused ("expected device
+instantiation or directive here"). `.print`, `.plot`, `.four` and `.net`
+are not. An `N` instance is refused; an `A` instance is refused for its
+last word not being one of LTspice's own function names; a `Y` instance
+is refused. So every `no` line stands except `print`.
+
+### 8.5 Topologies
+
+Each circuit with `.op`, with `.tran 1u 1m` and with `.tran 1u 1m uic`.
+
+| circuit | observed | `requires` |
+|---|---|---|
+| node between two capacitors | runs, "WARNING: Node b is floating", the node at 1 nV; the same warning with UIC | `dc-path warning` |
+| 1 mA into a node with only a capacitor | runs, "ERROR: Node a is floating and connected to current source I1", the node at 1e9 V (-1e9 V with a second source of 2 mA out); with UIC the same line, starting at 0 V | `cutset error` |
+| two voltage sources in parallel, 1 V and 1 V, or 1 V and 2 V | stops in all three: "paralleled making an over-defined circuit matrix" | `no-vloop error` |
+| 1 V source across an inductor | runs, 1000 A in the inductor: 1 milliohm in series | `no-vlloop warning` |
+| two inductors in parallel fed through 1k | runs, 0.5 mA each and 0.5 uV across them | `no-lloop warning` |
