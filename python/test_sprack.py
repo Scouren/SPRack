@@ -835,12 +835,16 @@ def test_netlist_leaves_the_circuit_as_it_is():
         # A library whose model Spectre has to rename: a subcircuit has the name too.
         with open(os.path.join(d, "both.lib"), "w") as f:
             f.write("* both\n.model dm d is=1e-14\n.subckt dm a b\nD1 a b dm\n.ends dm\n")
+        # And the PDK has one of its own.
+        with open(os.path.join(d, "cells.inc"), "a") as f:
+            f.write(".model pm d is=1e-14\n.subckt pm a b\nD1 a b pm\n.ends pm\n")
         c = sprack.Circuit("t", pdk=make())
         c.code(f'.include "{d}/both.lib"\n')
         with c.subckt("wrap", "a", "b") as s:
             s.code(f'.include "{d}/both.lib"\n')
             s.D("1", "a", "b", "dm")
         c.D("2", "a", 0, "dm")
+        c.D("3", "a", 0, "pm")
         c.cell("X1", "a", 0)
         c.V("1", "a", 0, 1)
         c.op()
@@ -848,7 +852,7 @@ def test_netlist_leaves_the_circuit_as_it_is():
         out = unwrap(c.netlist("spectre", strict=False))
         # The translated copy and the renamed model are in the netlist only.
         assert out.count(f'include "{os.environ["SPRACK_CACHE"]}/libs/') == 2 and f"{d}/both.lib" not in out, out
-        assert "D1 (a b) dm__m\n" in out and "D2 (a 0) dm__m\n" in out, out
+        assert "D1 (a b) dm__m\n" in out and "D2 (a 0) dm__m\n" in out and "D3 (a 0) pm__m\n" in out, out
         assert c.statements == before
     _with_cache(lambda cache: _tiny(body))
 
