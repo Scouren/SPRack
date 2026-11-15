@@ -298,6 +298,12 @@ pub const Grammar = struct {
     thresholds: []const Threshold = &.{},
     params: []const ParamTable = &.{},
     fills: []const Fill = &.{},
+    /// `unique param : why`: a parameter defined twice in one scope is
+    /// refused here. Empty: allowed.
+    unique_param: []const u8 = "",
+    /// `unique master : why`: models and subcircuits share one name space
+    /// here, so an instance of a name both define is ambiguous.
+    unique_master: []const u8 = "",
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -1132,6 +1138,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var thresholds: []const Threshold = &.{};
     var params: []const ParamTable = &.{};
     var fills: []const Fill = &.{};
+    var unique_param: []const u8 = "";
+    var unique_master: []const u8 = "";
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1301,6 +1309,14 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs };
             if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
             fills = try c.add(Fill, fills, f);
+        } else if (std.mem.eql(u8, head, "unique")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master : reason`", .{});
+            const what = std.mem.trim(u8, rest[0..colon], " \t");
+            if (std.mem.eql(u8, what, "param")) {
+                unique_param = rest[colon + 3 ..];
+            } else if (std.mem.eql(u8, what, "master")) {
+                unique_master = rest[colon + 3 ..];
+            } else return c.fail(no, "unique takes param or master, not '{s}'", .{what});
         } else if (std.mem.eql(u8, head, "models")) {
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
@@ -1383,6 +1399,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .thresholds = thresholds,
         .params = params,
         .fills = fills,
+        .unique_param = unique_param,
+        .unique_master = unique_master,
     };
 }
 

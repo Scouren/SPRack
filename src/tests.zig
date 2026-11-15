@@ -2420,7 +2420,6 @@ test "gap: a subcircuit named like the model its transistor uses" {
     // subckt nch; Spectre resolves it to the subcircuit and stops on a
     // recursive call. The fix may rename the model or report the clash; this
     // asks for at least a report entry that names it.
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -2443,7 +2442,6 @@ test "gap: a parameter defined twice" {
     // stops with an error unless told otherwise. A library repeats some 100
     // parameters across its include files. Wanted: a report entry (or the
     // option that makes Spectre accept it, with a caveat).
-    if (true) return error.SkipZigTest;
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();

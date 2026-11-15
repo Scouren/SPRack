@@ -1356,6 +1356,66 @@ fn firstValue(stmts: []const ir.Stmt, kind: Kind, slot: u8) ?Value {
     return null;
 }
 
+/// `unique param`: a parameter defined twice in one scope. Each body
+/// (subcircuit, library section, branch) is a scope of its own.
+fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+    var seen: ir.CaselessSet = .empty;
+    defer seen.deinit(ir.big);
+    for (stmts) |*s| {
+        if (s.body.len > 0) try uniqueParams(s.body, report, g);
+        if (s.kind != .param or s.get("params") != .params) continue;
+        for (s.get("params").params) |p| {
+            const gop = try seen.getOrPut(ir.big, p.key);
+            if (gop.found_existing) report.add(.@"error", .invalid, s.line, "parameter '{s}' is defined twice in one scope; {s}", .{ p.key, g.unique_param });
+        }
+    }
+}
+
+/// `unique master`: a name that both a model (or its bins, `nch.1`) and a
+/// subcircuit define, used by an instance.
+fn uniqueMasters(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+    var models: ir.CaselessSet = .empty;
+    defer models.deinit(ir.big);
+    var subckts: ir.CaselessSet = .empty;
+    defer subckts.deinit(ir.big);
+    var told: ir.CaselessSet = .empty;
+    defer told.deinit(ir.big);
+    try collectMasters(stmts, &models, &subckts);
+    try clashes(stmts, &models, &subckts, &told, report, g);
+}
+
+fn collectMasters(stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet) Allocator.Error!void {
+    for (stmts) |*s| {
+        const n = s.get("name");
+        if (n == .atom) {
+            if (s.kind == .subckt) try subckts.put(ir.big, n.atom, {});
+            if (s.kind == .model) {
+                // `nch.1`, `nch.2`: bins of the model `nch`.
+                var name = n.atom;
+                if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
+                    const tail = name[dot + 1 ..];
+                    if (tail.len > 0 and for (tail) |c| {
+                        if (!std.ascii.isDigit(c)) break false;
+                    } else true) name = name[0..dot];
+                }
+                try models.put(ir.big, name, {});
+            }
+        }
+        try collectMasters(s.body, models, subckts);
+    }
+}
+
+fn clashes(stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, told: *ir.CaselessSet, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+    for (stmts) |*s| {
+        try clashes(s.body, models, subckts, told, report, g);
+        if (schema.info(s.kind).class != .device) continue;
+        const m = s.get("master");
+        if (m != .atom or !models.contains(m.atom) or !subckts.contains(m.atom)) continue;
+        if ((try told.getOrPut(ir.big, m.atom)).found_existing) continue;
+        report.add(.@"error", .invalid, s.line, "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}", .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master });
+    }
+}
+
 fn collectDeclared(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged(void)) Allocator.Error!void {
     for (stmts) |*s| {
         if ((s.kind == .model or s.kind == .subckt) and s.get("name") == .atom) try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
@@ -1516,6 +1576,10 @@ pub fn write(
             } else if (!used[@backingInt(n.kind)]) continue;
             for (n.lines) |l| try w.line(l);
         }
+    }
+    if (!std.mem.eql(u8, nl.dialect, g.name)) {
+        if (g.unique_param.len > 0) try uniqueParams(nl.stmts, report, g);
+        if (g.unique_master.len > 0) try uniqueMasters(nl.stmts, report, g);
     }
     const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
