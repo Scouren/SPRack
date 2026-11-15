@@ -1758,6 +1758,8 @@ fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep,
         if (s.body.len > 0) try uniqueParams(s.body, report, g);
         if (s.kind != .param or s.get("params") != .params) continue;
         for (s.get("params").params) |p| {
+            // The variation of the parameter before it, not a parameter.
+            if (stats.devLotKey(p.key) != null) continue;
             const gop = try seen.getOrPut(ir.big, p.key);
             if (gop.found_existing) report.add(.@"error", .invalid, s.line, "parameter '{s}' is defined twice in one scope; {s}", .{ p.key, g.unique_param }) else if (keep) |k| {
                 gop.key_ptr.* = try k.text(p.key);

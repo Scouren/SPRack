@@ -112,7 +112,7 @@ pub fn devLots(g: *const Grammar, source: []const u8) bool {
 
 /// HSPICE's `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run),
 /// or `/unif`: an entry of its own after the parameter it varies.
-fn devLotKey(key: []const u8) ?enum { gauss, unif } {
+pub fn devLotKey(key: []const u8) ?enum { gauss, unif } {
     const slash = std.mem.indexOfScalar(u8, key, '/') orelse return null;
     const who = key[0..slash];
     if (!std.ascii.eqlIgnoreCase(who, "dev") and !std.ascii.eqlIgnoreCase(who, "lot")) return null;

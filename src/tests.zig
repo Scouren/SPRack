@@ -3351,6 +3351,23 @@ test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     // HSPICE reads the form itself.
     var r3: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", src, &r3), "dev/gauss=0.1p");
+
+    // Several on one card: each is the variation of the parameter before
+    // it, in a subcircuit (per instance) and at the top level (per run).
+    const two = "t\n.param a=1 dev/gauss=0.1 b=2 dev/gauss=0.2\n.subckt s p n\n.param\n+ x=1k dev/gauss=10\n+ y=2 dev/gauss=0.2\nR1 p n {x*y}\n.ends\nX1 p 0 s\nR2 p 0 {a*b}\n.end\n";
+    var r5: ir.Report = .init(a);
+    const sp2 = try trx(a, "ngspice", "spectre", two, &r5, .{ .silent = true });
+    try has(sp2, "vary a dist=gauss std=0.1\nvary b dist=gauss std=0.2\n");
+    try has(sp2, "parameters x=((1k + 10*sprack_rv_s_x)) y=((2 + 0.2*sprack_rv_s_y))\n");
+    try has(sp2, "mismatch {\nvary sprack_rv_s_x dist=gauss std=1\nvary sprack_rv_s_y dist=gauss std=1\n}\n");
+    try testing.expectEqual(0, r5.count(.@"error"));
+    var r6: ir.Report = .init(a);
+    try has(try trx(a, "ngspice", "xyce", two, &r6, .{ .silent = true }), ".param x={agauss(1k, 10, 1)} y={agauss(2, 0.2, 1)}\n");
+    try testing.expectEqual(0, r6.count(.@"error"));
+    // A parameter given twice is still told, with variations between.
+    var r7: ir.Report = .init(a);
+    _ = try trx(a, "ngspice", "spectre", "t\n.param a=1 dev/gauss=0.1 a=2 dev/gauss=0.2\nR1 p 0 {a}\n.end\n", &r7, .{ .silent = true });
+    try reported(&r7, .@"error", "parameter 'a' is defined twice");
 }
 
 test "statistics: a variation said the other way reads back that way, and one note for the file says so" {
