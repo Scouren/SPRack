@@ -638,6 +638,16 @@ const Emit = struct {
                                 if (e.why.len == 0) e.why = try e.arena.print("a statement without '{s}'", .{e.slot(b.slot).name});
                                 return false;
                             }
+                            if (!e.bound(b.slot) and b.default.len > 0 and e.foreign) {
+                                // What the source's simulator assumes and this one does not.
+                                const raw = try e.expandDefault(b.default);
+                                const text = try e.valueText(if (lexer.parseNumber(e.arena, &e.g.lex, raw)) |num| .{ .num = num } else .{ .expr = raw }, false);
+                                try e.tok(try e.arena.print("{s}={s}", .{ b.key, text }));
+                                if (!e.quiet) e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' to behave as {s} does without it; wrote {s}", .{
+                                    @tagName(e.st.kind), e.g.name, e.slot(b.slot).name, e.source, text,
+                                });
+                                continue;
+                            }
                             if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
                             if (b.tag_slot != grammar.no_slot) {
                                 const tv = e.st.at(b.tag_slot);

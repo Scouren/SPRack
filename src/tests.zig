@@ -367,6 +367,14 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
             var report2: ir.Report = .init(a);
             const back = try readAs(a, to, text, &report2);
             try testing.expectEqual(0, countKind(back, .@"opaque"));
+            // VACASK is given SPICE's step cap explicitly (a `synthesized` warning).
+            if (report.countCode(.synthesized) > 0) for (back.stmts, src_nl.stmts) |*b, s| {
+                const mi = schema.slotIndex(.tran, "maxstep").?;
+                if (b.kind == .tran and s.kind == .tran and s.at(mi) == .none) {
+                    try b.own(a);
+                    try b.set(a, mi, .none);
+                }
+            };
             try testing.expect(ir.sameCircuit(&src_nl, &back));
         }
     }
@@ -1971,7 +1979,7 @@ test "verification: VACASK analyses: acsp, acstb, pss period, ic and nodeset on 
     // A linear sweep counts intervals in VACASK.
     try has(out, "analysis ac1 ac from=1k to=5k mode=\"lin\" points=4 nodeset={\"out\",0.1}\n");
     try has(out, "analysis sp1 acsp from=1k to=1M mode=\"dec\" points=10 nodeset={\"out\",0.1}\n");
-    try has(out, "analysis tran1 tran step=1u stop=1m icmode=\"uic\" ic={\"out\",0.2} nodeset={\"out\",0.1}\n");
+    try has(out, "analysis tran1 tran step=1u stop=1m maxstep=1u icmode=\"uic\" ic={\"out\",0.2} nodeset={\"out\",0.1}\n");
     // Reading lifts them back out into statements of their own.
     var r4: ir.Report = .init(a);
     const ng = try tr(a, "vacask", "ngspice", out, &r4);
@@ -3198,4 +3206,21 @@ test "VACASK: options and saves come before the analyses in the control block" {
     // VACASK runs a control block in order; options after an analysis do not reach it.
     const va = try tr(a, "ngspice", "vacask", "t\nV1 in 0 AC 1\nR1 in 0 1k\n.noise v(in) V1 dec 4 10 10k\n.options temp=0\n.save v(in)\n.end\n", &report);
     try has(va, "control\noptions temp=0\nsave v(in)\nanalysis noise1 noise");
+}
+
+test "VACASK tran: SPICE's step cap is written as maxstep" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // SPICE never steps past TSTEP; VACASK only limits the step to stop/50.
+    const va = try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 1u 1m\n.end\n", &report);
+    try has(va, "analysis tran1 tran step=1u stop=1m maxstep=1u\n");
+    try reported(&report, .warning, "tran: vacask needs 'maxstep' to behave as ngspice does without it; wrote 1u");
+    // A given maxstep is kept, and a VACASK deck is left as it was.
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 1u 1m 0 5u\n.end\n", &report), "maxstep=5u\n");
+    var r2: ir.Report = .init(a);
+    const same = try tr(a, "vacask", "vacask", "t\nmodel v vsource\nv1 (a 0) v dc=1\ncontrol\nanalysis tran1 tran step=1u stop=1m\nendc\n", &r2);
+    try has(same, "analysis tran1 tran step=1u stop=1m\n");
+    try clean(&r2);
 }

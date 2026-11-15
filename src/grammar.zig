@@ -122,6 +122,9 @@ pub const BagEntry = struct {
     required: bool = false,
     /// On a `...rest` entry: bare words are accepted as value-less flags.
     flags: bool = false,
+    /// `maxstep=maxstep?$step`: written, from another dialect's statement
+    /// only, when the slot is empty; `$slot` expands.
+    default: []const u8 = "",
 };
 
 pub const Node = struct {
@@ -912,6 +915,11 @@ const P = struct {
             if (p.peek() == '!') {
                 p.i += 1;
                 e.required = true;
+            }
+            if (p.peek() == '?') {
+                p.i += 1;
+                if (e.form != .plain) return p.err("only a plain key=slot takes a default", .{});
+                e.default = p.bare();
             }
             if (p.peek() == '@') {
                 p.i += 1;

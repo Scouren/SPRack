@@ -172,7 +172,10 @@ rule  op        = "analysis" name?op$# "op" { nodeset={nodeset} ...params }
 # (docs/cmd-elaboration.md); the temperature is an option.
 rule  dc        = [ "sweep" _?outer$# ( { instance=="__topinst__" parameter="param2"! from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } | { instance="src2"! from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } | { option=="temp"!@var2:temp from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } ) / ] "sweep" _?sweep$# ( { instance=="__topinst__" parameter="param"! from=start to=stop step=step mode="sweep" points=points values=[values] } | { instance="src"! parameter="devparam" from=start to=stop step=step mode="sweep" points=points values=[values] } | { option=="temp"!@var:temp from=start to=stop step=step mode="sweep" points=points values=[values] } ) / "analysis" name?dc$# "op" { nodeset={nodeset} }
 rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
-rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
+# SPICE caps the time step at min(step, (stop-start)/50); VACASK only at
+# (stop-start)/tran_minpts, 50 by default (lib/coretran.cpp:1467-1482), so
+# without a maxstep it takes steps larger than SPICE's.
+rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep?$step icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
 rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
 # docs/cmd-analysis-dcxf.md: the transfer function to `out` from every source.
 rule  tf        = "analysis" name?tf$# "dcxf" { out="out" nodeset={nodeset} ...params }
