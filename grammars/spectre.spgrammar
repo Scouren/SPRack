@@ -239,6 +239,17 @@ caveat pac fstart : Spectre drives pac from each source's pacmag, not from the a
 caveat tf src : xf gives the transfer function from every source, the named one among them; the input and output resistances are not reported
 caveat hdl path=*.osdi : ahdl_include expects Verilog-A source, not a compiled OSDI file
 
+# Observed on decks written for it (Spectre 23.10 and 25.10): an island
+# reached only through capacitors is solved and left at 0 V, where ngspice
+# divides the charge (0.5 V on an equal capacitive divider); an unbalanced
+# current source into one drives it to about 1e9 V. A loop of voltage
+# sources, of a voltage source and an inductor, or of inductors only stops
+# the run.
+requires dc-path   warning : Spectre solves it but starts such nodes at 0 V, where ngspice divides the charge among the capacitors
+requires no-vloop  error   : Spectre stops on it
+requires no-vlloop error   : Spectre stops on it, where ngspice gets through with its transient operating point
+requires no-lloop  error   : Spectre stops on it, where ngspice and Xyce solve it
+
 # Observed on decks written for it: a parameter given twice in one scope
 # stops the run (SPICE keeps the last); an instance of a name that both a
 # model and a subcircuit define is resolved to the subcircuit.

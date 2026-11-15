@@ -3289,7 +3289,7 @@ test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no plac
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
-    const src = "t\nR1 a 0 1k m=2 tc=1m\nC1 a 0 1n ic=0.5\nR2 a b 1k ac=2k\nM1 d g 0 0 nm w=1u l=1u m=3 sa=1u\n.model nm nmos level=1\n.end\n";
+    const src = "t\nR1 a 0 1k m=2 tc=1m\nC1 a 0 1n ic=0.5\nR2 a b 1k ac=2k\nM1 d g 0 0 nm w=1u l=1u m=3 sa=1u\nVg g 0 1\n.model nm nmos level=1\n.end\n";
     const va = try tr(a, "ngspice", "vacask", src, &report);
     try has(va, "R1 (a 0) resistor r=1k $mfactor=2 tc=1m\n");
     try has(va, "C1 (a 0) capacitor c=1n\n");
@@ -3394,4 +3394,112 @@ test "c2 sweep: HSPICE SWEEP at the end of an analysis line is a step around it"
     var r1: ir.Report = .init(a);
     try has(try sameBack(a, "hspice", "hspice", "t\nR1 a 0 1k\nI1 0 a 1m\n.temp -55 25 125\n.op\n.end\n", &r1), ".temp -55 25 125\n.op\n");
     try clean(&r1);
+}
+
+// c3: circuits a target cannot solve (src/topology.zig)
+
+/// The topology entries of translating `src` from ngspice to `to`.
+fn topo(a: std.mem.Allocator, to: []const u8, src: []const u8) !ir.Report {
+    var report: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", to, src, &report);
+    var out: ir.Report = .init(a);
+    for (report.items.items) |d| {
+        if (std.mem.indexOf(u8, d.msg, "DC path") != null or std.mem.indexOf(u8, d.msg, "form a loop") != null) try out.items.append(a, d);
+    }
+    return out;
+}
+
+test "topology: capacitor islands, series capacitors and current cutsets have no DC path" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A node reached only by a capacitor to ground.
+    var r = try topo(a, "vacask", "t\nV1 in 0 1\nR1 in 0 1k\nCm metal 0 1p\n.tran 1p 2n\n.end\n");
+    try reported(&r, .@"error", "node 'metal' has no DC path to ground: only Cm reaches it");
+    try testing.expectEqual(1, r.items.items.len);
+    // A capacitive divider, and an island behind a 0 V source in series.
+    r = try topo(a, "vacask", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\nC3 in m 1n\nVam m i 0\nC4 i 0 1n\n.tran 1n 10n\n.end\n");
+    try reported(&r, .@"error", "node 'x' has no DC path to ground: only C1, C2 reach it");
+    try reported(&r, .@"error", "nodes 'm', 'i' have no DC path to ground: only C3, C4 reach them");
+    try testing.expectEqual(2, r.items.items.len);
+    // Current sources into a node only a capacitor otherwise touches.
+    r = try topo(a, "vacask", "t\nI1 0 a 1m\nI2 a b 1m\nR1 b 0 1k\nC1 a 0 1p\n.tran 1n 10n\n.end\n");
+    try reported(&r, .@"error", "node 'a' has no DC path to ground: only I1, I2, C1 reach it, which conduct no DC there, and the currents of the sources into it must balance");
+    // A MOSFET gate and a controlled source's input conduct nothing.
+    r = try topo(a, "vacask", "t\nV1 d 0 1\nM1 d g 0 0 nm\nE1 o 0 g 0 2\nR1 o 0 1k\n.model nm nmos level=1\n.op\n.end\n");
+    try reported(&r, .@"error", "node 'g' has no DC path to ground: only M1, E1 reach it");
+    // Spectre solves such a node: a warning there.
+    r = try topo(a, "spectre", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.tran 1n 10n\n.end\n");
+    try reported(&r, .warning, "node 'x' has no DC path to ground");
+    // Where every analysis skips the DC solve, nothing needs a path.
+    r = try topo(a, "vacask", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.tran 1n 10n uic\n.end\n");
+    try testing.expectEqual(0, r.items.items.len);
+}
+
+test "topology: loops of voltage sources and inductors" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // An inductor across a source, coupled to another (kinduc_k_exact).
+    var r = try topo(a, "vacask", "t\nV1 a 0 ac 1\nL1 a 0 1u\nL2 b 0 1u\nR2 b 0 1e12\nK1 L1 L2 0.3\n.ac lin 1 1meg 1meg\n.end\n");
+    try reported(&r, .@"error", "V1, L1 form a loop of voltage sources and inductors through 'a' and '0'");
+    try testing.expectEqual(1, r.items.items.len);
+    // Sources in parallel, also through a controlled one; a loop of inductors.
+    r = try topo(a, "vacask", "t\nV1 a 0 1\nV2 a b 0\nE1 b 0 c 0 1\nR1 c 0 1k\nVi in 0 1\nR3 in p 1k\nL1 p 0 1u\nL2 p q 1u\nL3 q 0 1u\n.op\n.end\n");
+    try reported(&r, .@"error", "V1, V2, E1 form a loop of voltage sources through 'b' and '0'");
+    try reported(&r, .@"error", "L1, L2, L3 form a loop of inductors through 'q' and '0'");
+    try testing.expectEqual(2, r.items.items.len);
+    // Each grammar states its own severity: an inductor-only loop is an
+    // error in Spectre, a warning in Xyce and nothing in ngspice.
+    const lloop = "t\nV1 in 0 1\nR1 in p 1k\nL1 p 0 1u\nL2 p 0 1u\n.op\n.end\n";
+    try reported(&(try topo(a, "spectre", lloop)), .@"error", "L1, L2 form a loop of inductors");
+    try reported(&(try topo(a, "xyce", lloop)), .warning, "L1, L2 form a loop of inductors");
+    var hr: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", lloop, &hr);
+    try testing.expect(!hr.contains(.warning, "form a loop") and !hr.contains(.@"error", "form a loop"));
+    // Only one branch of a conditional is in the circuit.
+    r = try topo(a, "vacask", "t\n.param big=1\nV1 in 0 1\nR1 in p 1k\n.if (big > 0)\nL1 p 0 1u\n.else\nL1 p 0 1n\n.endif\n.op\n.end\n");
+    try testing.expectEqual(0, r.items.items.len);
+    // With UIC the transient integrates through the inductors; a loop of
+    // sources stays singular.
+    r = try topo(a, "vacask", "t\nV1 a 0 1\nL1 a 0 1u\nV2 b 0 1\nV3 b 0 1\nR1 b 0 1\n.tran 1n 10n uic\n.end\n");
+    try reported(&r, .@"error", "V2, V3 form a loop of voltage sources");
+    try testing.expectEqual(1, r.items.items.len);
+}
+
+test "topology: subcircuits carry their DC paths to the instance, and are checked on their own" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // subckt_params: a and mid conduct, b is behind a capacitor. Between
+    // the two instances mid1 has no path; through X3 (a resistor) out has.
+    var r = try topo(a, "vacask",
+        \\t
+        \\.subckt rcf a b r=1k c=1n
+        \\R1 a mid {r}
+        \\C1 mid b {c}
+        \\.ends
+        \\.subckt rr a b
+        \\R1 a b 1k
+        \\.ends
+        \\.subckt bad p
+        \\R1 p 0 1k
+        \\C1 p f 1p
+        \\.ends
+        \\X1 in mid1 rcf
+        \\X2 mid1 out rcf
+        \\X3 out 0 rr
+        \\X4 in bad
+        \\Xu in lost unknown_cell
+        \\Vin in 0 1
+        \\.tran 1u 0.2m
+        \\.end
+    );
+    try reported(&r, .@"error", "node 'mid1' has no DC path to ground: only X1, X2 reach it");
+    try reported(&r, .@"error", "subcircuit 'bad': node 'f' has no DC path to ground: only C1 reaches it");
+    // An instance of a cell defined elsewhere joins its terminals.
+    try testing.expectEqual(2, r.items.items.len);
+    // A global node and ground inside a subcircuit are paths.
+    r = try topo(a, "vacask", "t\n.global vdd\n.subckt inv i o\nM1 o i vdd vdd pm\nM2 o i 0 0 nm\n.ends\n.model nm nmos level=1\n.model pm pmos level=1\nX1 a b inv\nVa a 0 1\nVdd vdd 0 1\n.op\n.end\n");
+    try testing.expectEqual(0, r.items.items.len);
 }

@@ -436,6 +436,37 @@ def test_pdk_gf180mcu():
     assert not agauss and clash and len(clash) == len(errs), str(errs)
 
 
+def test_pdk_inverters_solvable():
+    """No false alarm from the topology check: real inverters, through every
+    file of their PDK's library, have a DC path everywhere and no loop."""
+    sky = sprack.Circuit("sky130 inverter", pdk=pdk("sky130A", "sky130_fd_pr"))
+    sky.V("dd", "vdd", 0, 1.8)
+    sky.V("in", "in", 0, pulse=(0, 1.8, "1n", "50p", "50p", "2n", "4n"))
+    sky.pfet_01v8("Mp", "out", "in", "vdd", "vdd", w=1, l=0.15)
+    sky.nfet_01v8("Mn", "out", "in", 0, 0, w=0.5, l=0.15)
+    sky.tran("10p", "8n")
+    ihp = sprack.Circuit("ihp inverter", pdk=pdk("IHP", "ihp"))
+    ihp.V("dd", "vdd", 0, 1.2)
+    ihp.V("in", "in", 0, 0.6)
+    ihp.sg13_lv_pmos("Mp", "out", "in", "vdd", "vdd", w="2u", l="0.13u")
+    ihp.sg13_lv_nmos("Mn", "out", "in", 0, 0, w="1u", l="0.13u")
+    ihp.rppd("R1", "out", "r", 0, w="0.5u", l="2u")
+    ihp.cap_cmim("C1", "r", 0, w="5u", l="5u")
+    ihp.op()
+    for c in (sky, ihp):
+        for d in ("vacask", "spectre"):
+            alarms = [e for e in c.netlist(d, strict=False).report if "DC path" in e.message or "form a loop" in e.message]
+            assert not alarms, "\n".join(map(str, alarms))
+    # And a real alarm: C1 alone leaves its node with no path.
+    c = sprack.Circuit("island")
+    c.V("1", "in", 0, 1)
+    c.R("1", "in", 0, "1k")
+    c.C("1", "in", "x", "1p")
+    c.C("2", "x", 0, "1p")
+    c.tran("1n", "10n")
+    raises(sprack.Unsupported, lambda: c.netlist("vacask"), "node 'x' has no DC path to ground: only C1, C2 reach it")
+
+
 INSTALLED = os.environ.get("SPRACK_TEST_PDKS_INSTALLED", "")
 
 

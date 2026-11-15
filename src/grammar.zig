@@ -281,6 +281,13 @@ pub const Switch = struct { words: []const u8, dialect: []const u8 };
 pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `reserved name ... : reason`: parameter names the simulator refuses.
 pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
+/// A circuit topology the simulator cannot solve (`src/topology.zig`):
+/// nodes with no DC path to ground, or a loop of voltage sources only, of
+/// voltage sources and inductors, or of inductors only.
+pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop" };
+/// `requires dc-path error : reason`: such a topology is reported here, an
+/// error when the simulator fails on it, a warning when it solves it its own way.
+pub const Require = struct { what: Topo, err: bool, reason: []const u8 };
 
 pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
 pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv };
@@ -338,6 +345,7 @@ pub const Grammar = struct {
     /// `altergroup`).
     reruns: []const Kind = &.{},
     reserved: []const Reserved = &.{},
+    requires: []const Require = &.{},
     switches: []const Switch = &.{},
     noparams: []const NoParam = &.{},
 
@@ -1216,6 +1224,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var spreads: []const Spread = &.{};
     var reruns: []const Kind = &.{};
     var reserved: []const Reserved = &.{};
+    var requires: []const Require = &.{};
     var switches: []const Switch = &.{};
     var noparams: []const NoParam = &.{};
 
@@ -1467,6 +1476,14 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const lits = try args(c, no, rest[0..arrow]);
             if (lits.len != 1) return c.fail(no, "switch needs one quoted line start", .{});
             switches = try c.add(Switch, switches, .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") });
+        } else if (std.mem.eql(u8, head, "requires")) {
+            const usage = "requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning : reason`";
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, usage, .{});
+            var it = std.mem.tokenizeAny(u8, rest[0..colon], " \t");
+            const what = std.meta.stringToEnum(Topo, it.next() orelse "") orelse return c.fail(no, usage, .{});
+            const sev = it.next() orelse "";
+            if (it.next() != null or !(std.mem.eql(u8, sev, "error") or std.mem.eql(u8, sev, "warning"))) return c.fail(no, usage, .{});
+            requires = try c.add(Require, requires, .{ .what = what, .err = sev[0] == 'e', .reason = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "reserved")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
             reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
@@ -1515,6 +1532,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .spreads = spreads,
         .reruns = reruns,
         .reserved = reserved,
+        .requires = requires,
         .switches = switches,
         .noparams = noparams,
     };
@@ -1590,6 +1608,7 @@ test "a broken grammar at run time names the file and line" {
         .{ .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n", .msg = "x/bad.spgrammar:4: missing ']' in pattern" },
         .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
         .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
+        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|no-vloop|no-vlloop|no-lloop error|warning : reason`" },
     };
     for (cases) |cs| {
         var diag: Diag = .{};

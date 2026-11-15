@@ -152,6 +152,16 @@ no phasenoise : ngspice has no oscillator phase-noise analysis
 no envelope   : ngspice has no envelope-following analysis
 no qpss       : ngspice has no quasi-periodic steady-state analysis
 
+# Observed on decks written for it (ngspice 45): an island reached only
+# through capacitors is solved by the transient operating point once gmin
+# and source stepping fail (0.5 V on an equal capacitive divider); an
+# unbalanced current source into one is driven to about 1e4 V. A loop of
+# voltage sources fails; one with an inductor in it, or of inductors only,
+# is solved the same way, with an arbitrary current around it.
+requires dc-path   warning : ngspice solves it only through its transient operating point, after gmin and source stepping fail
+requires no-vloop  error   : ngspice's operating point fails on it
+requires no-vlloop warning : ngspice solves it only through its transient operating point, and the current around the loop is arbitrary
+
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic and ic= values; other simulators seed the first time point differently
 caveat tran step : the first .tran number is a suggested step for ngspice, not a hard limit
 caveat hdl path=*.va : ngspice loads compiled OSDI files with pre_osdi; compile Verilog-A source with OpenVAF first

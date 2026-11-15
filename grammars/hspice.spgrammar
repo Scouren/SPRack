@@ -201,6 +201,16 @@ no disto   : HSPICE's .DISTO measures distortion power into a named load resisto
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : this grammar has no form that loads a digital Verilog design
 
+# Observed on decks written for it (Y-2026.03): an island reached only
+# through capacitors is solved and left at 0 V, where ngspice divides the
+# charge (0.5 V on an equal capacitive divider); an unbalanced current
+# source into one drives it to about 1e9 V. A loop of voltage sources, of
+# a voltage source and an inductor, or of inductors only stops the run.
+requires dc-path   warning : HSPICE solves it but starts such nodes at 0 V, where ngspice divides the charge among the capacitors
+requires no-vloop  error   : HSPICE stops on it
+requires no-vlloop error   : HSPICE stops on it, where ngspice gets through with its transient operating point
+requires no-lloop  error   : HSPICE stops on it, where ngspice and Xyce solve it
+
 caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
 caveat tran maxstep : HSPICE has no step ceiling on .TRAN; the first number is the print step and limits nothing
 caveat noise src : HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well

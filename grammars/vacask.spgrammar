@@ -328,6 +328,16 @@ no verilog : VACASK has no card that loads a digital Verilog design
 caveat bsource name : VACASK (b2c1551) names the module it synthesizes after the instance but looks it up in lower case, so an instance name with capitals is not found
 caveat hdl path : VACASK loads compiled OSDI files, or compiles a .va file it is given
 caveat save signals : in VACASK's ac, noise, acxf and dcinc analyses v() saves the operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)
+# Observed on decks written for it: the operating point fails (homotopy
+# gives up) on nodes with no DC path to ground and on any loop of voltage
+# sources and inductors, where ngspice gets through with its transient
+# operating point. A transient with icmode="uic" needs no DC path and
+# integrates through inductors; a loop of voltage sources fails it too.
+requires dc-path   error : VACASK's operating point fails on it, where ngspice gets through with its transient operating point; a large resistor to ground gives one
+requires no-vloop  error : VACASK's operating point fails on it
+requires no-vlloop error : VACASK's operating point fails on it, where ngspice gets through with its transient operating point
+requires no-lloop  error : VACASK's operating point fails on it, where ngspice and Xyce solve it
+
 caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
 caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)

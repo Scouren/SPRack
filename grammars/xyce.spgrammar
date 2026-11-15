@@ -153,6 +153,16 @@ no phasenoise : Xyce has no oscillator phase-noise analysis
 no envelope   : Xyce has no envelope-following analysis
 no qpss       : Xyce has no quasi-periodic steady-state analysis; a multitone .HB is the closest
 
+# Observed on decks written for it (Xyce 7.10): an island reached only
+# through capacitors is solved with a warning (0.5 V on an equal
+# capacitive divider, as ngspice); an unbalanced current source into one
+# fails the operating point. A loop of voltage sources, or of a voltage
+# source and an inductor, fails it; one of inductors only is solved.
+requires dc-path   warning : Xyce solves it with a warning, but fails the operating point when the currents of sources into it do not balance
+requires no-vloop  error   : Xyce's operating point fails on it
+requires no-vlloop error   : Xyce's operating point fails on it, where ngspice gets through with its transient operating point
+requires no-lloop  warning : Xyce solves it, but the current around the loop is not set by the circuit
+
 caveat tran skip_dc : UIC (or NOOP) skips the DC solve; other simulators seed the first time point differently
 caveat tran step : the first .TRAN number only sets the initial step in Xyce
 caveat noise out : Xyce reports noise as mean-square densities where HSPICE reports RMS

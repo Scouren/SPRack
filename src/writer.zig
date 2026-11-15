@@ -15,6 +15,7 @@ const expr = @import("expr.zig");
 const reader = @import("reader.zig");
 const stats = @import("stats.zig");
 const alter = @import("alter.zig");
+const topology = @import("topology.zig");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -1780,6 +1781,7 @@ pub fn write(
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
         if (g.unique_param.len > 0) try uniqueParams(nl.stmts, report, g);
         if (g.unique_master.len > 0) try uniqueMasters(nl.stmts, report, g);
+        try topology.check(ir.big, arena, nl, g, report);
     }
     const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
