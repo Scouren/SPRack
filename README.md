@@ -242,7 +242,7 @@ Whole model libraries, all corners, errors per target:
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
 | sky130 (ngspice) | 280 | 0 | 2 | 2 | 2 | 9 |
-| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 45 | 0 | 12 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 37 | 0 | 12 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
 | GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
@@ -251,9 +251,9 @@ Every error names a file and a line. What is left, and whose it is:
 
 - sky130 to every other target, 2: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses. Upstream: [issue 25](https://github.com/Scouren/SPRack/issues/25).
 - ASAP7 to ngspice and to VACASK, 24 each: BSIM-CMG, which neither has built in. Upstream: [issue 27](https://github.com/Scouren/SPRack/issues/27).
-- IHP to Xyce, 21: conditional blocks. Not yet translated.
+- IHP to Xyce, 1: an instance in `diodes.lib` of a subcircuit written once for each branch of its conditional block, which passes the deciding parameter down from its parent. Not yet translated.
 - IHP to Xyce, 16: the Verilog-A modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` (7 model cards) and their 9 instances. Not yet translated.
-- IHP to Xyce, 5: the NQS module of PSP103 (`pspnqs103va`). The target has no such thing: Xyce's PSP103 has no NQS.
+- IHP to Xyce, 17: the NQS module of PSP103 (`pspnqs103va`), 5 model cards and their 12 instances, one in the `rfmode` branch of each transistor subcircuit. The target has no such thing: Xyce's PSP103 has no NQS.
 - IHP to Xyce, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off.
 - IHP to VACASK, 12: a capacitor's `ic=`. The target has no such thing: VACASK sets initial conditions on the analysis.
 - sky130 to VACASK, 6: the function `pwr`. Not yet translated.
