@@ -106,7 +106,7 @@ was translated into the cache and the netlist references the copy.
 | `default_corner` | no | the corner used when none is asked for; without it, the first one of `corners` |
 | `aliases` | no | other names the PDK is found by, for a manifest in `python/sprack/pdks/` |
 | `about` | no | a line of description, for people |
-| `env` | no | environment variables tried in order for the root when `root=` is not given |
+| `env` | no | environment variables tried in order for the root when `root=` is not given; `["PDK_ROOT"]` when left out |
 | `prefix` | no | a prefix every device name starts with; a device method may leave it out |
 | `define` | no | values for `$NAME` in the library's include paths |
 | `load` | no | Verilog-A or OSDI files loaded at the top of a netlist |
@@ -136,8 +136,8 @@ from it (`.lib "file" section`), or `null` to include the whole file
 takes eight per corner, a design file and one section each for the MOSFETs,
 the bipolars, the diodes and so on.
 
-**`env`** must list a variable for it to be read. A manifest without `env`
-needs `root=` every time.
+**`env`** lists the variables read for the root, in order. A manifest
+without `env` reads `$PDK_ROOT`.
 
 **`prefix`**: with `"prefix": "mine_"`, `c.nfet(...)` finds `mine_nfet`. The
 dict form of a manifest is convenient for trying a field:
@@ -176,33 +176,28 @@ five files there are the examples to copy from.
 
 ## Checking a new manifest
 
-SPRack does not check a manifest against the files beyond the probe. A
-corner that names a file or a section that is not there loads without
-complaint, and the netlist then references something that does not exist.
-So check it once:
-
-```python
-import os
-
-for corner in pdk.corners:
-    for path, section in pdk.entries(corner):
-        assert os.path.isfile(path), f"{corner}: no file {path}"
-        if section:
-            lib = sprack.Circuit()
-            found = [s["name"] for s in lib.code(open(path).read(), pdk.dialect) if s["kind"] == "libsection"]
-            assert section in found, f"{corner}: {path} has no section {section}; it has {found}"
-print("every corner's files and sections exist")
-```
+SPRack checks the corner you ask for against the files. A corner that names
+a file that is not there is refused when the PDK is created, and a section
+no file defines is refused when the libraries are first read (`pdk.devices`,
+or writing a netlist):
 
 ```text
-every corner's files and sections exist
+SprackError: mine: corner 'tt' names …/mine/nothere.lib, which is not there
+SprackError: mine: corner 'tt' names section 'typ' of …/mine/models.lib, which defines: tt, ff, devices
+```
+
+Only the chosen corner is checked, so load each one once:
+
+```python
+for corner in pdk.corners:
+    one = sprack.PDK("mine", root="mine", corner=corner, manifest="mine.json")
+    print(corner, len(one.devices), "devices")
 ```
 
 The device list and the translated copies are cached under the PDK's name
-(see [The cache](pdks.md#the-cache)), and the cache does not notice a change
-to the manifest's `dialect` or `define`. While you are still editing a
-manifest, pass a fresh `cache_dir=` or delete the PDK's directory in the
-cache.
+(see [The cache](pdks.md#the-cache)). The cache follows the manifest: a
+change to its `dialect`, `corners` or `define`, or to any file the libraries
+read, makes a new entry.
 
 Then:
 
@@ -234,9 +229,8 @@ probe path is.
 SprackError: mine: give root=, or set $PDK_ROOT
 ```
 
-No `root=` and no variable of the manifest's `env` is set. The message names
-`$PDK_ROOT` also when the manifest has no `env`; in that case no variable is
-read and `root=` is the only way.
+No `root=` and no variable of the manifest's `env` is set. A manifest with
+no `env` reads `$PDK_ROOT`.
 
 ```text
 SprackError: mine has no corner 'ss'; it has: tt, ff
@@ -245,7 +239,7 @@ SprackError: mine has no corner 'ss'; it has: tt, ff
 The `corner=` asked for is not in `corners`.
 
 ```text
-KeyError: 'dialect'
+SprackError: the manifest for PDK 'mine' lacks dialect; a manifest needs: name, dialect, layouts, corners, and each layout a probe
 ```
 
 A required field is missing from the manifest.

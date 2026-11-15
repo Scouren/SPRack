@@ -153,7 +153,7 @@ op1 dc
 |---|---|
 | `--out <dir>` | where the translated tree is written |
 | `--lib` | the files named are libraries themselves, with no title line, as in a PDK |
-| `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. The log lists each section not followed |
+| `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. The log lists each section not followed; a name no file read defines is an error |
 | `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used |
 
 Every log line names a file, and a line where there is one. The last line
@@ -182,7 +182,7 @@ stands here for the directory the command was run in.
 $ sprack catalog --from ngspice tree/inc/sub.sp
 {"devices":[
 {"name":"rdiv","file":"…/tree/inc/sub.sp","section":"","kind":"subckt","ports":["a","b"],"params":{}}
-],"files":["…/tree/inc/sub.sp"],"root":"…/tree/inc","errors":0,"warnings":0,"missing":0}
+],"files":["…/tree/inc/sub.sp"],"sections":[],"root":"…/tree/inc","errors":0,"warnings":0,"missing":0}
 1 file, 0 errors, 0 warnings
 ```
 

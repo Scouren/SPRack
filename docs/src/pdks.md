@@ -309,10 +309,6 @@ tran1 tran step=10p stop=8n
 returns the directory; the full log is `sprack.log` in it.
 `pdk.library_errors(dialect)` returns the errors as a report.
 
-One thing in the report is misleading here: a netlist written with a PDK
-carries a `caveat` saying its library file "is still sprack syntax;
-translate that file too". With `sprack.PDK` the file named is already the
-PDK's own file or the translated copy.
 
 ### The built-in manifests
 

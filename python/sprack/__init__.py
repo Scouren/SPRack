@@ -586,13 +586,17 @@ class Circuit(_Scope):
         c.read_report = Report._from_json(rep)
         return c
 
-    def to_json(self, dialect: str | None = None, *, strict: bool = True) -> str:
-        """The circuit in the core's JSON form. With a dialect, the PDK's
-        libraries are referenced the way that dialect needs them."""
+    def _doc(self, dialect: str | None, strict: bool) -> dict:
+        """What `to_json` encodes. The statements are the circuit's own."""
         stmts = list(self.statements)
         if self.pdk is not None and dialect is not None:
             stmts = self.pdk.statements(dialect, strict=strict) + stmts
-        return json.dumps({"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": stmts})
+        return {"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": stmts}
+
+    def to_json(self, dialect: str | None = None, *, strict: bool = True) -> str:
+        """The circuit in the core's JSON form. With a dialect, the PDK's
+        libraries are referenced the way that dialect needs them."""
+        return json.dumps(self._doc(dialect, strict))
 
     def python(self, name: str = "c") -> str:
         """The circuit as a flat Python script that builds it again with this
@@ -621,10 +625,13 @@ class Circuit(_Scope):
         anyway, with the report attached as `.report`.
         """
         d = _dialect(dialect)
-        data = json.loads(self.to_json(d, strict=strict))
+        data = self._doc(d, strict)
         renames: dict[str, str] = dict(self.pdk._roots[d][3]) if d in getattr(self.pdk, "_roots", {}) else {}
-        lib_report = _translate_libraries(data["stmts"], data["dialect"], d, renames)
-        _rename_masters(data["stmts"], renames)
+        lib_report = Report()
+        # Both give back the statements, those they change as copies: the
+        # circuit's own stay as they are, and the rest is not copied at all.
+        data["stmts"] = _translate_libraries(data["stmts"], data["dialect"], d, lib_report, renames)
+        data["stmts"] = _rename_masters(data["stmts"], renames)
         text, rep = _core.write(d, json.dumps(data))
         report = Report(self._report + lib_report + Report._from_json(rep))
         if strict and report.errors:
@@ -993,14 +1000,33 @@ def _renames(log: str) -> dict[str, str]:
     return out
 
 
-def _rename_masters(stmts: list[dict], renames: dict[str, str]) -> None:
+def _changed(stmts: list[dict], change) -> list[dict]:
+    """`stmts` with `change(st)` in place of each statement it does not
+    return as it is; the list itself where it changes none. Nothing given
+    is modified: a caller's statements stay its own."""
+    out = stmts
+    for idx, st in enumerate(stmts):
+        new = change(st)
+        if new is not st:
+            if out is stmts:
+                out = list(stmts)
+            out[idx] = new
+    return out
+
+
+def _rename_masters(stmts: list[dict], renames: dict[str, str]) -> list[dict]:
     """Devices that use a renamed model by their SPICE letter follow it;
-    subcircuit instances keep the subcircuit."""
-    for st in stmts:
-        _rename_masters(st.get("body", []), renames)
+    subcircuit instances keep the subcircuit. Returns the statements, those
+    it changed as copies."""
+    def change(st: dict) -> dict:
+        body = st.get("body")
+        if body and (new := _rename_masters(body, renames)) is not body:
+            st = {**st, "body": new}
         m = st.get("master")
         if isinstance(m, str) and st.get("kind") != "instance" and m.lower() in renames:
-            st["master"] = renames[m.lower()]
+            st = {**st, "master": renames[m.lower()]}
+        return st
+    return _changed(stmts, change) if renames else stmts
 
 
 def _rmtree(path: str, tries: int = 3) -> bool:
@@ -1123,33 +1149,34 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
     return os.path.join(final, "tree", meta["top"]), log
 
 
-def _translate_libraries(stmts: list[dict], default: str, target: str, renames: dict[str, str] | None = None) -> Report:
+def _translate_libraries(stmts: list[dict], default: str, target: str, report: Report, renames: dict[str, str]) -> list[dict]:
     """Point every `lib` and `include` written in another dialect than
     `target` at a translated copy of the file tree it reaches (see
-    `_library_copy`); returns what the libraries could not say, and adds
-    the models they renamed to `renames`."""
-    report = Report()
-    renames = {} if renames is None else renames
+    `_library_copy`). Returns the statements, those it changed as copies;
+    adds what the libraries could not say to `report` and the models they
+    renamed to `renames`."""
     name = _grammar_name(target)
-    for st in stmts:
-        report.extend(_translate_libraries(st.get("body", []), st.get("dialect", default), target, renames))
+
+    def change(st: dict) -> dict:
         frm = st.get("dialect", default)
+        body = st.get("body")
+        if body and (new := _translate_libraries(body, frm, target, report, renames)) is not body:
+            st = {**st, "body": new}
         if st.get("kind") not in ("lib", "include") or frm == name or frm not in DIALECTS:
-            continue
+            return st
         path = st.get("path")
         path = path.get("str") if isinstance(path, dict) else path
         if not isinstance(path, str):
-            continue
+            return st
         src = os.path.abspath(os.path.expandvars(path))
         if not os.path.isfile(src):
             report.append(Entry("error", "invalid", st.get("line", 0), f"{st['kind']}: cannot open {src}"))
-            continue
+            return st
         copy, log = _library_copy(src, frm, target)
         report.extend(_errors(log))
         renames.update(_renames(log))
-        st["path"] = {"str": copy}
-        st["dialect"] = name
-    return report
+        return {**st, "path": {"str": copy}, "dialect": name}
+    return _changed(stmts, change)
 
 
 # ------------------------------------------------------------------------ PDKs

@@ -7,7 +7,7 @@ SPRACK_TEST_PDKS_INSTALLED at installed sky130 and ihp trees
 (nix build .#test-pdks-installed; those tests also run ngspice). Without
 them those tests are skipped and say so.
 """
-import os, shutil, sys, tempfile, time, traceback
+import copy, os, shutil, sys, tempfile, time, traceback
 
 import sprack
 
@@ -699,6 +699,29 @@ def test_tiny_pdk_corner_must_be_there():
             raises(sprack.SprackError, lambda: c.netlist(target, strict=False), "names section 'ff'")
         raises(sprack.Unsupported, lambda: pdk(corner="ff").translate("xyce"), "section 'ff' is asked for, but no file read defines it")
     _tiny(body)
+
+
+def test_netlist_leaves_the_circuit_as_it_is():
+    def body(make, d):
+        # A library whose model Spectre has to rename: a subcircuit has the name too.
+        with open(os.path.join(d, "both.lib"), "w") as f:
+            f.write("* both\n.model dm d is=1e-14\n.subckt dm a b\nD1 a b dm\n.ends dm\n")
+        c = sprack.Circuit("t", pdk=make())
+        c.code(f'.include "{d}/both.lib"\n')
+        with c.subckt("wrap", "a", "b") as s:
+            s.code(f'.include "{d}/both.lib"\n')
+            s.D("1", "a", "b", "dm")
+        c.D("2", "a", 0, "dm")
+        c.cell("X1", "a", 0)
+        c.V("1", "a", 0, 1)
+        c.op()
+        before = copy.deepcopy(c.statements)
+        out = unwrap(c.netlist("spectre", strict=False))
+        # The translated copy and the renamed model are in the netlist only.
+        assert out.count(f'include "{os.environ["SPRACK_CACHE"]}/libs/') == 2 and f"{d}/both.lib" not in out, out
+        assert "D1 (a b) dm__m\n" in out and "D2 (a 0) dm__m\n" in out, out
+        assert c.statements == before
+    _with_cache(lambda cache: _tiny(body))
 
 
 def test_tiny_pdk_library_is_not_foreign():
