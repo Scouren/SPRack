@@ -611,6 +611,179 @@ def test_pdk_errors():
         raises(sprack.SprackError, lambda: sprack.PDK("ASAP7", root=os.path.join(PDKS, "asap7"), corner="fs"), "has no corner 'fs'; it has: tt, ff, ss")
 
 
+# One deck that says a bit of everything, in ngspice.
+DECK = """Rich deck
+* a comment
+.param vdd=1.8 rload=2k
+.model nch nmos level=54 version=4.5 vth0=0.4
+.model dm d is=1e-14
+.subckt inv in out vdd wn=1u
+Mn out in 0 0 nch w={wn} l=180n
+Rb out 0 1MEG
+.ends inv
+Vdd vdd 0 {vdd}
+Vin in 0 DC 0 AC 1 PULSE(0 1.8 1n 50p 50p 2n 4n)
+I1 0 out DC 1M $ one milliamp
+X1 in mid vdd inv wn=2u
+R1 mid out {rload} tc1=1m
+C1 out 0 10f
+
+D1 out 0 dm
+E1 e 0 mid 0 2
+L1 out l2 10n
+.options reltol=1e-4 temp=27 method=gear
+.ic v(out)=0
+.save v(out) i(Vdd)
+.print tran v(in,out)
+.op
+.dc Vin 0 1.8 0.01
+.ac dec 10 1 1G
+.tran 10p 8n uic
+.end
+"""
+
+
+def _decks():
+    """DECK as each dialect says it (what a dialect cannot say is left out)."""
+    for d in sprack.DIALECTS:
+        yield d, (DECK if d == "ngspice" else str(sprack.translate(DECK, frm="ngspice", to=d, strict=False)))
+
+
+def _same(a, b):
+    """Two netlists with their reports, blank lines aside."""
+    lines = lambda t: [l for l in str(t).split("\n") if l.strip()]
+    said = lambda t: [(e.severity, e.code, e.message) for e in t.report]
+    return lines(a) == lines(b) and said(a) == said(b)
+
+
+def test_read_then_write_is_translate():
+    # The Python path (read to statements, write them) is the translator.
+    for d, src in _decks():
+        for t in sprack.DIALECTS:
+            direct = sprack.translate(src, frm=d, to=t, strict=False)
+            assert str(sprack.read(src, d).netlist(t, strict=False)) == str(direct), f"{d} -> {t}"
+    # Spectre's insensitive=yes is the netlist's, not a statement's: it stays.
+    scs = "// t\nsimulator lang=spectre insensitive=yes\nR1 (a 0) resistor r=1k\n"
+    assert "insensitive=yes" in sprack.read(scs, "spectre").netlist("spectre")
+    # Through the statements as JSON: a dotted version stays a word, a
+    # parameter given twice stays twice, a negated signal an expression.
+    for src, want in [("t\n.model n3 nmos level=49 version=3.3.0\n.end\n", "version=3.3.0\n"),
+                      ("t\n.model p1 pmos level=54 toxref=1.26n vsat=69000 toxref=1.3n\n.end\n", "vsat=69000 toxref=1.3n\n"),
+                      ("t\n.print dc -i(vc) v(a)\n.end\n", ".print dc -i(vc) v(a)\n")]:
+        out = sprack.read(src, "ngspice").netlist("ngspice", strict=False)
+        assert want in out, out
+        assert _same(out, sprack.translate(src, frm="ngspice", to="ngspice", strict=False)), out.report
+
+
+def _flat(code):
+    """Only imports, assignments, calls and `with` blocks: no def, no class."""
+    import ast
+
+    def ok(nodes):
+        return all(isinstance(n, (ast.Import, ast.Assign, ast.Expr, ast.Pass)) or isinstance(n, ast.With) and ok(n.body) for n in nodes)
+    return ok(ast.parse(code).body)
+
+
+def _run(code):
+    scope = {}
+    exec(code, scope)
+    return scope["c"]
+
+
+def test_to_python():
+    # Any dialect to a script of builder calls; the script builds a circuit
+    # that every dialect is written from exactly as from the netlist.
+    for d, src in _decks():
+        code = sprack.to_python(src, d)
+        assert _flat(code), code
+        assert ".code(" not in code and "statements.append" not in code, code
+        c2 = _run(code)
+        for t in sprack.DIALECTS:
+            assert _same(c2.netlist(t, strict=False), sprack.read(src, d).netlist(t, strict=False)), f"{d} -> python -> {t}\n{code}"
+    code = sprack.to_python(DECK, "ngspice")
+    for line in ['c = sprack.Circuit("Rich deck", dialect="ngspice")', 'c.param(vdd=1.8, rload="2k")',
+                 'c.model("nch", "bsim4", "n", version=4.5, vth0=0.4)', 'c.model("dm", "diode", **{"is": 1e-14})',
+                 'with c.subckt("inv", "in", "out", "Vdd", wn="1u") as s:', '    s.M("n", "out", "in", 0, 0, "nch", w="wn", l="180n")',
+                 'c.V("in", "in", 0, 0, ac=1, pulse=(0, 1.8, "1n", "50p", "50p", "2n", "4n"))',
+                 'c.I("1", 0, "out", "1m").tail("one milliamp")', 'c.R("1", "mid", "out", "rload", tc1="1m")',
+                 'c.ic({"out": 0})', 'c.save("v(out)", "i(Vdd)")', 'c.print_("tran", "v(in,out)")',
+                 'c.dc("Vin", 0, 1.8, 0.01)', 'c.tran("10p", "8n", uic=True)']:
+        assert line + "\n" in code, f"missing {line!r} in\n{code}"
+    assert "\n\nc.D(" in code  # a blank line of the netlist is one of the script
+    # A circuit built here says itself the same way, and the script of the
+    # script's circuit is the script.
+    assert _run(build().python()).statements == build().statements
+    assert _run(code).python() == code.replace("\n\nc.D(", "\nc.D(")
+    # Statements that hold others are `with` blocks: an alter, a sweep, a
+    # conditional, a library section.
+    hs = "t\n.param rv=1k\nV1 a 0 1\nR1 a 0 rv\n.op\n.alter hot\n.param rv=2k\n.temp 85\n.end\n"
+    code = sprack.to_python(hs, "hspice")
+    assert 'with c.alter("hot") as s:\n    s.param(rv="2k")\n    s.options(temp=85)\n' in code, code
+    assert _same(_run(code).netlist("spectre", strict=False), sprack.translate(hs, frm="hspice", to="spectre", strict=False))
+    ng = "t\n.lib tt\n.param a=1\n.if (a > 1)\nR1 a 0 1k\n.else\nR1 a 0 2k\n.endif\n.endl tt\n"
+    code = sprack.to_python(ng, "ngspice")
+    assert 'with c.libsection(name="tt") as s:' in code and "        s2.cond_else()\n" in code and ".code(" not in code, code
+    assert _same(_run(code).netlist("ngspice", strict=False), sprack.translate(ng, frm="ngspice", to="ngspice", strict=False))
+    # The one thing with no call: a line no rule of the dialect understood.
+    out = sprack.to_python("t\nR1 a 0 1k\n.bogus 1 2\n.control\nrun\n.endc\n.end\n", "ngspice")
+    assert 'c.code(".bogus 1 2\\n")\n' in out and 'c.code(".control\\nrun\\n.endc\\n")\n' in out, out
+    assert out.report == []  # kept as they are: nothing to report until another dialect is asked for
+    assert ".bogus 1 2\n" in _run(out).netlist("ngspice")
+
+
+def _sample(slot, n=0):
+    """A value of the JSON form for a slot of the vocabulary."""
+    one = {"name": "x1", "node": f"n{n}", "ident": "m1", "ref": "V1", "value": "1.5e-9", "atom": "a1", "text": "some text",
+           "path": {"str": "lib/f.inc"}, "signal": "v(n1)", "params": {"k1": "1e3", "is": "2*k1", "flag": None}}[slot["type"]]
+    return [one, _sample({**slot, "list": False}, 1)] if slot["list"] else one
+
+
+def test_everything_has_a_function():
+    # The builder says the whole vocabulary: for every kind, a statement
+    # with all its slots given, and one per slot with that slot alone, is
+    # rebuilt by a call. No netlist text, no statement written by hand.
+    holds = ("subckt", "libsection", "cond_if", "step", "statistics", "statgroup", "montecarlo", "library", "alter")
+    count = 0
+    for kind, info in sprack.KINDS.items():
+        if kind in ("opaque", "comment"):
+            continue
+        full = {"kind": kind, **{sl["name"]: _sample(sl) for sl in info["slots"]}}
+        # A device is its name and, where it has one, its model: the builder refuses one without.
+        # (And a print has a style: the builder says "print" where none is given.)
+        least = {k: full[k] for k in ("name", "master") if k in full and info["class"] == "device"}
+        if kind == "print":
+            least["style"] = "plot"
+        cases = [full] + [{"kind": kind, **least, sl["name"]: _sample(sl)} for sl in info["slots"]]
+        if kind in holds:
+            cases.append({**full, "body": [{"kind": "resistor", "name": "R1", "pos": "a", "neg": "0", "r": "1e3", "tail": "note"}]})
+        for st in cases:
+            c = sprack.Circuit("t")
+            c.statements = [st]
+            code = c.python()
+            assert _flat(code) and "statements.append" not in code and ".code(" not in code, f"no call for {st}\n{code}"
+            assert sprack._deep(_run(code).statements[0]) == sprack._deep(st), f"{st}\n{code}"
+            count += 1
+    assert count > 600, count
+    # What a plain value cannot say has a function too.
+    c = sprack.Circuit("t")
+    c.model("n3", "bsim3", "n", version="3.3.0", flavour=sprack.word("a.b"), file=sprack.quoted("m.dat"), k=sprack.expr("13"))
+    c.print_("dc", "-i(vc)", sprack.v("a"))
+    c.add("param", params=[("czero", "1p"), ("dev/gauss", "0.1p"), ("cone", "2p"), ("dev/gauss", "0.2p")])
+    c.tran("1n", "1u", ic={"out": 0.5})
+    with c.subckt("cell", "a", "b", inline=True) as s:
+        s.R("1", "a", "b", "1k").tail("the only one")
+    ng = c.netlist("ngspice", strict=False)
+    for line in [".model n3 nmos level=8 version=3.3.0 flavour=a.b file=\"m.dat\" k={13}", ".print dc -i(vc) v(a)",
+                 # Each dev/gauss is the parameter's before it: both are kept.
+                 ".param czero={agauss(1p, 0.1p, 1)} cone={agauss(2p, 0.2p, 1)}", "R1 a b 1k $ the only one"]:
+        assert line + "\n" in ng, f"missing {line!r} in\n{ng}"
+    assert ".param czero=1p dev/gauss=0.1p cone=2p dev/gauss=0.2p\n" in c.netlist("hspice", strict=False)
+    assert "inline subckt cell (a b)\n" in c.netlist("spectre", strict=False)
+    assert "ic={\"out\",0.5}" in c.netlist("vacask", strict=False)
+    # A slot an alias would hide is still its own: `model` of a `vary` is not a device's model.
+    assert c.vary("vth0", "gauss", "0.01", model="nch")["model"] == "nch"
+
+
 if __name__ == "__main__":
     failed = skipped = 0
     for name, fn in list(globals().items()):

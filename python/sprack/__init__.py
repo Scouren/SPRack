@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import keyword
 import os
 import re
 import shutil
@@ -37,7 +38,8 @@ from . import _core
 
 __all__ = [
     "Circuit", "PDK", "Report", "Entry", "Netlist", "SprackError", "Unsupported",
-    "DIALECTS", "KINDS", "dialects", "translate", "read", "can_write", "why_not", "v", "i",
+    "DIALECTS", "KINDS", "dialects", "translate", "read", "to_python", "can_write", "why_not", "v", "i",
+    "word", "quoted", "expr",
 ]
 
 _INFO = json.loads(_core.info())
@@ -189,6 +191,51 @@ def i(device: str) -> str:
     return f"i({device})"
 
 
+def word(text: str) -> dict:
+    """A word to be written exactly as it is where a value stands, neither a
+    number nor an expression: `c.model("n", "bsim3", "n", flavour=sprack.word("a.b"))`."""
+    return _Typed(raw=str(text))
+
+
+def quoted(text: str) -> dict:
+    """A quoted string as a value: `simulation=sprack.quoted("dinv.vvp")`."""
+    return _Typed(str=str(text))
+
+
+def expr(text: str) -> dict:
+    """An expression, where a plain string would be read as something else:
+    a number (`sprack.expr("13")` is written `{13}`) or a signal's name."""
+    return _Typed(expr=str(text))
+
+
+class _Typed(dict):
+    """A value that says its type, in the JSON form the core reads."""
+
+
+class _Stmt(dict):
+    """A statement, as the builder returns it: the dict the core reads.
+
+    One that holds other statements (a subcircuit, a library section, a
+    conditional, a sweep, a Monte Carlo run, an alter) is filled in a `with`
+    block: `with c.step("rv", "1k", "3k", "1k") as s: s.tran("1n", "1u")`.
+    """
+    _scope: "_Scope"
+
+    def tail(self, text: str) -> "_Stmt":
+        """Give the statement a trailing comment."""
+        self["tail"] = str(text)
+        return self
+
+    def __enter__(self) -> "_Scope":
+        body = _Scope(self._scope._pdk)
+        body.statements = self.setdefault("body", [])
+        body._report = self._scope._report
+        return body
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+
 # --------------------------------------------------------------------- builder
 
 _LETTERS = {
@@ -262,6 +309,13 @@ def _val(x: Any) -> Any:
     return str(x)
 
 
+def _params(pairs: Iterable[tuple[Any, Any]]) -> Any:
+    """Parameters in the JSON form the core reads: an object, or `[name,
+    value]` pairs when a name comes twice (`toxref=1.26n ... toxref=1.3n`)."""
+    out = [[str(k), _val(v)] for k, v in pairs]
+    return dict(out) if len({k for k, _ in out}) == len(out) else out
+
+
 def _slots(kind: str) -> dict[str, dict]:
     return {s["name"]: s for s in KINDS[kind]["slots"]}
 
@@ -275,8 +329,14 @@ class _Scope:
         # What `code` could not read; shared by a circuit and its subcircuits.
         self._report = Report()
 
+    def _push(self, st: dict) -> _Stmt:
+        out = _Stmt(st)
+        out._scope = self
+        self.statements.append(out)
+        return out
+
     # -- the one way in ---------------------------------------------------
-    def add(self, kind: str, *args: Any, **kw: Any) -> dict:
+    def add(self, kind: str, *args: Any, **kw: Any) -> _Stmt:
         """Add a statement of any kind in `sprack.KINDS`.
 
         The named methods (`R`, `tran`, `options`, ...) all end up here.
@@ -318,26 +378,27 @@ class _Scope:
                     rest = []
                 else:
                     st[name] = _val(rest.pop(0))
-        params: dict[str, Any] = {}
+        params: list[tuple[str, Any]] = []
         for key, value in kw.items():
-            key = _ALIASES.get(key, key)
+            # An alias gives way to a slot of the name (`model` of a `vary`).
+            key = key if key in slots else _ALIASES.get(key, key)
             if value is None:
                 continue
-            if key in slots and slots[key]["type"] != "params":
+            if key == "params" and "params" in slots:
+                # A dict, or (name, value) pairs where a name comes twice.
+                params.extend(value.items() if isinstance(value, dict) else value)
+            elif key in slots:
                 st[key] = _val(value)
-            elif key == "params" and "params" in slots:
-                params.update(value)
             elif "params" in slots and KINDS[kind]["class"] == "device":
-                params[key] = value
+                params.append((key, value))
             else:
                 valid = ", ".join(n for n in slots if n != "params")
                 raise TypeError(f"{kind} has no {key!r}; it has: {valid}")
         if params:
-            st["params"] = _val(params)
+            st["params"] = _params(params)
         if kind == "print":
             st.setdefault("style", "print")
-        self.statements.append(st)
-        return st
+        return self._push(st)
 
     # -- devices ----------------------------------------------------------
     def _source(self, kind: str, letter: str, name: Any, pos: Any, neg: Any, dc: Any, kw: dict) -> dict:
@@ -389,7 +450,7 @@ class _Scope:
             kind = _LETTERS[attr]
             return lambda name, *a, **k: self.add(kind, f"{attr}{name}", *a, **k)
         # resistor, tran, options, ... : any kind, by its own name.
-        if attr in KINDS and attr not in ("opaque", "comment", "subckt", "libsection"):
+        if attr in KINDS and attr not in ("opaque", "comment", "subckt"):
             return lambda *a, **k: self.add(attr, *a, **k)
         # A device of the PDK.
         pdk = self.__dict__.get("_pdk")
@@ -423,9 +484,7 @@ class _Scope:
     # -- structure --------------------------------------------------------
     def param(self, **values: Any) -> dict:
         """Netlist parameters: `c.param(vdd=1.8, wn="2*wmin")`."""
-        st = {"kind": "param", "params": _val(values)}
-        self.statements.append(st)
-        return st
+        return self._push({"kind": "param", "params": _val(values)})
 
     def model(self, name: str, family: str | None = None, polarity: str | None = None, *, type: str | None = None, **params: Any) -> dict:
         """A model card. `family` is canonical ("bsim4", "diode", "bjt", ...) with
@@ -439,15 +498,18 @@ class _Scope:
             st["type"] = type
         if params:
             st["params"] = _val(params)
-        self.statements.append(st)
-        return st
+        return self._push(st)
 
-    def subckt(self, name: str, *ports: Any, **params: Any) -> "Subckt":
-        """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`."""
-        sub = Subckt(name, ports, params, self._pdk)
-        sub._report = self._report
-        self.statements.append(sub._stmt)
-        return sub
+    def subckt(self, name: str, *ports: Any, inline: Any = None, **params: Any) -> _Stmt:
+        """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`.
+        `inline=True`: an inline subcircuit (Spectre), whose devices are named
+        as if they stood where its instance does."""
+        st: dict[str, Any] = {"kind": "subckt", "name": name, "ports": [str(p) for p in ports], "body": []}
+        if params:
+            st["params"] = _val(params)
+        if inline is not None:
+            st["inline"] = _val(inline)
+        return self._push(st)
 
     def options(self, **values: Any) -> dict:
         """Simulator options from the shared vocabulary: reltol, abstol, vntol,
@@ -459,14 +521,10 @@ class _Scope:
 
     def ic(self, values: dict | None = None, **more: Any) -> dict:
         """Initial node voltages: `c.ic(out=0.9)` or `c.ic({"out": 0.9})`."""
-        st = {"kind": "ic", "values": _val({**(values or {}), **more})}
-        self.statements.append(st)
-        return st
+        return self._push({"kind": "ic", "values": _val({**(values or {}), **more})})
 
     def nodeset(self, values: dict | None = None, **more: Any) -> dict:
-        st = {"kind": "nodeset", "values": _val({**(values or {}), **more})}
-        self.statements.append(st)
-        return st
+        return self._push({"kind": "nodeset", "values": _val({**(values or {}), **more})})
 
     def code(self, text: str, dialect: str = "ngspice") -> list[dict]:
         """Add statements written as `dialect` text (a built-in name or a
@@ -495,41 +553,33 @@ class _Scope:
         return stmts
 
     def comment(self, text: str) -> dict:
-        st = {"kind": "comment", "raw": text}
-        self.statements.append(st)
-        return st
-
-
-class Subckt(_Scope):
-    def __init__(self, name: str, ports: Iterable[Any], params: dict, pdk: "PDK | None"):
-        super().__init__(pdk)
-        self._stmt: dict[str, Any] = {"kind": "subckt", "name": name, "ports": [str(p) for p in ports], "body": self.statements}
-        if params:
-            self._stmt["params"] = _val(params)
-
-    def __enter__(self) -> "Subckt":
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        return None
+        return self._push({"kind": "comment", "raw": text})
 
 
 class Circuit(_Scope):
     """A circuit, its analyses and what to record, independent of any simulator."""
 
-    def __init__(self, title: str = "untitled", pdk: "PDK | None" = None):
+    def __init__(self, title: str = "untitled", pdk: "PDK | None" = None, dialect: str | None = None):
+        """`dialect`: the dialect whose terms the statements are in, as for a
+        netlist read from it. What that dialect assumes where a statement
+        says nothing (HSPICE's TNOM of 25) then holds here too, and its own
+        options and analysis parameters are written back to it as they are."""
         super().__init__(pdk)
         self.title = title
         self.pdk = pdk
+        self._source_dialect = dialect or ""
+        #: Names that differ only by case are one name (a Spectre netlist
+        #: that says `insensitive=yes`).
+        self.folds_case = False
 
     @classmethod
     def read(cls, source: str, dialect: str) -> "Circuit":
         """A circuit from an existing netlist in any dialect."""
         text, rep = _core.read(_dialect(dialect), source)
         data = json.loads(text)
-        c = cls(data.get("title") or "untitled")
+        c = cls(data.get("title") or "untitled", dialect=data.get("dialect", ""))
         c.statements = data["stmts"]
-        c._source_dialect = data.get("dialect", "")
+        c.folds_case = bool(data.get("folds_case"))
         c.read_report = Report._from_json(rep)
         return c
 
@@ -539,7 +589,26 @@ class Circuit(_Scope):
         stmts = list(self.statements)
         if self.pdk is not None and dialect is not None:
             stmts = self.pdk.statements(dialect, strict=strict) + stmts
-        return json.dumps({"title": self.title, "dialect": getattr(self, "_source_dialect", "") or "sprack", "stmts": stmts})
+        return json.dumps({"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": stmts})
+
+    def python(self, name: str = "c") -> str:
+        """The circuit as a flat Python script that builds it again with this
+        package: one call per statement on a `Circuit` named `name`, and a
+        `with` block for a statement that holds others. No functions, no
+        classes, no netlist text.
+
+        Netlists written from the script are those written from this
+        circuit, comments included; only blank lines are not rebuilt (they
+        are blank lines of the script). The one thing the builder has no
+        call for is a line no rule of its dialect understood: that is a
+        `code` block of that dialect's text.
+        """
+        d = self._source_dialect
+        out = ["import sprack", "", f"{name} = sprack.Circuit({_show(self.title)}" + (f", dialect={_show(d)}" if d else "") + ")"]
+        if self.folds_case:
+            out.append(f"{name}.folds_case = True")
+        _script(self.statements, name, "b" if name.startswith("s") else "s", d, 0, out)
+        return "\n".join(out) + "\n"
 
     def netlist(self, dialect: str, *, strict: bool = True) -> Netlist:
         """The circuit as a netlist for `dialect`.
@@ -572,6 +641,277 @@ class Circuit(_Scope):
     def check(self, dialect: str) -> Report:
         """What writing this circuit for `dialect` would report, without raising."""
         return self.netlist(dialect, strict=False).report
+
+
+# ------------------------------------------------------------------- as Python
+
+_SI = {12: "T", 9: "G", 6: "meg", 3: "k", -3: "m", -6: "u", -9: "n", -12: "p", -15: "f", -18: "a"}
+_SI_EXP = {s: e for e, s in _SI.items()}
+_EXPONENT = re.compile(r"(-?\d+(?:\.\d+)?)e(-?\d+)")
+_SUFFIXED = re.compile(r"(-?\d+(?:\.\d+)?)(T|G|meg|k|m|u|n|p|f|a)")
+_PLAIN = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?")
+_TYPED = {"raw": "word", "str": "quoted", "expr": "expr"}
+#: Keywords of `V` and `I` that are not statement slots.
+_SOURCE_SUGAR = ("ac", "pwl", *_WAVES)
+
+
+def _pv(v: Any, ty: str) -> Any:
+    """The Python value to pass for the JSON value `v` of a slot of type
+    `ty`: a number where its text is one (`"1.8"` is 1.8, a node `"0"` is 0),
+    and `"1e3"` as `"1k"`. The digits never change."""
+    if ty == "params":
+        if isinstance(v, dict):
+            return {k: _pv(x, "value") for k, x in v.items()}
+        return [(k, _pv(x, "value")) for k, x in v]  # pairs: a name comes twice
+    if isinstance(v, list):
+        return [_pv(x, ty) for x in v]
+    if isinstance(v, dict):
+        if ty == "path" and list(v) == ["str"]:
+            return v["str"]
+        return _Typed(v) if len(v) == 1 and next(iter(v)) in _TYPED else v
+    if not isinstance(v, str) or ty not in ("node", "value", "atom"):
+        return v
+    if ty == "atom" and v in ("yes", "no"):
+        return v == "yes"
+    m = _EXPONENT.fullmatch(v) if ty == "value" else None
+    if m and int(m.group(2)) in _SI:
+        return m.group(1) + _SI[int(m.group(2))]
+    if _PLAIN.fullmatch(v):
+        for num in (int, float):
+            try:
+                if _val(num(v)) == v:
+                    return num(v)
+            except ValueError:
+                pass
+    return v
+
+
+def _show(v: Any) -> str:
+    """A Python literal for a value `_pv` made."""
+    if isinstance(v, str):
+        return json.dumps(v)
+    if isinstance(v, _Typed):
+        (tag, text), = v.items()
+        return f"sprack.{_TYPED[tag]}({json.dumps(text)})"
+    if isinstance(v, tuple):
+        return "(" + ", ".join(_show(x) for x in v) + ("," if len(v) == 1 else "") + ")"
+    if isinstance(v, list):
+        return "[" + ", ".join(_show(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{_show(k)}: {_show(x)}" for k, x in v.items()) + "}"
+    return repr(v)
+
+
+def _show_call(method: str, args: list, kw: dict) -> str:
+    # From the first name Python cannot spell as a keyword (`from` of a
+    # measure, a diode's `is`) the rest go in `**{...}`: the order is kept.
+    keys = list(kw)
+    n = next((i for i, k in enumerate(keys) if not k.isidentifier() or keyword.iskeyword(k)), len(keys))
+    parts = [_show(a) for a in args] + [f"{k}={_show(kw[k])}" for k in keys[:n]]
+    if n < len(keys):
+        parts.append("**" + _show({k: kw[k] for k in keys[n:]}))
+    return f"{method}({', '.join(parts)})"
+
+
+def _canon(v: Any) -> Any:
+    """A value as the core reads it: `1k` is `1e3`, and parameters keep their order."""
+    if isinstance(v, str):
+        m = _SUFFIXED.fullmatch(v)
+        return f"{m.group(1)}e{_SI_EXP[m.group(2)]}" if m else v
+    if isinstance(v, (list, tuple)):
+        return [_canon(x) for x in v]
+    if isinstance(v, dict):
+        return [[k, _canon(x)] for k, x in v.items()]
+    return v
+
+
+def _norm(st: dict, drop: tuple = ()) -> dict:
+    """What of a statement a call has to rebuild: not its line number, its
+    trailing comment or its body, and a path is a path quoted or not."""
+    types = {sl["name"]: sl["type"] for sl in KINDS.get(st.get("kind"), {}).get("slots", [])}
+    out = {}
+    for k, v in st.items():
+        if k in ("line", "tail", "body") or k in drop or v is None or v == []:
+            continue
+        if types.get(k) == "path" and isinstance(v, dict) and list(v) == ["str"]:
+            v = v["str"]
+        out[k] = _canon(v)
+    return out
+
+
+def _deep(st: dict, drop: tuple = ()) -> tuple:
+    return _norm(st, drop), st.get("tail"), [_deep(b, drop) for b in st.get("body", [])]
+
+
+def _plain_params(params: Any, taken: Iterable[str], flags: bool = True) -> bool:
+    """Can these parameters be keyword arguments, each under its own name?
+    `flags`: also one without a value (`add` takes None as not given)."""
+    return isinstance(params, dict) and all(k not in taken and (flags or v is not None) for k, v in params.items())
+
+
+def _calls(st: dict) -> Iterable[tuple[str, list, dict]]:
+    """The builder calls that may add statement `st`, the most readable first."""
+    kind = st.get("kind")
+    if kind == "comment":
+        yield "comment", [st.get("raw", "")], {}
+        return
+    if kind not in KINDS or kind == "opaque":
+        return
+    slots = _slots(kind)
+    given = {k: v for k, v in st.items() if k in slots and v is not None}
+    params = given.pop("params", None)
+    pv = None if params is None else _pv(params, "params")
+    everything = {k: _pv(v, slots[k]["type"]) for k, v in given.items()}
+    if params is not None:
+        everything["params"] = pv
+    device = KINDS[kind]["class"] == "device"
+    if kind == "subckt":
+        kw = {} if "inline" not in given else {"inline": True if given["inline"] == "yes" else given["inline"]}
+        if isinstance(given.get("name"), str) and _plain_params(pv or {}, ("self", "name", "ports", "inline")):
+            yield "subckt", [given["name"], *given.get("ports", [])], {**kw, **(pv or {})}
+    elif kind == "param" and _plain_params(pv, ("self",)):
+        yield "param", [], pv
+    elif kind == "model" and isinstance(given.get("name"), str):
+        args = [given["name"]] + [given[k] for k in ("family", "polarity") if k in given and "family" in given]
+        kw = {k: given[k] for k in ("polarity", "type") if k in given and given[k] not in args[1:]}
+        if _plain_params(pv or {}, ("self", "name", "family", "polarity", "type")):
+            yield "model", args, {**kw, **(pv or {})}
+    elif kind in ("ic", "nodeset") and list(given) == ["values"]:
+        yield kind, [everything["values"]], {}
+    elif kind == "options":
+        yield "options", [], everything
+    elif isinstance(given.get("name"), str) or not device:
+        method = kind + "_" if keyword.iskeyword(kind) or kind == "print" else kind
+        args: list = []
+        kw = {}
+        if device:
+            name = given.pop("name")
+            # `c.R("1", ...)` is R1: the letter method when the name starts with it.
+            if len(name) > 1 and _LETTERS.get(name[0]) == kind:
+                method, name = name[0], name[1:]
+            args.append(name)
+        order = _POSITIONAL.get(kind, [n for n in slots if n not in ("name", "params")])
+        if order == "*":
+            if "nodes" in slots:
+                args += [_pv(n, "node") for n in given.pop("nodes", [])]
+            else:
+                for n, sl in slots.items():
+                    if sl["type"] in ("node", "ref") and n != "master":
+                        if n not in given:
+                            break
+                        args.append(_pv(given.pop(n), "node"))
+            # The model comes after the terminals; with none it is named.
+            if "master" in given and len(args) > 1:
+                args.append(given.pop("master"))
+            elif "master" in given:
+                kw["model"] = given.pop("master")
+        else:
+            for n in order:
+                if n not in given:
+                    break
+                v = _pv(given.pop(n), slots[n]["type"])
+                # A list in the last place is the rest of the arguments.
+                if n == order[-1] and isinstance(v, list) and v and not (len(v) == 1 and isinstance(v[0], (list, tuple))):
+                    args += v
+                else:
+                    args.append(v)
+            if kind == "print" and given.get("style") == "print":
+                del given["style"]
+        if method in ("V", "I"):
+            if "acmag" in given:
+                mag = _pv(given.pop("acmag"), "value")
+                kw["ac"] = (mag, _pv(given.pop("acphase"), "value")) if "acphase" in given else mag
+            wave = given.get("wave")
+            sugar = "sin" if wave == "sine" else wave
+            fields = _WAVES.get(sugar, []) if isinstance(wave, str) else []
+            n = 0
+            while n < len(fields) and fields[n] in given:
+                n += 1
+            if n > 0 and not any(f in given for f in fields[n:]):
+                kw[sugar] = tuple(_pv(given.pop(f), "value") for f in fields[:n])
+                del given["wave"]
+            elif wave == "pwl" and isinstance(given.get("pwl"), list):
+                pts = _pv(given.pop("pwl"), "value")
+                kw["pwl"] = list(zip(pts[0::2], pts[1::2])) if len(pts) % 2 == 0 else pts
+                del given["wave"]
+        for k, v in given.items():
+            kw["uic" if k == "skip_dc" else k] = _pv(v, slots[k]["type"])
+        if device and _plain_params(pv, ("self", "name", "kind", *slots, *_ALIASES, *_SOURCE_SUGAR, *kw), flags=False):
+            kw.update(pv)
+        elif params is not None:
+            kw["params"] = pv
+        yield method, args, kw
+    # Every slot by name: what `add` takes when the short form does not fit.
+    if not device:
+        yield "add", [kind], everything
+
+
+def _built(st: dict) -> str | None:
+    """The first call of `_calls` that adds exactly this statement (its
+    body aside)."""
+    want = _norm(st)
+    for method, args, kw in _calls(st):
+        try:
+            scratch = Circuit()
+            getattr(scratch, method)(*args, **kw)
+            if len(scratch.statements) == 1 and _norm(scratch.statements[0]) == want:
+                return _show_call(method, args, kw)
+        except Exception:  # not a call the builder takes: try the next form
+            continue
+    return None
+
+
+def _as_code(st: dict, dialect: str) -> str | None:
+    """The statement as text of its own dialect in a `code` block, if that
+    text reads back as the statement."""
+    d = st.get("dialect") or dialect
+    if not d:
+        return None
+    try:
+        text, _rep = _core.write(_dialect(d), json.dumps({"title": "", "dialect": d, "stmts": [st]}), True)
+        got = Circuit().code(text, d)
+    except Exception:  # no such dialect, or it cannot say the statement
+        return None
+    if [_deep(g, ("dialect",)) for g in got] != [_deep(st, ("dialect",))]:
+        return None
+    return f"code({_show(text)}" + (f", {_show(d)}" if d != "ngspice" else "") + ")"
+
+
+def _unlined(st: dict) -> dict:
+    return {k: [_unlined(b) for b in v] if k == "body" else v for k, v in st.items() if k != "line"}
+
+
+def _script(stmts: list[dict], var: str, sub: str, dialect: str, depth: int, out: list[str]) -> None:
+    pad = "    " * depth
+    for st in stmts:
+        if st.get("kind") == "comment" and st.get("blank"):
+            out.append("")
+            continue
+        call = _built(st)
+        if call is None:
+            # Nothing the builder says: a line no rule of its dialect
+            # understood, kept as that dialect's text. Failing that too,
+            # the statement as it is.
+            out.append(f"{pad}{var}.{_as_code(st, dialect) or f'statements.append({_show(_unlined(st))})'}")
+            continue
+        if st.get("tail"):
+            call += f".tail({_show(st['tail'])})"
+        if not isinstance(st.get("body"), list):
+            out.append(f"{pad}{var}.{call}")
+            continue
+        inner = f"{sub}{depth + 1 if depth else ''}"
+        out.append(f"{pad}with {var}.{call} as {inner}:")
+        n = len(out)
+        _script(st["body"], inner, sub, dialect, depth + 1, out)
+        if not any(line.strip() for line in out[n:]):
+            out.append(f"{pad}    pass")
+
+
+def to_python(source: str, dialect: str, name: str = "c") -> Netlist:
+    """A netlist in any dialect as a Python script that builds it with this
+    package (`Circuit.python`). `.report` is what reading the netlist said."""
+    c = Circuit.read(source, dialect)
+    return Netlist(c.python(name), c.read_report)
 
 
 # ------------------------------------------------------------------- libraries
