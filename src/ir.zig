@@ -444,6 +444,9 @@ pub const Netlist = struct {
     /// in a dialect that folds case. A dialect that folds case implies it.
     folds_case: bool = false,
     stmts: []Stmt = &.{},
+    /// What files this netlist names but does not hold declare (a PDK's
+    /// libraries), where it says so itself: the `env` of its JSON form.
+    env: ?*const Env = null,
 
     pub fn eql(a: *const Netlist, b: *const Netlist) bool {
         if (a.stmts.len != b.stmts.len) return false;

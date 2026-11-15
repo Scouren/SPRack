@@ -541,7 +541,10 @@ class _Scope:
         target such a line is an error in `netlist()`'s report, as is
         anything the reader reports (file `code`).
         """
-        out, rep = _core.read(_dialect(dialect), text, True)
+        # With a PDK, its libraries' names are known to the reader too: a
+        # Spectre instance of one of their models is the device it models.
+        env = () if self._pdk is None else (json.dumps({"env": self._pdk._env}),)
+        out, rep = _core.read(_dialect(dialect), text, True, *env)
         data = json.loads(out)
         stmts = data["stmts"]
         # Each statement remembers its dialect, so a target of the same
@@ -588,10 +591,13 @@ class Circuit(_Scope):
 
     def _doc(self, dialect: str | None, strict: bool) -> dict:
         """What `to_json` encodes. The statements are the circuit's own."""
-        stmts = list(self.statements)
+        doc = {"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": list(self.statements)}
         if self.pdk is not None and dialect is not None:
-            stmts = self.pdk.statements(dialect, strict=strict) + stmts
-        return {"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": stmts}
+            doc["stmts"] = self.pdk.statements(dialect, strict=strict) + doc["stmts"]
+            # What the PDK's libraries declare: the writer sees their names
+            # only, and a model or a function of theirs is one it knows.
+            doc["env"] = self.pdk._env
+        return doc
 
     def to_json(self, dialect: str | None = None, *, strict: bool = True) -> str:
         """The circuit in the core's JSON form. With a dialect, the PDK's
@@ -1306,7 +1312,7 @@ class PDK:
         if self._devices is None:
             base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
             data = _cached(base, cache)
-            if data is None or "sections" not in data:
+            if data is None or "env" not in data:
                 text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", self._defines(), True)
                 data = json.loads(text)
                 # Kept while every file read, through includes too, is unchanged.
@@ -1318,6 +1324,7 @@ class PDK:
                 has = [sec["name"] for sec in data["sections"] if sec["file"] == path]
                 if section and section.lower() not in map(str.lower, has):
                     raise SprackError(f"{self.name}: corner {self.corner!r} names section {section!r} of {path}, which defines: {', '.join(has) or 'no sections'}")
+            self._declared: dict = data["env"]
             devs: dict[str, dict] = {}
             for d in data["devices"]:
                 # Binned model cards (nch.1, nch.2, ...) are one device.
@@ -1326,6 +1333,13 @@ class PDK:
                 devs.setdefault(name, {**d, "name": name})
             self._devices = devs
         return self._devices
+
+    @property
+    def _env(self) -> dict:
+        """What the libraries declare, as the core lists it and takes it back
+        (the `env` of a netlist's JSON form)."""
+        self.devices
+        return self._declared
 
     def device(self, name: str) -> dict | None:
         """Look a device up by its name, with or without the PDK's prefix, in any case."""

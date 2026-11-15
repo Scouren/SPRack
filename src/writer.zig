@@ -2145,8 +2145,9 @@ pub fn write(
     nl_in: *const ir.Netlist,
     report: *ir.Report,
     caps: ?*const Caps,
-    env: ?*const ir.Env,
+    project_env: ?*const ir.Env,
 ) (Allocator.Error || std.Io.Writer.Error)!void {
+    const env = project_env orelse nl_in.env;
     var w: Writer = .{
         .g = g,
         .arena = arena,

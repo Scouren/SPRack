@@ -204,6 +204,55 @@ pub fn writeNetlist(w: *Writer, nl: *const ir.Netlist) Writer.Error!void {
     try w.writeAll("}\n");
 }
 
+fn keys(w: *Writer, map: anytype) Writer.Error!void {
+    try w.writeByte('[');
+    var it = map.keyIterator();
+    var first = true;
+    while (it.next()) |k| {
+        if (!first) try w.writeByte(',');
+        first = false;
+        try str(w, k.*);
+    }
+    try w.writeByte(']');
+}
+
+/// What the files of a project declare, field by field. A netlist written
+/// apart from those files gives it back as its `env` (`parseNetlist`).
+pub fn writeEnv(w: *Writer, env: *const ir.Env) Writer.Error!void {
+    try w.writeAll("{\"models\":{");
+    var first = true;
+    var it = env.models.iterator();
+    while (it.next()) |kv| {
+        if (!first) try w.writeByte(',');
+        first = false;
+        try str(w, kv.key_ptr.*);
+        try w.print(":\"{s}\"", .{@tagName(kv.value_ptr.*)});
+    }
+    try w.writeAll("},\"declared\":");
+    try keys(w, &env.declared);
+    try w.writeAll(",\"subckts\":");
+    try keys(w, &env.subckts);
+    try w.writeAll(",\"funcs\":");
+    try keys(w, &env.funcs);
+    try w.writeAll(",\"used\":[");
+    first = true;
+    for (schema.table, env.used) |info, used| {
+        if (!used) continue;
+        if (!first) try w.writeByte(',');
+        first = false;
+        try w.print("\"{s}\"", .{@tagName(info.kind)});
+    }
+    try w.writeAll("],\"families\":[");
+    first = true;
+    for (schema.families, env.families) |f, used| {
+        if (!used) continue;
+        if (!first) try w.writeByte(',');
+        first = false;
+        try w.print("\"{s}\"", .{f.name});
+    }
+    try w.writeAll("]}");
+}
+
 pub fn writeReport(w: *Writer, report: *const ir.Report) Writer.Error!void {
     try w.writeByte('[');
     for (report.items.items, 0..) |d, i| {
@@ -465,6 +514,43 @@ const Parser = struct {
 
 /// Parse the JSON form. Problems are reported, never fatal: what could be
 /// understood is returned.
+/// The strings of the array `obj[key]`; none where it is not one.
+fn strings(arena: Allocator, obj: J, key: []const u8) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    const list = obj.object.get(key) orelse return out.items;
+    if (list == .array) for (list.array.items) |v| {
+        if (v == .string) try out.append(arena, v.string);
+    };
+    return out.items;
+}
+
+/// The reverse of `writeEnv`. What it does not know (a kind of another
+/// version of the core) is left out.
+fn parseEnv(arena: Allocator, j: J) Allocator.Error!?*const ir.Env {
+    if (j != .object) return null;
+    const env = try arena.create(ir.Env);
+    env.* = .{};
+    if (j.object.get("models")) |m| if (m == .object) {
+        var it = m.object.iterator();
+        while (it.next()) |kv| {
+            const kind = if (kv.value_ptr.* == .string) schema.kindFromName(kv.value_ptr.string) else null;
+            if (kind) |k| try env.models.put(arena, kv.key_ptr.*, k);
+        }
+    };
+    for (try strings(arena, j, "declared")) |s| try env.declared.put(arena, s, {});
+    for (try strings(arena, j, "subckts")) |s| try env.subckts.put(arena, s, {});
+    for (try strings(arena, j, "funcs")) |s| try env.funcs.put(arena, s, {});
+    for (try strings(arena, j, "used")) |s| {
+        if (schema.kindFromName(s)) |k| env.used[@backingInt(k)] = true;
+    }
+    for (try strings(arena, j, "families")) |s| {
+        for (schema.families, &env.families) |f, *used| {
+            if (std.mem.eql(u8, f.name, s)) used.* = true;
+        }
+    }
+    return env;
+}
+
 pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allocator.Error!ir.Netlist {
     const root = std.json.parseFromSliceLeaky(J, arena, text, .{}) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -487,6 +573,7 @@ pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allo
     };
     if (root.object.get("folds_case")) |t| nl.folds_case = t == .bool and t.bool;
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);
+    if (root.object.get("env")) |e| nl.env = try parseEnv(arena, e);
     return nl;
 }
 
@@ -524,4 +611,42 @@ test "IR to JSON and back" {
     _ = try parseNetlist(a, "{\"stmts\":[{\"kind\":\"resistor\",\"nmae\":\"R1\"},{\"kind\":\"zener\"}]}", &r3);
     try std.testing.expect(r3.contains(.@"error", "'resistor' has no 'nmae'; it has: name pos neg r master params"));
     try std.testing.expect(r3.contains(.@"error", "unknown statement kind 'zener'"));
+}
+
+test "a netlist says what the files it names declare" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // What a library declares, as its project's catalogue lists it.
+    const lib = try parseNetlist(a,
+        \\{"stmts":[{"kind":"model","name":"Rmod","family":"resistor"},{"kind":"func","name":"twice","args":["x"],"body":"2*x"},
+        \\ {"kind":"subckt","name":"cell","ports":["a"],"body":[{"kind":"model","name":"nch.1","family":"bsim4"}]}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try writeEnv(&listed.writer, &env);
+
+    // A netlist of its own that uses them, written for HSPICE with and without.
+    for ([_][]const u8{ "", listed.written() }) |e| {
+        const text = try std.fmt.allocPrint(a,
+            \\{{"stmts":[{{"kind":"resistor","name":"R1","pos":"a","neg":0,"master":"rmod","params":{{"w":"1u"}}}},
+            \\ {{"kind":"resistor","name":"R2","pos":"a","neg":0,"master":"nowhere","params":{{"w":"1u"}}}},
+            \\ {{"kind":"vsource","name":"V1","pos":"a","neg":0,"dc":{{"expr":"twice(1)"}}}}]{s}{s}}}
+        , .{ if (e.len > 0) ",\"env\":" else "", e });
+        var r: ir.Report = .init(a);
+        const nl = try parseNetlist(a, text, &r);
+        if (nl.env) |back| {
+            // Nothing is lost on the way.
+            var again: std.Io.Writer.Allocating = .init(a);
+            try writeEnv(&again.writer, back);
+            try std.testing.expectEqualStrings(listed.written(), again.written());
+        }
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r);
+        try std.testing.expect(r.contains(.warning, "'nowhere' on R2 is a model name in sprack, but no model of that name is declared here"));
+        try std.testing.expectEqual(e.len == 0, r.contains(.warning, "'rmod' on R1"));
+        try std.testing.expectEqual(e.len == 0, r.contains(.@"error", "function 'twice' has no spelling in hspice"));
+    }
 }

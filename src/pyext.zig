@@ -144,7 +144,9 @@ fn translateBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
 fn readBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     const gf = try dialect(arena, try arg(args, 0));
     var report: ir.Report = .init(arena);
-    const nl = try sprack.reader.read(gf, arena, try arg(args, 1), &report, .{ .library = flag(args, 2) });
+    // Optional: a netlist's JSON form whose `env` says what other files declare.
+    const env = if (args != null and PyTuple_Size(args.?) > 3) (try sprack.json.parseNetlist(arena, try arg(args, 3), &report)).env else null;
+    const nl = try sprack.reader.read(gf, arena, try arg(args, 1), &report, .{ .env = env, .library = flag(args, 2) });
     var aw: std.Io.Writer.Allocating = .init(arena);
     try sprack.json.writeNetlist(&aw.writer, &nl);
     return pair(aw.written(), try reportJson(arena, &report));
@@ -227,7 +229,7 @@ fn pyProject(_: ?*PyObject, a: ?*PyObject) callconv(.c) ?*PyObject {
 var methods = [_]PyMethodDef{
     .{ .name = "info", .meth = pyInfo, .flags = METH_VARARGS, .doc = "info() -> JSON: dialects, statement kinds and their slots, who can write what." },
     .{ .name = "translate", .meth = pyTranslate, .flags = METH_VARARGS, .doc = "translate(from, to, source) -> (netlist, report JSON)" },
-    .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library]) -> (IR JSON, report JSON)" },
+    .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)" },
     .{ .name = "write", .meth = pyWrite, .flags = METH_VARARGS, .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)" },
     .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections]) -> (summary or catalogue JSON, log)" },
     .{ .name = null, .meth = null, .flags = 0, .doc = null },

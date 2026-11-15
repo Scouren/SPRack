@@ -556,7 +556,9 @@ const Run = struct {
                 if (i > 0) try w.writeByte(',');
                 try w.print("{{\"file\":{f},\"name\":{f}}}", .{ std.json.fmt(sec.path, .{}), std.json.fmt(sec.section, .{}) });
             }
-            try w.print("],\"root\":{f},\"errors\":{d},\"warnings\":{d},\"missing\":{d}}}\n", .{
+            try w.writeAll("],\"env\":");
+            try json.writeEnv(w, &r.env);
+            try w.print(",\"root\":{f},\"errors\":{d},\"warnings\":{d},\"missing\":{d}}}\n", .{
                 std.json.fmt(root_dir, .{}), r.sum.errors, r.sum.warnings, r.sum.missing,
             });
         }
