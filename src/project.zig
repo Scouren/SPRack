@@ -24,6 +24,7 @@ const json = @import("json.zig");
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;
+const windows = @import("builtin").os.tag == .windows;
 
 pub const Summary = struct {
     files: usize = 0,
@@ -71,11 +72,22 @@ pub const Options = struct {
 
 // ------------------------------------------------------------------- paths
 
+/// How much of `path` is its root: `/`, and on Windows also `C:/` and the
+/// `//` of a network share. Nothing for a relative path.
+fn rootLen(path: []const u8) usize {
+    if (windows) {
+        if (path.len >= 3 and path[1] == ':' and path[2] == '/') return 3;
+        if (std.mem.startsWith(u8, path, "//")) return 2;
+    }
+    return @intFromBool(path.len > 0 and path[0] == '/');
+}
+
 /// Remove `.` and resolve `..` without touching the file system.
 pub fn normalize(arena: Allocator, path: []const u8) Allocator.Error![]const u8 {
     var parts: std.ArrayList([]const u8) = .empty;
-    const absolute = path.len > 0 and path[0] == '/';
-    var it = std.mem.tokenizeScalar(u8, path, '/');
+    const root = path[0..rootLen(path)];
+    const absolute = root.len > 0;
+    var it = std.mem.tokenizeScalar(u8, path[root.len..], '/');
     while (it.next()) |part| {
         if (std.mem.eql(u8, part, ".")) continue;
         if (std.mem.eql(u8, part, "..") and parts.items.len > 0 and !std.mem.eql(u8, parts.items[parts.items.len - 1], "..")) {
@@ -85,18 +97,25 @@ pub fn normalize(arena: Allocator, path: []const u8) Allocator.Error![]const u8 
         } else try parts.append(arena, part);
     }
     const joined = try std.mem.join(arena, "/", parts.items);
-    if (absolute) return std.fmt.allocPrint(arena, "/{s}", .{joined});
+    if (absolute) return std.fmt.allocPrint(arena, "{s}{s}", .{ root, joined });
     return if (joined.len == 0) "." else joined;
 }
 
 fn dirOf(path: []const u8) []const u8 {
     const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return ".";
-    return if (slash == 0) "/" else path[0..slash];
+    const root = rootLen(path);
+    return if (slash < root) path[0..root] else path[0..slash];
 }
 
+/// `path` as an absolute, normalized path: itself, or under `base_dir`.
+/// Every path comes in through here, and on Windows leaves written with
+/// `/`, which Windows takes as well as `\`: the rest of this file, and the
+/// include lines of a translated copy, know one separator.
 pub fn resolve(arena: Allocator, base_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
-    if (path.len > 0 and path[0] == '/') return normalize(arena, path);
-    return normalize(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ base_dir, path }));
+    const p = if (windows) try arena.dupe(u8, path) else path;
+    if (windows) std.mem.replaceScalar(u8, p, '\\', '/');
+    if (rootLen(p) > 0) return normalize(arena, p);
+    return normalize(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ base_dir, p }));
 }
 
 /// The path that leads from `from_dir` to `to`, both normalized.
@@ -121,13 +140,16 @@ pub fn relative(arena: Allocator, from_dir: []const u8, to: []const u8) Allocato
     return out.items;
 }
 
+// ponytail: files on two Windows drives have no common directory; the first
+// file's drive is taken, and a file on another is reported as not written.
+// A copy tree per drive if a PDK ever spans two.
 fn commonDir(arena: Allocator, paths: []const []const u8) Allocator.Error![]const u8 {
     if (paths.len == 0) return ".";
     var common = dirOf(paths[0]);
     for (paths[1..]) |p| {
         const d = dirOf(p);
-        while (!(std.mem.eql(u8, common, d) or (std.mem.startsWith(u8, d, common) and d.len > common.len and (d[common.len] == '/' or std.mem.eql(u8, common, "/"))))) {
-            if (std.mem.eql(u8, common, ".") or std.mem.eql(u8, common, "/")) break;
+        while (!(std.mem.eql(u8, common, d) or (std.mem.startsWith(u8, d, common) and d.len > common.len and (d[common.len] == '/' or common.len == rootLen(common))))) {
+            if (std.mem.eql(u8, common, ".") or common.len == rootLen(common)) break;
             common = dirOf(common);
             if (std.mem.eql(u8, common, ".")) break;
         }
@@ -594,7 +616,7 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
     // recognised as the same file.
     var buf: [4096]u8 = undefined;
     if (std.Io.Dir.cwd().realPath(io, &buf)) |n| {
-        r.cwd = try r.arena.dupe(u8, buf[0..n]);
+        r.cwd = try resolve(r.arena, ".", buf[0..n]);
     } else |_| {}
     if (opts.sections.len > 0) {
         r.wanted = .empty;
