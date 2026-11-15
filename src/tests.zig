@@ -2138,3 +2138,235 @@ test "sim check: a switch's threshold and hysteresis become Xyce's on and off le
     _ = try tr(a, "ngspice", "xyce", "t\n.model s0 sw(vt=1)\n.end\n", &r3);
     try reported(&r3, .@"error", "model 's0': a switch with no hysteresis has no xyce form");
 }
+
+// ---------------------------------------------------------------------------
+// Gaps found by translating a proprietary HSPICE model library (see
+// docs/pdk-gaps.md). Every deck here is synthetic: it reproduces the
+// shape of what the library does, with made-up names and values. Each test
+// states the behaviour wanted and is skipped until the fix lands; the HSPICE
+// and Spectre grammar fixes wait for the phase 6 rebase.
+
+fn anyMsgHasAll(report: *const ir.Report, needles: []const []const u8) bool {
+    for (report.items.items) |d| {
+        for (needles) |n| {
+            if (std.mem.indexOf(u8, d.msg, n) == null) break;
+        } else return true;
+    }
+    return false;
+}
+
+test "gap: an unquoted function call is a value in an HSPICE .param" {
+    // gap: hspice reader. `( , )` are blanks in the HSPICE lexer, so a bare
+    // call such as agauss(0,1,3) splits and the whole .param is untranslated.
+    // Model libraries write Monte Carlo parameters this way.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce",
+        \\t
+        \\.param dvt=agauss(0,1,3) du=aunif(0,1) wr = wmin*max(nf,2)/2
+        \\.param xr = aunif('xc/2','xc/2')
+        \\.end
+    , &report);
+    try testing.expectEqual(0, report.countCode(.untranslated));
+    try has(xy, "agauss(0,1,3)");
+    try has(xy, "wmin*max(nf,2)/2");
+}
+
+test "gap: HSPICE coupling written with k=" {
+    // gap: hspice reader. `K1 L1 L2 k=0.5` is untranslated; only the
+    // positional coupling value is read.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const kw = try tr(a, "hspice", "spectre", "t\nL1 a 0 1n\nL2 b 0 1n\nK1 L1 L2 k=0.5\n.end\n", &r1);
+    var r2: ir.Report = .init(a);
+    const pos = try tr(a, "hspice", "spectre", "t\nL1 a 0 1n\nL2 b 0 1n\nK1 L1 L2 0.5\n.end\n", &r2);
+    try testing.expectEqual(0, r1.countCode(.untranslated));
+    try testing.expectEqualStrings(pos, kw);
+}
+
+test "gap: function definitions and values in one HSPICE .param" {
+    // gap: hspice reader. A .param holding one function definition is read;
+    // several definitions, or a definition next to a plain value, are not.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice",
+        \\t
+        \\.param
+        \\+ sq(x,y)='(x+y)**2'
+        \\+ k0 = 1
+        \\+ cu(x)='x**3'
+        \\.param z='sq(k0,2)+cu(2)'
+        \\.end
+    , &report);
+    try testing.expectEqual(0, report.countCode(.untranslated));
+    try has(ng, ".param k0=1");
+    try clean(&report);
+}
+
+test "gap: a $ comment after a backslash-continued HSPICE expression" {
+    // gap: hspice reader. The continued expression is read without the
+    // comment; with a trailing `$` comment on its last line the statement
+    // is untranslated.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre",
+        \\t
+        \\.param b=1 c=2
+        \\.param a='(b == 1 ? c : \\
+        \\        (b == 2 ? 3 : 4))' $ note (x), y
+        \\.end
+    , &report);
+    try testing.expectEqual(0, report.countCode(.untranslated));
+    try has(sp, "a=((b == 1 ? c : (b == 2 ? 3 : 4)))");
+}
+
+test "gap: ngspice .func with several arguments needs commas" {
+    // gap: ngspice grammar (xyce's has the same rule, not checked): `args*`
+    // writes `.func sq(a b) {...}`, which ngspice 45 rejects ("failed to
+    // parse .func"); `.func sq(a, b)` loads.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", "t\n.param sq(a,b)='(a+b)**2'\n.end\n", &report);
+    try has(ng, ".func sq(a, b) {(a+b)**2}");
+}
+
+test "gap: Spectre user functions" {
+    // gap: spectre grammar has no rule for `func` (README, Known limits).
+    // Spectre accepts `real f(real a) { return ... }` at top level and inside
+    // a subcircuit, where the body may use the subcircuit's parameters
+    // (checked with a synthetic deck). A library of model wrappers defines
+    // its geometry helpers this way, so without it nothing loads.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre",
+        \\t
+        \\.subckt rr a b w=2
+        \\.param f(x)='x*w'
+        \\r1 a b 'f(3)'
+        \\.ends rr
+        \\.end
+    , &report);
+    try has(sp, "real f(real x) {\n  return x*w\n}\n");
+    try clean(&report);
+}
+
+test "gap: binned HSPICE models become one Spectre model group" {
+    // gap: spectre writer. `.model nch.1 ...` / `.model nch.2 ...` are
+    // written as `model nch.1 bsim4 ...`, and Spectre does not pick a bin
+    // for an instance of `nch` from those: it reports `nch` undefined.
+    // A model group `model nch bsim4 { 1: ... 2: ... }` loads and selects
+    // by lmin/lmax (checked with a synthetic deck). No diagnostic today.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre",
+        \\t
+        \\M1 d g 0 0 nch l=100n w=1u
+        \\.model nch.1 nmos level=54 lmin=50n lmax=200n vth0=0.4
+        \\.model nch.2 nmos level=54 lmin=200n lmax=10u vth0=0.4
+        \\.end
+    , &report);
+    try has(sp, "model nch bsim4 {\n");
+    try has(sp, "1: type=n lmin=50n lmax=200n vth0=0.4\n");
+}
+
+test "gap: a subcircuit named like the model its transistor uses" {
+    // gap: spectre writer. HSPICE resolves `m0 ... nch` to the model inside
+    // subckt nch; Spectre resolves it to the subcircuit and stops on a
+    // recursive call. The fix may rename the model or report the clash; this
+    // asks for at least a report entry that names it.
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const sp = try tr(a, "hspice", "spectre",
+        \\t
+        \\.subckt nch d g s b l=100n w=1u
+        \\m0 d g s b nch l=l w=w
+        \\.ends nch
+        \\.model nch.1 nmos level=54 lmin=50n lmax=200n
+        \\.model nch.2 nmos level=54 lmin=200n lmax=10u
+        \\.end
+    , &report);
+    const renamed = std.mem.indexOf(u8, sp, "m0 (d g s b) nch ") == null;
+    try testing.expect(renamed or anyMsgHasAll(&report, &.{ "nch", "subcircuit" }));
+}
+
+test "gap: a parameter defined twice" {
+    // gap: spectre writer. HSPICE takes a repeated .param silently; Spectre
+    // stops with an error unless told otherwise. A library repeats some 100
+    // parameters across its include files. Wanted: a report entry (or the
+    // option that makes Spectre accept it, with a caveat).
+    if (true) return error.SkipZigTest;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", "t\n.param vt0=0.3\n.param vt0=0.35\n.end\n", &report);
+    try testing.expect(anyMsgHasAll(&report, &.{"vt0"}));
+}
+
+test "gap: a project keeps Verilog-A sources and section spellings" {
+    // gap: project. (1) A section referenced as `typ` from another file but
+    // defined as `.lib Typ` is written `section=typ`; Spectre matches section
+    // names exactly and does not find it. Within one file the spelling is
+    // already unified. (2) `.hdl './cap.va'` stays a relative path in the
+    // translated tree, but the .va file is not copied there (nor the path
+    // pointed back at the source), so Spectre cannot open it. Also the
+    // caveat about compiled OSDI files is attached to a .va source.
+    if (true) return error.SkipZigTest;
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.createDirPath(io, "in");
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/top.lib", .data =
+        \\.lib tt
+        \\.lib 'w.lib' typ
+        \\.hdl './cap.va'
+        \\.endl tt
+        \\
+    });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/w.lib", .data = ".lib Typ\n.param rw=1\n.endl Typ\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/cap.va", .data = "module cap(a, b); endmodule\n" });
+    const hspice = sprack.find("hspice").?;
+    const spectre = sprack.find("spectre").?;
+    var log: std.Io.Writer.Allocating = .init(a);
+    _ = try sprack.project.run(io, testing.allocator, .{
+        .from = hspice,
+        .to = spectre,
+        .tops = &.{try std.fmt.allocPrint(a, "{s}/in/top.lib", .{base})},
+        .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
+        .library = true,
+        .log = &log.writer,
+    });
+    const top = try tmp.dir.readFileAlloc(io, "out/top.lib", a, .unlimited);
+    try has(top, "include \"w.lib\" section=Typ\n");
+    const va_copied = if (tmp.dir.access(io, "out/cap.va", .{})) |_| true else |_| false;
+    try testing.expect(va_copied or std.mem.indexOf(u8, top, "ahdl_include \"./cap.va\"") == null);
+    try testing.expect(std.mem.indexOf(u8, log.written(), "OSDI") == null);
+}
