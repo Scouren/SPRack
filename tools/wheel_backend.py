@@ -9,7 +9,13 @@ version it is told to, so the tag is the build target, not the build host:
 - Linux: glibc 2.28, tagged manylinux_2_28_<arch>, without auditwheel.
 - macOS: $MACOSX_DEPLOYMENT_TARGET, default 11.0 (the first release on
   arm64), tagged macosx_<major>_<minor>_<arch>.
+- Windows on x86_64: tagged win_amd64. The extension there is _core.pyd,
+  and it links python3.dll, the stable ABI's DLL.
 - Anything else: the interpreter's own platform and Zig's native target.
+
+The config setting `target` builds for another platform than the
+interpreter's, named <arch>-<os> as Zig spells them:
+`pip wheel . --config-settings target=x86_64-windows`.
 """
 import base64, hashlib, io, os, platform, re, subprocess, sys, sysconfig, tarfile, zipfile
 
@@ -30,31 +36,43 @@ def _metadata():
     return f"Metadata-Version: 2.2\nName: sprack\nVersion: {_version()}\nRequires-Python: >=3.10\n"
 
 
-def _target():
-    """(Zig -Dtarget or None for native, wheel platform tag)."""
+def _target(cross=None):
+    """(Zig -Dtarget or None for native, wheel platform tag), for `cross`
+    ("<arch>-<os>") or else for this interpreter."""
     arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(platform.machine().lower(), platform.machine().lower())
-    if sys.platform.startswith("linux") and arch in ("x86_64", "aarch64"):
+    system = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
+    if cross:
+        arch, _, system = cross.partition("-")
+    if system == "linux" and arch in ("x86_64", "aarch64"):
         return f"{arch}-linux-gnu.{GLIBC}", f"manylinux_{GLIBC.replace('.', '_')}_{arch}"
-    if sys.platform == "darwin" and arch in ("x86_64", "aarch64"):
+    if system == "macos" and arch in ("x86_64", "aarch64"):
         major, minor = (os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0").split(".") + ["0"])[:2]
         return f"{arch}-macos.{major}.{minor}", f"macosx_{major}_{minor}_{'arm64' if arch == 'aarch64' else arch}"
+    # A named target, not Zig's native one: that would build for the CPU of
+    # the machine the wheel was made on.
+    if system == "windows" and arch == "x86_64":
+        return "x86_64-windows", "win_amd64"
+    if cross:
+        sys.exit(f"no wheel for target {cross!r}; one is x86_64-windows")
     return None, sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 
 def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
-    target, plat = _target()
+    target, plat = _target((config_settings or {}).get("target"))
     cmd = ["zig", "build", "py", "-Doptimize=ReleaseSafe"] + ([f"-Dtarget={target}"] if target else [])
     subprocess.run(cmd, cwd=ROOT, check=True)
     tag = f"cp310-abi3-{plat}"
+    # Only the extension this build made: python/sprack/ may hold another target's.
+    ext = "_core.pyd" if plat.startswith("win") else "_core.abi3.so"
     dist = f"sprack-{_version()}.dist-info"
     files = {}
     for dirpath, dirnames, filenames in os.walk(PKG):
         dirnames[:] = [d for d in dirnames if d != "__pycache__"]
         for n in filenames:
-            if n.endswith((".py", ".json", ".abi3.so")):
+            if n.endswith((".py", ".json")) or n == ext:
                 p = os.path.join(dirpath, n)
                 with open(p, "rb") as f:
-                    files[os.path.relpath(p, os.path.dirname(PKG))] = f.read()
+                    files[os.path.relpath(p, os.path.dirname(PKG)).replace(os.sep, "/")] = f.read()
     files[f"{dist}/METADATA"] = _metadata().encode()
     files[f"{dist}/WHEEL"] = f"Wheel-Version: 1.0\nGenerator: sprack\nRoot-Is-Purelib: false\nTag: {tag}\n".encode()
     record = io.StringIO()

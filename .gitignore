@@ -3,6 +3,7 @@ zig-out/
 zig-pkg/
 __pycache__/
 *.so
+*.pyd
 dist/
 .claude/
 *.tsv.silent
