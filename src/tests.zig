@@ -1379,6 +1379,20 @@ test "fuzz: deeply nested grammar groups are refused, not a stack overflow" {
     }
 }
 
+test "a define that doubles at each level is refused, not expanded" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // 1 KB of grammar that asked for 2^40 nodes.
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(a, "dialect x\nlexer\nend\ndefine d0 = r\n");
+    for (1..41) |i| try src.print(a, "define d{d} = <d{d}> <d{d}>\n", .{ i, i - 1, i - 1 });
+    try src.appendSlice(a, "rule resistor = name pos neg <d40>\n");
+    var diag: sprack.grammar.Diag = .{};
+    try testing.expectError(error.BadGrammar, sprack.grammar.compile(a, src.items, "f.spgrammar", &diag));
+    try has(diag.msg, "f.spgrammar:45: more than 10000 nodes, defines expanded");
+}
+
 test "fuzz: a model or device without a name is reported, not written" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

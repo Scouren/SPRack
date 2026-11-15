@@ -338,6 +338,8 @@ const C = struct {
     /// Lists `add` grew with room to spare, by address: appending to one
     /// of them again fills the room instead of copying.
     grown: std.AutoHashMapUnmanaged(usize, Grown) = .empty,
+    /// Nodes the pattern being parsed has so far, defines expanded.
+    nodes: u32 = 0,
 
     const Grown = struct { len: usize, cap: usize };
 
@@ -482,6 +484,9 @@ const P = struct {
     depth: u32 = 0,
 
     const max_depth = 100;
+    /// A define used twice in a define used twice ... doubles at each
+    /// level: 40 levels of a 1 KB grammar asked for 2^40 nodes.
+    const max_nodes = 10_000;
 
     fn err(p: *P, comptime fmt: []const u8, a: anytype) Error {
         if (@inComptime()) return p.c.fail(p.line, fmt ++ " in pattern `{s}`", a ++ .{p.s});
@@ -554,12 +559,21 @@ const P = struct {
             const ch = p.peek();
             if (ch == 0 or ch == ']' or ch == ')' or ch == '|') break;
             if (ch == '<') {
-                for (try p.use()) |n| out = try p.c.add(Node, out, n);
+                const more = try p.use();
+                try p.count(more.len);
+                for (more) |n| out = try p.c.add(Node, out, n);
                 continue;
             }
-            out = try p.c.add(Node, out, try p.item());
+            const n = try p.item();
+            try p.count(1);
+            out = try p.c.add(Node, out, n);
         }
         return out;
+    }
+
+    fn count(p: *P, n: usize) Error!void {
+        p.c.nodes += @intCast(n);
+        if (p.c.nodes > max_nodes) return p.err("more than {d} nodes, defines expanded", .{max_nodes});
     }
 
     /// `<name>`: the nodes of a `define`, spliced in place.
@@ -862,6 +876,7 @@ fn canBeEmpty(items: []const Node) bool {
 
 fn pattern(c: *C, line: u32, kind: Kind, fold: bool, text: []const u8, defs: []const Def) Error![]const Node {
     var p: P = .{ .s = text, .kind = kind, .fold = fold, .c = c, .line = line, .defs = defs };
+    c.nodes = 0;
     const out = try p.seq();
     if (p.i < p.s.len) return p.err("unexpected '{c}'", .{p.s[p.i]});
     if (out.len == 0) return p.err("empty pattern", .{});
