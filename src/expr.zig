@@ -183,6 +183,15 @@ fn canonNumber(text: []const u8) ?ir.Number {
 
 pub const Funcs = std.StringHashMapUnmanaged(void);
 
+pub const ChoiceForm = enum { ternary, call };
+
+/// How the dialect says a choice inside an expression, `c ? a : b` or
+/// `if(c, a, b)`, when it has either.
+pub fn choiceForm(g: *const Grammar) ?ChoiceForm {
+    if (spellingOf(g.operators, "ternary") != null) return .ternary;
+    return if (spellingOf(g.functions, "if") != null) .call else null;
+}
+
 /// Canonical spelling to dialect spelling. `foreign` is false when the
 /// expression came from this same dialect; names its tables do not list
 /// are then written back as they were read.
@@ -329,7 +338,8 @@ fn decimal(n: ir.Number) ?struct { i128, i32 } {
     return .{ if (neg) -m else m, e };
 }
 
-fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
+/// A number or an expression as canonical expression text.
+pub fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
     return switch (v) {
         .num => |n| if (n.exp10 == 0) n.digits() else try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
         .expr => |s| s,

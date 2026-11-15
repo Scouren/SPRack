@@ -15,6 +15,7 @@ const expr = @import("expr.zig");
 const reader = @import("reader.zig");
 const stats = @import("stats.zig");
 const alter = @import("alter.zig");
+const cond = @import("cond.zig");
 const topology = @import("topology.zig");
 
 const Allocator = std.mem.Allocator;
@@ -1130,7 +1131,8 @@ const Writer = struct {
         };
     }
 
-    fn unsupported(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!void {
+    /// `also`: what more there is to the reason, as the end of its sentence.
+    fn unsupported(w: *Writer, a: Allocator, st: *const ir.Stmt, also: []const u8) Error!void {
         const who = w.supporters(st.kind);
         const what = switch (schema.info(st.kind).class) {
             .analysis => "analysis",
@@ -1143,14 +1145,27 @@ const Writer = struct {
             })
         else
             try a.print("{s}.spgrammar defines no rule for it", .{w.g.name});
-        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}. Dialects that define it: {s}", .{
-            what, @tagName(st.kind), w.g.name, reason, if (who.len > 0) who else "none",
+        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}{s}. Dialects that define it: {s}", .{
+            what, @tagName(st.kind), w.g.name, reason, also, if (who.len > 0) who else "none",
         });
         try w.comment(try a.print("[sprack] not written: {s} '{s}' has no {s} form", .{ what, @tagName(st.kind), w.g.name }));
     }
 
     fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
         if (st.kind == .model and st.body.len > 0) return w.binnedModel(st);
+        // A conditional block where there are none, but a choice inside an
+        // expression: the same statements in every branch are written once,
+        // their values as choices (`cond.zig`).
+        if (st.kind == .cond_if and !w.g.canWrite(.cond_if)) if (expr.choiceForm(w.g)) |form| {
+            switch (try cond.merge(w.arena, st, form)) {
+                .merged => |stmts| {
+                    w.report.add(.info, .oneway, st.line, "cond_if: {s} has no conditional blocks; every branch holds the same statements, so they are written once, each value that differs as a choice between the branches' values by their conditions; it reads back as those statements, not as a block", .{w.g.name});
+                    for (stmts) |*s| try w.stmt(s);
+                },
+                .refused => |why| try w.unsupported(w.arena, st, try std.fmt.allocPrint(w.arena, ", and this block is not the same statements with other values in every branch: {s}", .{why})),
+            }
+            return;
+        };
         // A block kind this dialect has only a rule for: the rule says the
         // header, the body follows it (Xyce `.sampling` ahead of its
         // analyses), or the rule is added to each statement of the body
@@ -1368,7 +1383,7 @@ const Writer = struct {
                     }
                 }
             }
-            return w.unsupported(a, st);
+            return w.unsupported(a, st, "");
         }
 
         var best: ?*const grammar.Rule = null;

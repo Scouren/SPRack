@@ -4806,3 +4806,76 @@ test "h1: an ESPice current cutset follows its own requires line: not under a UI
     // A grammar with no cutset line reports it under its dc-path rule.
     try reported(&(try topo(a, "hspice", cut ++ ".tran 1n 10n\n.end\n")), .warning, "the currents of the sources into it must balance; HSPICE solves it");
 }
+
+// s1: a conditional block where the target has none but has a choice inside
+// an expression (src/cond.zig). Measured: docs/verification.md 4.11.
+
+test "s1: a conditional block of the same statements is written once, with conditional values" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const sub =
+        \\.subckt rsel a b n=1 sw=0
+        \\.if (sw == 0)
+        \\  .if (floor(n/2)*2 != n)
+        \\* n is odd
+        \\R1 a b r={1k*n} tc1=0
+        \\  .else
+        \\R1 a b tc1=0 r={2k*n}
+        \\  .endif
+        \\.elseif (sw == 1)
+        \\R1 a b r=5k tc1=0
+        \\.else
+        \\R1 a b r={7k+n} tc1=0
+        \\.endif
+        \\.ends
+        \\
+    ;
+    const src = "t\n" ++ sub ++ "V1 1 0 1\nX1 1 0 rsel n=3 sw=0\n.op\n.end\n";
+    // Xyce has `c ? a : b`; the nested block is merged first.
+    const xyce = "\n* n is odd\nR1 a b {(sw == 0) ? ((floor(n/2)*2 != n) ? (1k*n) : (2k*n)) : ((sw == 1) ? (5k) : (7k+n))} tc1=0\n.ends rsel\n";
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", src, &r), xyce);
+    try testing.expectEqual(0, r.count(.@"error"));
+    try testing.expectEqual(1, r.countCode(.oneway));
+    try reported(&r, .info, "cond_if: xyce has no conditional blocks; every branch holds the same statements, so they are written once");
+    // LTspice has only `if()`.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ltspice", src, &r2), "\nR1 a b {if(sw == 0, if(floor(n/2)*2 != n, 1k*n, 2k*n), if(sw == 1, 5k, 7k+n))} tc1=0\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // CDL has neither: the error it was.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "cdl", "t\n" ++ sub ++ ".end\n", &r3);
+    try reported(&r3, .@"error", "statement 'cond_if' cannot be written for cdl: CDL has no conditional blocks. Dialects");
+    // A file of a project.
+    var r4: ir.Report = .init(a);
+    var env: ir.Env = .{};
+    const nl = try sprack.reader.read(sprack.find("ngspice").?, a, sub, &r4, .{ .env = &env, .library = true });
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, sprack.find("xyce").?, &aw.writer, &nl, &r4, &env);
+    try has(aw.written(), xyce);
+    try testing.expectEqual(0, r4.count(.@"error"));
+
+    // What is not the same statements with other values stays an error,
+    // which says what it was.
+    const refused = [_][2][]const u8{
+        .{ ".if (s == 0)\nR1 p n 1k\n.endif\n", "it has no else branch" },
+        .{ ".if (s == 0)\nR1 p n 1k\n.else\nR1 p n 2k\nR2 p n 2k\n.endif\n", "a statement is in one branch only" },
+        .{ ".if (s == 0)\nR1 p n 1k\n.else\nC1 p n 1p\n.endif\n", "'resistor' stands in one branch where 'capacitor' stands in another" },
+        .{ ".if (s == 0)\nR1 p n 1k\n.else\nR1 p x 1k\n.endif\n", "'R1' has another node in another branch ('n', 'x')" },
+        .{ ".if (s == 0)\nR1 p n 1k\n.else\nR2 p n 1k\n.endif\n", "'R1' has another name in another branch ('R1', 'R2')" },
+        .{ ".if (s == 0)\nM1 p n n n nch w=1u\n.else\nM1 p n n n pch w=1u\n.endif\n", "'M1' has another model in another branch ('nch', 'pch')" },
+        .{ ".if (s == 0)\nC1 p n 1p\n.else\nC1 p n 1p ic=1\n.endif\n", "'C1' has parameter 'ic' in one branch only" },
+        .{ ".if (s == 0)\nC1 p n 1p ic=1\n.else\nC1 p n 1p\n.endif\n", "'C1' has parameter 'ic' in one branch only" },
+        .{ ".if (s == 0)\nR1 p n rm l=1u\n.model rm r rsh=1\n.else\nR1 p n rm l=2u\n.model rm r rsh=2\n.endif\n", "a branch holds a model card" },
+        .{ ".if (s == 0)\n.param k=1\n.else\n.param k=2\n.endif\n", "'param' is not the same in every branch, and only a device's value is written as a choice" },
+        .{ ".if (s == 0)\nR1 p n 1k\n.else\n.if (s == 1)\nR1 p n 2k\n.endif\n.endif\n", "in the block at line 6 inside it, it has no else branch" },
+    };
+    for (refused) |c| {
+        var rr: ir.Report = .init(a);
+        const out = try tr(a, "ngspice", "xyce", try std.fmt.allocPrint(a, "t\n.subckt q p n s=0\n{s}.ends\n.end\n", .{c[0]}), &rr);
+        try has(out, "* [sprack] not written: statement 'cond_if' has no xyce form\n");
+        try testing.expectEqual(1, rr.countCode(.unsupported));
+        try reported(&rr, .@"error", try std.fmt.allocPrint(a, "Xyce has no conditional blocks in a netlist, and this block is not the same statements with other values in every branch: {s}. Dialects", .{c[1]}));
+    }
+}

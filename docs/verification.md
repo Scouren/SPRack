@@ -696,6 +696,50 @@ to Spectre and run in 25.10: i(vdd) -1.666667e-4, i(v2) -1.25e-4, i(v3)
 -1e-3, i(v4) -2.5e-4, its `.expected.json`. Before, the deck was refused
 at `a!=b`.
 
+### 4.11 A conditional block as conditional values (s1)
+
+Xyce and LTspice have no conditional blocks but have a choice inside an
+expression. A subcircuit written for it: `R1` in a two-level block (`.if
+(sw == 0)` holding `.if (floor(n/2)*2 != n)` with 1k*n and 2k*n, then
+`.elseif (sw == 1)` with 5k and `.else` with 7k+n), beside `R2` of 1 MOhm
+under `.if (z == 0)` and of `1meg/z` otherwise. Five instances, each across
+its own 1 V source. ngspice 45 runs the blocks; Xyce 7.10 and LTspice
+26.0.2 run the translation, whose subcircuit holds
+
+```text
+R1 a b {(sw == 0) ? ((floor(n/2)*2 != n) ? (1k*n) : (2k*n)) : ((sw == 1) ? (5k) : (7k+n))} tc1=0
+R2 a b {(z == 0) ? (1meg) : (1meg/z)}
+```
+
+in Xyce and `{if(sw == 0, if(floor(n/2)*2 != n, 1k*n, 2k*n), if(sw == 1,
+5k, 7k+n))}`, `{if(z == 0, 1meg, 1meg/z)}` in LTspice. Source currents
+(ngspice `print`, Xyce `.print dc`, LTspice `.meas op` in the log, which is
+single precision):
+
+| instance | branch taken | ngspice 45 | Xyce 7.10 | LTspice 26.0.2 |
+|---|---|---|---|---|
+| `n=1 sw=0` | n odd: 1k | -1.00100000e-3 | -1.001000000e-3 | -1.00100006e-3 |
+| `n=2 sw=0` | n even: 4k | -2.51000000e-4 | -2.510000000e-4 | -2.50999990e-4 |
+| `n=3 sw=1` | `.elseif`: 5k | -2.01000000e-4 | -2.010000000e-4 | -2.01000003e-4 |
+| `n=4 sw=2` | `.else`: 7004 | -1.43775557e-4 | -1.437755568e-4 | -1.43775556e-4 |
+| `n=5 sw=0 z=4` | n odd: 5k, and `R2` 250k | -2.04000000e-4 | -2.040000000e-4 | -2.03999996e-4 |
+
+The first four have z=0, so `1meg/z` stands in the branch not taken:
+neither Xyce nor LTspice objects to it there.
+
+Only a device's value is made a choice. ngspice 45 does not make a `.param`
+in a branch conditional: with `.if (sw == 0)` `.param k=1` `.else` `.param
+k=2` `.endif` in a subcircuit (and the same at the top level on a
+parameter that is 2), instances with sw=0 and sw=1 both draw the current
+of k=2, the last definition. A block whose `.param` lines differ is
+therefore not merged.
+
+IHP SG13G2, all corners, to Xyce: 27 conditional blocks were errors; 6 are
+now written (three blocks of the MIM capacitor subcircuit, in the plain and
+the mismatch file), 21 are still errors: 12 choose the transistor's model
+by a parameter, 8 give `ic` in one branch only, 1 holds a device of another
+name and model in each branch.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method

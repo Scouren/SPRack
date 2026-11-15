@@ -211,6 +211,17 @@ restructuring is a choice: `c ? a : b` is written `if(c, a, b)` for a
 dialect that has only `if()` (LTspice), and the other way round for one that
 has only `?:` (HSPICE, Spectre; ngspice's `ternary_fcn` is `if`).
 
+A conditional block crossing into a dialect with `no cond_if` that has
+either form of choice is written without the block when every branch holds
+the same statements, one for one: the same kind, name, nodes and model and
+the same parameter names, differing only in the values of devices, each a
+number or an expression. Such a value is written as a choice between the
+branches' values by their conditions (`{(c) ? (a) : (b)}` or `{if(c, a,
+b)}`), nested blocks first, and an `oneway` info says so. Any other block
+(no `else`, a statement or a parameter in one branch only, another model or
+node, a `.param` that differs, a model card or a subcircuit in a branch) is
+the `unsupported` error it would be, which says which of these it was.
+
 ## Report codes
 
 Every entry of a translation's report has one of these codes.
