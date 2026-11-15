@@ -397,50 +397,25 @@ spice/spice_op_gmin_stepping.sp	ngspice	ngspice	excluded:syntax	syntax	warning, 
 spice/spice_op_nodeset_root.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'spice_nodeset_cubic' from line :: n1 out 0 spice_nodeset_cubic | Error on line 17 or its substitute: :: .hdl  ../verilog-a/ch03_data_types/spice_nodeset_cubic.va | Simulation interrupted due to error!
 spice/spice_op_source_stepping.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'spice_op_exp_junction' from line :: n1 a 0 spice_op_exp_junction | Error on line 22 or its substitute: :: .hdl  ../verilog-a/ch09_system_tasks/spice_op_exp_junction.va | Simulation interrupted due to error!
 spice/timer_breakpoints.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'a10_timer_steps' from line :: nstep out 0 a10_timer_steps | Error on line 6 or its substitute: :: .hdl  ../verilog-a/ch05_analog_behavior/spice_timer_steps_device.va | Simulation interrupted due to error!
-netlist/invalid/ac_frequency_overflow.sp	ngspice	vacask	runtime	loaded	Analysis 'ac1' aborted.
-netlist/invalid/ac_frequency_overflow.sp	hspice	vacask	runtime	loaded	Analysis 'ac1' aborted.
-netlist/invalid/ac_negative_frequency.sp	ngspice	vacask	runtime	loaded	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
-netlist/invalid/ac_negative_frequency.sp	hspice	vacask	runtime	loaded	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
 netlist/invalid/ac_zero_density.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * a zero point density cannot define a sweep.
-netlist/invalid/ac_zero_density.sp	ngspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
 netlist/invalid/ac_zero_density.sp	hspice	ngspice	excluded:syntax	syntax	Circuit: * a zero point density cannot define a sweep.
-netlist/invalid/ac_zero_density.sp	hspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
-netlist/invalid/bench_topology_floating_node.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/bench_topology_floating_node.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/cccs_word_on_e_refused.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/cccs_word_on_e_refused.sp	ngspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/cccs_word_on_e_refused.sp	hspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/cccs_word_on_e_refused.sp	hspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/contradictory_voltage_loop.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/contradictory_voltage_loop.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/contradictory_voltage_loop.sp	hspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/contradictory_voltage_loop.sp	hspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/contradictory_voltage_sources.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/contradictory_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/contradictory_voltage_sources.sp	hspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/contradictory_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_capacitor_dc.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_capacitor_dc.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_open_node.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/current_into_open_node.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
-netlist/invalid/dc_wrong_step_direction.sp	ngspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" parameter="dc" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
-netlist/invalid/dc_wrong_step_direction.sp	hspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" parameter="dc" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
 netlist/invalid/dc_zero_step.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * zero dc step cannot advance the sweep. | Error on line 6 or its substitute: :: .dc vin 0 1 0 | Simulation interrupted due to error!
-netlist/invalid/dc_zero_step.sp	ngspice	vacask	excluded:syntax	syntax	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" parameter="dc" from=0 to=1 step=0 | Failed to set up sweep for analysis 'dc1'.
 netlist/invalid/dc_zero_step.sp	hspice	ngspice	excluded:syntax	syntax	Circuit: * zero dc step cannot advance the sweep. | Error on line 6 or its substitute: :: .dc vin 0 1 0 | Simulation interrupted due to error!
-netlist/invalid/dc_zero_step.sp	hspice	vacask	excluded:syntax	syntax	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" parameter="dc" from=0 to=1 step=0 | Failed to set up sweep for analysis 'dc1'.
 netlist/invalid/dcmatch_unknown_node.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .dcmatch v(missing) | Simulation interrupted due to error!
 netlist/invalid/envelope_zero_period.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .envelope 0 1m | Simulation interrupted due to error!
 netlist/invalid/floating_sense_node_hb.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 10 or its substitute: :: .hb tones=1k nharms=2 | Simulation interrupted due to error!
 netlist/invalid/floating_sense_node_op.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
 netlist/invalid/floating_sense_node_op.sp	ngspice	xyce	syntax	runtime	Netlist error: Device B1 refers to unknown solution node A
-netlist/invalid/floating_sense_node_op.sp	ngspice	vacask	syntax	runtime	Device '__behavioral_B1' not found. :: B1 (o2 0) v=v(a)+1
 netlist/invalid/four_zero_fundamental.sp	ngspice	xyce	syntax	loaded	Netlist error: No analysis specified.
 netlist/invalid/four_zero_fundamental.sp	hspice	xyce	syntax	loaded	Netlist error: No analysis specified.
 netlist/invalid/hb_fractional_harmonics.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .hb 1k 1.5 | Simulation interrupted due to error!
 netlist/invalid/hb_negative_frequency.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .hb -1k | Simulation interrupted due to error!
-netlist/invalid/hspice_percent_operator.sp	ngspice	vacask	syntax	loaded	Syntax error, unexpected string. :: r1 (a 0) resistor r=(10 % 3)
-netlist/invalid/hspice_percent_operator.sp	hspice	vacask	syntax	loaded	Syntax error, unexpected string. :: r1 (a 0) resistor r=(10 % 3)
 netlist/invalid/hspice_unary_not.sp	ngspice	xyce	syntax	loaded	Netlist error: Unrecognized character: ! in expression {1k*(!0)}
 netlist/invalid/hspice_unary_not.sp	hspice	xyce	syntax	loaded	Netlist error: Unrecognized character: ! in expression {1k*(!0)}
 netlist/invalid/matex_negative_step.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .matex -1u 1m | Simulation interrupted due to error!
@@ -449,16 +424,12 @@ netlist/invalid/mc_negative_variation.sp	ngspice	ngspice	excluded:syntax	syntax	
 netlist/invalid/mc_zero_trials.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .mc 0 | Simulation interrupted due to error!
 netlist/invalid/model_kind_mismatch_refused.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 4 or its substitute: :: d1 a 0 qm | Simulation interrupted due to error!
 netlist/invalid/model_kind_mismatch_refused.sp	ngspice	xyce	excluded:syntax	syntax	Netlist error in file model_kind_mismatch_refused.x.cir at or near line 4 :: Model is required for device D1 and no valid model card found.
-netlist/invalid/model_kind_mismatch_refused.sp	ngspice	vacask	excluded:syntax	syntax	Device 'sp_bjt' not found. :: model qm sp_bjt (type=1)
 netlist/invalid/model_kind_mismatch_refused.sp	hspice	ngspice	excluded:syntax	syntax	Error on line 4 or its substitute: :: d1 a 0 qm | Simulation interrupted due to error!
 netlist/invalid/model_kind_mismatch_refused.sp	hspice	xyce	excluded:syntax	syntax	Netlist error in file model_kind_mismatch_refused.x.cir at or near line 4 :: Model is required for device D1 and no valid model card found.
-netlist/invalid/model_kind_mismatch_refused.sp	hspice	vacask	excluded:syntax	syntax	Device 'sp_bjt' not found. :: model qm sp_bjt (type=1)
 netlist/invalid/netlist_pat_z_state.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 3 or its substitute: :: v1 a 0 pat (1 0 0 1n 1n 5n b10z1) | unknown parameter (pat) :: Simulation interrupted due to error!
 netlist/invalid/netlist_swept_param_on_analysis.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .step param tst list 1u 2u | Simulation interrupted due to error!
 netlist/invalid/netlist_swept_param_on_analysis_order.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .step param tst list 1u 2u | Simulation interrupted due to error!
-netlist/invalid/noise_missing_output.sp	ngspice	vacask	runtime	loaded	Node 'missing' not found. | Analysis 'noise1' aborted.
 netlist/invalid/noise_zero_frequency.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * logarithmic noise sweep cannot include zero. | Error on line 6 or its substitute: :: .noise v(out) vin dec 10 0 100 | Frequency of 0 is invalid :: Simulation interrupted due to error!
-netlist/invalid/noise_zero_frequency.sp	ngspice	vacask	excluded:runtime	syntax	Failed to set up the noise analysis frequency sweep. | Analysis 'noise1' aborted.
 netlist/invalid/optimize_bisection.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'ry' from line :: r1 in out ry | warning, can't find model 'rx' from line :: r2 out 0 rx | Undefined parameter [opt1] | Formula() error. :: |.param rx={opt1(1k,100,10k)}| : |rx|=|opt1(1k,100,10k)| | Formula() error. :: |.param ry={opt1(1k,100,10k)}| : |ry|=|opt1(1k,100,10k)| | Undefined parameter [ry]
 netlist/invalid/options_negative_reltol.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
 netlist/invalid/options_negative_reltol.sp	hspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
@@ -475,44 +446,29 @@ netlist/invalid/source_lfsr_refused.sp	ngspice	ngspice	excluded:syntax	syntax	Er
 netlist/invalid/source_pwl_file_refused.sp	ngspice	ngspice	excluded:syntax	syntax	Undefined parameter [nonexist.txt] | Cannot compute substitute | ERROR: fatal error in ngspice, exit(1)
 netlist/invalid/source_pwl_file_refused.sp	hspice	ngspice	excluded:syntax	syntax	Undefined parameter [pwl] | Cannot compute substitute | ERROR: fatal error in ngspice, exit(1)
 netlist/invalid/source_pwl_file_refused.sp	hspice	xyce	excluded:syntax	syntax	Netlist error in file source_pwl_file_refused.x.cir at or near line 2 :: Parameter DCV0 for device V1 contains unrecognized symbol: PWL
-netlist/invalid/source_pwl_file_refused.sp	hspice	vacask	excluded:syntax	syntax	Syntax error, unexpected string. :: ... (a 0) vsource dc=pwl file=nonexist.txt
 netlist/invalid/source_pwl_repeat_unmatched.sp	ngspice	ngspice	excluded:syntax	syntax	ERROR: repeat start time value 5e-07 for pwl voltage source does not match any time point given! | Error on line 4 or its substitute: :: v1 a 0 pwl(0 0 1u 1 2u 0) r=0.5u | Simulation interrupted due to error!
-netlist/invalid/source_pwl_repeat_unmatched.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
 netlist/invalid/source_pwl_repeat_unmatched.sp	hspice	ngspice	excluded:syntax	syntax	ERROR: repeat start time value 5e-07 for pwl voltage source does not match any time point given! | Error on line 4 or its substitute: :: v1 a 0 pwl(0 0 1u 1 2u 0) r=0.5u | Simulation interrupted due to error!
-netlist/invalid/source_pwl_repeat_unmatched.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
 netlist/invalid/spectre_tran_unknown_param.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'resistor' from line :: r1 a 0 1k resistor | Error on line 3 or its substitute: :: v1  a 0  vsource dc=1 | unknown parameter (vsource) :: Simulation interrupted due to error!
 netlist/invalid/temp_zero_step.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * temperature sweep step cannot be zero.
 netlist/invalid/tf_missing_output.sp	ngspice	ngspice	excluded:syntax	syntax	output_impedance_at_v(missing) = 1.000000e+00
 netlist/invalid/tf_missing_output.sp	hspice	ngspice	excluded:syntax	syntax	output_impedance_at_v(missing) = 1.000000e+00
 netlist/invalid/tf_missing_source.sp	ngspice	ngspice	excluded:runtime	runtime	doAnalyses: not found | run simulation(s) aborted
 netlist/invalid/topology_parallel_voltage_sources.sp	ngspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/topology_parallel_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/topology_parallel_voltage_sources.sp	hspice	ngspice	excluded:runtime	runtime	DC solution failed - | Error: Transient op failed, timestep too small | Error: The operating point could not be simulated successfully. :: Any of the following steps may fail.! | run simulation(s) aborted
-netlist/invalid/topology_parallel_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
 netlist/invalid/tran_negative_stop.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .tran 1u -1m | TSTOP is invalid, must be greater than zero. :: Simulation interrupted due to error!
-netlist/invalid/tran_negative_stop.sp	ngspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
 netlist/invalid/tran_negative_stop.sp	hspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .tran 1u -1m | TSTOP is invalid, must be greater than zero. :: Simulation interrupted due to error!
-netlist/invalid/tran_negative_stop.sp	hspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
 netlist/invalid/tran_zero_step.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .tran 0 1m | TSTEP is invalid, must be greater than zero. :: Simulation interrupted due to error!
 netlist/invalid/tran_zero_step.sp	hspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .tran 0 1m | TSTEP is invalid, must be greater than zero. :: Simulation interrupted due to error!
 netlist/invalid/trannoise_zero_step.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .trannoise 0 1m | Simulation interrupted due to error!
 netlist/invalid/unknown_instance_parameter.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * an unknown instance parameter fails the deck, as in ngspice 44.2 (#35). | Error on line 6 or its substitute: :: m1 d g 0 0 nm ww=10u l=1u | unknown parameter (ww) :: Simulation interrupted due to error!
 netlist/invalid/unknown_instance_parameter.sp	ngspice	xyce	excluded:syntax	syntax	Netlist error in file unknown_instance_parameter.x.cir at or near line 6 :: Unrecognized parameter WW for device M1 | Netlist error in file unknown_instance_parameter.x.cir at or near line 6 :: Unrecognized fields for device M1
-netlist/invalid/unknown_instance_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/p1/parse_check.c3pw8554/tmpl7rtemr6/unknown_instance_parameter.x.sim
 netlist/invalid/unknown_instance_parameter.sp	hspice	ngspice	excluded:syntax	syntax	Circuit: * an unknown instance parameter fails the deck, as in ngspice 44.2 (#35). | Error on line 6 or its substitute: :: m1 d g 0 0 nm ww=10u l=1u | unknown parameter (ww) :: Simulation interrupted due to error!
 netlist/invalid/unknown_instance_parameter.sp	hspice	xyce	excluded:syntax	syntax	Netlist error in file unknown_instance_parameter.x.cir at or near line 6 :: Unrecognized parameter WW for device M1 | Netlist error in file unknown_instance_parameter.x.cir at or near line 6 :: Unrecognized fields for device M1
-netlist/invalid/unknown_instance_parameter.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/p1/parse_check.c3pw8554/tmp5zre2z12/unknown_instance_parameter.x.sim
 netlist/invalid/unresolved_parameter.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * a resistor value naming no parameter and no model is an error, not | warning, can't find model 'rv' from line :: r1 a 0 rv | Error on line 5 or its substitute: :: r1 a 0 rv | unknown parameter (rv) :: Simulation interrupted due to error!
 netlist/invalid/unresolved_parameter.sp	ngspice	xyce	excluded:syntax	syntax	Netlist error in file unresolved_parameter.x.cir at or near line 5 :: Illegal value found for device R1 for parameter = R value = RV
-netlist/invalid/unresolved_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Master 'rv' not found. :: r1 (a 0) rv
 netlist/invalid/unresolved_parameter.sp	hspice	ngspice	excluded:syntax	syntax	Circuit: * a resistor value naming no parameter and no model is an error, not | Undefined parameter [rv] | Cannot compute substitute | ERROR: fatal error in ngspice, exit(1)
 netlist/invalid/unresolved_parameter.sp	hspice	xyce	excluded:syntax	syntax	Netlist error in file unresolved_parameter.x.cir at or near line 5 :: Parameter R for device R1 contains unrecognized symbol: RV
-netlist/invalid/unresolved_parameter.sp	hspice	vacask	excluded:syntax	syntax	exit 1
 netlist/invalid/veriloga_systf_value_refused.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_systf_value' from line :: n1 out 0 va_systf_value | Error on line 3 or its substitute: :: .hdl  veriloga_systf.assets/va_systf_value.va | Simulation interrupted due to error!
-netlist/layout/capacitive_divider_tran.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/capacitive_divider_tran.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/metal_island_tran.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/layout/metal_island_tran.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/mc/gaussian_source.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 5 or its substitute: :: .mc 4096 .05 | Simulation interrupted due to error!
 netlist/mc/sky130_mismatch_monte.sp	ngspice	ngspice	excluded:syntax	syntax	Error: Could not find include file ../regression/ota_buffer_large_step.assets/sky130_fet01v8_tt.spice :: While reading sky130_mismatch_monte.x.cir | ERROR: fatal error in ngspice, exit(1)
 netlist/mc/zero_variation_1.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .mc 1 0 | Simulation interrupted due to error!
@@ -571,10 +527,6 @@ netlist/stb/negative_feedback_gain_100.sp	ngspice	ngspice	excluded:syntax	syntax
 netlist/stb/negative_feedback_gain_100000.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 9 or its substitute: :: .stb vprobe dec 4 1 1meg | Simulation interrupted due to error!
 netlist/stb/one_pole_1e-06.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 11 or its substitute: :: .stb vprobe dec 4 1 1meg | Simulation interrupted due to error!
 netlist/stb/one_pole_1e-09.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 11 or its substitute: :: .stb vprobe dec 4 1 1meg | Simulation interrupted due to error!
-netlist/convergence/monotonic_cubic_0p001.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
-netlist/convergence/monotonic_cubic_1.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
-netlist/convergence/monotonic_cubic_1000.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
-netlist/convergence/monotonic_cubic_1e-09.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
 netlist/pxf/divider.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .pxf 1k dec 4 10 10k | Simulation interrupted due to error!
 netlist/pxf/rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .pxf 1k dec 4 10 10k | Simulation interrupted due to error!
 netlist/pxf/two_poles.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 9 or its substitute: :: .pxf 1k dec 4 10 10k | Simulation interrupted due to error!
@@ -591,32 +543,10 @@ netlist/dcmatch/unit_source.sp	ngspice	ngspice	excluded:syntax	syntax	Error on l
 netlist/dcmatch/zero_source.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 5 or its substitute: :: .dcmatch v(out) | Simulation interrupted due to error!
 netlist/tran/bench_ngspice_mosmem.sp	ngspice	ngspice	excluded:syntax	syntax	Error: .print: no dc analysis found. | Error: .plot: no dc analysis found. | Error: no such vector 6 :: in term: v(6)
 netlist/tran/bench_ngspice_schmitt.sp	ngspice	ngspice	excluded:syntax	syntax	* golden's  5ns espice lag  was the reference's own truncation error.
-netlist/tran/bench_tline_delay_line.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/bench_tline_delay_line.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/bench_tline_ideal_tline.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/bench_tline_ideal_tline.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/bench_tline_terminated.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/bench_tline_terminated.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/device_ic_no_uic.sp	ngspice	vacask	syntax	loaded	Parameter 'ic' not found. :: C1 (out 0) capacitor c=1n ic=0.5
-netlist/tran/device_ic_no_uic.sp	hspice	vacask	syntax	loaded	Parameter 'ic' not found. :: C1 (out 0) capacitor c=1n ic=0.5
-netlist/tran/device_ic_uic.sp	ngspice	vacask	syntax	loaded	Parameter 'ic' not found. :: C1 (out 0) capacitor c=1n ic=0.5
-netlist/tran/device_ic_uic.sp	hspice	vacask	syntax	loaded	Parameter 'ic' not found. :: C1 (out 0) capacitor c=1n ic=0.5
-netlist/tran/device_tline.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/device_tline.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/equal_current_sources.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/equal_current_sources.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/tran/ic_no_uic_op.sp	ngspice	ngspice	excluded:runtime	runtime	Error: no data saved for Transient analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted
-netlist/tran/island_series_short.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/tran/island_series_short.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
 netlist/tran/jitter_sffm.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 14 or its substitute: :: .jitter tran trig v(clk) val=0 td=50n | Simulation interrupted due to error!
 netlist/tran/spectre_skipdc_euler.sp	ngspice	ngspice	excluded:syntax	syntax	Error in line   ic out=0.5 :: Not enough parameters | ERROR: fatal error in ngspice, exit(1)
-netlist/stress/scaling_inverter_chain_4k.sp	ngspice	vacask	timeout	loaded	killed after 30.0s
-netlist/stress/scaling_inverter_chain_4k.sp	hspice	vacask	timeout	loaded	killed after 30.0s
 netlist/stress/vacask_ring.sp	ngspice	ngspice	excluded:syntax	syntax	Illegal value for level. | unrecognized parameter (tr) - ignored | unrecognized parameter (dta) - ignored | unrecognized parameter (swgeo) - ignored | unrecognized parameter (qmc) - ignored | unrecognized parameter (lvaro) - ignored
-netlist/stress/vacask_ring.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Parser syntax error, unexpected identifier, expecting ( :: print stats
-netlist/stress/vacask_mul.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Parser syntax error, unexpected identifier, expecting ( :: print stats
-netlist/stress/vacask_graetz.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Parser syntax error, unexpected identifier, expecting ( :: print stats
-netlist/stress/vacask_rc.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Parser syntax error, unexpected identifier, expecting ( :: print stats
 netlist/hbnoise/differential_rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 8 or its substitute: :: .hbnoise v(a,b) vin dec 3 10 10k 1k 3 3 | Simulation interrupted due to error!
 netlist/hbnoise/lti_rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .hbnoise v(out) vin dec 3 10 10k 1k 4 1 | Simulation interrupted due to error!
 netlist/hbnoise/lti_rc_hspice.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .hb 1k 7 | Simulation interrupted due to error!
@@ -701,47 +631,24 @@ netlist/matex/linear_ramp.sp	ngspice	ngspice	excluded:syntax	syntax	Error on lin
 netlist/matex/purely_algebraic.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .matex 1u 2m | Simulation interrupted due to error!
 netlist/matex/rc_ladder_stiff.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 13 or its substitute: :: .matex 5e-06 0.001 | Simulation interrupted due to error!
 netlist/matex/sine.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .matex 1u 5m | Simulation interrupted due to error!
-netlist/op/bsource_ln_zero_start.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (o 0) v=ln(v(x))
-netlist/op/device_bsim3.sp	ngspice	vacask	syntax	loaded	Parser syntax error, unexpected floating point number, expecting identifier or ) :: ...  n3 sp_bsim3v3 (type=1 version=3.3.0)
-netlist/op/device_bsim3.sp	hspice	vacask	syntax	loaded	Parser syntax error, unexpected floating point number, expecting identifier or ) :: ...  n3 sp_bsim3v3 (type=1 version=3.3.0)
 netlist/op/device_hicum2.sp	ngspice	xyce	syntax	loaded	Netlist error in file device_hicum2.x.cir at or near line 8 :: Model is required for device Q1 and no valid model card found.
 netlist/op/device_hicum2.sp	hspice	xyce	syntax	loaded	Netlist error in file device_hicum2.x.cir at or near line 8 :: Model is required for device Q1 and no valid model card found.
 netlist/op/device_lossy_tline_rg.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 3 or its substitute: :: o1 in 0 out 0 line length=2 | unknown parameter (length) :: Simulation interrupted due to error!
 netlist/op/isource_multiplier_ngspice.sp	ngspice	ngspice	excluded:runtime	runtime	Error: no data saved for A.C. Small signal analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted
 netlist/op/isource_multiplier_ngspice.sp	ngspice	xyce	syntax	runtime	Netlist error in file isource_multiplier_ngspice.x.cir at or near line 4 :: Unrecognized parameter AC Too Many Terms for device I1
-netlist/op/isource_multiplier_ngspice.sp	ngspice	vacask	syntax	runtime	Parameter 'm' not found. :: I1 (0 a) isource dc=1m mag=1 m=3
 netlist/op/isource_multiplier_ngspice.sp	hspice	ngspice	excluded:runtime	runtime	Error: no data saved for A.C. Small signal analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted
 netlist/op/isource_multiplier_ngspice.sp	hspice	xyce	syntax	runtime	Netlist error in file isource_multiplier_ngspice.x.cir at or near line 4 :: Unrecognized parameter AC Too Many Terms for device I1
-netlist/op/isource_multiplier_ngspice.sp	hspice	vacask	syntax	runtime	Parameter 'm' not found. :: I1 (0 a) isource dc=1m mag=1 m=3
 netlist/op/mfactor_parallel_copies.sp	ngspice	xyce	syntax	loaded	Netlist error in file mfactor_parallel_copies.x.cir at or near line 24 :: Unrecognized fields for device J1
-netlist/op/mfactor_parallel_copies.sp	ngspice	vacask	syntax	loaded	Parameter 'level' not found. :: model jm sp_jfet1 (type=1 level=2 vto=-1.5 beta=1m is=1e-14)
 netlist/op/mfactor_parallel_copies.sp	hspice	xyce	syntax	loaded	Netlist error in file mfactor_parallel_copies.x.cir at or near line 24 :: Unrecognized fields for device J1
-netlist/op/mfactor_parallel_copies.sp	hspice	vacask	syntax	loaded	Parameter 'level' not found. :: model jm sp_jfet1 (type=1 level=2 vto=-1.5 beta=1m is=1e-14)
 netlist/op/resistor_negative_ngspice.sp	ngspice	xyce	syntax	loaded	Netlist error in file resistor_negative_ngspice.x.cir at or near line 8 :: Device instance R3: Multiplicity Factor (M) must be non-negative
-netlist/op/resistor_negative_ngspice.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: R3 (c 0) resistor r=1k m=-2
 netlist/op/resistor_negative_ngspice.sp	hspice	xyce	syntax	loaded	Netlist error in file resistor_negative_ngspice.x.cir at or near line 8 :: Device instance R3: Multiplicity Factor (M) must be non-negative
-netlist/op/resistor_negative_ngspice.sp	hspice	vacask	syntax	loaded	Parameter 'm' not found. :: R3 (c 0) resistor r=1k m=-2
 netlist/qpss/idt_lowpass_two_tone.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_idt_lp' from line :: n1 in out va_idt_lp wc=1000 | Error on line 4 or its substitute: :: .hdl  idt_lowpass_two_tone.assets/va_idt_lp.va | Simulation interrupted due to error!
 netlist/qpss/linear_two_tone_1_1.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .qpss 1000 1414.213562373095 1 1 | Simulation interrupted due to error!
 netlist/qpss/linear_two_tone_2_2.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .qpss 1000 1414.213562373095 2 2 | Simulation interrupted due to error!
 netlist/qpss/linear_two_tone_3_2.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .qpss 1000 1414.213562373095 3 2 | Simulation interrupted due to error!
 netlist/qpss/square_mixer.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .qpss 1000 1414.213562373095 2 2 | Simulation interrupted due to error!
-netlist/noise/device_bsim4_noise_ad_body_bias.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_multiplicity3.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=3
-netlist/noise/device_bsim4_noise_ad_n_forward.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_n_reverse.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (0 g d b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_near_zero_forward.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_near_zero_reverse.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (0 g d b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_nf4.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=4 m=1
-netlist/noise/device_bsim4_noise_ad_p_forward.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_p_reverse.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (0 g d b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_tnoimod0.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_velocity.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_velocity_lc_explicit.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
-netlist/noise/device_bsim4_noise_ad_velocity_lc_zero.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M1 (d g 0 b) n4 w=10u l=0.5u nf=1 m=1
 netlist/noise/device_vbic_noise_scale.sp	ngspice	ngspice	excluded:syntax	syntax	Error: no data saved for Noise analysis; analysis not run
 netlist/noise/jfet_channel.sp	ngspice	xyce	syntax	loaded	Netlist error in file jfet_channel.x.cir at or near line 9 :: Unrecognized parameter NOISY for device RL1 | Netlist error in file jfet_channel.x.cir at or near line 9 :: Unrecognized fields for device RL1 | Netlist error in file jfet_channel.x.cir at or near line 10 :: Unrecognized parameter NOISE for device RL2 | Netlist error in file jfet_channel.x.cir at or near line 10 :: Unrecognized fields for device RL2
-netlist/noise/ngspice_mos2_cs.sp	ngspice	vacask	syntax	loaded	Parameter 'm' not found. :: M3 (d2 g 0 0) nm0 w=10u l=2u m=2
 netlist/noise/noise_table_card_knots.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'noiseless_res' from line :: ns in out noiseless_res | Error on line 3 or its substitute: :: .hdl  va_noise.assets/noiseless_res.va | Simulation interrupted due to error!
 netlist/noise/noise_table_lin_clamp.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'noiseless_res' from line :: ns in out noiseless_res | warning, can't find model 'ntab_lin' from line :: nt out 0 ntab_lin | Error on line 4 or its substitute: :: .hdl  va_noise.assets/noiseless_res.va | Simulation interrupted due to error!
 netlist/noise/noise_table_lin_interior.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'noiseless_res' from line :: ns in out noiseless_res | warning, can't find model 'ntab_lin' from line :: nt out 0 ntab_lin | Error on line 4 or its substitute: :: .hdl  va_noise.assets/noiseless_res.va | Simulation interrupted due to error!
@@ -761,7 +668,6 @@ netlist/multi_analysis/bench_hb_tline_guard.sp	ngspice	ngspice	excluded:syntax	s
 netlist/multi_analysis/bench_ngspice_res_array.sp	ngspice	ngspice	excluded:runtime	runtime	Error: no data saved for A.C. Small signal analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted | Error: .print: no ac analysis found.
 netlist/multi_analysis/bench_ngspice_rtlinv.sp	ngspice	ngspice	excluded:syntax	syntax	Error: no such vector 3 :: in term: v(3) | Error: no such vector 5 :: in term: v(5)
 netlist/multi_analysis/bsource_power_ngspice.sp	ngspice	ngspice	excluded:runtime	runtime	Error: no data saved for A.C. Small signal analysis; analysis not run | Error: no data saved for D.C. Transfer curve analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted
-netlist/multi_analysis/bsource_power_ngspice.sp	ngspice	vacask	syntax	runtime	Device '__behavioral_Bcaret' not found. :: Bcaret (caret 0) v=v(in)**3
 netlist/multi_analysis/ltra_rc_ac.sp	ngspice	ngspice	excluded:runtime	runtime	Error: no data saved for A.C. Small signal analysis; analysis not run | doAnalyses: not found | run simulation(s) aborted
 netlist/hbxf/multitone_rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 8 or its substitute: :: .hb tones=1k 1.3k nharms=2 2 | Simulation interrupted due to error!
 netlist/hbxf/rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .hbxf v(out) dec 4 10 10k 1k 3 | Simulation interrupted due to error!
@@ -795,7 +701,6 @@ netlist/hdl/veriloga_limit.sp	ngspice	ngspice	excluded:syntax	syntax	warning, ca
 netlist/hdl/veriloga_optran_timer.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_tick' from line :: n1 out va_tick per=0.3u | Error on line 5 or its substitute: :: .hdl  veriloga_timer_rearm.assets/va_tick.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_parallel.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_parallel_left' from line :: nleft left 0 va_parallel_left | warning, can't find model 'va_parallel_right' from line :: nright right 0 va_parallel_right | Error on line 3 or its substitute: :: .hdl  veriloga_parallel.assets/va_parallel_left.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_pre_osdi_va.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * pre_osdi is an error: espice never loads osdi, even with a .va beside the .osdi | warning, can't find model 'va_rh' from line :: n1 out 0 va_rh r=50 | Error opening osdi lib "veriloga_hdl_errors.assets/va_rh.osdi": No such file or directory! | Error: Library veriloga_hdl_errors.assets/va_rh.osdi couldn't be loaded! | Error on line 6 or its substitute: :: n1 out 0 va_rh r=50 | Simulation interrupted due to error!
-netlist/hdl/veriloga_pre_osdi_va.sp	ngspice	vacask	excluded:syntax	syntax	File 'veriloga_hdl_errors.assets/va_rh.osdi' not found. :: load "veriloga_hdl_errors.assets/va_rh.osdi"
 netlist/hdl/veriloga_res_divider.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_res' from line :: n1 out 0 va_res | Error on line 4 or its substitute: :: .hdl  veriloga_res_divider.assets/va_res.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_simparam.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_gtol' from line :: n1 out 0 va_gtol | Error on line 3 or its substitute: :: .hdl  veriloga_simparam.assets/va_gtol.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_simparam_homotopy.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_ghom' from line :: n1 out 0 va_ghom | warning, can't find model 'va_expd' from line :: n2 d 0 va_expd | Error on line 5 or its substitute: :: .hdl  veriloga_simparam_homotopy.assets/va_ghom.va | Simulation interrupted due to error!
@@ -810,16 +715,10 @@ netlist/hdl/veriloga_vpi_app.sp	ngspice	ngspice	excluded:syntax	syntax	warning, 
 netlist/hdl/veriloga_vpi_callbacks.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'va_vpi_scaled' from line :: n1 out 0 va_vpi_scaled | Error on line 4 or its substitute: :: .hdl  veriloga_vpi_callbacks.assets/va_vpi_scaled.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_wide_ladder.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * a verilog-a device past 64 unknowns (#117): 70 unknowns, a dense | warning, can't find model 'ladder70' from line :: n1 in 0 ladder70 | Error on line 6 or its substitute: :: .hdl  veriloga_wide_ladder.assets/ladder70.va | Simulation interrupted due to error!
 netlist/hdl/veriloga_wrong_node_count.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * an .hdl instance with more nodes than module ports must be an error | warning, can't find model 'va_rh' from line :: n1 out 0 in va_rh r=50 | Error on line 3 or its substitute: :: .hdl  veriloga_hdl_errors.assets/va_rh.va | Simulation interrupted due to error!
-netlist/ac/device_tline_delay.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
-netlist/ac/device_tline_delay.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
 netlist/ac/hicum2_collapsed_resistors.sp	ngspice	xyce	syntax	loaded	Netlist error in file hicum2_collapsed_resistors.x.cir at or near line 13 :: Model is required for device Q1 and no valid model card found.
 netlist/ac/hicum2_collapsed_resistors.sp	hspice	xyce	syntax	loaded	Netlist error in file hicum2_collapsed_resistors.x.cir at or near line 13 :: Model is required for device Q1 and no valid model card found.
-netlist/ac/kinduc_k_exact.sp	ngspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
-netlist/ac/kinduc_k_exact.sp	hspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
 netlist/ac/resistance_ac_override.sp	ngspice	xyce	syntax	loaded	Netlist error in file resistance_ac_override.x.cir at or near line 4 :: Unrecognized parameter AC for device R1 | Netlist error in file resistance_ac_override.x.cir at or near line 4 :: Unrecognized fields for device R1
-netlist/ac/resistance_ac_override.sp	ngspice	vacask	syntax	loaded	Parameter 'ac' not found. :: R1 (in out) resistor r=1k ac=2k
 netlist/ac/resistance_ac_override.sp	hspice	xyce	syntax	loaded	Netlist error in file resistance_ac_override.x.cir at or near line 4 :: Unrecognized parameter AC for device R1 | Netlist error in file resistance_ac_override.x.cir at or near line 4 :: Unrecognized fields for device R1
-netlist/ac/resistance_ac_override.sp	hspice	vacask	syntax	loaded	Parameter 'ac' not found. :: R1 (in out) resistor r=1k ac=2k
 netlist/pss/bench_pss_diode_rect_driven.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 11 or its substitute: :: .pss 1k 256 | Simulation interrupted due to error!
 netlist/pss/bench_pss_rlc_driven.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 10 or its substitute: :: .pss 10k 256 | Simulation interrupted due to error!
 netlist/pss/dc_is_periodic.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .pss 1k | Simulation interrupted due to error!
@@ -837,39 +736,13 @@ netlist/pss/ring_oscillator.sp	ngspice	ngspice	excluded:syntax	syntax	Error on l
 netlist/pss/ring_oscillator_krylov.sp	ngspice	ngspice	excluded:syntax	syntax	Circuit: * autonomous shooting pss on the krylov path: a 17-stage ring, 51 unknowns | Error on line 56 or its substitute: :: .pss v(c1) 38k 512 | Simulation interrupted due to error!
 netlist/pss/ring_oscillator_snosc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 12 or its substitute: :: .snosc v(c1) 300k 256 | Simulation interrupted due to error!
 netlist/syntax/hspice_suffix.sp	ngspice	ngspice	excluded:syntax	syntax	warning, can't find model 'cval' from line :: c1 out 0 cval
-netlist/syntax/hspice_suffix.sp	ngspice	vacask	excluded:syntax	syntax	Master 'cval' not found. :: C1 (out 0) cval
 netlist/syntax/ngspice_mod_idiv.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 14 or its substitute: :: r3 n3 0 r=7k %4k | unknown parameter (%4k) :: Simulation interrupted due to error!
-netlist/syntax/subckt_params.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=6, rank=2. | Factorization failed, size=6, rank=2, zero pivot @ node 'mid1'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
-netlist/dc/device_bsim3_body_effect.sp	ngspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim3_body_effect.sp	hspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim3_output.sp	ngspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim3_output.sp	hspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim3_pmos.sp	ngspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=-1 version=3.3 tnom=27 tox=4.1n vth0=-0.4 k1=0.55 k2=-0.05 k ...
-netlist/dc/device_bsim3_pmos.sp	hspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=-1 version=3.3 tnom=27 tox=4.1n vth0=-0.4 k1=0.55 k2=-0.05 k ...
-netlist/dc/device_bsim3_transfer.sp	ngspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim3_transfer.sp	hspice	vacask	syntax	loaded	Parameter 'version' not found. :: (type=1 version=3.3 tnom=27 tox=4.1n vth0=0.35 k1=0.53 k2=-0.06 k3 ...
-netlist/dc/device_bsim4_output.sp	ngspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n epsrox=3 ...
-netlist/dc/device_bsim4_output.sp	hspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n epsrox=3 ...
-netlist/dc/device_bsim4_pmos.sp	ngspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=-1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n vth0=-0 ...
-netlist/dc/device_bsim4_pmos.sp	hspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=-1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n vth0=-0 ...
-netlist/dc/device_bsim4_transfer.sp	ngspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n vth0=0.3 ...
-netlist/dc/device_bsim4_transfer.sp	hspice	vacask	syntax	loaded	Cannot convert real into string. | Value conversion failed for OSDI parameter id=59. :: (type=1 version=4.5 tnom=27 toxe=1.8n toxp=1.5n toxm=1.8n vth0=0.3 ...
 netlist/dc/device_hicum2_gummel.sp	ngspice	xyce	syntax	loaded	Netlist error in file device_hicum2_gummel.x.cir at or near line 7 :: Model is required for device Q1 and no valid model card found.
 netlist/dc/device_hicum2_gummel.sp	hspice	xyce	syntax	loaded	Netlist error in file device_hicum2_gummel.x.cir at or near line 7 :: Model is required for device Q1 and no valid model card found.
 netlist/dc/device_hicum2_output.sp	ngspice	xyce	syntax	loaded	Netlist error in file device_hicum2_output.x.cir at or near line 7 :: Model is required for device Q1 and no valid model card found.
 netlist/dc/device_hicum2_output.sp	hspice	xyce	syntax	loaded	Netlist error in file device_hicum2_output.x.cir at or near line 7 :: Model is required for device Q1 and no valid model card found.
-netlist/dc/device_jfet2.sp	ngspice	vacask	syntax	loaded	Parameter 'level' not found. :: model nj2 sp_jfet1 (type=1 level=2 vto=-2 beta=1m lambda=2m rd=10 rs=1 ...
-netlist/dc/device_jfet2.sp	hspice	vacask	syntax	loaded	Parameter 'level' not found. :: model nj2 sp_jfet1 (type=1 level=2 vto=-2 beta=1m lambda=2m rd=10 rs=1 ...
-netlist/dc/device_jfet2_temp.sp	ngspice	vacask	syntax	loaded	Parameter 'level' not found. :: model jm sp_jfet1 (type=1 level=2 vto=-1.5 beta=1m lambda=0.02 is=1e-1 ...
-netlist/dc/device_mos3.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
-netlist/dc/device_mos3.sp	hspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
-netlist/dc/device_mos3_transfer.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 45 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/501 (0).
-netlist/dc/device_mos3_transfer.sp	hspice	vacask	runtime	loaded	Homotopy failed, 45 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/501 (0).
 netlist/dc/diode_area_sidewall.sp	ngspice	xyce	syntax	loaded	Netlist error in file diode_area_sidewall.x.cir at or near line 10 :: Model is required for device D4 and no valid model card found.
 netlist/dc/diode_area_sidewall.sp	hspice	xyce	syntax	loaded	Netlist error in file diode_area_sidewall.x.cir at or near line 10 :: Model is required for device D4 and no valid model card found.
-netlist/dc/nodeset_sweep_latch.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (x 0) v=-tanh(3*(v(y)+v(in)))
-netlist/dc/resistor_sweep.sp	ngspice	vacask	syntax	loaded	Sweep 'sweep1': parameter 'dc' of instance 'R2' not found. :: sweep sweep1 instance="R2" parameter="dc" from=1k to=5k step=1k | Failed to bind sweep parameters.
-netlist/dc/resistor_sweep.sp	hspice	vacask	syntax	loaded	Sweep 'sweep1': parameter 'dc' of instance 'R2' not found. :: sweep sweep1 instance="R2" parameter="dc" from=1k to=5k step=1k | Failed to bind sweep parameters.
 netlist/hbac/ideal_multiplier.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 7 or its substitute: :: .hbac dec 3 10 100 1k 3 | Simulation interrupted due to error!
 netlist/hbac/multitone_multiplier.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 8 or its substitute: :: .hb tones=1k 1.3k nharms=1 1 | Simulation interrupted due to error!
 netlist/hbac/multitone_rc.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 8 or its substitute: :: .hb tones=1k 1.3k nharms=2 2 | Simulation interrupted due to error!
@@ -920,3 +793,89 @@ netlist/envelope/rc_startup_0p001.sp	ngspice	ngspice	excluded:syntax	syntax	Erro
 netlist/envelope/rc_startup_1e-05.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 6 or its substitute: :: .envelope 1m 5m | Simulation interrupted due to error!
 netlist/envelope/sine.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 5 or its substitute: :: .envelope 1m 5m | Simulation interrupted due to error!
 netlist/envelope/zero.sp	ngspice	ngspice	excluded:syntax	syntax	Error on line 5 or its substitute: :: .envelope 1m 5m | Simulation interrupted due to error!
+netlist/hspice/dc_dec_grid.sp	hspice	(source)	syntax	-	Error on line 7 or its substitute: :: .dc v1 dec 2 1 100 | Simulation interrupted due to error!
+netlist/hspice/dc_poi_grid.sp	hspice	(source)	syntax	-	Error on line 9 or its substitute: :: .dc v1 poi 3 0.5 -1 2 i1 lin 2 0 1m | Simulation interrupted due to error!
+netlist/hspice/dc_start_stop.sp	hspice	(source)	syntax	-	Error on line 7 or its substitute: :: .dc v1 start=0 stop=1 step=0.25 | Simulation interrupted due to error!
+netlist/invalid/hspice_unquoted_expression.sp	hspice	(source)	syntax	-	Error on line 8 or its substitute: :: r1 a 0 r=2*rv | unknown parameter (*) :: Simulation interrupted due to error!
+netlist/stb/lstb_loaded_break.sp	hspice	(source)	syntax	-	Undefined parameter [single] | Cannot compute substitute | ERROR: fatal error in ngspice, exit(1)
+netlist/stb/lstb_three_pole.sp	hspice	(source)	syntax	-	Undefined parameter [single] | Cannot compute substitute | ERROR: fatal error in ngspice, exit(1)
+netlist/invalid/ac_frequency_overflow.sp	ngspice	vacask	runtime	loaded	Analysis 'ac1' aborted.
+netlist/invalid/ac_frequency_overflow.sp	hspice	vacask	runtime	loaded	Analysis 'ac1' aborted.
+netlist/invalid/ac_negative_frequency.sp	ngspice	vacask	runtime	loaded	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
+netlist/invalid/ac_negative_frequency.sp	hspice	vacask	runtime	loaded	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
+netlist/invalid/ac_zero_density.sp	ngspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
+netlist/invalid/ac_zero_density.sp	hspice	vacask	excluded:runtime	syntax	Failed to set up the AC frequency sweep. | Analysis 'ac1' aborted.
+netlist/invalid/bench_topology_floating_node.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/bench_topology_floating_node.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/cccs_word_on_e_refused.sp	ngspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/cccs_word_on_e_refused.sp	hspice	vacask	runtime	runtime	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/contradictory_voltage_loop.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/contradictory_voltage_loop.sp	hspice	vacask	runtime	runtime	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/contradictory_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/contradictory_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/current_into_capacitor_dc.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/current_into_capacitor_dc.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/current_into_open_node.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/current_into_open_node.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/dc_wrong_step_direction.sp	ngspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
+netlist/invalid/dc_wrong_step_direction.sp	hspice	vacask	syntax	loaded	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=-.1 | Failed to set up sweep for analysis 'dc1'.
+netlist/invalid/dc_zero_step.sp	ngspice	vacask	excluded:syntax	syntax	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=0 | Failed to set up sweep for analysis 'dc1'.
+netlist/invalid/dc_zero_step.sp	hspice	vacask	excluded:syntax	syntax	Failed to set up sweep 'sweep1'. :: sweep sweep1 instance="Vin" from=0 to=1 step=0 | Failed to set up sweep for analysis 'dc1'.
+netlist/invalid/floating_sense_node_op.sp	ngspice	vacask	syntax	runtime	Device '__behavioral_B1' not found. :: B1 (o2 0) v=v(a)+1
+netlist/invalid/hspice_percent_operator.sp	ngspice	vacask	syntax	loaded	Syntax error, unexpected string. :: r1 (a 0) resistor r=(10 % 3)
+netlist/invalid/hspice_percent_operator.sp	hspice	vacask	syntax	loaded	Syntax error, unexpected string. :: r1 (a 0) resistor r=(10 % 3)
+netlist/invalid/model_kind_mismatch_refused.sp	ngspice	vacask	excluded:syntax	syntax	Device 'sp_bjt' not found. :: model qm sp_bjt (type=1)
+netlist/invalid/model_kind_mismatch_refused.sp	hspice	vacask	excluded:syntax	syntax	Device 'sp_bjt' not found. :: model qm sp_bjt (type=1)
+netlist/invalid/noise_missing_output.sp	ngspice	vacask	runtime	loaded	Node 'missing' not found. | Analysis 'noise1' aborted.
+netlist/invalid/noise_zero_frequency.sp	ngspice	vacask	excluded:runtime	syntax	Failed to set up the noise analysis frequency sweep. | Analysis 'noise1' aborted.
+netlist/invalid/source_pwl_file_refused.sp	hspice	vacask	excluded:syntax	syntax	Syntax error, unexpected string. :: ... (a 0) vsource dc=pwl file=nonexist.txt
+netlist/invalid/source_pwl_repeat_unmatched.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
+netlist/invalid/source_pwl_repeat_unmatched.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'r' not found. :: ... e="pwl" wave=[0, 0, 1u, 1, 2u, 0] r=0.5u
+netlist/invalid/topology_parallel_voltage_sources.sp	ngspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/topology_parallel_voltage_sources.sp	hspice	vacask	runtime	runtime	Factorization failed, size=3, rank=1, zero pivot @ node 'V2:flow(br)'. | Homotopy failed, 12 step(s) tried. | Analysis 'op1' aborted.
+netlist/invalid/tran_negative_stop.sp	ngspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
+netlist/invalid/tran_negative_stop.sp	hspice	vacask	excluded:runtime	syntax	Analysis 'tran1' aborted.
+netlist/invalid/unknown_instance_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/vx/w/parse_check.47k0uk7k/tmpre59_h98/unknown_instance_parameter.x.sim
+netlist/invalid/unknown_instance_parameter.sp	hspice	vacask	excluded:syntax	syntax	Parameter 'ww' not found. :: M1 (d g 0 0) nm ww=10u l=1u | 9:17 (0x146) in /tmp/claude-1000/-home-omare-Documents-Projects-EDA-Tools-Simulator-SPRack/ad50e935-d34a-4483-9ed9-91bf05b43cfa/scratchpad/vx/w/parse_check.47k0uk7k/tmptyam_xqr/unknown_instance_parameter.x.sim
+netlist/invalid/unresolved_parameter.sp	ngspice	vacask	excluded:syntax	syntax	Master 'rv' not found. :: r1 (a 0) rv
+netlist/invalid/unresolved_parameter.sp	hspice	vacask	excluded:syntax	syntax	exit 1
+netlist/layout/capacitive_divider_tran.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/layout/capacitive_divider_tran.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=3, rank=2. | Factorization failed, size=3, rank=2, zero pivot @ node 'island'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/layout/metal_island_tran.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/layout/metal_island_tran.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/convergence/monotonic_cubic_0p001.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
+netlist/convergence/monotonic_cubic_1.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
+netlist/convergence/monotonic_cubic_1000.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
+netlist/convergence/monotonic_cubic_1e-09.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (out 0) i=v(out)*v(out)*v(out)
+netlist/tran/bench_tline_delay_line.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/bench_tline_delay_line.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/bench_tline_ideal_tline.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/bench_tline_ideal_tline.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/bench_tline_terminated.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/bench_tline_terminated.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/device_tline.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/device_tline.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/equal_current_sources.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/equal_current_sources.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/island_series_short.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/tran/island_series_short.sp	hspice	vacask	runtime	loaded	Refactorization failed, size=7, rank=3. | Factorization failed, size=7, rank=3, zero pivot @ node 'm2'. | Homotopy failed, 51 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/stress/scaling_inverter_chain_4k.sp	ngspice	vacask	timeout	loaded	killed after 10s
+netlist/stress/scaling_inverter_chain_4k.sp	hspice	vacask	timeout	loaded	killed after 10s
+netlist/stress/vacask_ring.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Device 'psp103va' not found. :: model psp103n psp103va (
+netlist/stress/vacask_mul.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Failed to add device. :: load "spice/sn/diode.osdi"
+netlist/stress/vacask_graetz.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Failed to add device. :: load "spice/sn/diode.osdi"
+netlist/stress/vacask_rc.assets/vacask/runme.sim	vacask	vacask	excluded:syntax	syntax	Number of unknowns:              3 :: Initial number of nonzeros:      7
+netlist/op/bsource_ln_zero_start.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (o 0) v=ln(v(x))
+netlist/multi_analysis/bsource_power_ngspice.sp	ngspice	vacask	syntax	runtime	Device '__behavioral_Bcaret' not found. :: Bcaret (caret 0) v=v(in)**3
+netlist/hdl/veriloga_pre_osdi_va.sp	ngspice	vacask	excluded:syntax	syntax	File 'veriloga_hdl_errors.assets/va_rh.osdi' not found. :: load "veriloga_hdl_errors.assets/va_rh.osdi"
+netlist/ac/device_tline_delay.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
+netlist/ac/device_tline_delay.sp	hspice	vacask	runtime	loaded	Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
+netlist/ac/kinduc_k_exact.sp	ngspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
+netlist/ac/kinduc_k_exact.sp	hspice	vacask	runtime	loaded	Factorization failed, size=5, rank=3, zero pivot @ node 'V1:flow(br)'. | Homotopy failed, 12 step(s) tried. | Operating point analysis failed. | Analysis 'ac1' aborted.
+netlist/syntax/hspice_suffix.sp	ngspice	vacask	excluded:syntax	syntax	Master 'cval' not found. :: C1 (out 0) cval
+netlist/syntax/subckt_params.sp	ngspice	vacask	runtime	loaded	Refactorization failed, size=6, rank=2. | Factorization failed, size=6, rank=2, zero pivot @ node 'mid1'. | Homotopy failed, 20 step(s) tried. | Operating point analysis failed. | Analysis 'tran1' aborted.
+netlist/dc/device_mos3.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
+netlist/dc/device_mos3.sp	hspice	vacask	runtime	loaded	Homotopy failed, 39 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/11 (0), 3/201 (0.05).
+netlist/dc/device_mos3_transfer.sp	ngspice	vacask	runtime	loaded	Homotopy failed, 45 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/501 (0).
+netlist/dc/device_mos3_transfer.sp	hspice	vacask	runtime	loaded	Homotopy failed, 45 step(s) tried. | Analysis 'dc1' aborted. | Sweep aborted @ 1/501 (0).
+netlist/dc/nodeset_sweep_latch.sp	ngspice	vacask	syntax	loaded	Device '__behavioral_B1' not found. :: B1 (x 0) v=-tanh(3*(v(y)+v(in)))

@@ -1,80 +1,34 @@
 file	to	status	cause	check	detail
-netlist/invalid/cccs_word_on_e_refused.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/contradictory_voltage_loop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/contradictory_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/dc_zero_step.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/dc_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/hspice_unquoted_expression.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/hspice_unquoted_expression.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/noise_missing_output.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/noise_zero_frequency.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/options_negative_reltol.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/options_negative_reltol.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/options_reltol_zero.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/options_reltol_zero.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/source_pwl_repeat_unmatched.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/topology_parallel_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/tran_negative_stop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
 netlist/invalid/tran_zero_step.sp	xyce	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/invalid/tran_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
-netlist/layout/capacitive_divider_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/layout/metal_island_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/convergence/bench_ota_cutoff_abstol.sp	vacask	mismatch	values differ	AC Analysis:v(out_122)	[0] got=26670.4848-8206.98366j want=26486.8831-8151.04313j
-netlist/convergence/monotonic_cubic_0p001.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/convergence/monotonic_cubic_1.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/convergence/monotonic_cubic_1000.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/convergence/monotonic_cubic_1e-09.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/tran/bench_bypass_burst_clock.sp	xyce	mismatch	values differ	Transient Analysis:v(a)	[94] got=0.0963468312+0j want=0.094937304+0j
-netlist/tran/bench_bypass_burst_clock.sp	vacask	mismatch	values differ	Transient Analysis:v(a)	[45] got=0.461300886+0j want=0.463621726+0j
 netlist/tran/bench_bypass_gated_branch.sp	xyce	mismatch	values differ	Transient Analysis:v(in)	[16] got=0.486790515+0j want=0.489916697+0j
-netlist/tran/bench_bypass_gated_branch.sp	vacask	mismatch	values differ	Transient Analysis:v(in)	[25] got=0.876482089+0j want=0.880767673+0j
 netlist/tran/bench_bypass_idle_ladder.sp	xyce	mismatch	values differ	Transient Analysis:v(m2)	[23] got=0.0113222589+0j want=0.0107495572+0j
-netlist/tran/bench_bypass_idle_ladder.sp	vacask	mismatch	values differ	Transient Analysis:v(m2)	[49] got=0.169414501+0j want=0.16804418+0j
 netlist/tran/bench_digital_clamp.sp	xyce	mismatch	values differ	Transient Analysis:v(node)	[10] got=2.08861949+0j want=2.06362248+0j
-netlist/tran/bench_digital_clamp.sp	vacask	mismatch	values differ	Transient Analysis:v(node)	[4] got=0.00642512209+0j want=0.00107109137+0j
-netlist/tran/bench_digital_rc_filter_chain.sp	vacask	mismatch	values differ	Transient Analysis:v(n1)	[65] got=3.76211769+0j want=3.78449736+0j
 netlist/tran/bench_ensemble_pvt_corners.sp	xyce	mismatch	values differ	Transient Analysis:v(o1)	[67] got=0.0994489443+0j want=0.0949586113+0j
-netlist/tran/bench_ensemble_pvt_corners.sp	vacask	mismatch	values differ	Transient Analysis:v(o1)	[67] got=0.100802965+0j want=0.0949586113+0j
 netlist/tran/bench_medium_rc_ladder_50.sp	xyce	mismatch	values differ	Transient Analysis:v(n29)	[71] got=0.00634564512+0j want=0.00619548681+0j
-netlist/tran/bench_medium_rc_ladder_50.sp	vacask	mismatch	values differ	Transient Analysis:v(n3)	[135] got=0.306634407+0j want=0.308487128+0j
-netlist/tran/bench_mosfet_nmos_cs.sp	vacask	mismatch	values differ	Transient Analysis:i(vdd)	[12] got=-0.00085943805+0j want=-0.000853327385+0j
 netlist/tran/bench_power_rectifier.sp	xyce	mismatch	values differ	Transient Analysis:i(vac)	[15] got=-1.06323423+0j want=-0.98954119+0j
 netlist/tran/bench_tline_delay_line.sp	xyce	mismatch	values differ	Transient Analysis:v(a)	[95] got=0.199970002+0j want=0.149977502+0j
-netlist/tran/bench_tline_delay_line.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/bench_tline_ideal_tline.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/bench_tline_terminated.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/tran/bench_tran_exp_source.sp	xyce	mismatch	values differ	Transient Analysis:i(v1)	[86] got=-0.000106598361+0j want=-0.00010465369+0j
-netlist/tran/bench_tran_exp_source.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[28] got=0.0227748316+0j want=0.00550051963+0j
-netlist/tran/bench_tran_rc_pulse.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[21] got=0.00757327376+0j want=0.00188899934+0j
 netlist/tran/bench_tran_sffm_source.sp	xyce	mismatch	values differ	Transient Analysis:v(in)	[2] got=0.00150653446+0j want=0.000251327377+0j
-netlist/tran/bench_tran_sffm_source.sp	vacask	mismatch	values differ	Transient Analysis:v(in)	[2] got=0.00150787507+0j want=0.000251327377+0j
 netlist/tran/device_cswitch.sp	xyce	mismatch	values differ	Transient Analysis:v(out)	[50] got=0.0271180925+0j want=0.00999000999+0j
 netlist/tran/device_ic_no_uic.sp	xyce	mismatch	values differ	Transient Analysis:v(out)	[0] got=0.183989523+0j want=0+0j
-netlist/tran/device_ic_no_uic.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/tran/device_ic_uic.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/tran/device_kinduc.sp	xyce	mismatch	values differ	Transient Analysis:v(p)	[11] got=0.0328588296+0j want=0.0339961559+0j
-netlist/tran/device_kinduc.sp	vacask	mismatch	values differ	Transient Analysis:v(in)	[24] got=0.73044535+0j want=0.734762287+0j
 netlist/tran/device_mos1_large_signal.sp	xyce	mismatch	values differ	Transient Analysis:v(out)	[157] got=-0.00146294506+0j want=-0.0119645493+0j
-netlist/tran/device_mos1_large_signal.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[31] got=4.98897909+0j want=5.01100341+0j
 netlist/tran/device_switch.sp	xyce	mismatch	values differ	Transient Analysis:v(out)	[50] got=0.0343856159+0j want=0.00999000999+0j
 netlist/tran/device_switch_hysteresis.sp	xyce	mismatch	values differ	Transient Analysis:v(out)	[49] got=0.0243083442+0j want=0.00999000999+0j
-netlist/tran/device_tline.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/equal_current_sources.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/tran/ic_no_uic_op.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/tran/island_series_short.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/tran/island_series_short.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/tran/pwl_isource_breakpoints.sp	vacask	mismatch	values differ	Transient Analysis:v(a)	[6] got=0.000392070315+0j want=6.20394502e-05+0j
 netlist/tran/source_exp_defaults_ngspice.sp	xyce	mismatch	values differ	Transient Analysis:v(a)	[0] got=0.393409388+0j want=0+0j
 netlist/tran/source_pulse_zero_edges_ngspice.sp	xyce	mismatch	values differ	Transient Analysis:v(a)	[0] got=0+0j want=0.5+0j
 netlist/stress/scaling_inverter_chain_256.sp	xyce	mismatch	values differ	Transient Analysis:v(s10)	[24] got=0.266640944+0j want=0.232152114+0j
-netlist/stress/scaling_inverter_chain_256.sp	vacask	mismatch	values differ	Transient Analysis:v(s10)	[24] got=0.25502154+0j want=0.232152114+0j
-netlist/stress/scaling_inverter_chain_4k.sp	vacask	mismatch	no raw file / timeout	run	timeout
 netlist/stress/scaling_parallel_inverters_100.sp	xyce	mismatch	values differ	Transient Analysis:v(out3)	[7] got=1.77044647+0j want=1.74656999+0j
-netlist/stress/scaling_parallel_inverters_100.sp	vacask	mismatch	values differ	Transient Analysis:v(out3)	[7] got=1.77218117+0j want=1.74656999+0j
 netlist/stress/scaling_parallel_inverters_2000.sp	xyce	mismatch	values differ	Transient Analysis:v(out86)	[7] got=1.7703749+0j want=1.74656999+0j
-netlist/stress/scaling_parallel_inverters_2000.sp	vacask	mismatch	values differ	Transient Analysis:v(out86)	[7] got=1.77216608+0j want=1.74656999+0j
 netlist/stress/scaling_rc_ladder_1k.sp	xyce	mismatch	values differ	Transient Analysis:i(vin)	[6] got=-0.000276606619+0j want=-0.000278191346+0j
-netlist/stress/scaling_rc_ladder_1k.sp	vacask	mismatch	values differ	Transient Analysis:i(vin)	[2] got=-1.88850395e-05+0j want=-1.97077581e-05+0j
 netlist/sp/bench_sp_lc_lowpass.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/sp/bench_sp_rc_twoport.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/sp/matched_pi_attenuator.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
@@ -83,124 +37,145 @@ netlist/sp/series_1000_z_50_50.sp	xyce	mismatch	translation does not run	simulat
 netlist/sp/series_100_z_50_50.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/sp/series_25_z_25_100.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/sp/series_50_z_50_50.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/op/bsource_ln_zero_start.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/op/device_bsim3.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/op/device_hicum2.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/op/expr_power_ngspice.sp	xyce	mismatch	values differ	Operating Point:v(a)	[0] got=1.24035494e-15+0j want=4.051307+0j
 netlist/op/isource_multiplier_ngspice.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/op/isource_multiplier_ngspice.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/op/mfactor_parallel_copies.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/op/mfactor_parallel_copies.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/op/nodeset_latch.sp	xyce	mismatch	values differ	Operating Point:v(q)	[0] got=1.1861796+0j want=4.61988106+0j
-netlist/op/nodeset_latch.sp	vacask	mismatch	values differ	Operating Point:v(q)	[0] got=0.0735699125+0j want=4.61988106+0j
 netlist/op/option_gmin_ngspice.sp	xyce	mismatch	values differ	Operating Point:i(v2)	[0] got=-0.00101+0j want=-0.002+0j
 netlist/op/resistor_negative_ngspice.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/op/resistor_negative_ngspice.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/balanced_temp_0.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/balanced_temp_0.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/balanced_temp_125.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/balanced_temp_125.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/balanced_temp_27.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/balanced_temp_27.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/balanced_temp_minus40.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/balanced_temp_minus40.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/bench_noise_amp_noise.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/bench_noise_amp_noise.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/bench_noise_bjt_flicker.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/bench_noise_bjt_flicker.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/clamped_output.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/clamped_output.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/current_source_input.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/current_source_input.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/device_bsim4_noise.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/device_bsim4_noise_ad_body_bias.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_body_bias.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_multiplicity3.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_multiplicity3.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_n_forward.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_n_forward.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_n_reverse.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_n_reverse.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_near_zero_forward.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_near_zero_forward.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_near_zero_reverse.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_near_zero_reverse.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_nf4.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_nf4.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_p_forward.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_p_forward.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_p_reverse.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_p_reverse.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_tnoimod0.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_tnoimod0.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_velocity.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_velocity.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_velocity_lc_explicit.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_velocity_lc_explicit.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_ad_velocity_lc_zero.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_ad_velocity_lc_zero.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/device_bsim4_noise_tnoimod1.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_tnoimod1.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/device_bsim4_noise_triode.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/device_bsim4_noise_triode.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/isrc_input_total.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/isrc_input_total.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/jfet_channel.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/noise/jfet_channel.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=4.42028429e-17+0j want=6.64852187e-09+0j
 netlist/noise/ngspice_mos2_cs.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/ngspice_mos2_cs.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/noise/rc_1e-06.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/rc_1e-06.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/rc_1e-09.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/rc_1e-09.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/unequal_temp_0.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/unequal_temp_0.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/unequal_temp_125.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/unequal_temp_125.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/unequal_temp_27.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/unequal_temp_27.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/noise/unequal_temp_minus40.sp	xyce	mismatch	column missing	plot Noise Spectral Density Curves	got='column onoise_spectrum: 0 matches' want=columns present
-netlist/noise/unequal_temp_minus40.sp	vacask	mismatch	column missing	plot Noise Spectral Density Curves	got='column inoise_spectrum: 0 matches' want=columns present
 netlist/multi_analysis/bsource_power_ngspice.sp	xyce	mismatch	plot missing	plot Operating Point	got=missing want=present
+netlist/ac/device_tline_delay.sp	xyce	mismatch	values differ	AC Analysis:v(a)	[0] got=0.666666667+0j want=0.634836166-0.0979642087j
+netlist/ac/rc_dec_3_10_730.sp	xyce	mismatch	values differ	AC Analysis:frequency	got=(21.54434690031884+0j) want=23.586558182407
+netlist/ac/resistance_ac_override.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/dc/device_diode_high_injection.sp	xyce	mismatch	values differ	DC transfer characteristic:i(v1)	[82] got=-0.000304768277+0j want=-0.000276575176+0j
+netlist/dc/device_hicum2_gummel.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/dc/device_hicum2_output.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/dc/device_jfet2.sp	xyce	mismatch	values differ	DC transfer characteristic:i(vds)	[30] got=-5.07356022e-06+0j want=-5.55248104e-05+0j
+netlist/dc/device_jfet2_temp.sp	xyce	mismatch	values differ	DC transfer characteristic:i(vds)	[12] got=-3.14065665e-06+0j want=-3.05378071e-05+0j
+netlist/dc/diode_area_sidewall.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/dc/single_point.sp	xyce	mismatch	plot missing	plot DC transfer characteristic	got=missing want=present
+netlist/regression/sensed_vsource_two_sensors.sp	xyce	mismatch	no raw file / timeout	raw file	got=raw: no Title want=a binary raw file
+netlist/invalid/cccs_word_on_e_refused.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/contradictory_voltage_loop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/contradictory_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/dc_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/hspice_unquoted_expression.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/noise_missing_output.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/noise_zero_frequency.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/options_negative_reltol.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/options_reltol_zero.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/topology_parallel_voltage_sources.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/tran_negative_stop.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/invalid/tran_zero_step.sp	vacask	mismatch	error deck accepted	rejected with a diagnostic	got=exit 0 want=exit 1-125
+netlist/layout/capacitive_divider_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/layout/metal_island_tran.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/convergence/monotonic_cubic_0p001.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/convergence/monotonic_cubic_1.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/convergence/monotonic_cubic_1000.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/convergence/monotonic_cubic_1e-09.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/tran/bench_bypass_burst_clock.sp	vacask	mismatch	values differ	Transient Analysis:v(a)	[45] got=0.461286865+0j want=0.463621726+0j
+netlist/tran/bench_bypass_idle_ladder.sp	vacask	mismatch	values differ	Transient Analysis:v(m2)	[49] got=0.169414501+0j want=0.16804418+0j
+netlist/tran/bench_digital_clamp.sp	vacask	mismatch	values differ	Transient Analysis:v(node)	[4] got=0.00642512209+0j want=0.00107109137+0j
+netlist/tran/bench_digital_rc_filter_chain.sp	vacask	mismatch	values differ	Transient Analysis:v(n1)	[65] got=3.76114747+0j want=3.78449736+0j
+netlist/tran/bench_ensemble_pvt_corners.sp	vacask	mismatch	values differ	Transient Analysis:v(o1)	[67] got=0.100802966+0j want=0.0949586113+0j
+netlist/tran/bench_medium_rc_ladder_50.sp	vacask	mismatch	values differ	Transient Analysis:v(n3)	[135] got=0.30668768+0j want=0.308487128+0j
+netlist/tran/bench_tline_delay_line.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/bench_tline_ideal_tline.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/bench_tline_terminated.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/bench_tran_exp_source.sp	vacask	mismatch	values differ	Transient Analysis:i(v1)	[28] got=-0.000149663412+0j want=-0.00015196657+0j
+netlist/tran/bench_tran_rc_pulse.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[21] got=0.00757327376+0j want=0.00188899934+0j
+netlist/tran/bench_tran_sffm_source.sp	vacask	mismatch	values differ	Transient Analysis:v(in)	[2] got=0.00150787507+0j want=0.000251327377+0j
+netlist/tran/device_kinduc.sp	vacask	mismatch	values differ	Transient Analysis:v(s)	[7] got=0.00266677323+0j want=0.00185991089+0j
+netlist/tran/device_mos1_large_signal.sp	vacask	mismatch	values differ	Transient Analysis:v(out)	[33] got=4.97492035+0j want=4.99582365+0j
+netlist/tran/device_tline.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/equal_current_sources.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/island_series_short.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
+netlist/tran/pwl_isource_breakpoints.sp	vacask	mismatch	values differ	Transient Analysis:v(a)	[6] got=0.000392070315+0j want=6.20394502e-05+0j
+netlist/stress/scaling_inverter_chain_256.sp	vacask	mismatch	values differ	Transient Analysis:v(s10)	[24] got=0.25502154+0j want=0.232152114+0j
+netlist/stress/scaling_inverter_chain_4k.sp	vacask	mismatch	no raw file / timeout	run	timeout
+netlist/stress/scaling_parallel_inverters_100.sp	vacask	mismatch	values differ	Transient Analysis:v(out3)	[7] got=1.77218117+0j want=1.74656999+0j
+netlist/stress/scaling_parallel_inverters_2000.sp	vacask	mismatch	values differ	Transient Analysis:v(out86)	[7] got=1.77216608+0j want=1.74656999+0j
+netlist/stress/scaling_rc_ladder_1k.sp	vacask	mismatch	values differ	Transient Analysis:i(vin)	[2] got=-1.88850395e-05+0j want=-1.97077581e-05+0j
+netlist/op/bsource_ln_zero_start.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/op/nodeset_latch.sp	vacask	mismatch	values differ	Operating Point:v(q)	[0] got=0.0735699125+0j want=4.61988106+0j
+netlist/noise/balanced_temp_0.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/balanced_temp_125.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/balanced_temp_27.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/balanced_temp_minus40.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/bench_noise_amp_noise.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/bench_noise_bjt_flicker.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/device_bsim4_noise.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/device_bsim4_noise_ad_body_bias.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=1.73777147e-09 want=1.78356438e-09+0j
+netlist/noise/device_bsim4_noise_ad_multiplicity3.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=9.42452691e-10 want=9.49623119e-10+0j
+netlist/noise/device_bsim4_noise_ad_n_forward.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=1.69091398e-09 want=1.73175453e-09+0j
+netlist/noise/device_bsim4_noise_ad_n_reverse.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=1.69091398e-09 want=1.73175453e-09+0j
+netlist/noise/device_bsim4_noise_ad_near_zero_forward.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/device_bsim4_noise_ad_near_zero_reverse.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/device_bsim4_noise_ad_nf4.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=1.73308673e-09 want=1.77912948e-09+0j
+netlist/noise/device_bsim4_noise_ad_p_forward.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=2.91508112e-09 want=3.11275966e-09+0j
+netlist/noise/device_bsim4_noise_ad_p_reverse.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=2.91508112e-09 want=3.11275965e-09+0j
+netlist/noise/device_bsim4_noise_ad_tnoimod0.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/device_bsim4_noise_ad_velocity.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:inoise_spectrum	[0] got=3.33350281e-08 want=3.36385615e-08+0j
+netlist/noise/device_bsim4_noise_ad_velocity_lc_explicit.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:inoise_spectrum	[0] got=3.33350281e-08 want=3.36385615e-08+0j
+netlist/noise/device_bsim4_noise_ad_velocity_lc_zero.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:inoise_spectrum	[0] got=3.34177992e-08 want=3.37221328e-08+0j
+netlist/noise/device_bsim4_noise_tnoimod1.sp	vacask	mismatch	values differ	Noise Spectral Density Curves:onoise_spectrum	[0] got=1.70925985e-09 want=1.75231229e-09+0j
+netlist/noise/device_bsim4_noise_triode.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/isrc_input_total.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/ngspice_mos2_cs.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/unequal_temp_0.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/unequal_temp_125.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/unequal_temp_27.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
+netlist/noise/unequal_temp_minus40.sp	vacask	mismatch	plot missing	plot Integrated Noise	got=missing want=present
 netlist/multi_analysis/bsource_power_ngspice.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/ac/bsim4_zero_bias_junction_cap.sp	vacask	mismatch	values differ	AC Analysis:i(vd)	[0] got=-1.0386635e-12-7.18585539e-08j want=-1.53506492e-07-1.48722488e-07j
 netlist/ac/dec_lane_tail_16.sp	vacask	mismatch	values differ	AC Analysis rows	got=17 want=16
 netlist/ac/dec_lane_tail_31.sp	vacask	mismatch	values differ	AC Analysis rows	got=32 want=31
-netlist/ac/device_tline_delay.sp	xyce	mismatch	values differ	AC Analysis:v(a)	[0] got=0.666666667+0j want=0.634836166-0.0979642087j
 netlist/ac/device_tline_delay.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/ac/kinduc_k_exact.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/ac/rc_dec_3_10_730.sp	xyce	mismatch	values differ	AC Analysis:frequency	got=(21.54434690031884+0j) want=23.586558182407
 netlist/ac/rc_dec_3_10_730.sp	vacask	mismatch	values differ	AC Analysis rows	got=7 want=6
-netlist/ac/resistance_ac_override.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/ac/resistance_ac_override.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/reference/cmos_inverter_dc.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=33 want=34
 netlist/reference/mos_common_source_ac.sp	vacask	mismatch	values differ	AC Analysis:i(vin)	[28] got=0+0j want=-4.07401319e-10-1.33536788e-08j
 netlist/syntax/hspice_suffix.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/syntax/subckt_params.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/dc/bench_sweep_amp_bias_sweep.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=330 want=331
 netlist/dc/device_bjt_npn_gummel.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=140 want=141
-netlist/dc/device_bsim3_body_effect.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim3_output.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim3_pmos.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim3_transfer.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim4_output.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim4_pmos.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_bsim4_transfer.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_diode_high_injection.sp	xyce	mismatch	values differ	DC transfer characteristic:i(v1)	[82] got=-0.000304768277+0j want=-0.000276575176+0j
-netlist/dc/device_hicum2_gummel.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_hicum2_output.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_jfet2.sp	xyce	mismatch	values differ	DC transfer characteristic:i(vds)	[30] got=-5.07356022e-06+0j want=-5.55248104e-05+0j
-netlist/dc/device_jfet2.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/device_jfet2_temp.sp	xyce	mismatch	values differ	DC transfer characteristic:i(vds)	[12] got=-3.14065665e-06+0j want=-3.05378071e-05+0j
-netlist/dc/device_jfet2_temp.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
+netlist/dc/device_bjt_npn_temp.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=440 want=444
 netlist/dc/device_mos3.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/dc/device_mos3_transfer.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
 netlist/dc/device_vbic_gummel.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=140 want=141
-netlist/dc/diode_area_sidewall.sp	xyce	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
 netlist/dc/diode_area_sidewall.sp	vacask	mismatch	values differ	DC transfer characteristic rows	got=196 want=197
 netlist/dc/nodeset_sweep_latch.sp	vacask	mismatch	translation does not run	simulation succeeded	got=exit 1 want=exit 0
-netlist/dc/resistor_sweep.sp	vacask	mismatch	no raw file / timeout	raw file	got=raw: no plots want=a binary raw file
-netlist/dc/single_point.sp	xyce	mismatch	plot missing	plot DC transfer characteristic	got=missing want=present
-netlist/dc/single_point.sp	vacask	mismatch	plot missing	plot DC transfer characteristic	got=missing want=present
-netlist/regression/sensed_vsource_two_sensors.sp	xyce	mismatch	no raw file / timeout	raw file	got=raw: no Title want=a binary raw file
