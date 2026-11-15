@@ -680,9 +680,12 @@ def test_tiny_pdk_names_are_known_to_the_writer():
         # The libraries also declare a function, and a cell of theirs holds a diode.
         with open(os.path.join(d, "cells.inc"), "a") as f:
             f.write(".func twice(x) {2*x}\n.subckt dcell a b\nD1 a b dd\n.model dd d is=1e-14\n.ends dcell\n")
+            # And a model Spectre has to rename: a subcircuit has the name too.
+            f.write(".model rm r rsh=10\n.subckt rm a b\nR1 a b rm w=1u\n.ends rm\n")
         c = sprack.Circuit("t", pdk=make())
         c.rmod("R1", "a", 0, w="1u")
         c.R("2", "a", 0, model="nowhere", w="1u")
+        c.R("4", "a", 0, model="rm", w="1u")
         c.V("1", "a", 0, sprack.expr("twice(1)"))
         c.op()
         for target in ("hspice", "spectre", "vacask"):
@@ -690,6 +693,9 @@ def test_tiny_pdk_names_are_known_to_the_writer():
             said = [e.message for e in out.report]
             # A model of the PDK is declared; one that is nowhere is still said.
             assert not [m for m in said if "'rmod' on R1" in m], out.report
+            # Nor is the one renamed: it is declared under the name it is written as.
+            assert not [m for m in said if "on R4 is a model name" in m], out.report
+            assert f"R4 (a 0) {'rm__m' if target == 'spectre' else 'rm'} w=1u\n" in out or target == "hspice", out
             assert [m for m in said if f"'nowhere' on R2 is a model name in sprack, but no model of that name is declared here; {target} will read it as a parameter" in m], out.report
             assert not [m for m in said if "function 'twice' has no spelling" in m], out.report
         # What only the libraries use is loaded by the netlist that includes them.
@@ -699,7 +705,7 @@ def test_tiny_pdk_names_are_known_to_the_writer():
         assert "M1 a a 0 0 nch w=1u l=1u\nR3 a 0 rmod w=2u\n" in c.netlist("ngspice"), c.netlist("ngspice")
         del c.statements[-2:]
         # A netlist for the PDK's own dialect is the one it was.
-        assert c.netlist("ngspice") == f't\n.lib "{d}/m.lib" tt\nR1 a 0 rmod w=1u\nR2 a 0 nowhere w=1u\nV1 a 0 dc {{twice(1)}}\n.op\n.end\n', c.netlist("ngspice")
+        assert c.netlist("ngspice") == f't\n.lib "{d}/m.lib" tt\nR1 a 0 rmod w=1u\nR2 a 0 nowhere w=1u\nR4 a 0 rm w=1u\nV1 a 0 dc {{twice(1)}}\n.op\n.end\n', c.netlist("ngspice")
     _tiny(body)
 
 

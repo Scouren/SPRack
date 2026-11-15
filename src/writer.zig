@@ -2209,6 +2209,9 @@ pub fn write(
         if (g.unique_param.len > 0) try uniqueParams(nl.stmts, report, g);
         if (g.unique_master.len > 0) {
             var renames = try masterRenames(arena, nl.stmts, env);
+            // A renamed model is declared under the name it is written as.
+            var ri = renames.valueIterator();
+            while (ri.next()) |v| try w.declared.put(arena, try std.ascii.allocLowerString(arena, v.*), {});
             if (renames.count() > 0) {
                 var told: ir.CaselessSet = .empty;
                 nl_own.stmts = try renameMasters(&w, nl.stmts, &renames, &told);
@@ -2480,6 +2483,9 @@ pub const Stream = struct {
         }
         if (s.foreign and g.unique_master.len > 0) {
             s.renames = try renamesOf(perm, &sv.models, &sv.subckts, env);
+            // A renamed model is declared under the name it is written as.
+            var ri = s.renames.valueIterator();
+            while (ri.next()) |v| try w.declared.put(perm, try std.ascii.allocLowerString(perm, v.*), {});
             // What `uniqueMasters` finds after the renames.
             var it = sv.models.keyIterator();
             while (it.next()) |m| try s.models.put(perm, s.renames.get(m.*) orelse m.*, {});

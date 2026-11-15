@@ -3013,6 +3013,12 @@ test "a subcircuit named like the model its transistor uses" {
     try has(sp, "model nch__m bsim4 {\n");
     try reported(&report, .info, "'nch' names both a model and a subcircuit: the model is written as 'nch__m'");
     try testing.expectEqual(0, report.count(.@"error"));
+
+    // The new name is a declared model: a resistor that names it is not
+    // told its model is nowhere.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "spectre", "t\n.model rm r rsh=10\n.subckt rm a b\nR1 a b rm w=1u\n.ends rm\nR9 a 0 rm w=1u\n.end\n", &r2), "R9 (a 0) rm__m w=1u\n");
+    try testing.expect(!r2.contains(.warning, "is a model name in"));
 }
 
 test "gap: a parameter defined twice" {
