@@ -508,7 +508,7 @@ pub fn checkModelKinds(arena: Allocator, nl: *const Netlist, report: *Report, en
     try checkKinds(nl.stmts, &models, &names, report);
 }
 
-fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
+pub fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .model and s.get("family") == .atom and s.get("name") == .atom) {
             try out.put(arena, s.get("name").atom, s.get("family").atom);

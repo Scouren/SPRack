@@ -150,7 +150,9 @@ pub const Node = struct {
 };
 
 pub const Dir = enum { both, read, write };
-pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, line: u32 };
+/// `rule bjt[hicum2] = ...`: `family` set, the form is written only for an
+/// instance whose model card is of that family. Reading ignores it.
+pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, line: u32, family: []const u8 = "" };
 pub const Block = struct {
     kind: Kind,
     open: []const Node,
@@ -1075,13 +1077,25 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             blocks = try c.add(Block, blocks, .{ .kind = kind, .open = open, .inner = inner, .close = close });
         } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or std.mem.eql(u8, head, "write")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `{s} kind = pattern`", .{head});
-            const kind = try kindOf(c, no, std.mem.trim(u8, rest[0..eq], " \t"));
+            var kname = std.mem.trim(u8, rest[0..eq], " \t");
+            var family: []const u8 = "";
+            if (std.mem.indexOfScalar(u8, kname, '[')) |b| {
+                if (kname[kname.len - 1] != ']') return c.fail(no, "expected `kind[family]`", .{});
+                family = kname[b + 1 .. kname.len - 1];
+                kname = kname[0..b];
+            }
+            const kind = try kindOf(c, no, kname);
+            if (family.len > 0) {
+                if (schema.familyKind(family) == null) return c.fail(no, "unknown model family '{s}'", .{family});
+                if (schema.slotIndex(kind, "master") == null) return c.fail(no, "'{s}' names no model, so it cannot depend on a family", .{kname});
+            }
             const dir: Dir = if (head[0] == 'r' and head[1] == 'u') .both else if (head[0] == 'r') .read else .write;
             rules = try c.add(Rule, rules, .{
                 .kind = kind,
                 .dir = dir,
                 .pat = try pattern(c, no, kind, fold, rest[eq + 3 ..], defs),
                 .line = no,
+                .family = family,
             });
         } else if (std.mem.eql(u8, head, "define")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `define name = pattern`", .{});

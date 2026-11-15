@@ -2441,4 +2441,18 @@ test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stabil
     var r8: ir.Report = .init(a);
     _ = try tr(a, "hspice", "spectre", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2\n", &r8);
     try reported(&r8, .@"error", "Spectre runs transient noise as parameters of the tran analysis");
+
+test "a rule that depends on the model's family: Xyce HICUM's thermal node" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nq1 c b 0 0 hm\nq2 c b 0 gp\n.model hm npn level=8\n.model gp npn\n.end\n";
+    var r1: ir.Report = .init(a);
+    const x = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(x, "q1 c b 0 0 dtq1 hm\n");
+    try has(x, "q2 c b 0 gp\n");
+    try reported(&r1, .warning, "xyce needs 'tj' but the source gave none; wrote dtq1");
+    // Without the card in the file the plain forms are used.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\nq1 c b 0 0 hm\n.end\n", &r2), "q1 c b 0 0 hm\n");
 }

@@ -443,7 +443,9 @@ const Emit = struct {
                         text = try e.valueText(.{ .expr = text }, false);
                     }
                     try e.tok(text);
-                    if (!e.quiet and e.slot(n.slot).ty == .value) {
+                    // A node made up for the instance (`tj?dt$name`) is news too.
+                    const made = e.slot(n.slot).ty == .node and std.mem.indexOfScalar(u8, n.default, '$') != null;
+                    if (!e.quiet and (e.slot(n.slot).ty == .value or made)) {
                         e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' but the source gave none; wrote {s}", .{
                             @tagName(e.st.kind), e.g.name, e.slot(n.slot).name, text,
                         });
@@ -659,6 +661,9 @@ const Writer = struct {
     last_blank: bool = true,
     /// The statement being written names a file: one line, however long.
     nowrap: bool = false,
+    /// Model name to its family, for rules that depend on it (`bjt[hicum2]`).
+    // ponytail: models of this file only; one declared in another file of a project leaves its instances on the plain rules.
+    families: std.StringHashMapUnmanaged([]const u8) = .empty,
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -969,21 +974,31 @@ const Writer = struct {
         var best_loss: usize = std.math.maxInt(usize);
         var best_renames: usize = 0;
         var why: []const u8 = "";
-        for (w.g.rules) |*rule| {
-            if (rule.kind != st.kind or rule.dir == .read) continue;
-            var e = w.emitter(a, st);
-            e.quiet = true;
-            if (!try e.seq(rule.pat)) {
-                if (why.len == 0) why = e.why;
-                continue;
-            }
-            // Least lost first; among equals, the form that keeps the name.
-            const loss = try e.lossCount();
-            if (loss < best_loss or (loss == best_loss and e.renames < best_renames)) {
-                best = rule;
-                best_loss = loss;
-                best_renames = e.renames;
-                if (best_loss == 0 and best_renames == 0) break;
+        const fam: []const u8 = if (st.get("master") == .atom) w.families.get(st.get("master").atom) orelse "" else "";
+        // A model this file does not declare: the plain forms first, then
+        // any form at all rather than none.
+        for ([_]bool{ false, true }) |loose| {
+            if (best != null or (loose and fam.len > 0)) break;
+            for (w.g.rules) |*rule| {
+                if (rule.kind != st.kind or rule.dir == .read) continue;
+                if (rule.family.len > 0 and !std.mem.eql(u8, rule.family, fam) and !loose) {
+                    if (why.len == 0 and fam.len > 0) why = try a.print("a model of family '{s}'", .{fam});
+                    continue;
+                }
+                var e = w.emitter(a, st);
+                e.quiet = true;
+                if (!try e.seq(rule.pat)) {
+                    if (why.len == 0) why = e.why;
+                    continue;
+                }
+                // Least lost first; among equals, the form that keeps the name.
+                const loss = try e.lossCount();
+                if (loss < best_loss or (loss == best_loss and e.renames < best_renames)) {
+                    best = rule;
+                    best_loss = loss;
+                    best_renames = e.renames;
+                    if (best_loss == 0 and best_renames == 0) break;
+                }
             }
         }
         const rule = best orelse {
@@ -1229,6 +1244,7 @@ pub fn write(
     defer w.scratch.deinit();
 
     try collectDeclared(arena, nl.stmts, &w.declared);
+    try ir.collectFamilies(arena, nl.stmts, &w.families);
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);

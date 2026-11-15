@@ -81,6 +81,10 @@ rule  ccvs      = name~"H" pos neg vsrc gain
 # Xyce rejects a bare area followed by named parameters.
 read  diode     = name~"D" pos neg master area { area=area ...params? }
 rule  diode     = name~"D" pos neg master { area=area ...params? }
+# HICUM/L2 (level 234) always has a substrate and a thermal node; a SPICE
+# deck may give three or four. The missing ones are ground and a node of
+# the instance's own.
+write bjt[hicum2] = name~"Q" c b e s?0 tj?dt$name master [area] { area=area ...params? }
 rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 # With a substrate node and a thermal node (self-heating models).
 rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
