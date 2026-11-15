@@ -520,6 +520,8 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "ternary")) return nested(text, '?');
     if (std.mem.eql(u8, name, "mod")) return nested(text, '%');
     if (std.mem.eql(u8, name, "negpow")) return negPow(text);
+    if (std.mem.eql(u8, name, "minuspow")) return minusPow(text);
+    if (std.mem.eql(u8, name, "andor")) return std.mem.indexOf(u8, text, "&&") != null or std.mem.indexOf(u8, text, "||") != null;
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;
@@ -686,6 +688,30 @@ fn negPow(text: []const u8) bool {
     return false;
 }
 
+/// A unary minus whose operand is the base of a power: `-2**2`, `(-x**2)`,
+/// `1+-f(x)**2`, `-(a+b)**2`. Not `2**-1`, where it is the exponent's sign.
+fn minusPow(text: []const u8) bool {
+    var prev: u8 = 0;
+    var prev2: u8 = 0;
+    for (text, 0..) |c, at| {
+        if (c == ' ' or c == '\t') continue;
+        defer {
+            prev2 = prev;
+            prev = c;
+        }
+        if (c != '-' or (prev == '*' and prev2 == '*')) continue;
+        if (prev != 0 and std.mem.indexOfScalar(u8, "(,+-*/^?:<>=!&|%", prev) == null) continue;
+        // One operand: a group, or a word or number with the call after it.
+        var i = at + 1;
+        while (i < text.len and text[i] == ' ') i += 1;
+        while (i < text.len and (isWordChar(text[i]) or text[i] == '.')) i += 1;
+        if (i < text.len and text[i] == '(') i = (topLevel(text, i + 1, ')') orelse return false) + 1;
+        while (i < text.len and text[i] == ' ') i += 1;
+        if (std.mem.startsWith(u8, text[i..], canon_pow)) return true;
+    }
+    return false;
+}
+
 /// Every function name an expression calls that is not a canonical one.
 pub fn isPlainNumber(text: []const u8) bool {
     if (text.len == 0) return false;
@@ -767,6 +793,9 @@ test "a choice is written in the form the target has" {
     try testing.expectEqualStrings("diff(x)", try ifToTernary(a, "diff(x)"));
     try testing.expect(uses("1+-2**2", "negpow") and uses("2*-x**2", "negpow"));
     try testing.expect(!uses("-2**2", "negpow") and !uses("2**-1", "negpow") and !uses("max(-2**2,0)", "negpow") and !uses("1-2", "negpow"));
+    try testing.expect(uses("-2**2", "minuspow") and uses("max(-x**2,0)", "minuspow") and uses("1+-f(x, 2)**2", "minuspow") and uses("- (a+b) ** 2", "minuspow"));
+    try testing.expect(!uses("2**-1", "minuspow") and !uses("-a*b**2", "minuspow") and !uses("a-b**2", "minuspow") and !uses("-(a**2)", "minuspow"));
+    try testing.expect(uses("a>1 && b>1", "andor") and uses("a||b", "andor") and !uses("a & b | c", "andor"));
 }
 
 test "convert arithmetic is exact where it can be" {

@@ -2453,6 +2453,85 @@ test "verification: VACASK model families load their modules" {
 
 // Each written form below was loaded in Spectre 25.10 or HSPICE Y-2026.03.
 
+test "verification: LTspice 26.0.2, what running it showed" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Into LTspice: its defaults are 27 degrees and are not written; a pulse
+    // gets the four values it needs; round, a quoted library path, Zo, .print
+    // and the measure forms are its own.
+    var r1: ir.Report = .init(a);
+    const lt = try tr(a, "ngspice", "ltspice",
+        \\t
+        \\V1 a 0 pulse(0 1 1m)
+        \\R1 a 0 1k
+        \\T1 a 0 b 0 z0=50 td=1n
+        \\R2 b 0 50
+        \\.param x=2 c=0
+        \\.param q={nint(2.5) + -x**2 + pwr(x,2)} w={x > 1 && !c} v={5 % 3}
+        \\.lib 'f.lib' tt
+        \\.print tran v(a)
+        \\.meas tran m1 find v(a) at=1m
+        \\.meas tran m2 param='m1*2'
+        \\.tran 10u 6m
+        \\.end
+        \\
+    , &r1);
+    try testing.expectEqualStrings(
+        \\t
+        \\V1 a 0 pulse(0 1 1m 10u 10u 6m)
+        \\R1 a 0 1k
+        \\T1 a 0 b 0 zo=50 td=1n
+        \\R2 b 0 50
+        \\.param x=2 c=0
+        \\.param q={round(2.5) + -x**2 + pwr(x,2)} w={x > 1 && !c} v={5 % 3}
+        \\.lib "f.lib" tt
+        \\.print tran v(a)
+        \\.meas tran m1 find v(a) at=1m
+        \\.meas tran m2 param={m1*2}
+        \\.tran 10u 6m
+        \\.end
+        \\
+    , lt);
+    try clean(&r1);
+    try reported(&r1, .warning, "vsource.width is not given: ngspice means the tran.stop by that, and ltspice needs it said; wrote 6m");
+    try reported(&r1, .warning, "nint in ltspice: halves round away from zero");
+    try reported(&r1, .warning, "pwr in ltspice: the sign of a negative base is dropped");
+    try reported(&r1, .warning, "minuspow in ltspice: a minus binds before the power: -2**2 is 4, not -4");
+    try reported(&r1, .warning, "andor in ltspice: LTspice has no && and ||");
+    try reported(&r1, .warning, "print.style: LTspice reads the line and prints nothing");
+    // What it refuses or means otherwise is an error: a sine without a
+    // frequency, the frequency variable, .probe.
+    var r2: ir.Report = .init(a);
+    const no = try tr(a, "ngspice", "ltspice", "t\nV1 a 0 sin(0 1)\nR1 a 0 1k\nB1 b 0 V=hertz*v(a)\nR2 b 0 1k\n.probe v(a)\n.tran 1u 1m\n.end\n", &r2);
+    try has(no, "V1 a 0\n");
+    try reported(&r2, .@"error", "vsource.wave = sine has no spelling in ltspice");
+    try reported(&r2, .@"error", "variable 'hertz' has no spelling in ltspice");
+    try reported(&r2, .@"error", "no ltspice form of this statement can say style = probe");
+    // Out of LTspice: expressions after `=` with blanks in them, Z0, one
+    // number after .tran. A zero rise time is a tenth of the width there.
+    var r3: ir.Report = .init(a);
+    const ng = try tr(a, "ltspice", "ngspice", "t\nV1 a 0 1\nR1 a 0 1k\nB1 c 0 V=v(a) * 2 + 1\nR2 c 0 1k\n.param s = 2 * 3 t = 5\nT1 a 0 b 0 Z0=75 Td=1n\nR3 b 0 75\nE1 d 0 value={2*v(a)}\nR4 d 0 1k\n.tran 1m\n.end\n", &r3);
+    try has(ng, "B1 c 0 v={v(a) * 2 + 1}\n");
+    try has(ng, ".param s={2 * 3} t=5\n");
+    try has(ng, "T1 a 0 b 0 z0=75 td=1n\n");
+    try has(ng, "E1 d 0 vol={2*v(a)}\n");
+    try has(ng, ".tran {1m/1000} 1m\n");
+    try clean(&r3);
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "ltspice", "ngspice", "t\nV1 a 0 pulse(0 1 0 0 0 1m 2m)\nR1 a 0 1k\n.tran 1u 4m\n.end\n", &r4);
+    try reported(&r4, .@"error", "vsource.rise is 0: LTspice takes a tenth of the pulse width");
+    // Topologies: parallel voltage sources stop it, a current source into
+    // a floating node is its error, the rest it solves in its own way.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "ltspice", "t\nV1 a 0 1\nV2 a 0 1\nL1 a 0 1m\nC1 a b 1n\nC2 b 0 1n\nI1 0 c 1m\nC3 c 0 1n\nL2 a d 1m\nL3 a d 1m\nR1 d 0 1k\n.op\n.end\n", &r5);
+    try reported(&r5, .@"error", "LTspice stops on voltage sources in parallel");
+    try reported(&r5, .@"error", "node 'c' has no DC path to ground");
+    try reported(&r5, .warning, "node 'b' has no DC path to ground");
+    try reported(&r5, .warning, "V1, L1 form a loop of voltage sources and inductors");
+    try reported(&r5, .warning, "L2, L3 form a loop of inductors");
+}
+
 test "Spectre: conditionals, functions, xf, pz, sens, fourier, hb, nested dc, switches" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

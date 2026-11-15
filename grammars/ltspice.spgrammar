@@ -1,16 +1,19 @@
 # LTspice
 #
-# Written from general knowledge of LTspice's netlist syntax; no LTspice was
-# available to check against. Lines marked "assumed" are the ones that
-# knowledge does not settle.
+# Checked against LTspice 26.0.2 run in batch mode on decks written for the
+# check (docs/verification.md, section 8): every table below, the statements
+# under `no`, the source waveforms and the topologies under `requires`.
+# Not checked: the instance parameters of devices, and which model the MOS
+# levels other than 1, 2, 3, 8, 14, 49 and 54 select.
 #
 # Differences from ngspice captured here: `;` is the only trailing comment,
-# braces are the only expression delimiters, there is no atto suffix, sources
-# write their waveform before the AC spec (as LTspice's own netlister does)
-# and the sine is spelled SINE, `**` is power and `^` is exclusive-or, and
-# the simulator variables are `temp` and `freq`. There are no .if blocks, no
-# .print, no Verilog-A, and no pole-zero, sensitivity, distortion, harmonic
-# balance, periodic steady state, S-parameter or loop-stability analyses.
+# there is no atto suffix, sources write their waveform before the AC spec
+# and the sine is spelled SINE, `**` is power and `^` is exclusive-or, a
+# minus binds before `**`, the logical operators are `&` and `|`, and the
+# simulator variables are `temp` and `time`. A pulse needs four values. There
+# are no .if blocks, no Verilog-A, and no pole-zero, sensitivity, distortion,
+# harmonic balance, periodic steady state, S-parameter or loop-stability
+# analyses.
 
 dialect ltspice
 
@@ -22,6 +25,7 @@ lexer
   continue  lead "+"
   parens    space
   expr      "{" "}"
+  expr      after-equals         # .param s = 2 * 3 t = 5 and V=v(a) * 2 + 1 load
   values    strict
   scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15
   oddscale  mil=25.4e-6
@@ -34,7 +38,9 @@ block subckt
   close  ".ends" [name]
 end
 
-block libsection                                 # assumed
+# A section is found only in a file loaded by section: `.lib name` in a deck
+# or in a file loaded whole is taken for a file name.
+block libsection
   open   ".lib" name
   close  ".endl" [name]
 end
@@ -44,7 +50,8 @@ rule  param     = ".param" {...params}
 rule  global    = ".global" nodes+
 rule  include   = ".include" path
 read  include   = ".inc" path
-rule  lib       = ".lib" path section            # assumed
+# The path is quoted: without quotes the section is read as part of the name.
+rule  lib       = ".lib" path section
 rule  model     = ".model" name type {...params?}
 
 rule  options   = ".temp" temp
@@ -53,22 +60,32 @@ read  options   = ".option" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin 
 rule  save      = ".save" signals+
 rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
+# The forms ngspice has load here with the same results; any other is text.
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"find"=find out { at=at! }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"when"=when when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure   = ( ".meas" | ".measure" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ ) out { from=from to=to }
+rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" expr
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
+caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 
 rule  resistor  = name~"R" pos neg r {...params}
 rule  capacitor = name~"C" pos neg c {...params}
 rule  inductor  = name~"L" pos neg l {...params}
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
-# The DC value next to a waveform is assumed to be accepted, as in SPICE3.
+define wave = ( wave:"pulse" ~"(" val0 val1 delay?0 rise [fall [width [period]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+# A DC value next to a waveform is the value of the operating point; the
+# transient starts from the waveform. A pulse of fewer than four values is
+# refused, and a sine without a frequency is a constant, so both are required.
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
-read  bsource   = name~"E" pos neg { value=v! }      # assumed
-read  bsource   = name~"G" pos neg { value=i! }      # assumed
+read  bsource   = name~"E" pos neg { value=v! }
+read  bsource   = name~"G" pos neg { value=i! }
 rule  vcvs      = name~"E" pos neg cpos cneg gain
 rule  vccs      = name~"G" pos neg cpos cneg gm
 rule  cccs      = name~"F" pos neg vsrc gain
@@ -82,12 +99,11 @@ rule  jfet      = name~"J" d g s master [area] {...params}
 rule  mesfet    = name~"Z" d g s master [area] {...params}
 rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
 rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
-rule  tline     = name~"T" p1 n1 p2 n2 { zo=z0 td=td ...params }     # assumed: Zo, not Z0
+rule  tline     = name~"T" p1 n1 p2 n2 { zo=z0 td=td ...params }
+read  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td ...params }
 read  instance  = name~"X" nodes+ master "params:" {...params}
 # devices and outputs (b4)
-# assumed: O with an LTRA model, as in SPICE 3
 rule  lossyline[ltra] = name~"O" nodes+ master {...params}
-# assumed: POLY as in PSpice
 rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
 rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
 rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
@@ -102,11 +118,29 @@ rule  dc        = ".dc" var:"temp" start stop step
 rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
+# One number is the stop time.
+read  tran      = ".tran" stop [ skip_dc:"uic"=yes ]
 rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  four      = ".four" freq signals+
+# .print and .plot load and write nothing; .probe is refused.
+rule  print     = ( style:".print"=print | style:".plot"=plot ) [analysis] signals+
+caveat print style : LTspice reads the line and prints nothing; every node is in the .raw file
 
 implied noise ref = 0
 implied tf ref = 0
+# Every run's log states both.
+implied options tnom = 27
+implied options temp = 27
+# A zero rise or fall time is a tenth of the pulse width here, the .tran step
+# in SPICE; with a fall time and no width the pulse does not stay up.
+default vsource rise=0 wave=pulse : tran.step
+default isource rise=0 wave=pulse : tran.step
+default vsource fall=0 wave=pulse : tran.step
+default isource fall=0 wave=pulse : tran.step
+default vsource width=0 wave=pulse : tran.stop
+default isource width=0 wave=pulse : tran.stop
+invalid vsource rise=0 wave=pulse : LTspice takes a tenth of the pulse width for a zero rise time and refuses a pulse without one; SPICE takes the time step
+invalid isource rise=0 wave=pulse : LTspice takes a tenth of the pulse width for a zero rise time and refuses a pulse without one; SPICE takes the time step
 enum options method : trap=trap gear=gear
 enum dc var : temp=temp
 
@@ -117,7 +151,6 @@ no hb        : LTspice has no harmonic-balance analysis
 no pss       : LTspice has no periodic steady-state analysis; .tran's steady modifier only stops at steady state
 no sp        : LTspice has no .SP analysis; its .NET computes network parameters from an .AC analysis
 no stb       : LTspice has no loop-stability analysis
-no print     : LTspice has no .PRINT; every node is written to the .raw file   # assumed
 no hdl       : LTspice cannot load Verilog-A
 no device    : LTspice cannot instantiate a Verilog-A module
 no cond_if   : LTspice has no conditional netlist blocks; use if() in an expression
@@ -137,15 +170,21 @@ no phasenoise : LTspice has no oscillator phase-noise analysis
 no envelope   : LTspice has no envelope-following analysis
 no qpss       : LTspice has no quasi-periodic steady-state analysis
 
+# Topologies, as LTspice 26.0.2 treats them (docs/verification.md, 8.5).
+requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : LTspice solves it with a warning that the node is floating and holds the node near 0 V, where ngspice divides the charge among the capacitors
+requires cutset    error   [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : LTspice logs an error and solves on: the source's current flows through gmin, 1 mA making 1e9 V
+requires no-vloop  error   : LTspice stops on voltage sources in parallel, equal or not
+requires no-vlloop warning : LTspice solves it by giving the inductor 1 milliohm in series: 1 V around the loop drives 1000 A
+requires no-lloop  warning : LTspice solves it by giving each inductor 1 milliohm in series, which divides the current instead of the inductances
+
 caveat tran skip_dc : UIC skips the DC solve and starts from .ic values; other simulators seed the first time point differently
 
 # statistics
-# A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its
-# definition; a statistics block's process variations are written that way
-# when the varied parameter is defined in the same file.
-no statistics : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
-no statgroup : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
-no vary : LTspice has no statistics block; a parameter varies through agauss(), gauss(), aunif() or unif() in its definition
+# LTspice has gauss(sigma) and mc(value, tolerance) and none of agauss(),
+# aunif() and unif().
+no statistics : LTspice has no statistics block; a parameter varies through gauss() or mc() in its definition
+no statgroup : LTspice has no statistics block; a parameter varies through gauss() or mc() in its definition
+no vary : LTspice has no statistics block; a parameter varies through gauss() or mc() in its definition
 no correlate : LTspice has no statement that correlates two random parameters
 no montecarlo : LTspice has no Monte Carlo statement; a run is a .step over a dummy parameter with mc() or gauss() in the values
 # A library file has no wrapper around its sections; the name is carried
@@ -168,19 +207,24 @@ functions
   same limit atan2 hypot asinh acosh atanh uramp if v i
   ln    = ln log
   log10 = log10
-  stp   = u
-  nint  = round                                  # assumed
+  stp   = u stp
+  nint  = round
 end
+differs nint : halves round away from zero (round(2.5) is 3), not to even
+differs pwr  : the sign of a negative base is dropped: pwr(-2,3) is 8
+differs minuspow : a minus binds before the power: -2**2 is 4, not -4
+differs andor : LTspice has no && and ||; its & and | are the logical operators, of one precedence, taken from the left
 
 variables
   temper = temp
   same time
-  hertz = freq                                   # assumed
 end
 
 operators
   pow "**"
-  xor "^"                                        # assumed
+  xor "^"
+  not "!"
+  mod "%"
 end
 
 models
@@ -190,7 +234,7 @@ models
   jfet n     = njf
   jfet p     = pjf
   mesfet n   = nmf
-  mesfet p   = pmf                               # assumed
+  mesfet p   = pmf
   mos1 n     = nmos level=1 | nmos !level
   mos1 p     = pmos level=1 | pmos !level
   mos2 n     = nmos level=2
@@ -199,12 +243,11 @@ models
   mos3 p     = pmos level=3
   bsim3 n    = nmos level=8 | nmos level=49
   bsim3 p    = pmos level=8 | pmos level=49
-  bsim4 n    = nmos level=14 | nmos level=54     # assumed
-  bsim4 p    = pmos level=14 | pmos level=54     # assumed
+  bsim4 n    = nmos level=14 | nmos level=54
+  bsim4 p    = pmos level=14 | pmos level=54
   vdmos      = vdmos
   vswitch    = sw
   cswitch    = csw
-  # b4 (assumed)
   ltra       = ltra
 end
 
