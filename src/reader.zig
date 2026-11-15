@@ -116,6 +116,15 @@ const Matcher = struct {
         if (t.f.key) return null;
         if (t.tag == .expr) return .{ .v = .{ .expr = t.text }, .n = 1 };
         if (t.tag != .word) return null;
+        // `par('-i(vc)')`: the dialect's way of recording an expression.
+        if (t.f.call and self.toks()[ti + 1].tag == .expr and self.g.lex.parens_are_space) {
+            for (self.g.signals) |sf| {
+                if (!std.mem.eql(u8, sf.form, "expr")) continue;
+                if (sf.template.len > t.text.len and std.mem.startsWith(u8, sf.template, t.text) and sf.template[t.text.len] == '(') {
+                    return .{ .v = .{ .expr = self.toks()[ti + 1].text }, .n = 2 };
+                }
+            }
+        }
         // `-i(vc)`: a signal negated is an expression.
         const neg = t.raw.len > 1 and t.raw[0] == '-';
         var text: std.ArrayList(u8) = .empty;
@@ -482,11 +491,12 @@ const Matcher = struct {
                     if (kt.f.key and self.toks()[j + 1].tag == .eq) {
                         const vt = self.toks()[j + 2];
                         if (vt.tag == .nl or vt.tag == .eq) break;
+                        const before = self.log.items.len;
                         if (!try self.bagEntry(node, kt.text, kt.raw, vt)) break;
                         j += 3;
                         // `R=0.2 0 0.2`: the numbers after one open-ended
                         // key are its matrix (CPL and RLGC line models).
-                        const last = &self.log.items[self.log.items.len - 1];
+                        const last: *Capture = if (self.log.items.len > before) &self.log.items[self.log.items.len - 1] else continue;
                         if (last.key.len > 0 and last.val == .num and self.toks()[j].tag == .word and !self.toks()[j].f.key and self.number(self.toks()[j]) != null) {
                             var matrix: std.ArrayList(Value) = .empty;
                             try matrix.append(self.arena, last.val);
@@ -1298,6 +1308,21 @@ fn bagEntryFor(nodes: []const Node, key: []const u8) ?grammar.BagEntry {
     return null;
 }
 
+/// Does the statement say what the rule's `k=slot!` entries require? A
+/// Spectre port's `r=` is its z0, a source's `r=` is not.
+fn requiredMet(nodes: []const Node, st: *const ir.Stmt, params: []const ir.Param) bool {
+    for (nodes) |n| {
+        if (n.tag == .bag) for (n.bag) |e| {
+            if (!e.required or st.at(e.slot) != .none) continue;
+            for (params) |p| {
+                if (std.mem.eql(u8, p.key, e.key)) break;
+            } else return false;
+        };
+        if (!requiredMet(n.kids, st, params)) return false;
+    }
+    return true;
+}
+
 /// An instance retagged through its model (`v1 (1 0) v type="pulse" ...` where
 /// `v` is a model of vsource) still has everything in `params`. Move the keys
 /// this dialect's rule for that kind knows into their slots.
@@ -1310,7 +1335,7 @@ fn rebindParams(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt) Allocator
         var kept: std.ArrayList(ir.Param) = .empty;
         for (st.at(pi).params) |p| {
             const entry = for (g.rules) |*rule| {
-                if (rule.kind != st.kind) continue;
+                if (rule.kind != st.kind or !requiredMet(rule.pat, st, st.at(pi).params)) continue;
                 if (bagEntryFor(rule.pat, p.key)) |e| break e;
             } else null;
             const e = entry orelse {

@@ -653,7 +653,8 @@ const Emit = struct {
     fn reportLosses(e: *Emit) Allocator.Error!void {
         for (e.g.caveats) |c| {
             if (e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
-                e.report.add(.warning, .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
+                // Text carried verbatim may read differently on the other side.
+                e.report.add(.warning, if (e.slot(c.slot).ty == .text) .ambiguous else .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
             }
         }
         if (e.lost_flags > 0) {
