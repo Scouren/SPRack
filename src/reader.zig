@@ -2192,10 +2192,10 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
 }
 
 pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!ir.Netlist {
-    if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null) {
-        if (try readSwitched(g, arena, src, report, opts)) |nl| return nl;
-    }
-    return readPlain(g, arena, src, report, opts);
+    const switched = if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null) try readSwitched(g, arena, src, report, opts) else null;
+    const nl = switched orelse try readPlain(g, arena, src, report, opts);
+    if (report.lost) return error.OutOfMemory;
+    return nl;
 }
 
 /// A netlist being read: its lines, what the first pass learnt, and the

@@ -2335,6 +2335,7 @@ pub fn write(
             cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
         });
     }
+    if (report.lost) return error.OutOfMemory;
 }
 
 // ------------------------------------------------------------- streaming

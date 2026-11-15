@@ -122,6 +122,7 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     }
     try ws.end(rescan);
     report.sortPhases(start);
+    if (report.lost) return error.OutOfMemory;
     return null;
 }
 

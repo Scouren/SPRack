@@ -556,11 +556,13 @@ pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allo
         error.OutOfMemory => return error.OutOfMemory,
         else => {
             report.add(.@"error", .invalid, 0, "not valid JSON: {s}", .{@errorName(err)});
+            if (report.lost) return error.OutOfMemory;
             return .{};
         },
     };
     if (root != .object) {
         report.add(.@"error", .invalid, 0, "the top level must be an object with 'stmts'", .{});
+        if (report.lost) return error.OutOfMemory;
         return .{};
     }
     var p: Parser = .{ .arena = arena, .report = report };
@@ -574,6 +576,7 @@ pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allo
     if (root.object.get("folds_case")) |t| nl.folds_case = t == .bool and t.bool;
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);
     if (root.object.get("env")) |e| nl.env = try parseEnv(arena, e);
+    if (report.lost) return error.OutOfMemory;
     return nl;
 }
 

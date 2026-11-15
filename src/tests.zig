@@ -505,12 +505,14 @@ test "every `no` line: the kind is an error in that dialect, and the reason is t
     try testing.expect(count > 100);
 }
 
-fn translateOnce(gpa: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8) !void {
+/// How many report entries the translation of `src` gave.
+fn translateOnce(gpa: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8) !usize {
     var arena_state: Arena = .init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
     _ = try sprack.translateAlloc(a, from, to, src, &report);
+    return report.items.items.len;
 }
 
 test "out of memory at any allocation comes back as that: no crash, no leak" {
@@ -527,7 +529,7 @@ test "out of memory at any allocation comes back as that: no crash, no leak" {
         const src = if (pair[2].len > 0) pair[2] else sample(pair[0]);
         var failing: testing.FailingAllocator = .init(testing.allocator, .{});
         ir.big = failing.allocator();
-        try translateOnce(failing.allocator(), pair[0], pair[1], src);
+        const entries = try translateOnce(failing.allocator(), pair[0], pair[1], src);
         const n = failing.alloc_index;
         try testing.expect(n > 10);
         for (0..n) |i| {
@@ -535,9 +537,44 @@ test "out of memory at any allocation comes back as that: no crash, no leak" {
             ir.big = failing.allocator();
             // (What is not freed, `testing.allocator` reports when the test ends.)
             // (The output buffer running out is the writer's own error.)
-            translateOnce(failing.allocator(), pair[0], pair[1], src) catch |e| try testing.expect(e == error.OutOfMemory or e == error.WriteFailed);
+            const got = translateOnce(failing.allocator(), pair[0], pair[1], src) catch |e| {
+                try testing.expect(e == error.OutOfMemory or e == error.WriteFailed);
+                continue;
+            };
+            // A run that comes back at all lost no report entry on the way.
+            try testing.expectEqual(entries, got);
         }
     }
+}
+
+test "a report entry that finds no memory fails the reading or the writing, whatever else succeeded" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Each of these has something to report; the report alone is out of memory.
+    var fba: std.heap.FixedBufferAllocator = .init(&.{});
+    var r1: ir.Report = .init(fba.allocator());
+    try testing.expectError(error.OutOfMemory, readAs(a, "spectre", "// t\nsubckt s (a b)\nr1 (a b) resistor r=1k\n", &r1));
+    try testing.expect(r1.lost and r1.items.items.len == 0);
+
+    var r2: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", "t\n.bogus 1\n.end\n", &r2);
+    try testing.expectEqual(0, r2.items.items.len);
+    var r3: ir.Report = .init(fba.allocator());
+    try testing.expectError(error.OutOfMemory, writeAs(a, "xyce", &nl, &r3));
+
+    var r4: ir.Report = .init(fba.allocator());
+    try testing.expectError(error.OutOfMemory, sprack.json.parseNetlist(a, "{\"stmts\":[{\"kind\":\"zener\"}]}", &r4));
+
+    // A netlist translated as a stream (null: it was).
+    const ng = sprack.find("ngspice").?;
+    const xy = sprack.find("xyce").?;
+    var aw: std.Io.Writer.Allocating = .init(a);
+    var r5: ir.Report = .init(a);
+    try testing.expectEqual(null, try sprack.stream.translate(a, ng, xy, "t\n.bogus 1\n.end\n", &aw.writer, &r5, &sprack.caps, .{}));
+    try testing.expect(r5.items.items.len > 0);
+    var r6: ir.Report = .init(fba.allocator());
+    try testing.expectError(error.OutOfMemory, sprack.stream.translate(a, ng, xy, "t\n.bogus 1\n.end\n", &aw.writer, &r6, &sprack.caps, .{}));
 }
 
 test "hand-written samples parse completely" {

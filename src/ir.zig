@@ -683,6 +683,9 @@ pub const Report = struct {
     phase: u8 = 0,
     /// A pass whose entries another makes again: nothing is recorded.
     mute: bool = false,
+    /// An entry found no memory and is not in `items`. Reading and writing
+    /// end in `error.OutOfMemory` then: no result is clean for want of it.
+    lost: bool = false,
 
     pub fn init(arena: Allocator) Report {
         return .{ .arena = arena };
@@ -690,8 +693,13 @@ pub const Report = struct {
 
     pub fn add(r: *Report, sev: Severity, code: Code, line: u32, comptime fmt: []const u8, args: anytype) void {
         if (r.mute) return;
-        const msg = r.arena.print(fmt, args) catch return;
-        r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase }) catch {};
+        const msg = r.arena.print(fmt, args) catch {
+            r.lost = true;
+            return;
+        };
+        r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase }) catch {
+            r.lost = true;
+        };
     }
 
     /// Entries from `from` on in pass order, each pass's in the order made.
