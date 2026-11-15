@@ -613,7 +613,8 @@ def test_pdk_errors():
 
 # A PDK small enough to write here: one ngspice library whose section holds
 # model cards and includes a file of subcircuits.
-TINY = {"name": "tiny", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["m.lib", "tt"]]}}
+TINY = {"name": "tiny", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["m.lib", "tt"]]},
+        "define": {"CELLS": "{root}"}}
 
 
 def _tiny(fn, **manifest):
@@ -622,7 +623,7 @@ def _tiny(fn, **manifest):
     with tempfile.TemporaryDirectory() as d:
         with open(os.path.join(d, "m.lib"), "w") as f:
             f.write('* tiny\n.lib tt\n.model rmod r rsh=10\n.model cmod c cj=1m\n.model lmod l ind=1n\n'
-                    '.model nch nmos level=54\n.include "cells.inc"\n.endl tt\n')
+                    '.model nch nmos level=54\n.include "$CELLS/cells.inc"\n.endl tt\n')
         with open(os.path.join(d, "cells.inc"), "w") as f:
             f.write("* cells\n.subckt cell a b\nR1 a b 1k\n.ends cell\n")
         return fn(lambda **kw: sprack.PDK("tiny", **{"root": d, "cache_dir": os.path.join(d, "cache"), "manifest": {**TINY, **manifest}, **kw}), d)
@@ -660,6 +661,25 @@ def test_tiny_pdk_manifest():
             os.environ.pop("PDK_ROOT", None)
             if old is not None:
                 os.environ["PDK_ROOT"] = old
+    _tiny(body)
+
+
+def test_tiny_pdk_cache_is_not_stale():
+    def body(make, d):
+        def xyce(pdk):
+            return "".join(open(os.path.join(at, n)).read() for at, _, names in os.walk(pdk.translate("xyce")) for n in names)
+        assert "cell" in make().devices and ".subckt cell a b" in xyce(make())
+        # A file reached through an include changes: the catalogue and the copy follow.
+        with open(os.path.join(d, "cells.inc"), "a") as f:
+            f.write(".subckt more a b\nR1 a b 2k\n.ends more\n")
+        assert "more" in make().devices and ".subckt more a b" in xyce(make())
+        # The manifest reads the files another way: nothing of the old reading is kept.
+        os.mkdir(os.path.join(d, "alt"))
+        with open(os.path.join(d, "alt", "cells.inc"), "w") as f:
+            f.write("* others\n.subckt other a b\nR1 a b 3k\n.ends other\n")
+        alt = lambda: make(manifest={**TINY, "define": {"CELLS": "{root}/alt"}})
+        assert "other" in alt().devices and "cell" not in alt().devices
+        assert ".subckt other a b" in xyce(alt())
     _tiny(body)
 
 

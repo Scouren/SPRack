@@ -960,6 +960,21 @@ def _fresh(files: list[dict]) -> bool:
     return True
 
 
+def _stats(paths: Iterable[str]) -> list[dict]:
+    """What `_fresh` compares, for each of `paths` that is a file."""
+    out = []
+    for path in paths:
+        if os.path.isfile(path):
+            st = os.stat(path)
+            out.append({"path": path, "size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha1": _sha1(path)})
+    return out
+
+
+def _sources(tree: str, root: str) -> list[dict]:
+    """The files under `root` that the translated `tree` was made from."""
+    return _stats(os.path.join(root, os.path.relpath(os.path.join(at, n), tree)) for at, _dirs, names in os.walk(tree) for n in names)
+
+
 def _errors(log: str) -> Report:
     return Report(e for e in Report._from_log(log) if e.severity == "error")
 
@@ -1044,13 +1059,13 @@ def _sweep(base: str, name: str) -> None:
             _rmtree(path)
 
 
-def _cached(final: str) -> dict | None:
+def _cached(final: str, marker: str = "sprack.json") -> dict | None:
     """The metadata of a cache entry that is complete and still valid."""
     try:
-        with open(os.path.join(final, "sprack.json")) as f:
+        with open(os.path.join(final, marker)) as f:
             meta = json.load(f)
         return meta if _fresh(meta["files"]) else None
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -1080,14 +1095,7 @@ def _library_copy(src: str, frm: str, to: str) -> tuple[str, str]:
         text, log = _core.project(frm, to, src, tree, defines, True)
         summary = json.loads(text)
         root = summary["root"]
-        files = []
-        for dirpath, _dirs, names in os.walk(tree):
-            for n in names:
-                orig = os.path.join(root, os.path.relpath(os.path.join(dirpath, n), tree))
-                if os.path.isfile(orig):
-                    st = os.stat(orig)
-                    files.append({"path": orig, "size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha1": _sha1(orig)})
-        meta = {"top": os.path.relpath(src, root), "files": files, "summary": summary, "log": log}
+        meta = {"top": os.path.relpath(src, root), "files": _sources(tree, root), "summary": summary, "log": log}
         with open(os.path.join(tmp, "sprack.json"), "w") as f:
             json.dump(meta, f)
         try:
@@ -1248,6 +1256,9 @@ class PDK:
     def _stamp(self) -> str:
         h = hashlib.sha1()
         h.update(self.root.encode())
+        # What of the manifest decides which files are read, and how.
+        m = self.manifest
+        h.update(json.dumps([_dialect_tag(self.dialect), m["corners"], m.get("define", {}), self._vars], sort_keys=True).encode())
         for path in self._tops():
             st = os.stat(path)
             h.update(f"{path}:{st.st_mtime_ns}:{st.st_size}".encode())
@@ -1263,16 +1274,16 @@ class PDK:
         entry has `device` (mosfet, bjt, diode, ...), `family` and `polarity`.
         """
         if self._devices is None:
-            cache = os.path.join(self.cache_dir, self.name, f"catalog-{self._stamp()}.json")
-            if os.path.isfile(cache):
-                with open(cache) as f:
-                    data = json.load(f)
-            else:
+            base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
+            data = _cached(base, cache)
+            if data is None:
                 text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", self._defines(), True)
                 data = json.loads(text)
-                os.makedirs(os.path.dirname(cache), exist_ok=True)
-                with open(cache, "w") as f:
-                    f.write(text)
+                # Kept while every file read, through includes too, is unchanged.
+                data["files"] = _stats(data["files"])
+                os.makedirs(base, exist_ok=True)
+                with open(os.path.join(base, cache), "w") as f:
+                    json.dump(data, f)
             devs: dict[str, dict] = {}
             for d in data["devices"]:
                 # Binned model cards (nch.1, nch.2, ...) are one device.
@@ -1320,19 +1331,19 @@ class PDK:
         sections = [sec for _, sec in pairs if sec] if all(sec for _, sec in pairs) else []
         tag = f"{_dialect_tag(d)}-{self.corner}" if sections else _dialect_tag(d)
         out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
-        marker = os.path.join(out, "sprack.json")
-        if os.path.isfile(marker):
-            with open(marker) as f:
-                summary = json.load(f)
+        summary = _cached(out)
+        if summary is not None:
             with open(os.path.join(out, "sprack.log")) as f:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
             text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, self._defines(), True, "\n".join(sections))
             summary = json.loads(text)
+            # Kept while every file translated is unchanged.
+            summary["files"] = _sources(out, summary["root"])
             with open(os.path.join(out, "sprack.log"), "w") as f:
                 f.write(log)
-            with open(marker, "w") as f:
+            with open(os.path.join(out, "sprack.json"), "w") as f:
                 json.dump(summary, f)
         self._roots = getattr(self, "_roots", {})
         self._roots[d] = (out, summary["root"], Report(e for e in Report._from_log(log) if e.severity == "error"), _renames(log))
