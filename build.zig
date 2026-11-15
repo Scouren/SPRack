@@ -229,6 +229,12 @@ fn cliTests(c: Cli) void {
     _ = missing.addOutputDirectoryArg("xyce-tree");
     missing.addFileArg(top);
     missing.expectStdErrMatch("$PDK/corners.lib: error[invalid]: cannot open this file; it is included by the project\n2 files, 1 error, 0 warnings, 1 included file not found\n");
+    // A section asked for that no file defines: an error too.
+    const nosec = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "--section", "typ", "-D", "PDK=pdk", "--out" }, "", 1);
+    _ = nosec.addOutputDirectoryArg("nosec-tree");
+    nosec.addFileArg(top);
+    nosec.expectStdErrMatch("tree/top.sp: error[invalid]: section 'typ' is asked for, but no file read defines it\n");
+    nosec.expectStdErrMatch("3 files, 1 error, 0 warnings\n");
     // catalog: what the files define, as JSON; the files named are libraries.
     const cat = c.run(&.{ "catalog", "--from", "ngspice" }, "", 0);
     cat.addFileArg(sub);

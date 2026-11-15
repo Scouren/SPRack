@@ -145,6 +145,8 @@ const Run = struct {
     /// How each file spells its sections, by `path NUL lower-case name`:
     /// a reference spelled `typ` to a section `Typ` is written `Typ`.
     spellings: std.StringHashMapUnmanaged([]const u8) = .empty,
+    /// Every section a file defines, in the order read.
+    sections: std.ArrayList(Ref) = .empty,
     /// Verilog-A sources named by `.hdl`, copied into the translated tree.
     hdls: std.ArrayList([]const u8) = .empty,
     /// The sections to follow; null: all of them.
@@ -248,7 +250,11 @@ const Run = struct {
             if (st.kind == .libsection and st.get("name") == .atom) {
                 const name = st.get("name").atom;
                 const key = try spellingKey(r.arena, file, name);
-                if (!r.spellings.contains(key)) try r.spellings.put(r.arena, key, try r.arena.dupe(u8, name));
+                if (!r.spellings.contains(key)) {
+                    const own = try r.arena.dupe(u8, name);
+                    try r.spellings.put(r.arena, key, own);
+                    try r.sections.append(r.arena, .{ .path = file, .section = own });
+                }
                 if (r.wanted) |*w| if (!w.contains(name)) {
                     var refs: std.ArrayList(Ref) = .empty;
                     try r.collectRefs(dir, st.body, scratch, &refs);
@@ -421,6 +427,17 @@ const Run = struct {
             try r.env.absorb(r.arena, nl.stmts);
             try r.findIncludes(path, nl.stmts, scratch);
         }
+        // A section asked for by name that no file defines: nothing of it
+        // is in the result, and what references it will not find it.
+        for (r.opts.sections) |sec| {
+            for (r.sections.items) |s| {
+                if (std.ascii.eqlIgnoreCase(s.section, sec)) break;
+            } else {
+                var buf: [200]u8 = undefined;
+                const msg = std.fmt.bufPrint(&buf, "section '{s}' is asked for, but no file read defines it", .{sec[0..@min(sec.len, 60)]}) catch "a section asked for is not defined";
+                r.logLine(if (r.opts.tops.len > 0) r.opts.tops[0] else "", .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = msg });
+            }
+        }
         for (r.skipped.items) |sk| {
             if (sk.released) continue;
             var buf: [200]u8 = undefined;
@@ -489,6 +506,11 @@ const Run = struct {
             for (present.items, 0..) |p, i| {
                 if (i > 0) try w.writeByte(',');
                 try w.print("{f}", .{std.json.fmt(p, .{})});
+            }
+            try w.writeAll("],\"sections\":[");
+            for (r.sections.items, 0..) |sec, i| {
+                if (i > 0) try w.writeByte(',');
+                try w.print("{{\"file\":{f},\"name\":{f}}}", .{ std.json.fmt(sec.path, .{}), std.json.fmt(sec.section, .{}) });
             }
             try w.print("],\"root\":{f},\"errors\":{d},\"warnings\":{d},\"missing\":{d}}}\n", .{
                 std.json.fmt(root_dir, .{}), r.sum.errors, r.sum.warnings, r.sum.missing,
@@ -608,5 +630,6 @@ test "a small project: includes followed, declarations shared, tree copied" {
         .catalog = &cat.writer,
     });
     try std.testing.expect(std.mem.indexOf(u8, cat.written(), "\"name\":\"nch\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cat.written(), "corners.lib\",\"name\":\"tt\"},{\"file\":") != null);
     try std.testing.expect(std.mem.indexOf(u8, cat.written(), "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\",\"family\":\"bsim4\",\"polarity\":\"n\"") != null);
 }

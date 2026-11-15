@@ -1211,6 +1211,9 @@ class PDK:
         self.corner = corner or manifest.get("default_corner") or self.corners[0]
         if self.corner not in manifest["corners"]:
             raise SprackError(f"{self.name} has no corner {self.corner!r}; it has: {', '.join(self.corners)}")
+        for path, _section in self.entries():
+            if not os.path.isfile(path):
+                raise SprackError(f"{self.name}: corner {self.corner!r} names {path}, which is not there")
         self._devices: dict[str, dict] | None = None
 
     @staticmethod
@@ -1276,7 +1279,7 @@ class PDK:
         if self._devices is None:
             base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
             data = _cached(base, cache)
-            if data is None:
+            if data is None or "sections" not in data:
                 text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", self._defines(), True)
                 data = json.loads(text)
                 # Kept while every file read, through includes too, is unchanged.
@@ -1284,6 +1287,10 @@ class PDK:
                 os.makedirs(base, exist_ok=True)
                 with open(os.path.join(base, cache), "w") as f:
                     json.dump(data, f)
+            for path, section in self.entries():
+                has = [sec["name"] for sec in data["sections"] if sec["file"] == path]
+                if section and section.lower() not in map(str.lower, has):
+                    raise SprackError(f"{self.name}: corner {self.corner!r} names section {section!r} of {path}, which defines: {', '.join(has) or 'no sections'}")
             devs: dict[str, dict] = {}
             for d in data["devices"]:
                 # Binned model cards (nch.1, nch.2, ...) are one device.
@@ -1363,6 +1370,7 @@ class PDK:
     def statements(self, dialect: str, *, strict: bool = True) -> list[dict]:
         """The statements that bring this PDK's corner into a netlist for `dialect`."""
         d = _dialect(dialect)
+        self.devices  # reading the catalogue checks that the corner's sections are there
         # Each statement says the file it names is in the target's dialect
         # already (the PDK's own, or the translated copy): a statement that
         # says nothing is taken to be in the circuit's.

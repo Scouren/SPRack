@@ -683,6 +683,24 @@ def test_tiny_pdk_cache_is_not_stale():
     _tiny(body)
 
 
+def test_tiny_pdk_corner_must_be_there():
+    def body(make, d):
+        corners = {**TINY["corners"], "ff": [["m.lib", "ff"]], "ss": [["gone.lib", "ss"]]}
+        pdk = lambda **kw: make(manifest={**TINY, "corners": corners}, **kw)
+        # A corner the PDK is not asked for may be incomplete.
+        assert "cell" in pdk().devices
+        # A file that is not there: said when the corner is chosen.
+        raises(sprack.SprackError, lambda: pdk(corner="ss"), "tiny: corner 'ss' names", "gone.lib, which is not there")
+        # A section that is not there: said when the files are read, whatever the target.
+        raises(sprack.SprackError, lambda: pdk(corner="ff").devices, "tiny: corner 'ff' names section 'ff' of", "m.lib, which defines: tt")
+        c = sprack.Circuit("t", pdk=pdk(corner="ff"))
+        c.op()
+        for target in ("ngspice", "xyce"):
+            raises(sprack.SprackError, lambda: c.netlist(target, strict=False), "names section 'ff'")
+        raises(sprack.Unsupported, lambda: pdk(corner="ff").translate("xyce"), "section 'ff' is asked for, but no file read defines it")
+    _tiny(body)
+
+
 def test_tiny_pdk_library_is_not_foreign():
     def body(make, d):
         # Also for a circuit in another dialect's terms than the PDK's.
