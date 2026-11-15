@@ -261,6 +261,8 @@ pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// A kind the simulator itself lacks, and why.
 pub const Absent = struct { kind: Kind, reason: []const u8 };
+/// `reserved name ... : reason`: parameter names the simulator refuses.
+pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
 
 pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
 pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv };
@@ -308,6 +310,7 @@ pub const Grammar = struct {
     /// `spread kind`: a block kind this dialect says by adding the kind's
     /// rule to the end of each statement in its body (HSPICE `monte=`).
     spreads: []const Kind = &.{},
+    reserved: []const Reserved = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -1160,6 +1163,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
     var spreads: []const Kind = &.{};
+    var reserved: []const Reserved = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -1387,6 +1391,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
             if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
             differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "reserved")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
+            reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "spread")) {
             spreads = try c.add(Kind, spreads, try kindOf(c, no, rest));
         } else if (std.mem.eql(u8, head, "no")) {
@@ -1425,6 +1432,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .unique_param = unique_param,
         .unique_master = unique_master,
         .spreads = spreads,
+        .reserved = reserved,
     };
 }
 
