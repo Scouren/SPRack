@@ -774,6 +774,29 @@ TAU1 = TAU2 = 1n, TD2 = 2n at a 1 ns step). HSPICE and Spectre were not
 measured and their grammars are unchanged: a source from them that leaves
 TD1 out is written as it was, with an `ambiguous` warning.
 
+### 4.13 A resistor model's NARROW and SHORT (s3, measured only)
+
+`.model ... R RSH=1000` with NARROW and SHORT, a resistor of the model
+across a 1 V source, the current read back (ngspice `print`, Xyce `.print
+dc`).
+
+| card | L, W | ngspice 45 | Xyce 7.10 |
+|---|---|---|---|
+| `NARROW=1u` | 11u, 2u | 0 A: open | -1.0e-4 (10k) |
+| `NARROW=1u` | 11u, 5u | -2.72727273e-4 (3666.7) | -4.0e-4 (2500) |
+| `NARROW=1u` | 20u, 4u | -1.0e-4 (10k) | -1.578947368e-4 (6333.3) |
+| `SHORT=1u` | 11u, 5u | -5.55555556e-4 (1800) | -4.545454545e-4 (2200), with a netlist warning on the card |
+| `NARROW=1u SHORT=0.5u` | 11u, 5u | -3.0e-4 (3333.3) | -4.0e-4 (2500), with the warning |
+| neither | 11u, 5u | -4.54545455e-4 (2200) | -4.545454545e-4 (2200) |
+
+So ngspice 45 computes RSH (L - 2 SHORT) / (W - 2 NARROW), and Xyce 7.10
+RSH (L - NARROW) / (W - NARROW), with no SHORT. A Xyce card with NARROW = n
+is the ngspice card with NARROW = SHORT = n/2 for every L and W, by
+substitution; an ngspice card has a Xyce form only when its SHORT equals
+its NARROW (Xyce NARROW twice that). VACASK's resistor was not measured.
+The translation does not yet say any of this: the card is copied with the
+general model caveat.
+
 ---
 
 ## 5. Enum spellings (6.5): integration method
