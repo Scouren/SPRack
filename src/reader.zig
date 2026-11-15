@@ -1842,7 +1842,10 @@ fn namedAs(st: *const ir.Stmt, name: []const u8) bool {
 
 /// A multi-segment `.tran tstep1 tstop1 tstep2 tstop2 ...` (HSPICE) runs to
 /// the last stop. No other dialect has segments, so it is read as one run to
-/// that stop at the smallest step.
+/// that stop at the smallest step. Numbers after the first pair that do not
+/// rise are SPICE's start time and step ceiling, which HSPICE also reads
+/// (measured: `.tran 1n 100n 90n` outputs from 90n, `.tran 1n 10n 0 1n`
+/// stops at 10n, `.tran 1n 10n 2n 20n` at 20n).
 fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
     const seg = schema.slotIndex(.tran, "segments").?;
     const si = schema.slotIndex(.tran, "step").?;
@@ -1860,31 +1863,33 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
             items = items[0 .. items.len - 1];
             try st.set(arena, schema.slotIndex(.tran, "skip_dc").?, .{ .atom = "yes" });
         }
-        if (items.len % 2 != 0) {
-            report.add(.@"error", .invalid, st.line, "tran: the segments of a multi-segment .tran come in step and stop pairs; {d} values follow the first pair (a start time is START= here)", .{items.len});
+        const rises = items.len >= 2 and items.len % 2 == 0 and for (0..items.len / 2) |k| {
+            const prev = if (k == 0) st.at(ti) else items[2 * k - 1];
+            const step = items[2 * k];
+            const stop = items[2 * k + 1];
+            if (prev != .num or step != .num or stop != .num or stop.num.toFloat() <= prev.num.toFloat()) break false;
+        } else true;
+        if (!rises) {
+            if (items.len > 2) {
+                report.add(.@"error", .invalid, st.line, "tran: {d} numbers after the step and stop are neither rising step and stop pairs nor a start time and a step ceiling", .{items.len});
+                continue;
+            }
+            if (items.len > 0) try st.set(arena, schema.slotIndex(.tran, "start").?, items[0]);
+            if (items.len > 1) try st.set(arena, schema.slotIndex(.tran, "maxstep").?, items[1]);
             continue;
         }
         var step = st.at(si);
-        var stop = st.at(ti);
-        var i: usize = 0;
-        while (i < items.len) : (i += 2) {
-            if (step != .num or stop != .num or items[i] != .num or items[i + 1] != .num) {
-                report.add(.@"error", .invalid, st.line, "tran: a multi-segment .tran with an expression in it has no smallest step and last stop to run to", .{});
-                break;
-            }
-            if (items[i + 1].num.toFloat() <= stop.num.toFloat()) {
-                report.add(.@"error", .invalid, st.line, "tran: the stops of a multi-segment .tran rise, and {e} does not follow {e} (`tstep tstop tstart tmax` is ngspice's form; a start time is START= here)", .{
-                    items[i + 1].num.toFloat(), stop.num.toFloat(),
-                });
-                break;
-            }
-            stop = items[i + 1];
-            if (items[i].num.toFloat() < step.num.toFloat()) step = items[i];
-        } else {
-            try st.set(arena, si, step);
-            try st.set(arena, ti, items[items.len - 1]);
-            report.add(.warning, .caveat, st.line, "tran: a multi-segment .tran is one run to its last stop at its smallest step; the output is no longer sampled per segment", .{});
+        if (step != .num) {
+            report.add(.@"error", .invalid, st.line, "tran: a multi-segment .tran with an expression in it has no smallest step to run at", .{});
+            continue;
         }
+        var k: usize = 0;
+        while (k < items.len) : (k += 2) {
+            if (items[k].num.toFloat() < step.num.toFloat()) step = items[k];
+        }
+        try st.set(arena, si, step);
+        try st.set(arena, ti, items[items.len - 1]);
+        report.add(.warning, .caveat, st.line, "tran: a multi-segment .tran is one run to its last stop at its smallest step; the output is no longer sampled per segment", .{});
     }
 }
 

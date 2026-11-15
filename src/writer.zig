@@ -1785,6 +1785,25 @@ fn pzPorts(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: 
     return list orelse stmts;
 }
 
+/// A `.tran` step ceiling at or above the stop time limits nothing, and in
+/// HSPICE a fourth number above the stop is a second segment: not written.
+fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+    const mi = schema.slotIndex(.tran, "maxstep").?;
+    var list: ?[]ir.Stmt = null;
+    for (stmts, 0..) |*st, k| {
+        if (st.kind != .tran or st.at(mi) != .num or st.get("stop") != .num) continue;
+        if (st.at(mi).num.toFloat() < st.get("stop").num.toFloat()) continue;
+        const l = list orelse blk: {
+            list = try arena.dupe(ir.Stmt, stmts);
+            break :blk list.?;
+        };
+        try l[k].own(arena);
+        try l[k].set(arena, mi, .none);
+        report.add(.info, .oneway, st.line, "tran.maxstep at or above the stop time limits nothing and is not written; it reads back without one", .{});
+    }
+    return list orelse stmts;
+}
+
 /// An option's value in a netlist of dialect `sg`: the one it sets, else
 /// the one `sg` assumes (`implied options tnom = 25`; `$temp` is another
 /// option's value).
@@ -1909,6 +1928,7 @@ pub fn write(
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
     stmts = try pzPorts(arena, g, stmts, report);
+    stmts = try idleCeilings(arena, stmts, report);
     if (try defaultOptions(arena, g, nl)) |d| {
         var names: std.ArrayList(u8) = .empty;
         for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {

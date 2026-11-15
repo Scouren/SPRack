@@ -470,11 +470,12 @@ test "nothing is dropped: a value with no place in the target is an error" {
     try has(va, "analysis tran1 tran step=1n stop=100n maxstep=0.5n icmode=\"uic\"\n");
     try reported(&r1, .@"error", "tran.start = 5n has no spelling in vacask");
 
-    // HSPICE has START= but no step ceiling on .TRAN.
+    // HSPICE reads SPICE's start and ceiling positionally when they do not
+    // rise like a second segment (c4); whether the ceiling caps is a caveat.
     var r2: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", "t\n.tran 1n 100n 5n 0.5n uic\n.end\n", &r2);
-    try has(hs, ".tran 1n 100n start=5n uic\n");
-    try reported(&r2, .@"error", "tran.maxstep = 0.5n has no spelling in hspice");
+    try has(hs, ".tran 1n 100n 5n 0.5n uic\n");
+    try reported(&r2, .warning, "tran.maxstep: HSPICE takes a fourth .TRAN number below the stop as no segment");
 
     // Spectre can say all of it, with a caveat about what UIC means.
     var r3: ir.Report = .init(a);
@@ -3636,14 +3637,19 @@ test "c4: a multi-segment .tran runs to its last stop at its smallest step" {
     try reported(&r, .warning, "multi-segment .tran is one run to its last stop");
     try clean(&r);
     var r2: ir.Report = .init(a);
-    _ = try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 1n\n.end\n", &r2);
+    _ = try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 1n 5n 2n\n.end\n", &r2);
     try testing.expect(r2.count(.@"error") > 0);
-    // ngspice's tstart and tmax are no segments: refused, not folded.
+    // Numbers that do not rise are SPICE's start time and step ceiling.
     var r3: ir.Report = .init(a);
-    _ = try tr(a, "hspice", "ngspice", "t\n.tran 10n 1m 0 10n uic\n.end\n", &r3);
-    try reported(&r3, .@"error", "the stops of a multi-segment .tran rise");
+    try has(try tr(a, "hspice", "ngspice", "t\n.tran 10n 1m 0 10n uic\n.end\n", &r3), ".tran 10n 1m 0 10n uic\n");
+    try clean(&r3);
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "ngspice", "t\n.tran 1n 100n 90n\n.end\n", &r6), ".tran 1n 100n 90n\n");
     var r4: ir.Report = .init(a);
     try has(try tr(a, "hspice", "ngspice", "t\n.tran 1n 10n 2n 40n uic\n.end\n", &r4), ".tran 1n 40n uic\n");
+    // A ceiling above the stop is no segment either way.
+    var r7: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.tran 0.1n 10n 1n 40n\n.end\n", &r7), ".tran 0.1n 10n start=1n\n");
     // A `%` glued to a number is its suffix, not a modulo.
     var r5: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "hspice", "t\nr1 a 0 r={2k%3}\n.end\n", &r5);

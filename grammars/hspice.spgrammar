@@ -2,8 +2,8 @@
 #
 # Differences from ngspice captured here: `$` is the only trailing comment,
 # single quotes are the only expression delimiters (braces are not), X is a
-# second spelling of Meg, a bare identifier may be a value, .TRAN takes
-# START= instead of a third number and has no step ceiling, user functions
+# second spelling of Meg, a bare identifier may be a value, .TRAN writes
+# START= and reads more step and stop pairs as segments, user functions
 # are .PARAM f(x)='...', behavioural sources are E and G elements with VOL=
 # and CUR=, Verilog-A is loaded with .HDL and instantiated as X.
 #
@@ -128,8 +128,12 @@ read  dc        = ".dc" <what> { start=start! stop=stop! step=step! }
 rule  dc        = ".dc" { data=data! }
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
-# More step and stop pairs: one run to the last stop (read at the smallest step).
+# More step and stop pairs: one run to the last stop (read at the smallest
+# step). Numbers that do not rise are SPICE's start time and step ceiling:
+# measured, `.tran 1n 100n 90n` outputs from 90n and `.tran 1n 10n 0 1n`
+# stops at 10n, while `.tran 1n 10n 2n 20n` runs to 20n.
 read  tran      = ".tran" step stop ( segments )+ { start=start } [ skip_dc:"uic"=yes ]
+write tran      = ".tran" step stop start?0 maxstep [ skip_dc:"uic"=yes ]
 write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 merge ac -> noise
@@ -221,7 +225,7 @@ requires no-vlloop error   : HSPICE stops on it, where ngspice gets through with
 requires no-lloop  error   : HSPICE stops on it, where ngspice and Xyce solve it
 
 caveat tran skip_dc : UIC skips the DC solve and starts from .IC and IC= values; other simulators seed the first time point differently
-caveat tran maxstep : HSPICE has no step ceiling on .TRAN; the first number is the print step and limits nothing
+caveat tran maxstep : HSPICE takes a fourth .TRAN number below the stop as no segment (that it caps the step was not measured), and one above the stop as a second segment; the first number is the print step and limits nothing
 caveat noise src : HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well
 caveat hdl path=*.osdi : .HDL expects Verilog-A source, not a compiled OSDI file
 caveat save signals : HSPICE's own .SAVE stores an operating point; the signals are recorded with .PROBE
