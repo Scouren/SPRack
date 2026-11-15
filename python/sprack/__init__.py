@@ -1250,8 +1250,12 @@ class PDK:
                 raise SprackError(f"no manifest for PDK {name!r}; known: {', '.join(PDK.known())}. Pass manifest= for another PDK.")
             manifest = known[name.lower()]
         elif isinstance(manifest, str):
+            at = os.path.dirname(os.path.abspath(manifest))
             with open(manifest) as f:
                 manifest = json.load(f)
+            # A grammar file it names is beside it, unless it says where.
+            if str(manifest.get("dialect", "")).endswith(".spgrammar"):
+                manifest["dialect"] = os.path.join(at, manifest["dialect"])
         need = ("name", "dialect", "layouts", "corners")
         missing = [k for k in need if not manifest.get(k)]
         if any("probe" not in layout for layout in manifest.get("layouts") or []):
@@ -1260,7 +1264,7 @@ class PDK:
             raise SprackError(f"the manifest for PDK {name!r} lacks {', '.join(missing)}; a manifest needs: {', '.join(need)}, and each layout a probe")
         self.manifest: dict = manifest
         self.name: str = manifest["name"]
-        self.dialect: str = manifest["dialect"]
+        self.dialect: str = _dialect(manifest["dialect"])
         self.prefix: str = manifest.get("prefix", "")
         self.cache_dir = os.path.expanduser(cache_dir or os.environ.get("SPRACK_CACHE") or "~/.cache/sprack")
         self.root, self._vars = self._locate(root)

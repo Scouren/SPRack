@@ -7,7 +7,7 @@ SPRACK_TEST_PDKS_INSTALLED at installed sky130 and ihp trees
 (nix build .#test-pdks-installed; those tests also run ngspice). Without
 them those tests are skipped and say so.
 """
-import copy, os, shutil, sys, tempfile, time, traceback
+import copy, json, os, shutil, sys, tempfile, time, traceback
 
 import sprack
 
@@ -738,6 +738,32 @@ def test_tiny_pdk_cache_is_not_stale():
         alt = lambda: make(manifest={**TINY, "define": {"CELLS": "{root}/alt"}})
         assert "other" in alt().devices and "cell" not in alt().devices
         assert ".subckt other a b" in xyce(alt())
+    _tiny(body)
+
+
+def test_tiny_pdk_dialect_is_resolved():
+    def body(make, d):
+        def own(pdk, target):
+            """The netlist for the PDK's own dialect names the PDK's own file."""
+            c = sprack.Circuit("t", pdk=pdk)
+            c.cell("X1", "a", 0)
+            c.V("1", "a", 0, 1)
+            c.op()
+            return f'.lib "{d}/m.lib" tt\n' in unwrap(c.netlist(target))
+        # A name in any case is the dialect, as everywhere else.
+        pdk = make(manifest={**TINY, "dialect": "NGSPICE"})
+        assert pdk.dialect == "ngspice" and own(pdk, "ngspice")
+        raises(ValueError, lambda: make(manifest={**TINY, "dialect": "pspice"}), "unknown dialect 'pspice'")
+        # A grammar file is looked for from the manifest file that names it.
+        os.mkdir(os.path.join(d, "g"))
+        mine = os.path.join(d, "g", "mine.spgrammar")
+        with open(os.path.join(GRAMMARS, "ngspice.spgrammar")) as f, open(mine, "w") as g:
+            g.write(f.read().replace("\ndialect ngspice\n", "\ndialect mine\n"))
+        manifest = os.path.join(d, "tiny.json")
+        with open(manifest, "w") as f:
+            json.dump({**TINY, "dialect": "g/mine.spgrammar"}, f)
+        pdk = make(manifest=manifest)
+        assert pdk.dialect == mine and "cell" in pdk.devices and own(pdk, mine)
     _tiny(body)
 
 
