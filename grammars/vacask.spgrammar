@@ -332,6 +332,12 @@ caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the 
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
 caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
+# docs/cmd-options-op.md "Nodesets": op_nsiter=1, nr_nsforce=10.
+caveat op     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
+caveat dc     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
+caveat ac     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
+caveat tran   nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
+caveat noise  nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
 caveat cond_if cond : a VACASK @if branch may hold instances, models and nested blocks, but not parameters (lib/dflparser.y:467-499)
 
 # statistics

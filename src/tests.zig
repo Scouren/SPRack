@@ -3224,3 +3224,13 @@ test "VACASK tran: SPICE's step cap is written as maxstep" {
     try has(same, "analysis tran1 tran step=1u stop=1m\n");
     try clean(&r2);
 }
+
+test "VACASK nodeset: a caveat, since it holds for one Newton iteration only" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\nV1 q 0 1\nR1 q 0 1k\n.nodeset v(q)=5\n.op\n.end\n", &report);
+    try has(va, "analysis op1 op nodeset={\"q\",5}\n");
+    try reported(&report, .warning, "op.nodeset: VACASK pulls toward a nodeset only during its first Newton iteration");
+}
