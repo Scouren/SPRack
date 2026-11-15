@@ -2168,13 +2168,64 @@ test "translation memory stays a small multiple of the input" {
         var report: ir.Report = .init(arena_state.allocator());
         var sink: std.Io.Writer.Discarding = .init(&.{});
         try sprack.translate(arena_state.allocator(), "ngspice", to, input, &sink.writer, &report);
-        // Measured: 11.55x to Spectre, 11.74x to Xyce, with Stmt.dialect a
-        // u8 index (13.6x when it was a 16-byte slice). This counts whole
-        // arena chunks, untouched pages too; the peak RSS of a 111 MiB mesh
-        // is 7.1x. The tokens of the whole file alone would add 5x.
-        if (count.peak * 10 > 118 * input.len) {
+        // Measured: 0.71x to Spectre and to Xyce, beside the input, which
+        // is not counted here; it was 11.55x and 11.74x when the netlist
+        // was read whole. This counts whole arena chunks, untouched pages
+        // too; the peak RSS of a 111 MiB mesh is 1.5x, input included.
+        if (count.peak * 10 > 8 * input.len) {
             std.debug.print("to {s}: peak {d} bytes for {d} of input\n", .{ to, count.peak, input.len });
             return error.TooMuchMemory;
+        }
+    }
+}
+
+// What a stream has to know of the whole netlist before its first
+// statement: two option lines that are one, a subcircuit the top level and
+// another subcircuit use before it is defined, dev/gauss and agauss().
+test "a stream writes what the whole netlist does" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\* t
+        \\.option temp=30
+        \\X1 a 0 top
+        \\V1 a 0 1
+        \\.subckt top p n
+        \\X1 p m leaf
+        \\C1 m n 1p
+        \\.ends
+        \\.option tnom=25 temp=40
+        \\.subckt leaf p n
+        \\.param r0=1k dev/gauss=10
+        \\R1 p q {r0}
+        \\C1 q n 1p
+        \\C2 q2 n 1p
+        \\C3 q2 p 1p
+        \\.ends
+        \\.param w=agauss(1u, 0.1u, 3)
+        \\.op
+        \\.end
+        \\
+    ;
+    for ([_][]const u8{ "spectre", "xyce", "hspice", "vacask" }) |to| {
+        var out: [2][]const u8 = undefined;
+        var rep: [2][]const ir.Diag = undefined;
+        for ([_]bool{ true, false }, 0..) |whole, i| {
+            var report: ir.Report = .init(a);
+            var aw: std.Io.Writer.Allocating = .init(a);
+            const why = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find(to).?, src, &aw.writer, &report, &sprack.caps, .{ .whole = whole });
+            if (!whole) try testing.expectEqual(null, why);
+            out[i] = aw.written();
+            rep[i] = report.items.items;
+        }
+        try testing.expectEqualStrings(out[0], out[1]);
+        try testing.expect(rep[0].len > 0);
+        try testing.expectEqual(rep[0].len, rep[1].len);
+        for (rep[0], rep[1]) |x, y| {
+            try testing.expectEqualStrings(x.msg, y.msg);
+            try testing.expectEqual(x.line, y.line);
+            try testing.expectEqual(x.sev, y.sev);
         }
     }
 }

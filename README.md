@@ -323,6 +323,7 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
     src/ir.zig             statements, values, reports, circuit comparison
     src/json.zig           the statements as JSON
     src/project.zig        include following, shared declarations, catalogue
+    src/stream.zig         translation a statement at a time, after a survey
     src/main.zig           the command
     src/pyext.zig          the CPython extension
     src/capi.zig           a C ABI for other hosts
