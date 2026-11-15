@@ -112,6 +112,9 @@ pub const Kind = enum(u8) {
     ctlsrc,
     relay,
     simctl,
+    // b1: sweeps
+    step,
+    data,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -201,13 +204,23 @@ const defs = [_]Def{
         "when:signal whenval:value whentd:value whenedge:atom whenn:value expr:value spec:text params:params" },
     .{ .op, .analysis, "name params:params" ++ ns },
     // src2 is the outer loop of a nested sweep; src is swept for each of its values.
-    // `var` is set instead of `src` when the sweep is over temperature.
+    // What is swept is an instance (`src`), a netlist parameter (`param`) or
+    // the temperature (`var`); the outer loop likewise. `devparam` is the
+    // instance parameter swept when it is not the instance's own value (a
+    // source's dc, a resistor's r). Without `sweep` the range is start, stop
+    // and step; with it `points` per decade or octave, or in all (`lin`).
+    // `values` lists the points instead; `data` names a `data` table whose
+    // rows are swept.
     .{ .dc, .analysis, "name src:ref var:atom start:value stop:value step:value " ++
-        "src2:ref start2:value stop2:value step2:value params:params" ++ ns },
-    .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
+        "src2:ref start2:value stop2:value step2:value params:params" ++ ns ++
+        " param:ident devparam:atom sweep:atom points:value values:value* " ++
+        "param2:ident var2:atom sweep2:atom points2:value data:ident" },
+    // `values` holds the one frequency of a sweep whose start and stop are equal
+    // where the dialect writes it so (a `convert`).
+    .{ .ac, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns ++ " values:value*" },
     .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns },
     // `interval`: a noise summary every this many frequency points.
-    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " interval:value params:params" ++ ns },
+    .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " interval:value params:params" ++ ns ++ " values:value*" },
     .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns },
     // Either the input and output ports by node (SPICE), or an output
     // signal and the input source (HSPICE, Spectre).
@@ -262,6 +275,15 @@ const defs = [_]Def{
     // A command of a simulator's own control language that is not a netlist
     // statement (VACASK print, postprocess, abort, elaborate).
     .{ .simctl, .control, "cmd:atom args:text" },
+    // b1: sweeps
+    // Every analysis in `body` is run once per point. What is swept and the
+    // range are as for `dc`. Read from a dialect that writes the sweep as one
+    // line for the whole netlist (`.step`), the body is every analysis beside it.
+    .{ .step, .analysis, "name src:ref param:ident var:atom devparam:atom sweep:atom start:value stop:value step:value " ++
+        "points:value values:value* data:ident params:params" },
+    // A table of values, one column per name in `cols`, rows one after the
+    // other in `values`; swept by `data=` on an analysis or a step.
+    .{ .data, .structure, "name cols:ident* values:value*" },
 };
 
 pub const kind_count = defs.len;

@@ -586,7 +586,7 @@ test "source spelling is preserved" {
     try has(sp, "model NCH bsim4 type=n\n");
     try has(sp, "XU1 (a b VDD) Inv\n");
     try has(sp, "Vsup (VDD 0) vsource dc=1.8\n");
-    try has(sp, "dc1 dc dev=Vsup param=dc start=0 stop=1.8 step=0.1\n");
+    try has(sp, "dc1 dc dev=Vsup start=0 stop=1.8 step=0.1\n");
     try clean(&report);
 }
 
@@ -1146,10 +1146,11 @@ test "more devices: behavioural and controlled sources, coupling, switches, line
     const xy = try tr(a, "ngspice", "xyce", src, &r3);
     try has(xy, "S1 p 0 in 0 swm on\n.model swm vswitch von=600m voff=400m ron=1\n");
     try clean(&r3);
-    // References are checked: a sweep over something that is not a device.
+    // References are checked: a sweep over something that is neither a
+    // device nor a parameter of the netlist.
     var r4: ir.Report = .init(a);
-    _ = try tr(a, "hspice", "spectre", "t\n.param rv=1k\nR1 a 0 rv\n.dc rv 1k 10k 1k\n.end\n", &r4);
-    try reported(&r4, .@"error", "dc.src = rv does not name a device in this netlist");
+    _ = try tr(a, "hspice", "spectre", "t\n.param rv=1k\nR1 a 0 rv\n.dc rx 1k 10k 1k\n.end\n", &r4);
+    try reported(&r4, .@"error", "dc.src = rx does not name a device in this netlist");
     // A temperature sweep is its own thing.
     var r5: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "spectre", "t\nR1 a 0 1k\n.dc temp -40 125 5\n.end\n", &r5), "dc1 dc param=temp start=-40 stop=125 step=5\n");
@@ -1378,13 +1379,13 @@ test "corpus: more source and analysis forms" {
     try has(sp, "model jm jfet type=n vto=-2\n");
     try has(sp, "J1 (d g 0) jm\n");
     // Spectre nests sweeps with a sweep statement around the inner dc.
-    try has(sp, "sweep1 sweep dev=VGS param=dc start=1 stop=3 step=0.5 {\ndc1 dc dev=VDS param=dc start=0 stop=5 step=0.1\n}\n");
+    try has(sp, "sweep1 sweep dev=VGS start=1 stop=3 step=0.5 {\ndc1 dc dev=VDS start=0 stop=5 step=0.1\n}\n");
 
     var r2: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\nV1 d 0 1\nV2 g 0 1\n.dc V1 0 5 0.1 V2 1 3 0.5\n.end\n", &r2);
     try has(va,
-        \\sweep outer1 instance="V2" parameter="dc" from=1 to=3 step=0.5
-        \\sweep sweep1 instance="V1" parameter="dc" from=0 to=5 step=0.1
+        \\sweep outer1 instance="V2" from=1 to=3 step=0.5
+        \\sweep sweep1 instance="V1" from=0 to=5 step=0.1
         \\analysis dc1 op
     );
     try has(try tr(a, "vacask", "hspice", va, &r2), ".dc V1 0 5 0.1 V2 1 3 0.5\n");
@@ -2649,4 +2650,122 @@ test "b4: Spectre relay and port, VACASK control commands" {
     _ = try tr(a, "vacask", "ngspice", v, &r5);
     try reported(&r5, .@"error", "statement 'simctl' cannot be written for ngspice");
     try reported(&r5, .@"error", "VACASK embeds a file");
+}
+
+// b1: sweeps
+
+/// `from` to `to` and back: the netlist read back is the same circuit.
+fn sameBack(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) ![]const u8 {
+    const nl = try readAs(a, from, src, report);
+    const out = try writeAs(a, to, &nl, report);
+    const back = try readAs(a, to, out, report);
+    if (!ir.sameCircuit(&nl, &back)) {
+        std.debug.print("\n--- not the same circuit read back from {s}:\n{s}\n", .{ to, out });
+        return error.TestNotSame;
+    }
+    return out;
+}
+
+test "sweeps: what a .dc sweeps decides how it is written" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    // A parameter of the netlist.
+    const param = "t\n.param rv=1k\nV1 a 0 1\nR1 a 0 rv\n.dc rv 1k 10k 1k\n.end\n";
+    try has(try sameBack(a, "hspice", "spectre", param, &r), "dc1 dc param=rv start=1k stop=10k step=1k\n");
+    try has(try sameBack(a, "hspice", "vacask", param, &r), "sweep sweep1 instance=\"__topinst__\" parameter=\"rv\" from=1k to=10k step=1k\n");
+    try has(try sameBack(a, "hspice", "xyce", param, &r), ".dc rv 1k 10k 1k\n");
+    try clean(&r);
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", param, &r1);
+    try reported(&r1, .@"error", "no ngspice form of this statement");
+    // A resistor: its resistance, which Spectre and VACASK sweep when no
+    // instance parameter is named (param=dc is a source's).
+    var r2: ir.Report = .init(a);
+    const res = "t\nV1 a 0 1\nR1 a 0 1k\n.dc R1 1k 3k 1k\n.end\n";
+    try has(try sameBack(a, "ngspice", "spectre", res, &r2), "dc1 dc dev=R1 start=1k stop=3k step=1k\n");
+    try has(try sameBack(a, "ngspice", "vacask", res, &r2), "sweep sweep1 instance=\"R1\" from=1k to=3k step=1k\n");
+    try clean(&r2);
+    // An instance parameter that is not the instance's own value has no SPICE form.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "ngspice", "// t\nV1 (a 0) vsource dc=1 mag=1\nR1 (a 0) resistor r=1k\nd1 dc dev=V1 param=mag start=0 stop=1 step=0.5\n", &r3);
+    try reported(&r3, .@"error", "dc.devparam = mag");
+    var r4: ir.Report = .init(a);
+    _ = try sameBack(a, "spectre", "vacask", "// t\nV1 (a 0) vsource dc=1\nR1 (a 0) resistor r=1k\nd1 dc dev=R1 param=r start=1k stop=2k step=1k\n", &r4);
+    try clean(&r4);
+    // The temperature as the outer loop.
+    var r5: ir.Report = .init(a);
+    const temp = "t\nV1 a 0 1\nR1 a 0 1k\n.dc V1 0 1 0.5 temp 0 50 25\n.end\n";
+    try has(try sameBack(a, "ngspice", "spectre", temp, &r5), "sweep1 sweep param=temp start=0 stop=50 step=25 {\ndc1 dc dev=V1 start=0 stop=1 step=0.5\n}\n");
+    try has(try sameBack(a, "ngspice", "vacask", temp, &r5), "sweep outer1 option=\"temp\" from=0 to=50 step=25\n");
+    try has(try sameBack(a, "ngspice", "xyce", temp, &r5), ".dc V1 0 1 0.5 temp 0 50 25\n");
+    try clean(&r5);
+}
+
+test "sweeps: ranges by points, lists, keywords and tables" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const dec = "t\nV1 a 0 1\nR1 a 0 1k\n.dc V1 dec 2 1 100\n.end\n";
+    try has(try sameBack(a, "hspice", "xyce", dec, &r), ".dc dec V1 1 100 2\n");
+    try has(try sameBack(a, "hspice", "spectre", dec, &r), "dc1 dc dev=V1 start=1 stop=100 dec=2\n");
+    try has(try sameBack(a, "hspice", "vacask", dec, &r), "from=1 to=100 mode=\"dec\" points=2\n");
+    // LIN counts points in HSPICE, intervals in Spectre and VACASK.
+    const lin = "t\nV1 a 0 1\nR1 a 0 1k\n.dc V1 lin 5 0 1\n.end\n";
+    try has(try sameBack(a, "hspice", "spectre", lin, &r), "dc1 dc dev=V1 start=0 stop=1 lin=4\n");
+    try has(try sameBack(a, "hspice", "vacask", lin, &r), "from=0 to=1 mode=\"lin\" points=4\n");
+    // POI: a count, then the points; a second sweep may follow.
+    const poi = "t\nV1 a 0 1\nI1 0 a 0\nR1 a 0 1k\n.dc V1 poi 3 0.5 -1 2 I1 lin 2 0 1m\n.end\n";
+    try has(try sameBack(a, "hspice", "hspice", poi, &r), ".dc V1 poi 3 0.5 -1 2 I1 lin 2 0 1m\n");
+    try has(try sameBack(a, "hspice", "spectre", poi, &r), "sweep1 sweep dev=I1 start=0 stop=1m lin=1 {\ndc1 dc dev=V1 values=[0.5 -1 2]\n}\n");
+    try has(try sameBack(a, "spectre", "xyce", "// t\nV1 (a 0) vsource dc=1\nR1 (a 0) resistor r=1k\nd1 dc dev=V1 values=[1 5 7]\n", &r), ".dc list V1 1 5 7\n");
+    // START= STOP= STEP= is read, and written positionally.
+    try has(try tr(a, "hspice", "hspice", "t\nV1 a 0 1\n.dc V1 start=0 stop=1 step=0.25\n.end\n", &r), ".dc V1 0 1 0.25\n");
+    // A table, and a sweep over its rows.
+    const data = "t\n.param rl=1k\nV1 a 0 1\nR1 a 0 rl\n.data rows rl V1\n+ 1k 1\n+ 3k 2\n.enddata\n.dc data=rows\n.end\n";
+    try has(try sameBack(a, "hspice", "xyce", data, &r), ".data rows rl V1 1k 1 3k 2\n.enddata\n.dc data=rows\n");
+    try clean(&r);
+}
+
+test "sweeps: a sweep whose stop is its start" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    // Spectre refuses stop = start; its one point goes in values=.
+    const src = "t\nV1 a 0 1 ac 1\nR1 a b 1k\nC1 b 0 1n\n.dc V1 1 1 0.25\n.ac lin 1 1k 1k\n.noise v(b) V1 dec 4 100 100\n.end\n";
+    const sp = try sameBack(a, "ngspice", "spectre", src, &r);
+    try has(sp, "dc1 dc dev=V1 start=1 step=0.25 values=[1]\n");
+    try has(sp, "ac1 ac start=1k lin=0 values=[1k]\n");
+    try has(sp, "noise1 (b 0) noise iprobe=V1 start=100 dec=4 values=[100]\n");
+    try has(try sameBack(a, "ngspice", "xyce", src, &r), ".dc V1 1 1 0.25\n");
+    try clean(&r);
+}
+
+test "sweeps: a step repeats the analyses it holds" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    // A .step line sweeps every analysis; nested, the first is the outer loop.
+    const src = "t\n.param rv=1k\nV1 a 0 1\nR1 a b 1k\nR2 b 0 {rv}\n.step param rv list 1k 3k\n.step temp list -40 85\n.op\n.tran 1n 10n\n.end\n";
+    const sp = try sameBack(a, "espice", "spectre", src, &r);
+    try has(sp, "swp1 sweep param=rv values=[1k 3k] {\nswp2 sweep param=temp values=[-40 85] {\nop1 dc\ntran1 tran step=1n stop=10n\n}\n}\n");
+    try has(try sameBack(a, "espice", "xyce", src, &r), ".step rv list 1k 3k\n.step temp list -40 85\n.op\n.tran 1n 10n\n");
+    try has(try sameBack(a, "espice", "ltspice", src, &r), ".step param rv list 1k 3k\n.step temp list -40 85\n");
+    try clean(&r);
+    // HSPICE's .TEMP with several values is a step over the temperature.
+    var r2: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "xyce", "t\nR1 a 0 1k\nI1 0 a 1m\n.temp -55 25 125\n.op\n.end\n", &r2), ".step temp list -55 25 125\n.op\n");
+    try clean(&r2);
+    // A sweep around one analysis of several is not a .step.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "xyce", "// t\nV1 (a 0) vsource dc=1 mag=1\nR1 (a 0) resistor r=1k\nswp1 sweep param=temp values=[0 50] {\nop1 dc\n}\nac1 ac start=1 stop=1k dec=10\n", &r3);
+    try reported(&r3, .@"error", "a xyce sweep applies to every analysis of the netlist");
+    // Where a sweep is one line per analysis, there is no step.
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "espice", "vacask", src, &r4);
+    try reported(&r4, .@"error", "VACASK has no sweep of the whole netlist");
 }

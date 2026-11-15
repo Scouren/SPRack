@@ -110,8 +110,18 @@ rule  instance  = name~"X" nodes+ master {...params}
 rule  op        = ".op"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
 rule  pz        = ".pz" out src
-rule  dc        = ".dc" var:"temp" start stop step
-rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+# What is swept: the temperature, a source or a parameter. The range is a
+# step, points per decade or octave, points in all (LIN), or a list (POI,
+# with the count first). A POI list is greedy when read, so the forms with a
+# second sweep after it are tried first.
+define what  = ( var:"temp" | src | param )
+define what2 = ( var2:"temp" | src2 | param2 )
+define range = ( ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points start stop | "poi" _?$+values ( values )+ | start stop step )
+read  dc        = ".dc" <what> "poi" _ ( values )+ <what2> ( sweep2:"dec" | sweep2:"oct" | sweep2:"lin" ) points2 start2 stop2
+read  dc        = ".dc" <what> "poi" _ ( values )+ <what2> start2 stop2 step2
+rule  dc        = ".dc" <what> <range> [ <what2> ( ( sweep2:"dec" | sweep2:"oct" | sweep2:"lin" ) points2 start2 stop2 | start2 stop2 step2 ) ]
+read  dc        = ".dc" <what> { start=start! stop=stop! step=step! }
+rule  dc        = ".dc" { data=data! }
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
 write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
@@ -281,3 +291,7 @@ convert vsource wave=am : val0 = val0 / ampl
 convert isource wave=am : val0 = val0 / ampl
 no relay  : HSPICE has no relay element; a voltage-controlled resistor (G element, VCR) is the closest form
 no simctl : HSPICE has no control language besides its dot commands
+# sweeps
+# .TEMP with several values runs every analysis at each of them.
+rule  step      = var:".temp"=temp ( values )+
+rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"

@@ -485,3 +485,20 @@ above include them; the HSPICE `pow` row counts as correct, with its
 caveat). The one left unclear is Xyce `no device` (X9). The VACASK `mutual` coupling to `sp_inductor` (1.4) is also
 unclear and untested but is not counted.
 
+
+---
+
+## 7. Sweeps (PLAN 5.1)
+
+What the sweep rules rest on. HSPICE and Spectre: observed by running decks
+of a few lines written for this; the others: run locally (ngspice 45,
+Xyce 7.10, VACASK b2c1551, ESPice 0.3.0) or cited.
+
+| dialect | observed |
+|---|---|
+| Spectre | A `dc` or `ac` sweep whose stop equals its start is refused; with `start=f values=[f]` (and `lin=`, `dec=` or `step=` beside them) it runs one point. `lin=N` gives N+1 points, in `dc` and `ac`. `dev=` without `param=` sweeps the instance's own value (a source's dc, a resistor's resistance); `param=dc` on a resistor does not. `oct=`, `values=[...]` and `dc param=temp` are accepted. A `sweep` block runs the analyses inside it per point and nests. `paramset` columns must be netlist parameters. |
+| HSPICE | `.STEP` is ignored with a warning: one run. `.TEMP t1 t2 t3` runs every analysis at each value. `.DC` of a `.PARAM`, `DEC`/`OCT`/`LIN np` (LIN counts points), `POI n v1 ... vn` followed by a second `LIN` sweep, `START= STOP= STEP=`, a zero-width sweep and `.DATA` rows all on one line are accepted, with the expected number of points. |
+| VACASK | `instance="__topinst__" parameter="p"` sweeps a top-level parameter; `variable="p"` does not find it. Leaving out `parameter=` sweeps the principal one (docs/cmd-sweep.md). `option="temp"`, `values=[...]`, `mode="dec"` and a zero-width sweep run. A sweep applies to the one analysis after it (docs/cmd-sweep.md), hence `no step`. |
+| Xyce | `.DC LIST v1 ...` and `.DC DEC v1 ...` put the type first; `.STEP DEC rv ...` too, but a list is `.STEP rv LIST ...` (`.STEP LIST rv` is refused). A second sweep may follow a list. `.DC` of a resistor, of a parameter, `.DATA` rows on one line, `.DC DATA=` and `.STEP DATA=` run. |
+| ngspice | `.dc` of a parameter stops with "not in the circuit"; `.temp` with several values is ignored with a warning. No `.step` (hence `no step`). |
+| ESPice | `.dc` of a parameter runs alone but not nested with a second sweep. A deck with `.data` is taken for HSPICE unless run with `--tokenizer ngspice` (a `caveat`). |

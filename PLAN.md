@@ -117,7 +117,15 @@ Each new kind needs:
 
 Order, by deck count:
 
-1. [ ] **Parameter sweeps (4.1):** `.dc` param, `.step`, `.temp` lists, `.alter`, `.data`, Spectre `sweep`.
+1. [x] **Parameter sweeps (4.1):** `.dc` param, `.step`, `.temp` lists, `.alter`, `.data`, Spectre `sweep`.
+   Done: `dc` sweeps an instance, a parameter or the temperature in both
+   loops, by step, points per decade or octave, points in all, or a list;
+   kinds `step` (body: the analyses it repeats) and `data`; Spectre `sweep`
+   blocks, `dc param=`, `values=`; VACASK sweeps. Out of scope: HSPICE
+   `.alter` and Spectre `alter`/`altergroup` (a rerun of the deck with edits,
+   which needs the analyses repeated per alter), the HSPICE `SWEEP` tail of
+   an analysis line (one line that is a step and its analysis), Spectre
+   `paramset`, `.data` from files (`MER`, `LAM`).
 2. [ ] **Analyses (4.2):** `pss`, HSPICE `pz`, `mc`/`variation`, `dcmatch`, `pnoise`, `trannoise`, `envelope`, `sn`, then the 4–6-deck tail.
    - [x] **Periodic small-signal (b3):** kinds `pac`, `pnoise`, `pxf`, `psp`,
      each with `engine=hb` for the harmonic-balance form. Spectre
@@ -176,8 +184,7 @@ supported simulator defines.
 - [x] **6.1 Tool runs.** `tools/licensed_check.py` translates every
   error-free run, loads it in Spectre 25.10 / HSPICE Y-2026.03 on a host
   given by arguments, and runs the source deck in its own simulator as a
-  control. Left (source loads, translation does not): zero-width sweeps in
-  Spectre (start = stop), a `.dc` of a resistor (`param=dc`), `rise=0`
+  control. Left (source loads, translation does not): `rise=0`
   pulses, `%` and braces inside `.meas` text, `agauss` inline in HSPICE
   instance expressions, and decks whose values the commercial tools reject
   at run time (zero step, 0 K, m <= 0, V/L loops).

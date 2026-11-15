@@ -109,6 +109,26 @@ def test_vocabulary_is_closed():
     assert "B1 (out 0) bsource v=v(inp)*2 + log(k)\n".replace("v=v(inp)*2 + log(k)", "v=(v(inp)*2 + log(k))") in c2.netlist("spectre", strict=False)
 
 
+def test_sweeps():
+    c = sprack.Circuit("t")
+    c.param(rv="1k")
+    c.V("1", "a", 0, 1)
+    c.R("1", "a", "b", "1k")
+    c.R("2", "b", 0, "rv")
+    c.step("rv", "1k", "3k", "1k")
+    c.dc(param="rv", start="1k", stop="3k", step="1k")
+    c.op()
+    xy = c.netlist("xyce")
+    assert ".step rv 1k 3k 1k\n" in xy and ".dc rv 1k 3k 1k\n" in xy, xy
+    sp = c.netlist("spectre")
+    assert "swp1 sweep param=rv start=1k stop=3k step=1k {\ndc1 dc param=rv start=1k stop=3k step=1k\nop1 dc\n}\n" in sp, sp
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "ngspice has no .step")
+    d = sprack.Circuit("t")
+    d.data("rows", ["rv"], ["1k", "3k"])
+    d.dc(data="rows")
+    assert ".data rows rv 1k 3k\n.enddata\n.dc data=rows\n" in d.netlist("hspice")
+
+
 # SPRACK_GRAMMARS: for a copy of this file run outside the checkout (the wheel test).
 GRAMMARS = os.environ.get("SPRACK_GRAMMARS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "grammars")
 

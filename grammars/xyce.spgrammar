@@ -98,8 +98,18 @@ rule  vsource   = name~"P" pos neg [ ["dc"] dc ] { port=portnum! z0=z0 } [ "ac" 
 rule  instance  = name~"X" nodes+ master [ "params:" {...params} ]
 
 rule  op        = ".op"
-rule  dc        = ".dc" var:"temp" start stop step
-rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+# What is swept: the temperature, a source, a resistor or a parameter. LIN
+# (the default) takes a step; DEC and OCT points per decade or octave; LIST
+# the values (DC_Command.tex).
+define what  = ( var:"temp" | src | param )
+define what2 = ( var2:"temp" | src2 | param2 )
+# The second sweep has the same forms, without a list.
+define outer = [ ( ( sweep2:"dec" | sweep2:"oct" ) <what2> start2 stop2 points2 | <what2> start2 stop2 step2 ) ]
+rule  dc        = ".dc" ( sweep:"dec" | sweep:"oct" ) <what> start stop points <outer>
+rule  dc        = ".dc" "list" <what> ( values )+ <outer>
+rule  dc        = ".dc" { data=data! }
+rule  dc        = ".dc" <what> start stop step <outer>
+read  dc        = ".dc" "lin" <what> start stop step <outer>
 # S-parameters: .LIN extracts them at the frequencies of the .AC line, from
 # the P (port) devices (LIN_Command.tex, P_Device.tex).
 rule  sp        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lin" {...params}
@@ -265,3 +275,14 @@ rule  measure   = ( ".measure" | ".meas" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 no relay  : Xyce has no relay element; a voltage-controlled switch (S) with a vswitch model is the closest form
 no simctl : Xyce has no control language besides its dot commands
+
+# sweeps
+# .STEP repeats every analysis of the netlist (STEP_Command.tex).
+rule  step      = ".step" ( sweep:"dec" | sweep:"oct" ) <what> start stop points
+# A list names the swept thing first (`.step rv list 1k 3k`), unlike .DC's.
+rule  step      = ".step" <what> "list" ( values )+
+read  step      = ".step" "list" <what> ( values )+
+rule  step      = ".step" { data=data! }
+rule  step      = ".step" <what> start stop step
+read  step      = ".step" "lin" <what> start stop step
+rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"

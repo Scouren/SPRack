@@ -111,7 +111,7 @@ statements of the canonical vocabulary and the core writes them.
   kind (`c.resistor(...)`). Analyses and the rest are methods too: `op`, `dc`,
   `ac`, `tran`, `noise`, `tf`, `pz`, `sens`, `four`, `hb`, `sp`, `pss`, `stb`,
   `pac`, `pnoise`, `pxf`, `psp`, `xf`, `dcmatch`, `trannoise`, `phasenoise`,
-  `envelope`, `qpss`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
+  `envelope`, `qpss`, `step`, `data`, `options`, `save`, `print_`, `ic`, `nodeset`, `measure`, `param`, `model`,
   `func`, `include`, `lib`, `hdl`, `global_`, `subckt`.
 * The vocabulary is closed. `c.tran("1n", "1u", errpreset="moderate")` raises
   `TypeError: tran has no 'errpreset'; it has: name, step, stop, ...`. There is
@@ -425,9 +425,17 @@ dialects that have it; so is one that nothing defines.
   source; read back, an `xf` is an AC transfer function. Spectre's and
   HSPICE's `pac`, `pnoise` and `pxf` follow a separate `pss` or `hb`, while
   VACASK's take the period on the same statement, so between them they are
-  an error. Parameter sweeps (`.dc` of
-  a parameter, `.step`, `.alter`, `.data`) are not in the vocabulary;
-  temperature sweeps are.
+  an error.
+* Sweeps: `.dc` of a source, a resistor, a parameter or the temperature,
+  stepped, by points per decade or octave, or listed (`dc`); `.step`,
+  HSPICE's `.temp` with several values and Spectre's `sweep` blocks (`step`,
+  whose body is the analyses it repeats); `.data` tables and `data=` sweeps
+  over them (`data`). A `.step` line sweeps every analysis of its netlist, so
+  a Spectre sweep around only some of them has no SPICE form, and VACASK,
+  whose sweep belongs to the one analysis after it, has no `step`. Not in
+  the vocabulary: HSPICE's `.alter` and the `SWEEP` tail of an analysis
+  line, Spectre's `alter`, `altergroup` and `paramset`, and `.data` read
+  from files (`MER`, `LAM`).
 * Parameters of model cards are copied by name, with a warning: the simulators
   ship different versions of the same model.
 * The whole netlist is held in memory, at about 4 to 7 times its size.

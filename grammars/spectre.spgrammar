@@ -87,20 +87,24 @@ rule  nodeset   = "nodeset" { ...values }
 read  opaque    = ( "save" | "ic" | "nodeset" | "simulator" | "statistics" | "library" | "endlibrary" | "real" ) ...
 read  opaque    = _ ( "options" | "info" | "alter" | "altergroup" | "set" | "shell" | "paramset" | "check" | "checklimit" | "assert" ) ...
 
-# A nested DC sweep is a sweep statement around the inner dc analysis.
-rule  dc        = _?sweep$# "sweep" { dev=src2! param==dc start=start2 stop=stop2 step=step2 } "{" / name?dc$# "dc" { dev=src! param==dc start=start stop=stop step=step ...params } / "}"
-# A dc analysis that sweeps something is a DC sweep; any other is an operating point.
-rule  dc        = name?dc$# "dc" { dev=src! param==dc start=start stop=stop step=step ...params }
-rule  dc        = name?dc$# "dc" { param=var! start=start stop=stop step=step ...params }
+# A dc analysis that sweeps something is a DC sweep; any other is an
+# operating point. It sweeps an instance (param= names what of it, the
+# instance's own value when left out), the temperature or a parameter. lin=
+# counts intervals, values= lists the points.
+define dcline   = name?dc$# "dc" ( { dev=src! param=devparam start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } | { param==temp!@var:temp start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } | { param=param! start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } )
+# A nested DC sweep is a sweep statement around the inner dc analysis. Read,
+# that is a step around a dc, which is folded back into the dc's outer loop.
+write dc        = _?sweep$# "sweep" ( { dev=src2! start=start2 stop=stop2 step=step2 dec=points2@sweep2:dec oct=points2@sweep2:oct lin=points2@sweep2:lin } | { param==temp!@var2:temp start=start2 stop=stop2 step=step2 dec=points2@sweep2:dec oct=points2@sweep2:oct lin=points2@sweep2:lin } | { param=param2! start=start2 stop=stop2 step=step2 dec=points2@sweep2:dec oct=points2@sweep2:oct lin=points2@sweep2:lin } ) "{" / <dcline> / "}"
+rule  dc        = <dcline>
 # SPICE's .sens runs its own operating point; here sens names the analysis.
 rule  sens      = name?sens$# "dc" / "sens" "(" out ")" "for" "(" name?sens$# ")"
 rule  op        = name?op$# "dc" {...params}
-rule  ac        = name?ac$# "ac" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  ac        = name?ac$# "ac" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params }
 rule  tran      = name?tran$# "tran" { step=step stop=stop start=start maxstep=maxstep skipdc=skip_dc method=method ...params }
-rule  noise     = name?noise$# "(" out ref?0 ")" "noise" { iprobe=src start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
-rule  stb       = name?stb$# "stb" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin probe=probe! ...params }
+rule  noise     = name?noise$# "(" out ref?0 ")" "noise" { iprobe=src start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params }
+rule  stb       = name?stb$# "stb" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin probe=probe! ...params }
 rule  pss       = name?pss$# "pss" { fund=fund! harms=harms tstab=tstab ...params }
-rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin ...params }
 # xf at one frequency, 0 Hz, is the DC transfer function. It is computed
 # from every source at once, so the source is not named, and an xf read
 # back names none: the form is write-only.
@@ -161,7 +165,6 @@ rule  instance  = name ["("] nodes+ [")"] master {...params}
 
 move options.method -> tran.method
 enum tran method : trap=trap gear=gear2 euler=euler
-enum dc var : temp=temp
 enum vsource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 implied noise ref = 0
@@ -251,3 +254,23 @@ models
   vswitch    = vswitch
   cswitch    = iswitch
 end
+
+# sweeps
+# A sweep statement runs the analyses inside its braces once per point.
+block step
+  open   name?swp$# "sweep" ( { dev=src! param=devparam start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } | { param==temp!@var:temp start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } | { param=param! start=start stop=stop step=step dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params } ) "{"
+  close  "}"
+end
+no data : this grammar has no form for Spectre's paramset tables, whose columns must be netlist parameters (a SPICE .data column may name a source)
+# lin= counts intervals: lin=4 gives 5 points, where SPICE's LIN 4 gives 4.
+convert dc sweep=lin : points = points - 1
+convert dc sweep2=lin : points2 = points2 - 1
+convert step sweep=lin : points = points - 1
+convert ac sweep=lin : points = points - 1
+convert noise sweep=lin : points = points - 1
+convert sp sweep=lin : points = points - 1
+convert stb sweep=lin : points = points - 1
+# A sweep whose stop is its start is refused; its one point goes in values=.
+convert dc stop==start : values = [stop]
+convert ac fstop==fstart : values = [fstop]
+convert noise fstop==fstart : values = [fstop]

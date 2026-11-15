@@ -1507,6 +1507,7 @@ pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Re
     nl.stmts = try normalizeLists(g, arena, nl.stmts, report);
     try ir.markUnlistedBuiltins(arena, &nl);
     try ir.resolveInstances(arena, &nl, env);
+    try ir.resolveSweeps(arena, &nl);
     try rebindParams(g, arena, nl.stmts);
     try ir.checkModelKinds(arena, &nl, report, env);
     return nl;

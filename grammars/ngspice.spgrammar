@@ -120,8 +120,8 @@ rule  instance  = name~"X" nodes+ master {...params}
 
 rule  op        = ".op"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
-rule  dc        = ".dc" var:"temp" start stop step
-rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+# A source, a resistor or the temperature, in each of the two loops.
+rule  dc        = ".dc" ( var:"temp" | src ) start stop step [ ( var2:"temp" | src2 ) start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
 rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [interval]
@@ -267,3 +267,6 @@ rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 no relay  : ngspice has no relay element; a voltage-controlled switch (S) with a sw model is the closest form
 no simctl : ngspice's own commands live in its .control block, which is kept as it is; there is no netlist statement for them
+# sweeps
+no step : ngspice has no .step; parameters are stepped from a .control script (alter, foreach) around the analysis
+no data : ngspice has no .data tables

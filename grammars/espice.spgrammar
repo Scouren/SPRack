@@ -124,8 +124,17 @@ rule  instance  = name~"X" nodes+ master {...params}
 
 rule  op        = ".op"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
-rule  dc        = ".dc" var:"temp" start stop step
-rule  dc        = ".dc" src start stop step [ src2 start2 stop2 step2 ]
+# HSPICE's .DC forms as well as ngspice's (see hspice.spgrammar).
+define what  = ( var:"temp" | src | param )
+# A parameter is swept only on its own (a nested sweep with one is refused).
+define what2 = ( var2:"temp" | src2 )
+define range = ( ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points start stop | "poi" _?$+values ( values )+ | start stop step )
+read  dc        = ".dc" <what> "poi" _ ( values )+ <what2> ( sweep2:"dec" | sweep2:"oct" | sweep2:"lin" ) points2 start2 stop2
+read  dc        = ".dc" <what> "poi" _ ( values )+ <what2> start2 stop2 step2
+rule  dc        = ".dc" <what> <range>
+rule  dc        = ".dc" ( var:"temp" | src ) <range> <what2> ( ( sweep2:"dec" | sweep2:"oct" | sweep2:"lin" ) points2 start2 stop2 | start2 stop2 step2 )
+read  dc        = ".dc" <what> { start=start! stop=stop! step=step! }
+rule  dc        = ".dc" { data=data! }
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
 rule  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
@@ -283,3 +292,12 @@ rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 no relay  : ngspice has no relay element; a voltage-controlled switch (S) with a sw model is the closest form
 no simctl : ESPice's own commands live in its .control block, which is kept as it is; there is no netlist statement for them
+# sweeps
+# .step repeats every analysis; .temp with three values is a sweep from the
+# first to the second by the third.
+define stepwhat = ( var:"temp" | "param" param | src )
+rule  step      = ".step" <stepwhat> "list" ( values )+
+rule  step      = ".step" <stepwhat> start stop step
+rule  step      = var:".temp"=temp start stop step
+rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"
+caveat data name : ESPice 0.3.0 takes a deck with .data for HSPICE unless run with --tokenizer ngspice, and HSPICE has no {} expressions

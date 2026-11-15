@@ -974,8 +974,28 @@ const Writer = struct {
             try e.reportLosses();
             return;
         }
-        defer _ = w.scratch.reset(.retain_capacity);
-        try w.leaf(w.scratch.allocator(), st);
+        {
+            defer _ = w.scratch.reset(.retain_capacity);
+            try w.leaf(w.scratch.allocator(), st);
+        }
+        // A sweep this dialect writes as one line for the whole netlist
+        // (`.step`): what it sweeps follows it.
+        if (schema.info(st.kind).class == .analysis) for (st.body) |*child| try w.stmt(child);
+    }
+
+    /// Where a step is one line that sweeps every analysis of the netlist, a
+    /// step that sweeps only some of them cannot be said.
+    fn checkSteps(w: *Writer, stmts: []const ir.Stmt) void {
+        for (w.g.blocks) |b| if (b.kind == .step) return;
+        var step: ?*const ir.Stmt = null;
+        var outside = false;
+        for (stmts) |*s| {
+            if (s.kind != .step) {
+                outside = outside or schema.info(s.kind).class == .analysis;
+            } else if (step == null) step = s else outside = true;
+        }
+        const st = step orelse return;
+        if (outside) w.report.add(.@"error", .invalid, st.line, "step: a {s} sweep applies to every analysis of the netlist; this one leaves some out", .{w.g.name});
     }
 
     fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
@@ -1370,7 +1390,9 @@ pub fn write(
             if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, nl.stmts);
         };
     }
-    var stmts = try w.applyMoves(nl.stmts);
+    const gathered = try ir.gatherSteps(arena, nl.stmts);
+    if (g.canWrite(.step)) w.checkSteps(gathered);
+    var stmts = try w.applyMoves(gathered);
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
         try expr.convert(arena, g, list, true);

@@ -119,3 +119,7 @@ end
 operators
   pow "**" "^"                                   # assumed
 end
+
+# sweeps
+no step : CDL is a netlist, not a simulation deck; it has no analyses
+no data : CDL is a netlist, not a simulation deck; it has no data tables

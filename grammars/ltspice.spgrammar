@@ -189,3 +189,12 @@ models
   # b4 (assumed)
   ltra       = ltra
 end
+
+# sweeps
+# .step repeats every analysis; .temp with several values runs each at every one.
+define what = ( var:"temp" | "param" param | src )
+rule  step      = ".step" ( sweep:"dec" | sweep:"oct" ) <what> start stop points
+rule  step      = ".step" <what> "list" ( values )+
+rule  step      = ".step" <what> start stop step
+rule  step      = var:".temp"=temp ( values )+
+no data : LTspice has no .data tables; .step lists values with list

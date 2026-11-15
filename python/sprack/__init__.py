@@ -224,6 +224,8 @@ _POSITIONAL = {
     "qpss": ["funds", "harms"],
     # b4: devices, sources, outputs
     "lossyline": "*", "ctlsrc": ["pos", "neg", "form"], "relay": ["pos", "neg", "cpos", "cneg"], "simctl": ["cmd", "args"],
+    # b1: sweeps
+    "step": ["param", "start", "stop", "step"], "data": ["name", "cols", "values"],
 }
 
 _WAVES = {

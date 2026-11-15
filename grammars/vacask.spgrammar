@@ -166,8 +166,11 @@ read  opaque    = ( "ground" | "save" ) ...
 rule  simctl    = ( cmd:"print" | cmd:"postprocess" | cmd:"abort" | cmd:"elaborate" ) args...
 
 rule  op        = "analysis" name?op$# "op" { nodeset={nodeset} ...params }
-# Nested sweep: the line written first is the outer loop.
-rule  dc        = [ "sweep" _?outer$# { instance="src2"! parameter=="dc" from=start2 to=stop2 step=step2 } / ] "sweep" _?sweep$# { instance="src" parameter=="dc" from=start to=stop step=step } / "analysis" name?dc$# "op" { nodeset={nodeset} }
+# Nested sweep: the line written first is the outer loop (docs/cmd-sweep.md).
+# An instance's own value is swept when parameter= is left out; a parameter
+# of the netlist is one of the top-level instance, __topinst__
+# (docs/cmd-elaboration.md); the temperature is an option.
+rule  dc        = [ "sweep" _?outer$# ( { instance=="__topinst__" parameter="param2"! from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } | { instance="src2"! from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } | { option=="temp"!@var2:temp from=start2 to=stop2 step=step2 mode="sweep2" points=points2 } ) / ] "sweep" _?sweep$# ( { instance=="__topinst__" parameter="param"! from=start to=stop step=step mode="sweep" points=points values=[values] } | { instance="src"! parameter="devparam" from=start to=stop step=step mode="sweep" points=points values=[values] } | { option=="temp"!@var:temp from=start to=stop step=step mode="sweep" points=points values=[values] } ) / "analysis" name?dc$# "op" { nodeset={nodeset} }
 rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
 rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
 rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
@@ -260,6 +263,8 @@ convert pss : fund = 1 / fund
 # A linear sweep's points counts intervals: points+1 frequencies
 # (docs/cmd-analysis-ac.md); SPICE counts the frequencies.
 convert ac sweep=lin : points = points - 1
+convert dc sweep=lin : points = points - 1
+convert dc sweep2=lin : points2 = points2 - 1
 convert noise sweep=lin : points = points - 1
 convert sp sweep=lin : points = points - 1
 convert stb sweep=lin : points = points - 1
@@ -378,3 +383,7 @@ models
   psp103 n   = psp103va type=1
   psp103 p   = psp103va type=-1
 end
+
+# sweeps
+no step : VACASK has no sweep of the whole netlist; a sweep line applies only to the one analysis after it (docs/cmd-sweep.md)
+no data : VACASK has no data tables; a sweep lists its points in values= (docs/cmd-sweep.md)
