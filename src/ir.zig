@@ -400,6 +400,11 @@ pub const Env = struct {
     used: [schema.kind_count]bool = @splat(false),
     /// Model families used anywhere in the project, by `schema.families` index.
     families: [schema.families.len]bool = @splat(false),
+    /// The subcircuits that hold a conditional block, whole: where one is
+    /// written once for each branch (`cond.split`), an instance in another
+    /// file is written with the one its parameters select.
+    // ponytail: the whole statement; only its parameters and blocks if a PDK's are too many to hold.
+    conditional: std.ArrayList(Stmt) = .empty,
 
     /// Everything is copied into `arena`, so `stmts` may be freed afterwards.
     pub fn absorb(env: *Env, arena: Allocator, stmts: []const Stmt) Allocator.Error!void {
@@ -407,6 +412,7 @@ pub const Env = struct {
         for (stmts) |*s| {
             env.used[@backingInt(s.kind)] = true;
             const name = s.get("name");
+            if (s.kind == .subckt and holdsCond(s)) try env.conditional.append(arena, try cloneStmt(.{ .perm = arena, .src = "" }, s));
             if (name == .atom and (s.kind == .model or s.kind == .subckt)) {
                 const own = try arena.dupe(u8, name.atom);
                 try env.declared.put(arena, own, {});

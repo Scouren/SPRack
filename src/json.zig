@@ -250,7 +250,9 @@ pub fn writeEnv(w: *Writer, env: *const ir.Env) Writer.Error!void {
         first = false;
         try w.print("\"{s}\"", .{f.name});
     }
-    try w.writeAll("]}");
+    try w.writeAll("],\"conditional\":");
+    try stmts(w, env.conditional.items);
+    try w.writeByte('}');
 }
 
 pub fn writeReport(w: *Writer, report: *const ir.Report) Writer.Error!void {
@@ -524,10 +526,12 @@ fn strings(arena: Allocator, obj: J, key: []const u8) Allocator.Error![]const []
 
 /// The reverse of `writeEnv`. What it does not know (a kind of another
 /// version of the core) is left out.
-fn parseEnv(arena: Allocator, j: J) Allocator.Error!?*const ir.Env {
+fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
+    const arena = p.arena;
     if (j != .object) return null;
     const env = try arena.create(ir.Env);
     env.* = .{};
+    if (j.object.get("conditional")) |c| env.conditional = .fromOwnedSlice(try p.stmtList(c));
     if (j.object.get("models")) |m| if (m == .object) {
         var it = m.object.iterator();
         while (it.next()) |kv| {
@@ -581,7 +585,7 @@ pub fn parseDocument(arena: Allocator, text: []const u8, report: *ir.Report) All
     };
     if (root.object.get("folds_case")) |t| nl.folds_case = t == .bool and t.bool;
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);
-    if (root.object.get("env")) |e| nl.env = try parseEnv(arena, e);
+    if (root.object.get("env")) |e| nl.env = try parseEnv(&p, e);
     if (report.lost) return error.OutOfMemory;
     return nl;
 }

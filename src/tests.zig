@@ -5237,6 +5237,36 @@ test "v1: a subcircuit is written once for each branch of a conditional block" {
     // A target with no choice in an expression either: every block is the subcircuit's branches.
     var rc: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "cdl", "t\n" ++ split_lib ++ top ++ ".end\n", &rc), "X5 1 0 / csel__1 tc=0.03\n");
+
+    // The subcircuits in another file of a project: what the files declare chooses.
+    const ng = sprack.find("ngspice").?;
+    const xy = sprack.find("xyce").?;
+    var r2: ir.Report = .init(a);
+    var env: ir.Env = .{};
+    const lib = try sprack.reader.read(ng, a, split_lib, &r2, .{ .library = true });
+    try env.absorb(a, lib.stmts);
+    try testing.expectEqual(3, env.conditional.items.len);
+    const nl = try sprack.reader.read(ng, a, "t\n" ++ top ++ ".end\n", &r2, .{ .env = &env });
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, xy, &aw.writer, &nl, &r2, &env);
+    try has(aw.written(), instances);
+    // Written as it is read.
+    var sw: std.Io.Writer.Allocating = .init(a);
+    try testing.expectEqual(null, try sprack.stream.translate(a, ng, xy, "t\n" ++ top ++ ".end\n", &sw.writer, &r2, &sprack.caps, .{ .env = &env }));
+    try has(sw.written(), instances);
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // Through the JSON form, as the Python package gives a PDK's declarations.
+    var ej: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&ej.writer, &env);
+    const doc = try std.fmt.allocPrint(a, "{{\"stmts\":[{{\"kind\":\"instance\",\"name\":\"X1\",\"nodes\":[\"1\",\"0\"],\"master\":\"dsel\",\"params\":{{\"xd\":\"1u\"}}}}],\"env\":{s}}}", .{ej.written()});
+    const jn = try sprack.json.parseNetlist(a, doc, &r2);
+    var again: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&again.writer, jn.env.?);
+    try testing.expectEqualStrings(ej.written(), again.written());
+    var jw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, xy, &jw.writer, &jn, &r2);
+    try has(jw.written(), "X1 1 0 dsel__1 params: xd=1u\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
 }
 
 test "v1: where a subcircuit is not written once for each branch, the error says why" {

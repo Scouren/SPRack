@@ -843,7 +843,8 @@ const Writer = struct {
     hoisted: Hoisted = .{},
     unhoisted: Hoisted = .{},
     /// The subcircuits written once for each branch of a conditional block
-    /// (`cond.split`), or that would be but for a name, for their instances.
+    /// (`cond.split`), or that would be but for a name: this netlist's and
+    /// the environment's, for their instances.
     splits: std.ArrayList(struct { name: []const u8, split: cond.Split }) = .empty,
     /// Why the subcircuit being written is not one of them.
     unsplit: []const u8 = "",
@@ -2676,6 +2677,8 @@ pub fn write(
     if (n_analyses != 1) w.sole = null;
     if (!g.canWrite(.cond_if)) {
         try w.noteSplits(stmts);
+        // ponytail: each file of a project works the environment's out again; once a project if a PDK has thousands.
+        if (env) |e| try w.noteSplits(e.conditional.items);
     }
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
@@ -2886,6 +2889,8 @@ pub const Stream = struct {
             var fi = e.funcs.keyIterator();
             while (fi.next()) |n| try w.funcs.put(perm, n.*, {});
         }
+        // The netlist's own make it be written whole (`stream.zig`).
+        if (env) |e| if (!g.canWrite(.cond_if)) try w.noteSplits(e.conditional.items);
         const fold_header = g.header_folded.len > 0 and (nl.folds_case or
             if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
         s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;
