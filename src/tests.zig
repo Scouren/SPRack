@@ -3207,6 +3207,7 @@ test "VACASK: options and saves come before the analyses in the control block" {
     // VACASK runs a control block in order; options after an analysis do not reach it.
     const va = try tr(a, "ngspice", "vacask", "t\nV1 in 0 AC 1\nR1 in 0 1k\n.noise v(in) V1 dec 4 10 10k\n.options temp=0\n.save v(in)\n.end\n", &report);
     try has(va, "control\noptions temp=0\nsave v(in)\nanalysis noise1 noise");
+    try reported(&report, .warning, "noise.out: VACASK writes the output noise as a power density with the power gain");
 }
 
 test "VACASK tran: SPICE's step cap is written as maxstep" {
