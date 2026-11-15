@@ -170,8 +170,9 @@ pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report, n: *usi
     return out;
 }
 
-/// A parameter named like a variable the target keeps for itself (Xyce
-/// `vt`, `temp`) is refused there.
+/// A parameter named like a variable the target keeps for itself is
+/// refused there. What is left of them after `writer.renameParams`: a name
+/// that is a variable everywhere (`time`).
 pub fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report) void {
     if (g.reserved.len == 0) return;
     for (stmts) |*s| {
@@ -180,7 +181,7 @@ pub fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report)
         const v = s.get("params");
         if (v != .params) continue;
         for (v.params) |p| for (g.reserved) |r| for (r.names) |n| {
-            if (std.ascii.eqlIgnoreCase(n, p.key)) report.add(.@"error", .invalid, s.line, "parameter '{s}': {s}", .{ p.key, r.reason });
+            if (std.ascii.eqlIgnoreCase(n, p.key)) report.add(.@"error", .invalid, s.line, "parameter '{s}': {s}; rename it", .{ p.key, r.reason });
         };
     }
 }

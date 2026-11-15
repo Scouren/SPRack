@@ -624,6 +624,45 @@ pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u
     return out.items;
 }
 
+/// `text` with each word `renames` names written as its new name, where the
+/// word is a parameter: not the name of a call, and not a node or a branch
+/// inside `v()` or `i()`. `hit` gets each word renamed. The same slice when
+/// there is none.
+pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.ArrayList([]const u8)) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var copied: usize = 0;
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == '"' or c == '\'') {
+            i = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
+            continue;
+        }
+        if (!(std.ascii.isAlphabetic(c) or c == '_' or c == '$') or (i > 0 and isWordChar(text[i - 1]))) {
+            i += 1;
+            continue;
+        }
+        const j = wordEnd(text, i);
+        const word = text[i..j];
+        i = j;
+        if (nextIsCall(text, j)) {
+            if (std.ascii.eqlIgnoreCase(word, "v") or std.ascii.eqlIgnoreCase(word, "i")) {
+                const open = std.mem.indexOfScalarPos(u8, text, j, '(').?;
+                i = (matching(text, open) orelse text.len - 1) + 1;
+            }
+            continue;
+        }
+        const to = renames.get(word) orelse continue;
+        try out.appendSlice(arena, text[copied .. j - word.len]);
+        try out.appendSlice(arena, to);
+        try hit.append(arena, word);
+        copied = j;
+    }
+    if (copied == 0) return text;
+    try out.appendSlice(arena, text[copied..]);
+    return out.items;
+}
+
 fn matching(text: []const u8, open: usize) ?usize {
     const close = topLevel(text, open + 1, ')') orelse return null;
     return close;

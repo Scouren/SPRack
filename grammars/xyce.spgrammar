@@ -192,7 +192,7 @@ caveat nodeset values : Xyce and ngspice apply nodesets with different algorithm
 # How this dialect writes the things a simulator can record.
 # A parameter of one of these names is refused: Xyce keeps them for its
 # own variables (the thermal voltage, temperature, time, frequency, gmin).
-reserved vt temp time freq gmin : Xyce keeps this name for a variable of its own and refuses a parameter called so; rename it
+reserved vt temp time freq gmin : Xyce keeps this name for a variable of its own and refuses a parameter called so
 
 # statistics
 # A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its

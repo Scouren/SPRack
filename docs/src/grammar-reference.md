@@ -157,7 +157,10 @@ hoist param from ngspice ltspice   # an instance sets only what a subcircuit's
                                    # written on the header (an `oneway` info,
                                    # once a file); from any other dialect it
                                    # stays, an `ambiguous` warning
-reserved vt temp : ...             # parameter names the simulator refuses
+reserved vt temp : ...             # parameter names the simulator refuses:
+                                   # a parameter of the name is renamed
+                                   # (vt__p) where it is defined and used, in
+                                   # every file of a project, an info
 requires dc-path error : ...       # a topology the simulator cannot solve, and
                                    # whether it is an error or a warning here:
                                    # dc-path (nodes no DC path reaches ground),

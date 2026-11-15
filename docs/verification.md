@@ -936,6 +936,30 @@ nothing, `l=10u w=10u`, `l=20u`, nothing, each across a 1 V AC source,
 
 ---
 
+### 4.11 A parameter named like a variable of Xyce (r1)
+
+Xyce 7.10 stops on a parameter called `vt`: `.param vt=3.5m` gives
+`Parameter name VT is a reserved variable name and is not permitted`, and
+`.subckt s a b params: vt=2m` gives `Parameter name VT not allowed in
+subcircuit parameter list`. Such a parameter is written under a new name
+(`vt__p`, or `vt__p2` and so on when a parameter of that name exists),
+where it is defined, where an instance gives it to a subcircuit and in
+every expression, in every file of a project. One deck: a top-level
+`vt=3.5m`, a subcircuit with its own `vt=2m` whose resistor is
+`1k*(1+vt*(temper-tref))` with `tref=30`, one instance of it as it is and
+one given `vt=5m`, and the same resistor at the top level; 1 V across each
+at 27 degrees.
+
+| resistor | ngspice 45, as written | Xyce 7.10, the translation |
+|---|---|---|
+| in the subcircuit, `vt=2m` | 1.00604 mA | 1.00603622 mA |
+| in the instance given `vt=5m` | 1.01523 mA | 1.01522843 mA |
+| at the top level, `vt=3.5m` | 1.01061 mA | 1.01061142 mA |
+
+The translation with the old name put back stops with the two messages
+above. `time` is not renamed: in an expression the word is the variable in
+every dialect, so a parameter of that name stays an error.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

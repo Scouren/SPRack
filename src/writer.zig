@@ -1787,6 +1787,122 @@ fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep,
     }
 }
 
+/// The parameter names `stmts` define that start with a name the dialect
+/// keeps for itself (`reserved`): those `reservedRenames` renames, and the
+/// names a new one could clash with. With `src`, a name not in it is copied.
+pub fn collectReserved(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, out: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
+    if (g.reserved.len == 0) return;
+    for (stmts) |*s| {
+        try collectReserved(arena, g, s.body, out, src);
+        if ((s.kind != .param and s.kind != .subckt) or s.get("params") != .params) continue;
+        for (s.get("params").params) |p| for (g.reserved) |r| for (r.names) |n| {
+            if (std.ascii.startsWithIgnoreCase(p.key, n)) try ir.putName(out, arena, src, p.key);
+        };
+    }
+}
+
+/// `reserved`: each parameter `defined` (here or in another file of the
+/// project) under a name the dialect keeps for itself, to the name it is
+/// written under: `vt__p`, or `vt__p2` and so on when that is taken. Every
+/// file of a project gets the same map. A name that is a variable in every
+/// dialect (`time`) is left: in an expression the word is the variable.
+fn reservedRenames(arena: Allocator, g: *const Grammar, defined: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap {
+    var out: CaselessMap = .empty;
+    for (g.reserved) |r| for (r.names) |n| {
+        if (schema.isVariable(n)) continue;
+        if (!defined.contains(n) and !(if (env) |e| e.params.contains(n) else false)) continue;
+        var name = try std.fmt.allocPrint(arena, "{s}__p", .{n});
+        var i: usize = 2;
+        while (defined.contains(name) or (if (env) |e| e.params.contains(name) else false)) : (i += 1) {
+            name = try std.fmt.allocPrint(arena, "{s}__p{d}", .{ n, i });
+        }
+        try out.put(arena, n, name);
+    };
+    return out;
+}
+
+/// The parameters `renames` names under their new names: where they are
+/// defined (`.param`, a subcircuit's header), given to a subcircuit, and
+/// used in an expression. Each is reported once.
+fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told: *ir.CaselessSet) Allocator.Error![]ir.Stmt {
+    var list: ?[]ir.Stmt = null;
+    for (stmts, 0..) |*st, i| {
+        var cur = st.*;
+        var changed = false;
+        if (st.body.len > 0) {
+            const b = try renameParams(w, st.body, renames, told);
+            if (b.ptr != st.body.ptr) {
+                cur.body = b;
+                changed = true;
+            }
+        }
+        var hit: std.ArrayList([]const u8) = .empty;
+        const keys = st.kind == .param or st.kind == .subckt or st.kind == .instance;
+        for (schema.info(st.kind).slots, 0..) |sl, si| {
+            const words = st.kind == .func and std.mem.eql(u8, sl.name, "args");
+            const v = try renamedValue(w.arena, st.at(@intCast(si)), renames, keys, words, &hit) orelse continue;
+            if (!changed or cur.body.ptr != st.body.ptr) try cur.own(w.arena);
+            try cur.set(w.arena, @intCast(si), v);
+            changed = true;
+        }
+        for (hit.items) |old| {
+            const gop = try told.getOrPut(w.perm, old);
+            if (gop.found_existing) continue;
+            gop.key_ptr.* = try w.perm.dupe(u8, old);
+            const why = why: for (w.g.reserved) |r| {
+                for (r.names) |n| if (std.ascii.eqlIgnoreCase(n, old)) break :why r.reason;
+            } else "";
+            w.report.add(.info, .rename, st.line, "parameter '{s}' is written as '{s}', where it is defined and wherever it is used: {s}", .{ old, renames.get(old).?, why });
+        }
+        if (changed) {
+            if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
+            list.?[i] = cur;
+        }
+    }
+    return list orelse stmts;
+}
+
+/// `v` for `renameParams`, or null when nothing in it is renamed. `keys`:
+/// the keys of a parameter list are parameters; `words`: so are bare words.
+fn renamedValue(arena: Allocator, v: Value, renames: *const CaselessMap, keys: bool, words: bool, hit: *std.ArrayList([]const u8)) Allocator.Error!?Value {
+    switch (v) {
+        .expr => |e| {
+            const t = try expr.rename(arena, e, renames, hit);
+            return if (t.ptr == e.ptr) null else .{ .expr = t };
+        },
+        .atom => |a| {
+            const to = renames.get(a) orelse return null;
+            if (!words) return null;
+            try hit.append(arena, a);
+            return .{ .atom = to };
+        },
+        .list => |l| {
+            var out: ?[]Value = null;
+            for (l, 0..) |x, i| if (try renamedValue(arena, x, renames, keys, words, hit)) |n| {
+                if (out == null) out = try arena.dupe(Value, l);
+                out.?[i] = n;
+            };
+            return if (out) |o| .{ .list = o } else null;
+        },
+        .params => |ps| {
+            var out: ?[]ir.Param = null;
+            for (ps, 0..) |p, i| {
+                var n = p;
+                if (keys) if (renames.get(p.key)) |to| {
+                    try hit.append(arena, p.key);
+                    n.key = to;
+                };
+                if (try renamedValue(arena, p.val, renames, false, false, hit)) |val| n.val = val;
+                if (n.key.ptr == p.key.ptr and n.val.eql(p.val)) continue;
+                if (out == null) out = try arena.dupe(ir.Param, ps);
+                out.?[i] = n;
+            }
+            return if (out) |o| .{ .params = o } else null;
+        },
+        else => return null,
+    }
+}
+
 /// A map from names, ignoring case.
 const CaselessMap = std.HashMapUnmanaged([]const u8, []const u8, ir.Caseless, std.hash_map.default_max_load_percentage);
 
@@ -2387,6 +2503,15 @@ pub fn write(
             }
             try uniqueMasters(arena, nl.stmts, env, report, g);
         }
+        if (g.reserved.len > 0) {
+            var defined: ir.CaselessSet = .empty;
+            try collectReserved(arena, g, nl.stmts, &defined, null);
+            const renames = try reservedRenames(arena, g, &defined, env);
+            if (renames.count() > 0) {
+                var told: ir.CaselessSet = .empty;
+                nl_own.stmts = try renameParams(&w, nl.stmts, &renames, &told);
+            }
+        }
     }
     if (!sameDialect(nl, g)) try topology.check(ir.big, arena, nl, g, report);
     const filled = if (g.fills.len > 0) try w.fill(nl.stmts, nl.stmts) else nl.stmts;
@@ -2535,6 +2660,8 @@ pub const Survey = struct {
     facts: topology.Facts = .{},
     globals: std.ArrayList([]const u8) = .empty,
     refs: Refs = .{},
+    /// `collectReserved`.
+    reserved: ir.CaselessSet = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold.
     pub fn add(sv: *Survey, g: *const Grammar, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
@@ -2545,6 +2672,7 @@ pub const Survey = struct {
         markUsed(stmts, &sv.used);
         ir.markFamilies(stmts, &sv.fams);
         try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
+        try collectReserved(a, g, stmts, &sv.reserved, k.src);
         for (g.fills) |f| {
             for (sv.fill_from.items) |*s| {
                 if (s.kind == f.from and s.at(f.from_slot) != .none) break;
@@ -2588,6 +2716,9 @@ pub const Stream = struct {
     params: ir.CaselessSet = .empty,
     renames: CaselessMap = .empty,
     told: ir.CaselessSet = .empty,
+    /// `reservedRenames`, and those of them reported.
+    param_renames: CaselessMap = .empty,
+    param_told: ir.CaselessSet = .empty,
     models: ir.CaselessSet = .empty,
     subckts: ir.CaselessSet = .empty,
     clashed: ir.CaselessSet = .empty,
@@ -2672,6 +2803,7 @@ pub const Stream = struct {
                 while (ei.next()) |n| try s.subckts.put(perm, n.*, {});
             }
         }
+        if (s.foreign) s.param_renames = try reservedRenames(perm, g, &sv.reserved, env);
         if (!std.mem.eql(u8, nl.dialect, g.name))
             s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items, sv.early.items);
         if (caps) |c| for (c.grammars) |*sg| {
@@ -2712,6 +2844,7 @@ pub const Stream = struct {
                 report.phase = ir.Phase.masters;
                 try clashes(s.keep.perm, stmts, &s.models, &s.subckts, &s.clashed, report, g);
             }
+            if (s.param_renames.count() > 0) stmts = try renameParams(w, stmts, &s.param_renames, &s.param_told);
         }
         report.phase = ir.Phase.topology;
         if (s.topo) |*t| try t.group(stmts);

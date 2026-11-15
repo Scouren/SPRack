@@ -3341,9 +3341,9 @@ test "HSPICE dev/gauss= and names Xyce keeps for itself" {
     const src = "t\n.param vt=3.5m\n.param czero=1p dev/gauss=0.1p\nC1 a 0 {czero}\n.end\n";
     var r1: ir.Report = .init(a);
     const xy = try tr(a, "ngspice", "xyce", src, &r1);
-    try has(xy, ".param czero={agauss(1p, 0.1p, 1)}\n");
+    try has(xy, ".param vt__p=3.5m\n.param czero={agauss(1p, 0.1p, 1)}\n");
     try reported(&r1, .warning, "dev/gauss=");
-    try reported(&r1, .@"error", "parameter 'vt': Xyce keeps this name");
+    try reported(&r1, .info, "parameter 'vt' is written as 'vt__p'");
     // Into Spectre the variation becomes a statistics block.
     var r2: ir.Report = .init(a);
     const sp = try tr(a, "ngspice", "spectre", src, &r2);
@@ -4837,6 +4837,52 @@ test "r1: ngspice's psp103va is PSP103; its N instances are transistors" {
     try has(back, ".model nm psp103va type=1 tr=27\nNM1 d g 0 0 nm w=1u l=0.13u\n");
     try reported(&r5, .warning, "the deck must load psp103.osdi with pre_osdi");
     try testing.expectEqual(0, r5.count(.@"error"));
+}
+
+test "r1: a parameter named like a variable Xyce keeps is renamed where it is defined and used" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Xyce refuses `.param vt=` and a subcircuit parameter `vt`
+    // (docs/verification.md 4.11). A node and a model parameter of the name
+    // are not the parameter.
+    const src = "t\n.param vt=3.5m Temp=2 vt__p=1\n.func f(vt,b) {vt*b}\n.subckt s a b vt=1 w=1\nr1 a b {vt*w}\nr3 a b r=vt\n.ends\n" ++
+        "X1 a 0 s vt=2 w={vt}\nB1 a 0 v={v(vt)*vt+temp+f(1,2)}\nV1 vt 0 1\n.model sm sw vt=0.5 vh=0.1\nS1 a 0 vt 0 sm\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".param vt__p2=3.5m temp__p=2 vt__p=1\n.func f(vt__p2,b) {vt__p2*b}\n.subckt s a b params: vt__p2=1 w=1\nr1 a b {vt__p2*w}\nr3 a b {vt__p2}\n.ends s\n");
+    try has(xy, "X1 a 0 s params: vt__p2=2 w={vt__p2}\nB1 a 0 v={v(vt)*vt__p2+temp__p+f(1,2)}\nV1 vt 0 dc 1\n");
+    try has(xy, ".model sm vswitch von=600m voff=400m\nS1 a 0 vt 0 sm\n");
+    try reported(&r1, .info, "parameter 'vt' is written as 'vt__p2', where it is defined and wherever it is used: Xyce keeps this name");
+    try reported(&r1, .info, "parameter 'Temp' is written as 'temp__p'");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    try testing.expectEqual(2, r1.countCode(.rename));
+    // Nothing is renamed for a dialect that keeps no such names.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", src, &r2), ".param vt=3.5m Temp=2 vt__p=1\n");
+    // `time` is the variable wherever it is used: that one stays an error.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param time=1\nR1 a 0 {time}\n.end\n", &r3);
+    try reported(&r3, .@"error", "parameter 'time': Xyce keeps this name for a variable of its own and refuses a parameter called so; rename it");
+    // In a project: defined in one file, used in another.
+    const g = sprack.find("ngspice").?;
+    const xyce = sprack.find("xyce").?;
+    const files = [_][]const u8{ ".param vt=3.5m\n", ".subckt s a b\nr1 a b {1k*vt}\n.ends s\n" };
+    var env: ir.Env = .{};
+    for (files) |f| {
+        var r: ir.Report = .init(a);
+        const nl = try sprack.reader.read(g, a, f, &r, .{ .library = true });
+        try env.absorb(a, nl.stmts);
+        try sprack.writer.collectReserved(a, xyce, nl.stmts, &env.params, null);
+    }
+    var r4: ir.Report = .init(a);
+    inline for (.{ ".param vt__p=3.5m\n", "r1 a b {1k*vt__p}\n" }, files) |want, f| {
+        const nl = try sprack.reader.read(g, a, f, &r4, .{ .env = &env, .library = true });
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.writeIn(a, xyce, &aw.writer, &nl, &r4, &env);
+        try has(aw.written(), want);
+    }
+    try testing.expectEqual(0, r4.count(.@"error"));
 }
 
 test "r1: a model in another file of a project decides its instances' form" {

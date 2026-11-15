@@ -386,6 +386,9 @@ pub const Env = struct {
     declared: std.StringHashMapUnmanaged(void) = .empty,
     /// Model name to the device kind its family belongs to.
     models: std.StringHashMapUnmanaged(Kind) = .empty,
+    /// Parameter names that start with a name the target keeps for itself
+    /// (`writer.collectReserved`): those to rename, and the names taken.
+    params: CaselessSet = .empty,
     /// Model name to its family, for a writer's forms that depend on it.
     family_of: std.StringHashMapUnmanaged([]const u8) = .empty,
     /// Names of subcircuits.
