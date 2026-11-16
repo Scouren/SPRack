@@ -5692,3 +5692,20 @@ test "z2: an LTspice .lib with no section loads the whole file; a section is one
     try has(lib, ".lib fast\n.param rv=100\n.endl fast\n.lib slow\n.param rv=400\n.lib \"o.lib\" slow\n.endl slow\n");
     try clean(&r2);
 }
+
+test "z2: a choice with blanks around its operators is read after an equals sign, in LTspice and in ngspice" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 c 0 1\nB1 a 0 I=v(c) > 0.5 ? 1m : 2m\nB2 b 0 V=v(c) != 2 ? v(c) * 2 : 0\nR1 a 0 1k\nR2 b 0 1k\n.param p = 1 >= 0 ? 5 : 6 q = 2\n.op\n.end\n";
+    inline for (.{ "ltspice", "ngspice" }) |from| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, from, "xyce", src, &r);
+        try has(out, "B1 a 0 i={v(c) > 0.5 ? 1m : 2m}\nB2 b 0 v={v(c) != 2 ? v(c) * 2 : 0}\n");
+        try has(out, ".param p={1 >= 0 ? 5 : 6} q=2\n");
+        try clean(&r);
+    }
+    // Two parameters, not a comparison: the second `=` assigns.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.param x = 2 * 3 y = 4\n.end\n", &r2), ".param x={2 * 3} y=4\n");
+}

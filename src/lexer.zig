@@ -601,6 +601,17 @@ fn isOperator(c: u8) bool {
     return c == '+' or c == '-' or c == '*' or c == '/' or c == '^';
 }
 
+/// An operator an expression goes on across a blank with: of arithmetic,
+/// or of a condition (`c ? a : b`, a comparison, `&` and `|`).
+fn joins(c: u8) bool {
+    return isOperator(c) or std.mem.indexOfScalar(u8, "?:<>!&|", c) != null;
+}
+
+/// `==`, `<=`, `>=` or `!=` at `i`: its `=` assigns nothing.
+fn comparesAt(text: []const u8, i: usize) bool {
+    return i + 1 < text.len and text[i + 1] == '=' and std.mem.indexOfScalar(u8, "=<>!", text[i]) != null;
+}
+
 /// `{a} + b`, `{a}*{b}`, `a + {b}`: a delimited expression joined to more
 /// by an operator outside the delimiters, as one expression; and `a + b`
 /// after `=` where an undelimited expression may stand. ngspice 45
@@ -630,8 +641,8 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
             var j = i;
             while (j < text.len and (text[j] == ' ' or text[j] == '\t')) j += 1;
             // Past the blanks the expression goes on only after or before an operator.
-            if (j < text.len and text[j] == '=' and spaced) return null;
-            if (j == text.len or !(last_op or isOperator(text[j]))) break;
+            if (j < text.len and text[j] == '=' and spaced and !comparesAt(text, j)) return null;
+            if (j == text.len or !(last_op or joins(text[j]) or comparesAt(text, j))) break;
             // `100p -60p`: a sign, the start of the next value of a list.
             if (!last_op and (text[j] == '-' or text[j] == '+') and j + 1 < text.len and text[j + 1] != ' ' and text[j + 1] != '\t') break;
             try out.append(arena, ' ');
@@ -642,13 +653,20 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
         if (depth == 0 and c == ',') break;
         // `x = '-1*y' + z = 2`: the `+` stands between two parameters
         // (ngspice reads x = -3 and z = 2), not in an expression.
+        if (comparesAt(text, i)) {
+            try out.appendSlice(arena, text[i .. i + 2]);
+            i += 2;
+            last_op = true;
+            op_outside = true;
+            continue;
+        }
         if (depth == 0 and c == '=') return null;
         if (c == '(') depth += 1;
         if (c == ')') {
             if (depth == 0) break;
             depth -= 1;
         }
-        last_op = isOperator(c);
+        last_op = joins(c);
         op_outside = op_outside or last_op;
         try out.append(arena, c);
         i += 1;

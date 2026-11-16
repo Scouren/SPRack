@@ -1554,6 +1554,16 @@ section only where a line starting with `.endl` follows it in the file, and
 elsewhere `read include = ".lib" path` takes it, so it is written as the
 target's include of a whole file.
 
+### 8.10 A choice with blanks around its operators
+
+`B1 a 0 I=v(c) > 0.5 ? 1m : 2m` loads in LTspice (8.2: `?:` in a B source
+and in a `.param`, with blanks). The reader ended an expression that
+follows `=` at the first blank not next to one of `+ - * / ^`, so the line
+was not read, in an LTspice deck or an ngspice one. An expression after `=`
+now goes on across a blank next to `?`, `:`, a comparison (`<`, `>`, `<=`,
+`>=`, `==`, `!=`) or `&`, `|`; the `=` of a comparison does not start the
+next parameter (`.param p = 1 >= 0 ? 5 : 6 q = 2` is two parameters).
+
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
 
 Observed: every statement below is what the simulator did with a deck of
