@@ -137,6 +137,17 @@ caveat print style : LTspice reads the line and prints nothing; every node is in
 # .meas, .step, .temp and .net do not count (docs/verification.md, 8.7).
 unique analysis dc ac tran noise tf beside op : LTspice refuses a deck with more than one analysis ("More than one analysis specified."), unless there are two and one is .op, which it then does not run on its own
 
+# What a source takes besides its values. A PWL is repeated by words of its
+# own (PWL REPEAT FOREVER (...) ENDREPEAT), which this grammar does not write:
+# `r=` is refused on a voltage source and is a load resistance on a current
+# source, which then does not repeat, and `td=` is refused on both.
+params vsource
+  same rser cpar
+end
+params isource
+  same load
+end
+
 implied noise ref = 0
 implied tf ref = 0
 # Every run's log states both.

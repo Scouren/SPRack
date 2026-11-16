@@ -1554,6 +1554,32 @@ section only where a line starting with `.endl` follows it in the file, and
 elsewhere `read include = ".lib" path` takes it, so it is written as the
 target's include of a whole file.
 
+### 8.9 A repeated PWL, and what a source takes besides its values
+
+A source into 1k (`R1 a 0 1k`), `.tran 10u 5m`, read at 0.5, 2.5 and 3 ms.
+For a current source the values are in mA, so the node reads the same.
+
+| source line | observed |
+|---|---|
+| `V1 a 0 pwl(0 0 1m 1 2m 0) r=0` | refused: "Unknown parameter" |
+| `V1 a 0 pwl(0 0 1m 1 2m 0) td=1m` | refused: "Unknown parameter" |
+| `V1 a 0 PWL REPEAT FOREVER (0 0 1m 1 2m 0) ENDREPEAT` | 0.5, 0.5, 1: the two milliseconds again and again |
+| `V1 a 0 PWL REPEAT FOR 2 (0 0 1m 1 2m 0) ENDREPEAT` | 0.5, 0.5, 1 |
+| `V1 a 0 pwl(0 0 1m 1 2m 0) Rser=1 Cpar=1p` | loads: 0.4995 at 0.5 ms (1 ohm in series), 0 after 2 ms |
+| `I1 0 a pwl(0 0 1m 1m 2m 0) r=0` | loads and does not repeat: 0.5, 0, 0 |
+| `I1 0 a 1m r=1k` | refused: "Current specified with a resistance for load current." So `r=` on a current source is a load resistance |
+| `I1 0 a pwl(0 0 1m 1m 2m 0) td=1m`, `... m=2` | refused: "Unknown parameter" |
+| `I1 0 a 1m load` | loads |
+
+LTspice repeats a PWL by its own words around the points, not by the `r=`
+that ngspice, Xyce and HSPICE put after them, and it has no `td=`. The
+grammar passed both on with the source's other parameters: a voltage source
+that LTspice refuses, and a current source that loads and does not repeat.
+It now has a `params` table for each source (`rser cpar`, and `load`), so
+an `r=`, a `td=` or an `m=` crossing in is a `loss` error and is not
+written. The grammar does not write `REPEAT FOREVER`: the repeat time is
+not a slot, and only `r=0` (from the first point) has that form.
+
 ### 8.10 A choice with blanks around its operators
 
 `B1 a 0 I=v(c) > 0.5 ? 1m : 2m` loads in LTspice (8.2: `?:` in a B source

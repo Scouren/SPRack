@@ -5709,3 +5709,19 @@ test "z2: a choice with blanks around its operators is read after an equals sign
     var r2: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "xyce", "t\n.param x = 2 * 3 y = 4\n.end\n", &r2), ".param x={2 * 3} y=4\n");
 }
+
+test "z2: a PWL's repeat has no place on an LTspice source: a loss, not a line LTspice refuses" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1 2m 0) r=0\nI1 0 b pwl(0 0 1m 1m 2m 0) td=1m m=2\nR1 a 0 1k\nR2 b 0 1k\n.tran 10u 5m\n.end\n", &r1);
+    try has(out, "V1 a 0 pwl(0 0 1m 1 2m 0)\nI1 0 b pwl(0 0 1m 1m 2m 0)\n");
+    try reported(&r1, .@"error", "vsource: 'r=0' has no spelling in ltspice, whose vsource takes no such instance parameter");
+    try reported(&r1, .@"error", "isource: 'td=1m' has no spelling in ltspice, whose isource takes no such instance parameter");
+    try testing.expectEqual(3, r1.countCode(.loss));
+    // What LTspice's own sources take stays.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1) Rser=1 Cpar=1p\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r2), "V1 a 0 pwl(0 0 1m 1) rser=1 cpar=1p\n");
+    try testing.expectEqual(0, r2.items.items.len);
+}
