@@ -1590,6 +1590,28 @@ now goes on across a blank next to `?`, `:`, a comparison (`<`, `>`, `<=`,
 `>=`, `==`, `!=`) or `&`, `|`; the `=` of a comparison does not start the
 next parameter (`.param p = 1 >= 0 ? 5 : 6 q = 2` is two parameters).
 
+### 8.11 The cycles of a sine, the pulses of a pulse
+
+A source into 1k, `.tran 10u 5m`.
+
+| source | observed |
+|---|---|
+| `sine(0 1 1k 0 0 0 3)` | 1.000 at 0.25 and 2.25 ms, 0 from 3 ms on: three cycles |
+| `sine(0 1 1k 0.5m 0 0 3)` | 0 at 0.25 ms, 1.000 at 0.75 and 2.75 ms, 0 at 3.75 ms: counted from the delay |
+| `sine(0.5 1 1k 0 0 0 3)` | 1.5 at 0.25 ms, 0.5 after 3 ms: the offset stays |
+| `sine(0 1 1k 0 0 90 3)` | 0 at 0.25 and 2.25 ms, 1 after 3 ms: it stops where the last cycle ends, not at the offset |
+| `sine(0 1 1k 0 0 0 2.5)` | 0 from 2.5 ms on |
+| `sine(0 1 1k 0 0 0 0)` | goes on: 1.000 at 3.25 and 4.25 ms |
+| `I1 0 a sine(0 1m 1k 0 0 0 3)` | the same as the voltage source |
+| `pulse(0 1 0 1u 1u 0.5m 1m 2)` | 1 at 0.25 and 1.25 ms, 0 at 2.25 and 3.25 ms: two pulses |
+
+The seventh value of `sine` is a number of cycles. It had no slot, so such
+a line of an LTspice deck was not read. It is now the `count` slot, which
+ngspice's pulse has for its number of pulses; a dialect whose sine has no
+count gets a `loss` error for it. The pulse above is 1, 1, 0, 0 in ngspice
+45 too, so the eighth value of a pulse is the same slot and crosses between
+the two; before, it was a `loss` error into LTspice.
+
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
 
 Observed: every statement below is what the simulator did with a deck of

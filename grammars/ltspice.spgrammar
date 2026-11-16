@@ -79,10 +79,13 @@ rule  capacitor = name~"C" pos neg c {...params}
 rule  inductor  = name~"L" pos neg l {...params}
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 delay?0 rise [fall [width [period]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 delay?0 rise [fall [width [period [count]]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
 # A DC value next to a waveform is the value of the operating point; the
 # transient starts from the waveform. A pulse of fewer than four values is
 # refused, and a sine without a frequency is a constant, so both are required.
+# A sine's seventh value is a number of cycles, counted from the delay; after
+# them the source stays where the last cycle ended. 0 or none: no end. A
+# pulse's eighth is its number of pulses, as in ngspice.
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}

@@ -5725,3 +5725,21 @@ test "z2: a PWL's repeat has no place on an LTspice source: a loss, not a line L
     try has(try tr(a, "ltspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1) Rser=1 Cpar=1p\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r2), "V1 a 0 pwl(0 0 1m 1) rser=1 cpar=1p\n");
     try testing.expectEqual(0, r2.items.items.len);
 }
+
+test "z2: the cycles of an LTspice sine have a slot, and are a loss where a sine has none" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 a 0 sine(0 1 1k 0 0 0 3)\nI1 0 b sine(0 1m 1k 0.5m 0 90 2.5)\nR1 a 0 1k\nR2 b 0 1k\n.tran 10u 5m\n.end\n";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ltspice", src, &r1), "V1 a 0 sine(0 1 1k 0 0 0 3)\nI1 0 b sine(0 1m 1k 0.5m 0 90 2.5)\n");
+    try testing.expectEqual(0, r1.items.items.len);
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ngspice", src, &r2), "V1 a 0 sin(0 1 1k 0 0 0)\n");
+    try reported(&r2, .@"error", "vsource.count = 3 has no spelling in ngspice");
+    try reported(&r2, .@"error", "isource.count = 2.5 has no spelling in ngspice");
+    // A pulse's number of pulses is the same in both (two, then the first value).
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ltspice", "t\nV1 a 0 pulse(0 1 0 1u 1u 0.5m 1m 2)\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r3), "V1 a 0 pulse(0 1 0 1u 1u 0.5m 1m 2)\n");
+    try clean(&r3);
+}
