@@ -2483,38 +2483,43 @@ const CaseMaps = struct {
     nodes: ir.CaselessSet = .empty,
     instances: ir.CaselessSet = .empty,
     definitions: ir.CaselessSet = .empty,
+    params: ir.CaselessSet = .empty,
 
     fn deinit(m: *CaseMaps) void {
         m.nodes.deinit(ir.big);
         m.instances.deinit(ir.big);
         m.definitions.deinit(ir.big);
+        m.params.deinit(ir.big);
     }
 };
 
 /// Names that differ only by case collide in a dialect that ignores case.
-/// Nodes, instances and definitions are separate name spaces: a source
-/// `Vdd` on a node `vdd` is no collision. A subcircuit's ports, nodes and
-/// instances are its own scope; definitions are shared by all scopes.
+/// Nodes, instances, definitions and parameters are separate name spaces
+/// (`schema.Space`): a source `Vdd` on a node `vdd` is no collision. A
+/// subcircuit's ports, nodes and instances are its own scope; definitions
+/// and parameters are shared by all scopes.
 /// With `keep`, names are kept: the statements go away first.
 fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8, keep: ?ir.Keep) Allocator.Error!void {
     for (stmts) |*s| {
         const scoped = s.kind == .subckt;
-        var inner: CaseMaps = .{ .definitions = seen.definitions };
+        var inner: CaseMaps = .{ .definitions = seen.definitions, .params = seen.params };
         const maps = if (scoped) &inner else seen;
         defer if (scoped) {
             seen.definitions = inner.definitions;
+            seen.params = inner.params;
             inner.nodes.deinit(ir.big);
             inner.instances.deinit(ir.big);
         };
         for (schema.info(s.kind).slots, 0..) |sl, i| {
             const map = switch (sl.ty) {
-                .node => &maps.nodes,
-                .name => if (schema.info(s.kind).class == .device) &maps.instances else &maps.definitions,
-                .ident => &maps.definitions,
+                .node, .name, .ident => switch (sl.space orelse continue) {
+                    .node => &maps.nodes,
+                    .instance => &maps.instances,
+                    .definition => &maps.definitions,
+                    .param => &maps.params,
+                },
                 else => continue,
             };
-            // A model's type word is a keyword of the dialect, not a name.
-            if (s.kind == .model and std.mem.eql(u8, sl.name, "type")) continue;
             const one = [1]Value{s.at(i)};
             const items: []const Value = switch (one[0]) {
                 .atom => &one,

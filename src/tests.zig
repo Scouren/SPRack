@@ -1432,7 +1432,8 @@ test "a name an expression refers to keeps its spelling when its definition is e
     const sp = try trx(a, "ngspice", "spectre", src, &r, .{ .silent = true });
     for ([_][]const u8{
         "VP (inp 0) vsource dc=VCM mag=1\n",
-        "VDD (VDD 0) vsource dc=VDD\n",
+        // The source VDD, its node vdd and the parameter VDD are three names.
+        "VDD (vdd 0) vsource dc=VDD\n",
         "V3 (b 0) vsource type=pulse val0=0 val1=VCM ",
         "V4 (c 0) vsource type=sine sinedc=Voff ampl=Vamp freq=1k\n",
         "V5 (d 0) vsource type=pwl wave=[0 0 1n VCM]\n",
@@ -3974,6 +3975,62 @@ test "the spelling table holds names only: a keyword DC does not respell a node 
     // A name is still spelled the way it is first capitalised, everywhere.
     try has(sp, "C1 (Out 0) capacitor c=1p");
     try has(sp, "R2 (dc Out) resistor r=1k\n");
+}
+
+test "a name has one spelling among the names of its kind: a source Vdd leaves the node vdd" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // The most common line in SPICE: the node is not the source.
+    const deck = "t\nVdd vdd 0 1\nR1 vdd out 1k\nR2 out 0 1k\n.print dc v(vdd) i(vdd)\n.ic v(vdd)=1\n.op\n.end\n";
+    for ([_][]const u8{ "ngspice", "xyce" }) |to| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, "ngspice", to, deck, &r);
+        try has(out, "Vdd vdd 0 dc 1\nR1 vdd out 1k\n");
+        // A voltage names nodes, a current a device.
+        try has(out, ".print dc v(vdd) i(Vdd)\n.ic v(vdd)=1\n");
+    }
+    var r1: ir.Report = .init(a);
+    const scs = try tr(a, "ngspice", "spectre", deck, &r1);
+    try has(scs, "Vdd (vdd 0) vsource dc=1\nR1 (vdd out) resistor r=1k\n");
+    try has(scs, "save vdd Vdd:p\nic vdd=1\n");
+    // A node written with capitals once is still one node, spelled so everywhere.
+    var r2: ir.Report = .init(a);
+    const one = try tr(a, "ngspice", "ngspice", "t\nVdd vdd 0 1\nR1 VDD out 1k\nR2 out 0 1k\n.ic v(vdd)=1\n.end\n", &r2);
+    try has(one, "Vdd VDD 0 dc 1\nR1 VDD out 1k\nR2 out 0 1k\n.ic v(VDD)=1\n");
+    // A model, a parameter and a node of the same letters; a subcircuit's
+    // port; the names in an expression, each in its own space.
+    var r3: ir.Report = .init(a);
+    const all = try tr(a, "ngspice", "ngspice",
+        \\t
+        \\.param Out=2 nch=1u
+        \\.model Out nmos
+        \\.model NCH nmos
+        \\.subckt Inv in OUT vdd
+        \\M1 OUT in 0 0 out w={NCH} l={out*1u}
+        \\M2 nch in vdd vdd nch
+        \\.ends
+        \\Vdd VDD 0 {out}
+        \\X1 a out vdd inv
+        \\Rnch nch 0 1k
+        \\B1 b 0 v={v(vdd)*out + i(vdd)*nch}
+        \\.end
+        \\
+    , &r3);
+    try has(all, ".param Out=2 nch=1u\n.model Out nmos level=1\n.model NCH nmos level=1\n");
+    try has(all, ".subckt Inv in OUT VDD\nM1 OUT in 0 0 Out w={nch} l={Out*1u}\nM2 nch in VDD VDD NCH\n.ends Inv\n");
+    try has(all, "Vdd VDD 0 dc {Out}\nX1 a OUT VDD Inv\nRnch nch 0 1k\n");
+    try has(all, "B1 b 0 v={v(VDD)*Out + i(Vdd)*nch}\n");
+    // A device named in a list, and a terminal, which is no name: the node d stays.
+    var r4: ir.Report = .init(a);
+    const refs = try tr(a, "xyce", "xyce", "t\nV1 a 0 1\nv2 d 0 1\nR1 a v1 1k\nF1 c 0 poly(2) v1 V2 0 1 1\nM1 d a 0 0 nch\n.model nch nmos\n.print dc ID(m1)\n.end\n", &r4);
+    try has(refs, "V2 d 0 dc 1\nR1 a v1 1k\nF1 c 0 poly(2) V1 V2 0 1 1\nM1 d a 0 0 nch\n");
+    // A swept parameter is spelled as its definition, in a target that tells case.
+    var r5: ir.Report = .init(a);
+    const va = try tr(a, "xyce", "vacask", "t\n.param vcm=1\nV1 a 0 {vcm}\nR1 a VCM 1k\nR2 vcm 0 1k\n.dc VCM 0 1 0.1\n.end\n", &r5);
+    try has(va, "parameters vcm=1\n");
+    try has(va, "R1 (a VCM) resistor r=1k\nR2 (VCM 0) resistor r=1k\n");
+    try has(va, "parameter=\"vcm\" from=0 to=1 step=0.1\n");
 }
 
 test "expression semantics: a choice in the target's form, and what evaluates differently" {

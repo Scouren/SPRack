@@ -26,16 +26,28 @@ pub const Problem = struct {
     text: []const u8,
 };
 
-/// Settles the spelling of a name the netlist itself defines.
+/// Settles the spelling of a name the netlist itself defines: a call
+/// (`space` null), or a name of `space`.
 pub const Resolver = struct {
     ctx: ?*const anyopaque = null,
-    func: ?*const fn (ctx: ?*const anyopaque, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 = null,
+    func: ?*const fn (ctx: ?*const anyopaque, arena: Allocator, word: []const u8, space: ?schema.Space) Allocator.Error![]const u8 = null,
 
-    fn resolve(r: Resolver, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 {
+    fn resolve(r: Resolver, arena: Allocator, word: []const u8, space: ?schema.Space) Allocator.Error![]const u8 {
         const f = r.func orelse return word;
-        return f(r.ctx, arena, word, is_call);
+        return f(r.ctx, arena, word, space);
     }
 };
+
+/// What the names in the parentheses of a call to `word` are: the nodes of
+/// `v(a,b)`, the device of `i(v1)`, parameters in any other.
+pub fn argSpace(word: []const u8) schema.Space {
+    if (word.len != 1) return .param;
+    return switch (word[0]) {
+        'v', 'V' => .node,
+        'i', 'I' => .instance,
+        else => .param,
+    };
+}
 
 pub const canon_pow = "**";
 pub const canon_xor = "^^";
@@ -114,9 +126,12 @@ pub fn read(
     const src = std.mem.trim(u8, text, " \t");
     const cfg = &g.lex;
     var i: usize = 0;
+    // What a name is here: a parameter, or what `v(` or `i(` names.
+    var space: schema.Space = .param;
     while (i < src.len) {
         const c = src[i];
         const prev_word = i > 0 and isWordChar(src[i - 1]);
+        if (c == ')') space = .param;
         if (c == '"' or c == '\'') {
             const end = std.mem.indexOfScalarPos(u8, src, i + 1, c) orelse src.len - 1;
             try out.appendSlice(arena, src[i .. end + 1]);
@@ -140,7 +155,8 @@ pub fn read(
             const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
             const is_call = nextIsCall(src, j);
             const known = if (is_call) canonOf(g.functions, folded) else canonOf(g.variables, folded);
-            try out.appendSlice(arena, known orelse try names.resolve(arena, word, is_call));
+            try out.appendSlice(arena, known orelse try names.resolve(arena, word, if (is_call) null else space));
+            if (is_call) space = argSpace(word);
             i = j;
             continue;
         }

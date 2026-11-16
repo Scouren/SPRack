@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Node = grammar.Node;
 const Kind = schema.Kind;
+const Space = schema.Space;
 const Tok = lexer.Tok;
 const Value = ir.Value;
 
@@ -887,6 +888,14 @@ pub fn signalParts(text: []const u8, args: *[3][]const u8) ?struct { []const u8,
     return .{ if (std.mem.eql(u8, name, "v") and n == 2) "vdiff" else name, n };
 }
 
+/// The space of the `k`th name of a signal of this form: the nodes of a
+/// voltage, the device of a current. The terminal of `ix` is no name.
+fn signalSpace(form: []const u8, k: usize) ?Space {
+    if (form.len == 0) return null;
+    if (form[0] == 'v') return .node;
+    return if (form[0] == 'i' and k == 0) .instance else null;
+}
+
 fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
     const ti = schema.slotIndex(.model, "type").?;
     const pi = schema.slotIndex(.model, "params").?;
@@ -948,20 +957,31 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
     try st.store(arena, vals);
 }
 
+/// The names of a spelling table some lookup was answered with a spelling
+/// of their own, for each space.
+pub const Needed = struct {
+    sets: std.EnumArray(Space, ir.CaselessSet) = .initFill(.empty),
+    failed: bool = false,
+
+    pub fn deinit(n: *Needed) void {
+        for (&n.sets.values) |*set| set.deinit(ir.big);
+    }
+};
+
 /// In a dialect that ignores case, `Vdd`, `VDD` and `vdd` are one name. The
 /// output preserves what the author wrote, and must still be consistent when
-/// the target does distinguish case, so every name gets one spelling: the
-/// first one written with a capital letter, or the lower-case one if it is
-/// never written with any.
+/// the target does distinguish case, so every name gets one spelling among
+/// the names of its space (`schema.Space`): the first one written with a
+/// capital letter, or the lower-case one if it is never written with any. A
+/// node and a device are different things that may share a name: the node
+/// `vdd` of a source `Vdd` keeps its own spelling.
 ///
 /// Only names that appear capitalised somewhere are stored. A netlist written
 /// entirely in lower case, as large generated ones are, costs nothing here.
-pub const Needed = struct { set: ir.CaselessSet = .empty, failed: bool = false };
-
 const Spelling = struct {
     const Map = std.StringHashMapUnmanaged([]const u8);
-    /// The capitalised spelling of each name, found by any spelling.
-    mixed: ir.NameSet,
+    /// The capitalised spelling of each name of a space, found by any spelling.
+    mixed: std.EnumArray(Space, ir.NameSet),
     /// While set, the names of `mixed` some lookup was answered with a
     /// spelling other than the one it would fall back to (`prune`).
     needed: ?*Needed = null,
@@ -987,10 +1007,11 @@ const Spelling = struct {
     // The table can be large and is rebuilt as it grows, so it lives
     // outside the arena and is freed when reading is done.
 
-    /// The capitalised names of a statement read in the first pass: the
-    /// values of its name, node, model and reference slots, the nodes of
-    /// its signals and of `.ic` keys. Keywords and parameter keys are not
-    /// names, so `DC` on a source does not respell a node `dc`.
+    /// The capitalised names of a statement read in the first pass, each
+    /// in the space of its slot: the values of its name, node, model and
+    /// reference slots, the names of its signals, the nodes of `.ic` keys
+    /// and the parameters an instance sets. Keywords and other parameter
+    /// keys are not names, so `DC` on a source does not respell a node `dc`.
     fn names(sp: *Spelling, st: *const ir.Stmt) Allocator.Error!void {
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             const v = st.at(i);
@@ -999,7 +1020,8 @@ const Spelling = struct {
                 .atom => &one,
                 .list => |l| l,
                 .params => |ps| {
-                    if (st.kind == .ic or st.kind == .nodeset or st.kind == .instance) for (ps) |p| try sp.learn(p.key);
+                    if (st.kind == .ic or st.kind == .nodeset) for (ps) |p| try sp.learn(.node, p.key);
+                    if (st.kind == .instance) for (ps) |p| try sp.learn(.param, p.key);
                     for (ps) |p| try sp.exprNames(p.val);
                     continue;
                 },
@@ -1009,28 +1031,26 @@ const Spelling = struct {
                 },
                 else => continue,
             };
-            switch (sl.ty) {
-                .name => if (st.kind == .func) continue,
-                .ident => if (st.kind == .model and std.mem.eql(u8, sl.name, "type")) continue,
-                .node, .ref, .signal => {},
-                else => continue,
-            }
+            // An expression among the items of a list (`.print v(a) {VCM*2}`).
+            try sp.exprNames(v);
+            if (st.kind == .func) continue;
             for (items) |it| {
                 if (it != .atom) continue;
                 if (sl.ty != .signal) {
-                    try sp.learn(it.atom);
+                    try sp.learn(sl.space orelse break, it.atom);
                     continue;
                 }
                 var args: [3][]const u8 = undefined;
-                _, const n = signalParts(it.atom, &args) orelse continue;
-                for (args[0..n]) |a| try sp.learn(a);
+                const form, const n = signalParts(it.atom, &args) orelse continue;
+                for (args[0..n], 0..) |a, k| try sp.learn(signalSpace(form, k) orelse continue, a);
             }
         }
     }
 
     /// The names an expression refers to (`{VCM}`, `rload*2`): a parameter
     /// defined in another file, or in another block of a Python deck, keeps
-    /// the spelling it is written with here. Calls are functions, not names.
+    /// the spelling it is written with here. Calls are functions, not names;
+    /// what `v(` and `i(` name is a node and a device (`expr.argSpace`).
     fn exprNames(sp: *Spelling, v: Value) Allocator.Error!void {
         const items: []const Value = switch (v) {
             .expr => &.{v},
@@ -1041,6 +1061,7 @@ const Spelling = struct {
             if (it != .expr) continue;
             const text = it.expr;
             var i: usize = 0;
+            var space: Space = .param;
             while (i < text.len) {
                 const c = text[i];
                 if (c == '"' or c == '\'') {
@@ -1049,6 +1070,7 @@ const Spelling = struct {
                 }
                 const word_char = std.ascii.isAlphanumeric(c) or c == '_' or c == '$' or c == '.';
                 if (!word_char) {
+                    if (c == ')') space = .param;
                     i += 1;
                     continue;
                 }
@@ -1058,7 +1080,9 @@ const Spelling = struct {
                 while (k < text.len and (text[k] == ' ' or text[k] == '\t')) k += 1;
                 const call = k < text.len and text[k] == '(';
                 // A number (`1.5k`, `2e-3`) starts with a digit or a point.
-                if (!call and (std.ascii.isAlphabetic(c) or c == '_')) try sp.learn(text[i..j]);
+                if (call) {
+                    space = expr.argSpace(text[i..j]);
+                } else if (std.ascii.isAlphabetic(c) or c == '_') try sp.learn(space, text[i..j]);
                 i = j;
             }
         }
@@ -1066,27 +1090,31 @@ const Spelling = struct {
 
     /// A name built for its statement, or read from a line that goes away,
     /// is copied: the table outlives both.
-    fn learn(sp: *Spelling, name: []const u8) Allocator.Error!void {
+    fn learn(sp: *Spelling, space: Space, name: []const u8) Allocator.Error!void {
         for (name) |c| {
             if (!std.ascii.isUpper(c)) continue;
-            return sp.mixed.put(name);
+            return sp.mixed.getPtr(space).put(name);
         }
     }
 
     fn deinit(sp: *Spelling) void {
-        sp.mixed.deinit();
+        for (&sp.mixed.values) |*set| set.deinit();
     }
 
-    fn spell(sp: *const Spelling, raw: []const u8) []const u8 {
-        if (sp.mixed.count() == 0 or raw.len > 256) return raw;
-        return sp.lookup(raw, raw);
+    /// The one spelling of the name `raw` of `space`. A parameter the
+    /// netlist defines is spelled the way its first definition spells it.
+    fn spell(sp: *const Spelling, arena: Allocator, space: Space, raw: []const u8) Allocator.Error![]const u8 {
+        if (raw.len > 256) return raw;
+        if (space != .param) return sp.lookup(space, raw, raw);
+        const low = try lowered(arena, raw);
+        return sp.params.get(low) orelse sp.lookup(.param, low, raw);
     }
 
-    /// The capitalised spelling of `name`, else `fallback`.
-    fn lookup(sp: *const Spelling, name: []const u8, fallback: []const u8) []const u8 {
-        const k = sp.mixed.getKey(name) orelse return fallback;
+    /// The capitalised spelling of `name` among those of `space`, else `fallback`.
+    fn lookup(sp: *const Spelling, space: Space, name: []const u8, fallback: []const u8) []const u8 {
+        const k = sp.mixed.getPtrConst(space).getKey(name) orelse return fallback;
         if (sp.needed) |n| if (!std.mem.eql(u8, k, fallback)) {
-            n.set.put(ir.big, k, {}) catch {
+            n.sets.getPtr(space).put(ir.big, k, {}) catch {
                 n.failed = true;
             };
         };
@@ -1094,28 +1122,30 @@ const Spelling = struct {
     }
 
     /// Keep only the names `needed` recorded: a pass that reads the same
-    /// statements again gets the same answers from the smaller table.
+    /// statements again gets the same answers from the smaller tables.
     fn prune(sp: *Spelling) void {
         const n = sp.needed orelse return;
         sp.needed = null;
         if (n.failed) return;
-        var small: ir.NameSet = .{ .src = sp.src, .perm = sp.perm };
-        var it = n.set.keyIterator();
-        while (it.next()) |k| small.put(k.*) catch {
-            small.deinit();
-            return;
-        };
-        sp.mixed.deinit();
-        sp.mixed = small;
+        for (&sp.mixed.values, &n.sets.values) |*mixed, *set| {
+            var small: ir.NameSet = .{ .src = sp.src, .perm = sp.perm };
+            var it = set.keyIterator();
+            while (it.next()) |k| small.put(k.*) catch {
+                small.deinit();
+                return;
+            };
+            mixed.deinit();
+            mixed.* = small;
+        }
     }
 
-    fn atom(sp: *const Spelling, v: Value) Value {
+    fn atom(sp: *const Spelling, arena: Allocator, space: Space, v: Value) Allocator.Error!Value {
         switch (v) {
-            .atom => |a| return .{ .atom = sp.spell(a) },
+            .atom => |a| return .{ .atom = try sp.spell(arena, space, a) },
             .list => |items| {
                 const out: []Value = @constCast(items);
                 for (out) |*it| if (it.* == .atom) {
-                    it.* = .{ .atom = sp.spell(it.atom) };
+                    it.* = .{ .atom = try sp.spell(arena, space, it.atom) };
                 };
                 return v;
             },
@@ -1131,19 +1161,13 @@ const Spelling = struct {
         const vals = st.unpack(&buf);
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             switch (sl.ty) {
-                .name => {
-                    // Functions are called in any case; their one spelling is the lower-case one.
-                    if (st.kind == .func and vals[i] == .atom) {
-                        vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
-                    } else vals[i] = sp.atom(vals[i]);
-                },
-                .node => vals[i] = sp.atom(vals[i]),
-                .ident => {
-                    if (vals[i] != .atom) continue;
-                    // A model's type word is a keyword, not a name.
-                    if (st.kind == .model and std.mem.eql(u8, sl.name, "type")) {
-                        vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
-                    } else vals[i] = sp.atom(vals[i]);
+                .name, .node, .ident => {
+                    // Functions are called in any case, and a model's type
+                    // word is a keyword, not a name: their one spelling is
+                    // the lower-case one.
+                    if (st.kind == .func or sl.space == null) {
+                        if (vals[i] == .atom) vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
+                    } else vals[i] = try sp.atom(arena, sl.space.?, vals[i]);
                 },
                 .params => {
                     if (vals[i] != .params) continue;
@@ -1158,12 +1182,11 @@ const Spelling = struct {
                                 gop.value_ptr.* = try sp.keep(p.key);
                             }
                         } else if (node_keys) {
-                            p.key = sp.spell(p.key);
+                            p.key = try sp.spell(arena, .node, p.key);
                         } else if (st.kind == .instance) {
                             // A subcircuit's parameter, which may be defined
                             // in another file: spelled as the source does.
-                            const low = try lowered(arena, p.key);
-                            p.key = sp.params.get(low) orelse sp.lookup(low, p.key);
+                            p.key = try sp.spell(arena, .param, p.key);
                         } else p.key = sp.params.get(try lowered(arena, p.key)) orelse try lowered(arena, p.key);
                     }
                 },
@@ -1173,30 +1196,32 @@ const Spelling = struct {
         try st.store(arena, vals);
     }
 
-    fn identifier(sp: *const Spelling, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 {
+    /// A word of an expression: a call (`space` null), or a name of `space`.
+    fn identifier(sp: *const Spelling, arena: Allocator, word: []const u8, space: ?Space) Allocator.Error![]const u8 {
         const low = try lowered(arena, word);
-        if (is_call) return low;
-        return sp.params.get(low) orelse sp.lookup(low, low);
+        const in = space orelse return low;
+        if (in == .param) if (sp.params.get(low)) |p| return p;
+        return sp.lookup(in, low, low);
     }
 
     fn signal(sp: *const Spelling, arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
         var args: [3][]const u8 = undefined;
-        _, const n = signalParts(text, &args) orelse return text;
+        const form, const n = signalParts(text, &args) orelse return text;
         if (n == 0) return text;
         var out: std.ArrayList(u8) = .empty;
         try out.print(arena, "{s}(", .{text[0..std.mem.indexOfScalar(u8, text, '(').?]});
         for (args[0..n], 0..) |a, i| {
             if (i > 0) try out.append(arena, ',');
-            try out.appendSlice(arena, sp.spell(a));
+            try out.appendSlice(arena, if (signalSpace(form, i)) |space| try sp.spell(arena, space, a) else a);
         }
         try out.append(arena, ')');
         return out.items;
     }
 };
 
-fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8, is_call: bool) Allocator.Error![]const u8 {
+fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8, space: ?Space) Allocator.Error![]const u8 {
     const sp: *const Spelling = @ptrCast(@alignCast(ctx.?));
-    return sp.identifier(arena, word, is_call);
+    return sp.identifier(arena, word, space);
 }
 
 const Reader = struct {
@@ -1584,8 +1609,8 @@ const Reader = struct {
             var buf: [schema.max_slots]Value = undefined;
             const vals = st.unpack(&buf);
             for (schema.info(st.kind).slots, 0..) |sl, i| {
-                if (sl.ty == .ref and vals[i] == .atom) {
-                    if (fold_case) vals[i] = .{ .atom = self.spell.spell(vals[i].atom) };
+                if (sl.ty == .ref) {
+                    if (fold_case) vals[i] = try self.spell.atom(self.arena, sl.space.?, vals[i]);
                 } else if (sl.ty == .signal and fold_case) {
                     switch (vals[i]) {
                         .atom => |a| vals[i] = .{ .atom = try self.spell.signal(self.arena, a) },
@@ -2273,7 +2298,7 @@ pub const Source = struct {
         s.r = .{
             .g = g,
             .arena = perm,
-            .spell = .{ .perm = perm, .src = src, .mixed = .{ .src = src, .perm = perm } },
+            .spell = .{ .perm = perm, .src = src, .mixed = .initFill(.{ .src = src, .perm = perm }) },
             .lines = &s.lines,
             .report = report,
             .boiler = boiler.items,
@@ -2329,10 +2354,15 @@ pub const Source = struct {
         s.lines.recycle();
     }
 
-    /// The spelling a case-folding reader gives every name of its class:
-    /// two names that both have it are the same text.
-    pub fn canonical(s: *const Source, name: []const u8) bool {
-        if (s.r.spell.mixed.getKey(name)) |k| return std.mem.eql(u8, k, name);
+    /// The spelling a case-folding reader gives every name of `space`: two
+    /// names of it that both have it are the same text.
+    pub fn canonical(s: *const Source, space: Space, name: []const u8) bool {
+        const sp = &s.r.spell;
+        var buf: [256]u8 = undefined;
+        if (space == .param and name.len <= buf.len) {
+            if (sp.params.get(std.ascii.lowerString(&buf, name))) |p| return std.mem.eql(u8, p, name);
+        }
+        if (sp.mixed.getPtrConst(space).getKey(name)) |k| return std.mem.eql(u8, k, name);
         for (name) |c| if (std.ascii.isUpper(c)) return false;
         return true;
     }

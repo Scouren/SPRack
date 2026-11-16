@@ -73,7 +73,7 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     var sv: Survey = try .init(keep, gf, gt, opts);
     const params = s.paramCount();
     var needed: reader.Needed = .{};
-    defer needed.set.deinit(ir.big);
+    defer needed.deinit();
     s.watchSpelling(&needed);
     s.r.report = &muted;
     s.rewind(scratch.allocator(), null);
@@ -480,7 +480,7 @@ fn names(s: *const reader.Source, stmts: []const Stmt) bool {
                 .node, .name, .ident => {},
                 else => continue,
             }
-            if (st.kind == .model and std.mem.eql(u8, sl.name, "type")) continue;
+            const space = sl.space orelse continue;
             const v = st.at(i);
             const one = [1]ir.Value{v};
             const items: []const ir.Value = switch (v) {
@@ -488,7 +488,7 @@ fn names(s: *const reader.Source, stmts: []const Stmt) bool {
                 .list => |l| l,
                 else => &.{},
             };
-            for (items) |x| if (x == .atom and !s.canonical(x.atom)) return false;
+            for (items) |x| if (x == .atom and !s.canonical(space, x.atom)) return false;
         }
         if (!names(s, st.body)) return false;
     }

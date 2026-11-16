@@ -31,7 +31,40 @@ pub const SlotType = enum {
     signal,
 };
 
-pub const Slot = struct { name: []const u8, ty: SlotType, list: bool };
+/// What a name names. Where case is ignored, `Vdd`, `VDD` and `vdd` are one
+/// name among those of one space, and a name of another space is another
+/// name: a source `Vdd` on a node `vdd` is two.
+pub const Space = enum {
+    node,
+    /// A device or an instance of a subcircuit.
+    instance,
+    /// A model, a subcircuit, an analysis, a library section, a table.
+    definition,
+    /// A parameter, or what an expression names as one: a measurement, a
+    /// column of a table.
+    param,
+};
+
+pub const Slot = struct {
+    name: []const u8,
+    ty: SlotType,
+    list: bool,
+    /// The space its names are in; null if it holds none.
+    space: ?Space,
+};
+
+/// A `ref` names an instance; a swept one that turns out to name a
+/// parameter is moved to `param` (`ir.resolveSweeps`).
+fn spaceOf(kind: Kind, class: Class, name: []const u8, ty: SlotType) ?Space {
+    return switch (ty) {
+        .node => .node,
+        .ref => .instance,
+        .name => if (class == .device) .instance else if (kind == .measure) .param else .definition,
+        // A model's type word is a keyword of the dialect, not a name.
+        .ident => if (kind == .model) null else if (inList(&.{ "param", "param2", "keys", "cols", "names" }, name)) .param else .definition,
+        else => null,
+    };
+}
 
 /// `control` statements steer the simulator (options, what to save, initial
 /// conditions). Like analyses, their open-ended `params` belong to the
@@ -347,7 +380,7 @@ pub const table: [kind_count]KindInfo = blk: {
                 nm = w[0..c];
                 ty = std.meta.stringToEnum(SlotType, w[c + 1 ..]) orelse @compileError("schema: bad slot type in " ++ word);
             }
-            slots = slots ++ &[_]Slot{.{ .name = nm, .ty = ty, .list = list }};
+            slots = slots ++ &[_]Slot{.{ .name = nm, .ty = ty, .list = list, .space = spaceOf(d[0], d[1], nm, ty) }};
         }
         if (slots.len > max_slots) @compileError("schema: too many slots");
         out[i] = .{ .kind = d[0], .class = d[1], .slots = slots };

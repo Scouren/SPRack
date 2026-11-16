@@ -30,6 +30,9 @@ error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has n
 as `1m`.
 
 **Source spelling is kept.** Names keep the capitals the author gave them.
+Where the source ignores case, a name written two ways gets one spelling
+among the names of its kind (nodes, devices, models and subcircuits,
+parameters): the node `vdd` of a source `Vdd` stays `vdd`.
 Comments, blank lines and trailing comments are carried over.
 
 **A translation can be checked against itself.** `sprack audit` translates,

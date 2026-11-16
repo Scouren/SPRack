@@ -1095,8 +1095,9 @@ fn fixTarget(arena: Allocator, s: *Stmt, src: []const u8, param: []const u8, v: 
         if (dp == .atom and std.ascii.eqlIgnoreCase(dp.atom, own)) try s.set(arena, di, .none);
         return;
     }
-    if (params.contains(name)) {
-        try s.set(arena, schema.slotIndex(s.kind, param).?, .{ .atom = name });
+    // The parameter's own spelling: `name` was read as an instance's.
+    if (params.getKey(name)) |key| {
+        try s.set(arena, schema.slotIndex(s.kind, param).?, .{ .atom = key });
     } else if (std.ascii.eqlIgnoreCase(name, "temp")) {
         try s.set(arena, schema.slotIndex(s.kind, v).?, .{ .atom = "temp" });
     } else return;

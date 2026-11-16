@@ -1007,6 +1007,25 @@ def test_read_then_write_is_translate():
         assert _same(out, sprack.translate(src, frm="ngspice", to="ngspice", strict=False)), out.report
 
 
+def test_a_node_is_not_the_source_on_it():
+    # A source Vdd on a node vdd: two names, each with its own spelling,
+    # read from a dialect that ignores case or built here.
+    deck = "t\nVdd vdd 0 1\nR1 vdd out 1k\nR2 out 0 1k\n.op\n.end\n"
+    read = sprack.read(deck, "ngspice")
+    assert [(s["name"], s["pos"]) for s in read.statements[:2]] == [("Vdd", "vdd"), ("R1", "vdd")]
+    c = sprack.Circuit("t")
+    c.folds_case = True
+    c.vsource("Vdd", "vdd", 0, dc=1)
+    c.resistor("R1", "vdd", "out", r="1k")
+    c.resistor("R2", "out", 0, r="1k")
+    c.op()
+    for t in ("ngspice", "xyce", "spectre"):
+        out = c.netlist(t)
+        assert not list(out.report), out.report
+        assert ("Vdd (vdd 0) vsource dc=1\n" if t == "spectre" else "Vdd vdd 0 dc 1\nR1 vdd out 1k\n") in out, out
+        assert str(out) == str(read.netlist(t)), t
+
+
 def _flat(code):
     """Only imports, assignments, calls and `with` blocks: no def, no class."""
     import ast
@@ -1035,7 +1054,7 @@ def test_to_python():
     code = sprack.to_python(DECK, "ngspice")
     for line in ['c = sprack.Circuit("Rich deck", dialect="ngspice")', 'c.param(vdd=1.8, rload="2k")',
                  'c.model("nch", "bsim4", "n", version=4.5, vth0=0.4)', 'c.model("dm", "diode", **{"is": 1e-14})',
-                 'with c.subckt("inv", "in", "out", "Vdd", wn="1u") as s:', '    s.M("n", "out", "in", 0, 0, "nch", w="wn", l="180n")',
+                 'with c.subckt("inv", "in", "out", "vdd", wn="1u") as s:', '    s.M("n", "out", "in", 0, 0, "nch", w="wn", l="180n")',
                  'c.V("in", "in", 0, 0, ac=1, pulse=(0, 1.8, "1n", "50p", "50p", "2n", "4n"))',
                  'c.I("1", 0, "out", "1m").tail("one milliamp")', 'c.R("1", "mid", "out", "rload", tc1="1m")',
                  'c.ic({"out": 0})', 'c.save("v(out)", "i(Vdd)")', 'c.print_("tran", "v(in,out)")',
