@@ -136,8 +136,7 @@ rule  hb        = ".hb" freqs+
 implied noise ref = 0
 # What an EXP source leaves out, measured with `.tran 2n 50n` (Xyce 7.10):
 # TD1 is 0, TAU1 and TAU2 the step, TD2 TD1 plus the step. ngspice 45 is the
-# same but for TD1, the step there, as in ESPice (Conformance Suite,
-# netlist/tran/source_exp_defaults_ngspice).
+# same but for TD1, the step there (docs/verification.md 4.12).
 implied vsource td1 = 0 wave=exp
 implied isource td1 = 0 wave=exp
 omitted vsource tau1 wave=exp : tran.step

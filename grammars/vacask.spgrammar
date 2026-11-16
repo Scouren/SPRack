@@ -282,7 +282,7 @@ default isource fall=0 wave=pulse : tran.step
 default vsource width=0 wave=pulse : tran.stop
 default isource width=0 wave=pulse : tran.stop
 # An exp source's delay is 0 when left out (measured); TD1 left out is the
-# time step in ngspice 45 and ESPice.
+# time step in ngspice 45.
 implied vsource td1 = 0 wave=exp
 implied isource td1 = 0 wave=exp
 invalid vsource rise=0 wave=pulse : VACASK needs rise > 0 and defaults it to 1n; SPICE takes the time step

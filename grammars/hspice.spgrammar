@@ -225,9 +225,9 @@ caveat read options method=*bdf : HSPICE's BDF is not its GEAR: on an LC tank ru
 # ABSV is VNTOL, ABSI is ABSTOL and RELV is RELTOL: each pair gave the same
 # result to ten digits. RELTOL bounds voltages only; RELI bounds currents.
 # GMINDC acts in DC and the operating point only, GMIN in the transient
-# only. ngspice, ESPice, Xyce, Spectre and VACASK have one reltol for both
-# and one gmin for both, so another dialect's reltol and gmin are written
-# here as both keys (`+`).
+# only. ngspice, Xyce, Spectre and VACASK have one reltol for both and one
+# gmin for both, so another dialect's reltol and gmin are written here as
+# both keys (`+`).
 caveat read options reltol : HSPICE's RELTOL (RELV) bounds node voltages only and RELI branch currents; the target's reltol bounds both
 caveat read options gmin : HSPICE's GMIN acts in the transient only, not in its operating point; the target's gmin acts in DC too
 caveat read options gmindc : HSPICE's GMINDC acts in DC and the transient's operating point only; it is the target's gmin, which acts through the transient too
