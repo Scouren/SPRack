@@ -3,8 +3,9 @@
 # Checked against LTspice 26.0.2 run in batch mode on decks written for the
 # check (docs/verification.md, section 8): every table below, the statements
 # under `no`, the source waveforms and the topologies under `requires`.
-# Not checked: the instance parameters of devices, and which model the MOS
-# levels other than 1, 2, 3, 8, 14, 49 and 54 select.
+# Not checked: the instance parameters of devices other than sources. The MOS
+# levels other than 1, 2, 3, 8, 14, 49 and 54 are placed by the parameter
+# names they know (section 8.12), and are not in the models table.
 #
 # Differences from ngspice captured here: `;` is the only trailing comment,
 # there is no atto suffix, sources write their waveform before the AC spec

@@ -1503,8 +1503,8 @@ Left open: `.lib file` with no section in an LTspice deck is read as the
 start of a section and reported as a block that is not closed; a seventh
 value of `sine` (a cycle count: `sine(0 1 1k 0 0 0 3)` stops after three)
 has no slot; the instance parameters of devices were not checked.
-Sections 8.7 to 8.11 close these and the analyses, and 8.12 is the load
-check again.
+Sections 8.7 to 8.11 close these and the analyses, 8.12 is the MOS levels
+and 8.13 the load check again.
 
 ### 8.7 One analysis a deck
 
@@ -1611,6 +1611,63 @@ ngspice's pulse has for its number of pulses; a dialect whose sine has no
 count gets a `loss` error for it. The pulse above is 1, 1, 0, 0 in ngspice
 45 too, so the eighth value of a pulse is the same slot and crosses between
 the two; before, it was a `loss` error into LTspice.
+
+### 8.12 What the other MOS levels select
+
+One transistor, `M0 d g 0 0 m0 W=1u L=1u` with 1 V on gate and drain,
+`.op`, on a card that holds only its level; the current is the drain's.
+Beside it ten more transistors, each on a card of the same level with one
+parameter that one model family names (`kv=2`, `muz=600`, `mu0b=0`,
+`tsi=1e-7`, `e0=1e12`, `pclm=1.3`, `toxe=3n`, `theta=0`, `neff=1`,
+`vfbc=-1`): LTspice logs "Ignoring unknown model parameter" under a card
+whose model does not have the name.
+
+| level | loads | drain current | names the card knows | whose names they are |
+|---|---|---|---|---|
+| 1 | yes | 10.000 uA | none | |
+| 2 | yes | 10.359 uA | `neff` | |
+| 3 | yes | 10.359 uA | `theta` | |
+| 4 | yes | 2.04 pA: a card of defaults does not conduct | `muz` | BSIM1 |
+| 5 | yes | 10.887 uA | `mu0b` | BSIM2 |
+| 6 | yes | 37.500 uA | `kv` | MOS6 |
+| 7, 8, 49 | yes | 1.01 pA each; 80.47 uA each with `tox=3n` on the card | `pclm` | BSIM3 |
+| 9 | yes | 15.16 nA | `tsi`, `pclm` | BSIMSOI |
+| 12, 44, 55 | yes | 2.4675 uA each | `e0`, `theta` | EKV |
+| 14, 54 | yes | 116.14 uA | `pclm`, `toxe` | BSIM4 |
+| 73 | yes | not read | `vfbc` | HiSIM_HV, which names itself in the log: at L = 1u "effective channel length is negative or 0" |
+
+So level 7 is the model of 8 and 49, levels 44 and 55 the model of 12, and
+4, 5, 6, 9 and 73 take the parameter names of BSIM1, BSIM2, MOS6, BSIMSOI
+and HiSIM_HV. The grammar's table still claims only 1, 2, 3, 8/49 and
+14/54: a name places a level in a family, it does not show that a card
+means the same in another simulator.
+
+### 8.13 Does a translation load, again
+
+The 40 suite decks and the five samples of 8.6, translated after 8.7 to
+8.11 and loaded.
+
+| | 8.6 | now |
+|---|---|---|
+| suite decks loaded, of 40 | 37 | 38 |
+| core samples loaded, of 5 | 0 | 0 |
+
+The deck with `pwl(...) r=0.5u` loads now: the repeat is not written, and
+its translation has the `loss` error for it, the one translation of the 40
+with an error. The two that do not load are the deck that names a node
+that does not exist and the 100 x 100 resistor grid, in Gmin stepping at
+the 90 s limit. The five samples are refused as before, "More than one
+analysis specified."; what is new is that each translation says so, with
+one `invalid` error naming `.op`, `.dc`, `.ac`, `.tran` and `.noise` and
+their lines. The ngspice sample cut to its `.op` and `.tran` is translated
+with the `caveat` on the `.op` and loads, leaving a `.op.raw` and a
+transient `.raw` file.
+
+Left open: a PWL's `r=0` is not written as `PWL REPEAT FOREVER`. What
+LTspice's own sources take (`Rser`, `Cpar`, `load`, and `R=` on a current
+source, a load resistance) is copied into the other dialects as written;
+`R=` there is ngspice's repeat. The instance parameters of the other
+devices were not checked. The levels of 8.12 are not in the models table.
 
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
 
