@@ -39,10 +39,12 @@ block subckt
 end
 
 # A section is found only in a file loaded by section: `.lib name` in a deck
-# or in a file loaded whole is taken for a file name.
+# or in a file loaded whole is taken for a file name. So the line opens a
+# section only where an .endl follows it; elsewhere it loads a whole file.
 block libsection
   open   ".lib" name
   close  ".endl" [name]
+  closed
 end
 
 rule  func      = ".func" name ~"(" args* ~")" expr
@@ -52,6 +54,8 @@ rule  include   = ".include" path
 read  include   = ".inc" path
 # The path is quoted: without quotes the section is read as part of the name.
 rule  lib       = ".lib" path section
+# With no section, the whole file.
+read  include   = ".lib" path
 rule  model     = ".model" name type {...params?}
 
 rule  options   = ".temp" temp

@@ -61,6 +61,12 @@ block subckt
   inner  "parameters" {...params}  # lines inside that belong to the header
   close  ".ends" [name]
 end
+block libsection
+  open   ".lib" name
+  close  ".endl" [name]
+  closed                           # the opening line opens the block only where a
+end                                # line starting with the closing word follows it
+                                   # in the file; elsewhere the rules read it
 
 header   ... end                   # lines at the top of every file
 header folded ... end              # instead, when the source folds case

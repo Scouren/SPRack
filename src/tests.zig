@@ -5677,3 +5677,18 @@ test "z2: more analyses than LTspice loads in one deck are an error that names t
     try clean(&r7);
     try testing.expect(!r7.contains(.warning, "beside"));
 }
+
+test "z2: an LTspice .lib with no section loads the whole file; a section is one an .endl closes" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const deck = try tr(a, "ltspice", "ngspice", "t\nR1 a 0 {rv}\n.lib f.lib\n.lib \"g.lib\"\n.lib \"s.lib\" slow\n.op\n.end\n", &r1);
+    try has(deck, ".include \"f.lib\"\n.include \"g.lib\"\n.lib \"s.lib\" slow\n");
+    try clean(&r1);
+    // In a file of sections every opening line has an .endl after it.
+    var r2: ir.Report = .init(a);
+    const lib = try tr(a, "ltspice", "ngspice", "* sections\n.lib fast\n.param rv=100\n.endl fast\n.lib slow\n.param rv=400\n.lib \"o.lib\" slow\n.endl\n", &r2);
+    try has(lib, ".lib fast\n.param rv=100\n.endl fast\n.lib slow\n.param rv=400\n.lib \"o.lib\" slow\n.endl slow\n");
+    try clean(&r2);
+}

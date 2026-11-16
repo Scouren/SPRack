@@ -1233,6 +1233,25 @@ const Reader = struct {
         return false;
     }
 
+    /// The number of the last line that starts with the closing word of
+    /// `b`, 0 when there is none (`closed`).
+    fn lastClose(self: *const Reader, b: *const grammar.Block) u32 {
+        // ponytail: the whole file is scanned for each such opening line;
+        // keep the number if a library of very many sections is slow to read.
+        const word = b.close[0].text;
+        var it = std.mem.splitScalar(u8, self.lines.src, '\n');
+        var no: u32 = 0;
+        var last: u32 = 0;
+        while (it.next()) |l| {
+            no += 1;
+            const t = std.mem.trimStart(u8, l, " \t");
+            if (t.len < word.len or (t.len > word.len and !std.ascii.isWhitespace(t[word.len]))) continue;
+            const head = t[0..word.len];
+            if (if (self.g.lex.case_sensitive) std.mem.eql(u8, head, word) else std.ascii.eqlIgnoreCase(head, word)) last = no;
+        }
+        return last;
+    }
+
     fn body(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt) Allocator.Error![]ir.Stmt {
         // A growing list leaves every outgrown copy behind in an arena. Grow
         // it on the page allocator and keep one copy of the final size.
@@ -1332,6 +1351,7 @@ const Reader = struct {
             }
             for (self.g.blocks) |*b| {
                 if (!try self.m.run(b.kind, b.open, ti)) continue;
+                if (b.closed and self.lastClose(b) < line.no) continue;
                 var st = try self.m.build(line.no);
                 // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
                 if (st.kind == .tran and !numericSegments(&st)) continue;

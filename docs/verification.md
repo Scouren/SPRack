@@ -1532,6 +1532,28 @@ analysis and its line; all of them are still written, and LTspice refuses
 the deck. One `.op` beside one other analysis is a `caveat` warning on the
 `.op`, with the same reason.
 
+### 8.8 `.lib` with no section
+
+A 100 ohm / `rv` divider from 1 V, read back at `b`. `f.lib` is one line,
+`.param rv=400`; `s.lib` has the sections `fast` (rv = 100, closed by
+`.endl fast`) and `slow` (rv = 400, closed by a bare `.endl`).
+
+| deck line | observed |
+|---|---|
+| `.lib f.lib`, `.lib "f.lib"` | loads the whole file: 0.8 V |
+| `.lib "s.lib" slow`, `.lib 's.lib' fast` | loads the section: 0.8 V, 0.5 V |
+| `.lib s.lib slow` | refused, "File not found": the section is read as part of the name |
+| `.lib s.lib` | refused: in the file loaded whole, `.lib fast` is "File not found" and `.endl fast` "requires a preceding" `.lib` |
+
+So `.lib` with one word is a file wherever LTspice reads it, a deck or a
+file loaded whole, and it opens a section only in a file that is loaded by
+section, where an `.endl` closes it. The reader took every such line for
+the start of a section and reported a deck's `.lib file` as a block that is
+not closed. Now the block is `closed` in the grammar: the line opens a
+section only where a line starting with `.endl` follows it in the file, and
+elsewhere `read include = ".lib" path` takes it, so it is written as the
+target's include of a whole file.
+
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
 
 Observed: every statement below is what the simulator did with a deck of

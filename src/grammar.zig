@@ -177,6 +177,9 @@ pub const Block = struct {
     open: []const Node,
     inner: []const []const Node,
     close: []const Node,
+    /// `closed`: the opening line opens the block only where a line that
+    /// starts with the closing word follows; elsewhere the rules read it.
+    closed: bool = false,
 };
 /// Statements of `kinds` live between `open` and `close` in this dialect
 /// (VACASK's `control` ... `endc`). Transparent to the IR.
@@ -1392,9 +1395,14 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var open: []const Node = &.{};
             var close: []const Node = &.{};
             var inner: []const []const Node = &.{};
+            var closed = false;
             while (true) {
                 const bl = lines.next() orelse return c.fail(lines.no, "block is missing 'end'", .{});
                 if (std.mem.eql(u8, bl, "end")) break;
+                if (std.mem.eql(u8, bl, "closed")) {
+                    closed = true;
+                    continue;
+                }
                 const bh, const br = splitHead(bl);
                 const pat = try pattern(c, lines.no, kind, fold, br, defs);
                 if (std.mem.eql(u8, bh, "open")) {
@@ -1403,10 +1411,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     close = pat;
                 } else if (std.mem.eql(u8, bh, "inner")) {
                     inner = try c.add([]const Node, inner, pat);
-                } else return c.fail(lines.no, "expected open, inner, close or end", .{});
+                } else return c.fail(lines.no, "expected open, inner, close, closed or end", .{});
             }
             if (open.len == 0 or close.len == 0) return c.fail(lines.no, "block needs both open and close", .{});
-            blocks = try c.add(Block, blocks, .{ .kind = kind, .open = open, .inner = inner, .close = close });
+            if (closed and close[0].tag != .lit) return c.fail(lines.no, "a closed block's close starts with a word", .{});
+            blocks = try c.add(Block, blocks, .{ .kind = kind, .open = open, .inner = inner, .close = close, .closed = closed });
         } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or std.mem.eql(u8, head, "write")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `{s} kind = pattern`", .{head});
             var kname = std.mem.trim(u8, rest[0..eq], " \t");
