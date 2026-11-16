@@ -133,7 +133,9 @@ pub const BagEntry = struct {
     bare_pairs: bool = false,
     /// `gmindc=gmin+`: only written, from another dialect's statement, and
     /// after another key has written the slot (HSPICE says one SPICE gmin
-    /// as GMIN and GMINDC). Read, it takes only a repeat of the slot's value.
+    /// as GMIN and GMINDC), on this line or on an earlier one of those the
+    /// statement is written as (Xyce says one reltol under three packages).
+    /// Read, it takes only a repeat of the slot's value.
     also: bool = false,
     /// `maxstep=maxstep?$step`: written, from another dialect's statement
     /// only, when the slot is empty; `$slot` expands.
@@ -351,8 +353,9 @@ pub fn paramsOpen(table: []const Spellings) bool {
 /// A function or operator this dialect spells like the others but
 /// evaluates differently (HSPICE `pow` truncates its exponent).
 pub const Differs = struct { canon: []const u8, text: []const u8 };
-/// A kind the simulator itself lacks, and why.
-pub const Absent = struct { kind: Kind, reason: []const u8 };
+/// A kind the simulator itself lacks, and why; with a slot, the one value
+/// of a kind it has (`no options vntol : why`), the reason ending the error.
+pub const Absent = struct { kind: Kind, slot: u8 = no_slot, reason: []const u8 };
 /// `switch "simulator lang=spice" -> hspice`: from a line that starts with
 /// these words on, the file is in another dialect.
 pub const Switch = struct { words: []const u8, dialect: []const u8 };
@@ -511,7 +514,12 @@ pub const Grammar = struct {
     }
 
     pub fn absentReason(g: *const Grammar, kind: Kind) ?[]const u8 {
-        for (g.absent) |e| if (e.kind == kind) return e.reason;
+        return g.slotAbsentReason(kind, no_slot);
+    }
+
+    /// Why the simulator cannot say this slot of a kind it has.
+    pub fn slotAbsentReason(g: *const Grammar, kind: Kind, slot: u8) ?[]const u8 {
+        for (g.absent) |e| if (e.kind == kind and e.slot == slot) return e.reason;
         return null;
     }
 
@@ -1745,8 +1753,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "rerun")) {
             reruns = try c.add(Kind, reruns, try kindOf(c, no, rest));
         } else if (std.mem.eql(u8, head, "no")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind : reason`", .{});
-            absent = try c.add(Absent, absent, .{ .kind = try kindOf(c, no, std.mem.trim(u8, rest[0..colon], " \t")), .reason = rest[colon + 3 ..] });
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind [slot] : reason`", .{});
+            const e = try args(c, no, rest[0..colon]);
+            if (e.len != 1 and e.len != 2) return c.fail(no, "no needs a kind, or a kind and a slot", .{});
+            const kind, const slot = if (e.len == 2) try kindSlot(c, no, e[0], e[1]) else .{ try kindOf(c, no, e[0]), no_slot };
+            absent = try c.add(Absent, absent, .{ .kind = kind, .slot = slot, .reason = rest[colon + 3 ..] });
         } else return c.fail(no, "unknown directive `{s}`", .{head});
     }
     if (std.mem.eql(u8, c.name, "?")) return c.fail(1, "missing `dialect <name>`", .{});

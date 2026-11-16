@@ -487,6 +487,8 @@ test "every `no` line: the kind is an error in that dialect, and the reason is t
         // as agauss() in the parameter (`stats.zig`), alters of parameters as
         // a table of runs (`alter.zig`).
         if (no.kind == .statistics or no.kind == .alter) continue;
+        // One value of a kind the dialect has: "xyce: a tolerance is three options".
+        if (no.slot != sprack.grammar.no_slot) continue;
         var stmts = [_]ir.Stmt{try sampleStmt(a, no.kind, null)};
         const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
         var r: ir.Report = .init(a);
@@ -501,6 +503,54 @@ test "every `no` line: the kind is an error in that dialect, and the reason is t
     };
     try testing.expectEqual(0, bad);
     try testing.expect(count > 100);
+}
+
+test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    // The time step's, an operating point's Newton and a transient's (4.19).
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", "t\n.options gmin=1e-10 reltol=1e-5\n.op\n.end\n", &r1);
+    try has(xy, ".options timeint reltol=1e-5\n.options nonlin reltol=1e-5\n.options nonlin-tran reltol=1e-5\n.options device gmin=0.1n\n");
+    try clean(&r1);
+    try testing.expect(!r1.contains(.warning, "ABSTOL"));
+    // Read back, the three lines are the one reltol, and Xyce keeps its lines.
+    var r2: ir.Report = .init(a);
+    try testing.expectEqualStrings(xy, try tr(a, "xyce", "xyce", xy, &r2));
+    try has(try tr(a, "xyce", "ngspice", xy, &r2), ".options reltol=1e-5\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // Under nonlin alone it is not the reltol of the others, as before.
+    var r3: ir.Report = .init(a);
+    const own = "t\n.options nonlin reltol=1u\n.options timeint reltol=1e-4\n.op\n.end\n";
+    try testing.expectEqualStrings(own, try tr(a, "xyce", "xyce", own, &r3));
+    try testing.expectEqual(0, r3.items.items.len);
+    try has(try tr(a, "xyce", "ngspice", own, &r3), ".options reltol=1e-4\n");
+    try reported(&r3, .@"error", "options: 'reltol=1u' has no spelling in ngspice");
+
+    // One ABSTOL for voltages and currents; no factor on the truncation
+    // error; no charge tolerance in the step control.
+    var r4: ir.Report = .init(a);
+    const tol = try tr(a, "ngspice", "xyce", "t\n.options abstol=1p vntol=10n trtol=1 chgtol=1e-20\n.tran 1n 1u\n.end\n", &r4);
+    try has(tol, ".options timeint abstol=1p\n.options nonlin abstol=1p\n.options nonlin-tran abstol=1p\n.tran");
+    try reported(&r4, .warning, "options.abstol: Xyce's ABSTOL bounds node voltages as well as branch currents");
+    try reported(&r4, .@"error", "options.vntol = 10n has no spelling in xyce: Xyce has no voltage tolerance: the ABSTOL of each package bounds node voltages and branch currents alike");
+    try reported(&r4, .@"error", "options.trtol = 1 has no spelling in xyce: Xyce has no factor on the truncation error");
+    try reported(&r4, .@"error", "options.chgtol = 1e-20 has no spelling in xyce: Xyce's step control bounds the error of each unknown, not of a charge");
+    try testing.expectEqual(3, r4.count(.@"error"));
+    // Every such line of a grammar ends the error of its slot.
+    for (&sprack.grammars) |*g| for (g.absent) |no| {
+        if (no.slot == sprack.grammar.no_slot) continue;
+        try testing.expectEqualStrings("xyce", g.name);
+        try testing.expect(r4.contains(.@"error", no.reason));
+    };
+
+    // HSPICE says one reltol twice on one line; in its own dialect a line is kept as read.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", "t\n.option reltol=1e-4\n.op\n.end\n", &r5), ".option reltol=1e-4\n");
+    try has(try tr(a, "hspice", "xyce", "t\n.option absv=1u absi=1p\n.op\n.end\n", &r5), ".options nonlin abstol=1p\n");
+    try reported(&r5, .@"error", "options.vntol = 1u has no spelling in xyce: Xyce has no voltage tolerance");
 }
 
 /// How many report entries the translation of `src` gave.
@@ -1468,9 +1518,10 @@ test "options: one vocabulary, five ways of filing it" {
 
     var r2: ir.Report = .init(a);
     const xy = try tr(a, "ngspice", "xyce", src, &r2);
-    try has(xy, ".options timeint reltol=1e-4 abstol=1p method=gear\n.options device gmin=1p temp=85 tnom=25\n.options parser scale=1u\n");
+    try has(xy, ".options timeint reltol=1e-4 abstol=1p method=gear\n.options nonlin reltol=1e-4 abstol=1p\n.options nonlin-tran reltol=1e-4 abstol=1p\n" ++
+        ".options device gmin=1p temp=85 tnom=25\n.options parser scale=1u\n");
     // Xyce has one absolute tolerance, not a separate voltage tolerance.
-    try reported(&r2, .@"error", "options.vntol = 1u has no spelling in xyce");
+    try reported(&r2, .@"error", "options.vntol = 1u has no spelling in xyce: Xyce has no voltage tolerance");
     try testing.expectEqual(1, r2.count(.@"error"));
 
     var r3: ir.Report = .init(a);

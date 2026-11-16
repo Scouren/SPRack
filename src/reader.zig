@@ -37,6 +37,11 @@ const Matcher = struct {
     /// Token index where the innermost `~"("` of the pattern was passed.
     paren_open: usize = 0,
     log: std.ArrayList(Capture) = .empty,
+    /// What the option statements built so far in this pass said, slot by
+    /// slot, copied to outlive them: a later one may say it again under
+    /// another heading (`reltol=reltol+`).
+    said: std.ArrayList(Capture) = .empty,
+    keep: ir.Keep,
     /// Index of the `nl` token that ended the last successful match.
     end: usize = 0,
     /// Stack address where the match began: see `max_stack`.
@@ -703,6 +708,13 @@ const Matcher = struct {
                 for (self.log.items) |c| {
                     if (c.slot == e.slot and c.key.len == 0 and c.val.eql(v)) return true;
                 }
+                // Said by an earlier option statement (Xyce files one reltol
+                // under three headings): this statement holds it too.
+                if (self.kind == .options) for (self.said.items) |c| {
+                    if (c.slot != e.slot or !c.val.eql(v)) continue;
+                    try self.log.append(self.arena, .{ .slot = e.slot, .val = v });
+                    return true;
+                };
                 continue;
             }
             switch (e.form) {
@@ -781,9 +793,12 @@ const Matcher = struct {
         return null;
     }
 
-    fn build(self: *const Matcher, line: u32) Allocator.Error!ir.Stmt {
+    fn build(self: *Matcher, line: u32) Allocator.Error!ir.Stmt {
         var st = try ir.newStmt(self.arena, self.kind, line);
         try self.applyTo(&st);
+        if (self.kind == .options) for (self.log.items) |c| {
+            if (c.key.len == 0) try self.said.append(self.keep.perm, .{ .slot = c.slot, .val = try ir.cloneValue(self.keep, c.val) });
+        };
         return st;
     }
 };
@@ -2303,7 +2318,7 @@ pub const Source = struct {
             .report = report,
             .boiler = boiler.items,
             .folded_boiler = folded.items,
-            .m = .{ .g = g, .arena = perm, .win = &s.win, .lines = &s.lines, .declared = &s.declared },
+            .m = .{ .g = g, .arena = perm, .win = &s.win, .lines = &s.lines, .declared = &s.declared, .keep = .{ .perm = perm, .src = src } },
         };
         errdefer s.r.spell.deinit();
         // The spelling table is filled in the first pass: nothing that pass
@@ -2325,6 +2340,7 @@ pub const Source = struct {
         s.win.rewind(keep);
         s.r.ti = 0;
         s.r.folded = false;
+        s.r.m.said.clearRetainingCapacity();
         s.useArena(arena);
     }
 

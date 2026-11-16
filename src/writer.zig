@@ -76,6 +76,8 @@ const Emit = struct {
     lost_flags: usize = 0,
     /// Slots an earlier rule already wrote; this rule must not repeat them.
     hide: u64 = 0,
+    /// How many of them a `k=slot+` of this rule said once more.
+    again: usize = 0,
     /// Why the last attempt could not write the statement.
     why: []const u8 = "",
     funcs: ?*const expr.Funcs = null,
@@ -677,10 +679,21 @@ const Emit = struct {
                                 });
                                 continue;
                             }
-                            if (b.also) {
+                            // An earlier line of this statement wrote the slot.
+                            const before = b.also and b.slot < 64 and e.hide & (@as(u64, 1) << @intCast(b.slot)) != 0;
+                            if (b.also and e.foreign) {
                                 // Only after another key wrote it, for another dialect's statement.
-                                if (!e.foreign or !e.bound(b.slot) or !e.isUsed(b.slot)) continue;
-                            } else if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
+                                if (!before and !(e.bound(b.slot) and e.isUsed(b.slot))) continue;
+                            } else if (!e.bound(b.slot) or e.isUsed(b.slot)) {
+                                continue;
+                            } else if (b.also) {
+                                // In its own dialect, only where this key read it: on a
+                                // line that says again what an earlier line said.
+                                const owned = for (n.bag) |o| {
+                                    if (!o.also and o.slot == b.slot and (o.form == .plain or o.form == .quoted or o.form == .vector)) break true;
+                                } else false;
+                                if (owned) continue;
+                            }
                             // Two slots this dialect spells with one key
                             // (`gmin=gmin gmin=gmindc`): one value is said; two are a loss.
                             const twin = for (n.bag[0..bi]) |o| {
@@ -716,6 +729,7 @@ const Emit = struct {
                                 try e.arena.print("{s}={s}", .{ b.key, vt });
                             try e.tok(text);
                             e.mark(b.slot);
+                            e.again += @intFromBool(before);
                         },
                     }
                 }
@@ -792,8 +806,9 @@ const Emit = struct {
                 }
                 continue;
             }
-            e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in {s}", .{
-                @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name,
+            const why = e.g.slotAbsentReason(e.st.kind, idx);
+            e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in {s}{s}{s}", .{
+                @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name, if (why != null) ": " else "", why orelse "",
             });
         }
     }
@@ -1748,24 +1763,31 @@ const Writer = struct {
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
         }
-        if (class == .control and best_loss > 0) {
+        if (class == .control) {
             // What one statement cannot hold, further statements may:
-            // `.options timeint ...` next to `.options device ...`.
+            // `.options timeint ...` next to `.options device ...`. One that
+            // only says again what an earlier one said (`reltol=reltol+`,
+            // `.options nonlin ...`) is written once.
+            const said = try a.alloc(bool, w.g.rules.len);
+            @memset(said, false);
             var progress = true;
             while (progress) {
                 progress = false;
-                for (w.g.rules) |*more| {
+                for (w.g.rules, said) |*more, *was| {
                     if (more.kind != st.kind or more.dir == .read) continue;
                     var probe = w.emitter(a, st);
                     probe.quiet = true;
                     probe.hide = e.used;
-                    if (!try probe.seq(more.pat) or probe.used & ~e.used == 0) continue;
+                    if (!try probe.seq(more.pat)) continue;
+                    const fresh = probe.used & ~e.used != 0;
+                    if (!fresh and (probe.again == 0 or was.*)) continue;
                     var extra = w.emitter(a, st);
                     extra.hide = e.used;
                     _ = try extra.seq(more.pat);
                     try w.line(extra.buf.items);
                     e.used |= extra.used;
-                    progress = true;
+                    was.* = true;
+                    progress = progress or fresh;
                 }
             }
         }

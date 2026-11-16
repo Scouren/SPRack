@@ -86,7 +86,9 @@ Rules are tried in file order when reading. When writing, the rule that loses
 least is chosen and, among equals, the one that keeps the instance's name. A
 `control` kind (options, save, ...) may be written as several statements when
 no single rule holds everything, which is how `.options timeint ...` and
-`.options device ...` come from one set of options.
+`.options device ...` come from one set of options; a rule of `k=slot+`
+entries alone adds a statement that says an earlier one's values again
+(`.options nonlin ...`).
 
 ## Patterns
 
@@ -109,7 +111,7 @@ What may stand on the right of a rule, and on the lines of a block.
 | `( ... )*` `( ... )+` `( ... )#n` | the group repeated, zero or more / one or more / exactly slot `n` times. Every slot in it is a list slot, written without `*`; each pass takes the next item of each (`( "f" freqs "h" harms )*` writes `f 1k h 3 f 2k h 5`). A separator may be glued on: `( ... )*","`, or `( ... )*~","` to write it tight. Groups do not nest, and hold no `{ }` or `...` |
 | `<name>` | the pattern of a `define`, as if written here |
 | `/` | the statement continues on the next line |
-| `{ k=slot k="slot" k=[slot] k==lit k=slot! k=slot?$other k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, defaulted (written from another dialect when the slot is empty, a `synthesized` warning), tagged, `v(node)=value` (`v(*)=slot+` also reads bare `node value` pairs), and everything else. `k=slot+` writes another dialect's slot once more under this key (`reli=reltol+`: HSPICE says one reltol twice); read, it takes only a repeat of the value already read, and otherwise leaves the key to later entries. Two slots one key spells (`gmin=gmin gmin=gmindc`) are written once, a loss when their values differ. `...rest?` also takes bare flags; `k==lit!@s:a` is a fixed pair that stands for `s` = `a` |
+| `{ k=slot k="slot" k=[slot] k==lit k=slot! k=slot?$other k=p@s:a v(*)=slot ...rest }` | `key=value` pairs in any order: plain, quoted, vector, fixed, required, defaulted (written from another dialect when the slot is empty, a `synthesized` warning), tagged, `v(node)=value` (`v(*)=slot+` also reads bare `node value` pairs), and everything else. `k=slot+` writes another dialect's slot once more under this key (`reli=reltol+`: HSPICE says one reltol twice), on the same line or on a later one of the lines a `control` statement is written as (Xyce says one reltol under `timeint`, `nonlin` and `nonlin-tran`); read, it takes only a repeat of the value already read, on its line or on an earlier option line, and otherwise leaves the key to later entries. Two slots one key spells (`gmin=gmin gmin=gmindc`) are written once, a loss when their values differ. `...rest?` also takes bare flags; `k==lit!@s:a` is a fixed pair that stands for `s` = `a` |
 
 ## Meaning that is not syntax
 
@@ -222,6 +224,8 @@ computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # the other dialect's line, in the error for
                                    # a card that has no form in one of the two
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
+no options vntol : Xyce has no ...              # one value of a kind it has: the
+                                                # reason ends the error of that slot
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
                                                  # (`negpow`: a minus after an

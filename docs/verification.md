@@ -1309,6 +1309,138 @@ tnom=27 delmax=0.05n`, `exp(0 1 3n 0.3n 5n 2n)`, `.tran 2n 50n start=0`) ends
 in HSPICE with 0 errors and 0 warnings and reads 564.6303m, 810.7891m and
 964.2627m at 3.25n, 3.5n and 4n (exact curve 0.565402, 0.811124, 0.964326).
 
+### 4.19 Xyce's tolerances (m2)
+
+Xyce 7.10 and ngspice 45, on the decks of 4.7 (c5). Values are read with
+`.print dc precision=12` at the one point of a `.dc` (operating points),
+`.print tran precision=12` (the ramp) and `.measure` (the tank); the counts
+are those of Xyce's own run summary (steps taken, residual evaluations).
+
+**Which options there are.** An option a package does not have is named and
+the run goes on: `Netlist warning ... No options parameter vntol found,
+parameter will be ignored.`
+
+| package | `reltol` | `abstol` | `vntol` | `trtol` | `chgtol` |
+|---|---|---|---|---|---|
+| `nonlin` | taken | taken | not found | not found | not found |
+| `nonlin-tran` | taken | taken | not found | not found | not found |
+| `timeint` | taken | taken | not found | not found | not found |
+| `device` | not found | taken | not found | not found | taken |
+
+**An operating point.** Three decks. *D3* is the deck of 4.7: 5 V, 10 ohm and
+three default diodes in series. *DV*: a 0.26 A source into 10 ohm across the
+same three diodes, so that every unknown is a node voltage. *DI*: 0.8 V
+across one diode, where V(a) is 0.8 from the first iteration and the one
+unknown still moving is the source's branch current. In brackets, the
+residual evaluations.
+
+| options | D3 V(a) | DV V(a) | DI I(v1) |
+|---|---|---|---|
+| none | 2.396859369380 (5) | 2.242756227095 (5) | -0.2710666946606 (5) |
+| `nonlin abstol=1` | the same (5) | the same (5) | the same (4) |
+| `nonlin reltol=1` | the same (5) | the same (5) | the same (4) |
+| `nonlin rhstol=1` | the same (5) | 2.242764152188 (4) | the same (5) |
+| `nonlin rhstol=1 abstol=1` | 2.399407006071 (3) | 2.243981267085 (3) | -0.1614752983765 (3) |
+| `nonlin rhstol=1 reltol=1` | 2.399407006071 (3) | 2.258217701509 (2) | -0.1614752983765 (3) |
+| `nonlin rhstol=1`, `timeint reltol=1 abstol=1` | as `rhstol=1` alone | as `rhstol=1` alone | as `rhstol=1` alone |
+| `nonlin rhstol=1`, `nonlin-tran rhstol=1 reltol=1 abstol=1` | as `rhstol=1` alone | as `rhstol=1` alone | as `rhstol=1` alone |
+| `nonlin reltol=1e-6` | 2.396859359264 (6) | | |
+| `timeint reltol=1e-6 abstol=1e-12` | 2.396859369380 (5) | | |
+| all three packages, `reltol=1e-6 abstol=1e-12` | 2.396859359264 (6) | | |
+| `nonlin abstol=0` | 2.396859369380 (5) | | |
+| `device abstol=1` | 2.396859369380 (5) | | |
+| `nonlin rhstol=1 reltol=1 abstol=1`, `device abstol=1 chgtol=1` | 2.399407006071 (3) | | |
+
+Newton in an operating point stops on two tests, both of `nonlin`: one on the
+update, weighted by RELTOL and ABSTOL, and one on the residual, RHSTOL. A
+loose RELTOL or ABSTOL moves the answer once RHSTOL is loose too; a tight
+RELTOL moves it by itself, to the value every tighter setting gives
+(2.396859359264). The tolerances of `timeint` and `nonlin-tran` move no
+operating point. ABSTOL bounds node voltages (DV) and a branch current (DI)
+alike: there is one absolute tolerance, and no package has a VNTOL. The
+ABSTOL and CHGTOL that `device` takes moved nothing here, nor on a
+diode-connected level-1 MOSFET (V(d) 2.798386676243 with `device abstol=1`
+and with `1e-18`).
+
+**A transient.** D3 with the source a ramp, `pwl(0 0 1u 5)`, and `.tran 10n
+1u`: V(a) at 1 us, where the tight operating point is 2.396859359264.
+
+| options | V(a) at 1 us | steps | residual evaluations |
+|---|---|---|---|
+| none | 2.396850692297 | 20 | 59 |
+| `nonlin reltol=1e-6` | 2.396850692297 | 20 | 59 |
+| `nonlin-tran reltol=1e-6` | 2.396859359264 | 20 | 76 |
+| `timeint reltol=1e-6 abstol=1e-12` | 2.396859359455 | 421 | 868 |
+| all three packages, `reltol=1e-6 abstol=1e-12` | 2.396859359264 | 421 | 1263 |
+| `nonlin-tran reltol=1` | 2.396870419133 | 21 | 53 |
+| `nonlin-tran abstol=1` | 2.396857411984 | 23 | 51 |
+| `nonlin rhstol=1 reltol=1 abstol=1` | 2.396850899024 | 35 | 108 |
+| `timeint reltol=1 abstol=1` | 2.396857809855 | 14 | 41 |
+
+The Newton of a transient is stopped by `nonlin-tran`; `nonlin` reaches only
+the operating point it starts from (with the loose set V(a) at t=0 is
+1.483721873887 where the source is at 0 V, and the run takes 35 steps to
+recover). `timeint` sets the number of steps.
+
+**The tank of 4.7** (1 uH, 1 nF, started at 1 V, 20 us; the largest V(a) of
+the last microsecond), the step left to the error control: Xyce `.ic v(a)=1`
+and `.tran 0.1n 20u uic` (its first step is the `.tran` step, taken by
+backward Euler: with `10n` V(a) is 0.909 after it and the tank keeps 0.9527),
+ngspice `ic=1` on the capacitor and `.tran 10n 20u 0 1u uic`.
+
+| Xyce | largest V | steps | | ngspice | largest V | points |
+|---|---|---|---|---|---|---|
+| none | 0.99997133 | 12504 | | none | 0.9996779 | 776 |
+| `timeint reltol=1e-1` | 0.00013910 | 1326 | | `reltol=1e-1` | 0.7158212 | 38 |
+| `timeint reltol=1e-6` | 0.99999363 | 147711 | | `reltol=1e-6` | 0.9999754 | 12083 |
+| `timeint abstol=1e-3` | 0.99663218 | 4652 | | `abstol=1e-3` | 0.9784640 | 449 |
+| `timeint abstol=1` | 0.68212424 | 95 | | `abstol=1` | 0.7158212 | 38 |
+| `timeint abstol=1e-15` | as none | 12504 | | `abstol=1e-15` | as none | 776 |
+| `nonlin-tran rhstol=1 reltol=1 abstol=1` | as none | 12504 | | `vntol=1` | as none | 776 |
+| `nonlin rhstol=1 reltol=1 abstol=1` | as none | 12504 | | `trtol=1` | 0.9957405 | 2006 |
+| `device chgtol=1e-6`, `=1`, `=0` | as none | 12504 | | `trtol=70` | 0.1540101 | 41 |
+| `device abstol=1 chgtol=1` | as none | 12504 | | `chgtol=0`, `1e-21`, `1e-10` | as none | 776 |
+| | | | | `chgtol=1e-8` | 0.9997347 | 720 |
+| | | | | `chgtol=1e-6` | 0.01609275 | 42 |
+
+ngspice on the ramp, with the step cap raised so that Newton starts far from
+the answer (`.tran 10n 1u 0 1u`, 16 points): V(a) at 1 us is 2.398507159547,
+2.412694373169 with `reltol=1`, the same with `vntol=1 abstol=1`, and
+2.396925108438 with `reltol=1e-6`. Its one reltol stops Newton in a transient
+as in an operating point (4.7) and sets the step; its abstol does the same
+for currents; its vntol plays no part in the step.
+
+**What the grammar says.**
+
+- *reltol, abstol.* SPICE's one tolerance is three options in Xyce, and the
+  grammar filed both under `timeint` alone, which is a bug: the translation
+  kept the step control and stopped no Newton iteration. They are now written
+  under `timeint`, `nonlin` and `nonlin-tran`. The three-diode deck with the
+  commonest tolerance line of the corpus (`.options reltol=1e-6 abstol=1e-12
+  vntol=1e-8`), translated from ngspice and run in Xyce: 2.396859369380 as
+  written before (Xyce's default answer, 5 evaluations), 2.396859359264 as
+  written now (6). Read back, a line that says an earlier line's value again
+  is that one tolerance; a `nonlin` or `nonlin-tran` tolerance of its own
+  stays Xyce's (an error crossing out, as before), and a `timeint` one alone
+  still reads as the tolerance.
+- *RHSTOL* has no counterpart elsewhere and stays at its default (1e-6 A in
+  an operating point), so a loose reltol from another dialect does not loosen
+  Xyce's Newton as far as it loosens ngspice's (`reltol=1` moves ngspice's
+  operating point, 4.7, and not Xyce's).
+- *vntol.* No form: one ABSTOL bounds voltages and currents alike, so the two
+  numbers of `abstol=1e-12 vntol=1e-8` cannot both be said. abstol is written
+  (with a caveat: it holds the voltages too) and vntol is an error that says
+  so.
+- *trtol.* No form, and the loss is real: `trtol=1`, the only value in the
+  corpus, takes ngspice's tank from 776 points to 2006, and no Xyce package
+  has a factor on the truncation error. An error that says so.
+- *chgtol.* No form. In ngspice a value at or below 1e-10 (the corpus has 0,
+  1e-21, 1e-20 and 1e-14) changes no step of a tank that holds 1 nC, and one
+  of 1e-8 or more does. Xyce's step control bounds the error of each unknown,
+  not of a charge; the CHGTOL its `device` package takes is another thing (it
+  moved no step at 1e-6, 1 or 0). An error that says so.
+- Spectre's `trtol` and `chgtol` are not touched here.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
