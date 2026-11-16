@@ -682,9 +682,12 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
             // analyses: one `unsupported` error each, and the rest intact.
             const gt = sprack.find(to).?;
             const dropped = droppedIn(read_nl, gt);
-            // The samples with analyses have five, and LTspice loads one a
-            // deck: one `invalid` error, with every analysis written.
-            const many: usize = @intFromBool(gt.unique_analysis != null and !std.mem.eql(u8, from, to) and countKind(read_nl, .tran) + countKind(read_nl, .ac) > 1);
+            // The samples with analyses have four or five, and LTspice loads
+            // one a deck: an `invalid` error on each, with all of them written.
+            var many: usize = 0;
+            if (gt.unique_analysis) |u| if (!std.mem.eql(u8, from, to)) {
+                for (u.kinds) |k| many += countKind(read_nl, k);
+            };
             try testing.expectEqual(dropped + many, report.count(.@"error"));
             try testing.expectEqual(dropped, report.countCode(.unsupported));
             try testing.expectEqual(many, report.countCode(.invalid));
@@ -5640,7 +5643,7 @@ test "u1: a subcircuit's inner parameters are written on the header where an ins
 // z2: what the LTspice verification left open. Measured: docs/verification.md
 // 8.7 to 8.11.
 
-test "z2: more analyses than LTspice loads in one deck are an error that names them" {
+test "z2: more analyses than LTspice loads in one deck are an error on each that names them" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -5649,17 +5652,21 @@ test "z2: more analyses than LTspice loads in one deck are an error that names t
     // Both are written: none is dropped or picked.
     var r1: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "ltspice", ckt ++ ".dc V1 0 1 0.5\n.ac dec 2 1 1k\n.end\n", &r1), ".dc V1 0 1 0.5\n.ac dec 2 1 1k\n");
-    try reported(&r1, .@"error", "dc (line 4) and ac (line 5) in one netlist; " ++ why);
-    try testing.expectEqual(1, r1.count(.@"error"));
+    try reported(&r1, .@"error", "dc: one of 2 analyses in this netlist (dc, ac); " ++ why);
+    try reported(&r1, .@"error", "ac: one of 2 analyses in this netlist (dc, ac); " ++ why);
+    try testing.expectEqual(2, r1.count(.@"error"));
+    try testing.expectEqual(4, r1.items.items[0].line);
+    try testing.expectEqual(5, r1.items.items[1].line);
     // A second .op is one too many beside another analysis.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "ltspice", ckt ++ ".op\n.tran 1u 1m\n.op\n.end\n", &r2);
-    try reported(&r2, .@"error", "op (line 4), tran (line 5) and op (line 6) in one netlist; " ++ why);
+    try reported(&r2, .@"error", "tran: one of 3 analyses in this netlist (op, tran, op); " ++ why);
+    try testing.expectEqual(3, r2.count(.@"error"));
     // One .op beside one other loads, and only the other runs.
     var r3: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "ltspice", ckt ++ ".tran 1u 1m\n.op\n.end\n", &r3), ".tran 1u 1m\n.op\n");
     try clean(&r3);
-    try reported(&r3, .warning, "op (line 5) beside tran (line 4); " ++ why);
+    try reported(&r3, .warning, "op beside tran; " ++ why);
     // A Fourier line and a measure do not count, and neither does a sweep.
     var r4: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "ltspice", ckt ++ ".tran 1u 1m\n.four 1k v(a)\n.meas tran m1 max v(a)\n.end\n", &r4);

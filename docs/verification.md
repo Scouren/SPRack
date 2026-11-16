@@ -1527,10 +1527,10 @@ file: nothing runs, not the first analysis either.
 So each of the six counts, a deck may hold one, and a second is taken only
 when one of the two is `.op`, which is then not run on its own. The
 grammar line is `unique analysis dc ac tran noise tf beside op`. A netlist
-crossing into LTspice with more is an `invalid` error that names each
-analysis and its line; all of them are still written, and LTspice refuses
-the deck. One `.op` beside one other analysis is a `caveat` warning on the
-`.op`, with the same reason.
+crossing into LTspice with more has an `invalid` error on each analysis, at
+its line, that names all of them; they are all still written, and LTspice
+refuses the deck. One `.op` beside one other analysis is a `caveat` warning
+on the `.op`, with the same reason.
 
 ### 8.8 `.lib` with no section
 
@@ -1654,12 +1654,12 @@ The 40 suite decks and the five samples of 8.6, translated after 8.7 to
 
 The deck with `pwl(...) r=0.5u` loads now: the repeat is not written, and
 its translation has the `loss` error for it, the one translation of the 40
-with an error. The two that do not load are the deck that names a node
+with an error (none of the 40 has more than one analysis). The two that do not load are the deck that names a node
 that does not exist and the 100 x 100 resistor grid, in Gmin stepping at
 the 90 s limit. The five samples are refused as before, "More than one
 analysis specified."; what is new is that each translation says so, with
-one `invalid` error naming `.op`, `.dc`, `.ac`, `.tran` and `.noise` and
-their lines. The ngspice sample cut to its `.op` and `.tran` is translated
+an `invalid` error on each analysis that names them all (in the ngspice
+sample `.op`, `.dc`, `.ac`, `.tran` and `.noise`). The ngspice sample cut to its `.op` and `.tran` is translated
 with the `caveat` on the `.op` and loads, leaving a `.op.raw` and a
 transient `.raw` file.
 

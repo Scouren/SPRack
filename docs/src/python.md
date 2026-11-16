@@ -310,7 +310,8 @@ written as they are. For any other target they are errors:
 
 ```python
 k.code(".options plotwinsize=0\n", "ltspice")
-print(".options plotwinsize=0" in k.netlist("ltspice"))
+# Not strict: the two analyses above are errors for LTspice, which loads one a deck.
+print(".options plotwinsize=0" in k.netlist("ltspice", strict=False))
 try:
     k.netlist("ngspice")
 except sprack.Unsupported as e:

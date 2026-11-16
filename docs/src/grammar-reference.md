@@ -176,8 +176,8 @@ unique master : ...                # a name both a model and a subcircuit define
                                    # letter are renamed (nch__m), an info
 unique analysis dc ac tran beside op : ...   # the statements that count as an
                                    # analysis where a netlist with more than
-                                   # one is refused: an error naming each and
-                                   # its line, with all of them written.
+                                   # one is refused: an error on each, naming
+                                   # them all, with all of them written.
                                    # `beside op`: `op` counts too, and two are
                                    # taken when one is an `op`, which is then
                                    # not run: a `caveat` warning on it

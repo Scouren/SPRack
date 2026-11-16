@@ -2084,26 +2084,24 @@ fn collectAnalyses(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt, foun
 }
 
 /// `unique analysis`: more analyses than the simulator loads in one netlist
-/// are an error that names them; two it loads, running one, a caveat on
-/// the other.
+/// are an error on each; two it loads, running one, a caveat on the other.
+/// The lines are the entries': a message is the same for a netlist built
+/// in Python, whose statements have other lines.
 fn uniqueAnalyses(a: Allocator, g: *const Grammar, found: []const Analysis, report: *ir.Report) Allocator.Error!void {
     const u = g.unique_analysis orelse return;
     if (found.len < 2) return;
     var besides: usize = 0;
     for (found) |f| besides += @intFromBool(f.kind == u.beside);
-    // Two of the kind are the same analysis twice: nothing is left out.
-    if (found.len == 2 and besides == 2) return;
-    const pair = found.len == 2 and besides == 1;
-    const first: usize = if (pair and found[1].kind == u.beside) 1 else 0;
-    var names: std.ArrayList(u8) = .empty;
-    for (0..found.len) |i| {
-        const f = found[if (pair) first ^ i else i];
-        const sep = if (i == 0) "" else if (pair) " beside " else if (i + 1 == found.len) " and " else ", ";
-        try names.print(a, "{s}{s} (line {d})", .{ sep, @tagName(f.kind), f.line });
+    if (found.len == 2 and besides > 0) {
+        // Two of the kind are the same analysis twice: nothing is left out.
+        if (besides == 2) return;
+        const op: usize = @intFromBool(found[1].kind == u.beside);
+        report.add(.warning, .caveat, found[op].line, "{s} beside {s}; {s}", .{ @tagName(found[op].kind), @tagName(found[op ^ 1].kind), u.reason });
+        return;
     }
-    if (pair) {
-        report.add(.warning, .caveat, found[first].line, "{s}; {s}", .{ names.items, u.reason });
-    } else report.add(.@"error", .invalid, found[1].line, "{s} in one netlist; {s}", .{ names.items, u.reason });
+    var names: std.ArrayList(u8) = .empty;
+    for (found, 0..) |f, i| try names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", @tagName(f.kind) });
+    for (found) |f| report.add(.@"error", .invalid, f.line, "{s}: one of {d} analyses in this netlist ({s}); {s}", .{ @tagName(f.kind), found.len, names.items, u.reason });
 }
 
 /// The parameter names `stmts` define that start with a name the dialect
