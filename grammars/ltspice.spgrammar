@@ -126,6 +126,13 @@ rule  four      = ".four" freq signals+
 rule  print     = ( style:".print"=print | style:".plot"=plot ) [analysis] signals+
 caveat print style : LTspice reads the line and prints nothing; every node is in the .raw file
 
+# A deck holds one analysis: a second of .dc, .ac, .tran, .noise and .tf, the
+# same one again or another, is refused and nothing runs. One .op loads beside
+# one of them and is then not run: the operating point is in the .op.raw file
+# of an analysis that starts from one (not .dc, not a .tran with UIC). .four,
+# .meas, .step, .temp and .net do not count (docs/verification.md, 8.7).
+unique analysis dc ac tran noise tf beside op : LTspice refuses a deck with more than one analysis ("More than one analysis specified."), unless there are two and one is .op, which it then does not run on its own
+
 implied noise ref = 0
 implied tf ref = 0
 # Every run's log states both.

@@ -357,6 +357,11 @@ pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop", cuts
 /// UIC); with none listed, with any analysis.
 pub const Require = struct { what: Topo, err: bool, analyses: []const Kind = &.{}, reason: []const u8 };
 
+/// `kinds`: the statements that count as an analysis. More than one in a
+/// netlist is refused, except two when one is of the kind `beside` (it
+/// counts too), which is then loaded and not run.
+pub const UniqueAnalysis = struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
+
 pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
 pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv };
 pub const ModelEntry = struct {
@@ -407,6 +412,10 @@ pub const Grammar = struct {
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
+    /// `unique analysis kind... [beside kind] : why`: the statements that
+    /// count as an analysis where the simulator refuses a netlist with more
+    /// than one. Null: any number is taken.
+    unique_analysis: ?UniqueAnalysis = null,
     /// `hoist param from dialect...`: an instance sets only what a
     /// subcircuit's header declares here, so a parameter statement inside a
     /// subcircuit read from one of these dialects, measured to take it per
@@ -1320,6 +1329,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var omitted: []const Omitted = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
+    var unique_analysis: ?UniqueAnalysis = null;
     var hoist_param: []const []const u8 = &.{};
     var spreads: []const Spread = &.{};
     var reruns: []const Kind = &.{};
@@ -1585,13 +1595,24 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             }
             omitted = try c.add(Omitted, omitted, o);
         } else if (std.mem.eql(u8, head, "unique")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master|analysis kind... [beside kind] : reason`", .{});
             const what = std.mem.trim(u8, rest[0..colon], " \t");
             if (std.mem.eql(u8, what, "param")) {
                 unique_param = rest[colon + 3 ..];
             } else if (std.mem.eql(u8, what, "master")) {
                 unique_master = rest[colon + 3 ..];
-            } else return c.fail(no, "unique takes param or master, not '{s}'", .{what});
+            } else if (std.mem.startsWith(u8, what, "analysis ")) {
+                var u: UniqueAnalysis = .{ .reason = rest[colon + 3 ..] };
+                var it = std.mem.tokenizeAny(u8, what["analysis ".len..], " \t");
+                while (it.next()) |word| {
+                    const beside = std.mem.eql(u8, word, "beside");
+                    const k = try kindOf(c, no, if (beside) it.next() orelse "" else word);
+                    if (schema.info(k).class != .analysis) return c.fail(no, "unique analysis: '{s}' is not an analysis", .{@tagName(k)});
+                    if (beside) u.beside = k;
+                    u.kinds = try c.add(Kind, u.kinds, k);
+                }
+                unique_analysis = u;
+            } else return c.fail(no, "unique takes param, master or analysis, not '{s}'", .{what});
         } else if (std.mem.eql(u8, head, "hoist")) {
             const a = try args(c, no, rest);
             if (a.len < 3 or !std.mem.eql(u8, a[0], "param") or !std.mem.eql(u8, a[1], "from")) return c.fail(no, "hoist is `hoist param from dialect...`", .{});
@@ -1716,6 +1737,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .omitted = omitted,
         .unique_param = unique_param,
         .unique_master = unique_master,
+        .unique_analysis = unique_analysis,
         .hoist_param = hoist_param,
         .spreads = spreads,
         .reruns = reruns,

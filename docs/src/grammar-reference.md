@@ -168,6 +168,13 @@ unique master : ...                # a name both a model and a subcircuit define
                                    # (in any file of a project): the model and
                                    # the devices that use it by their SPICE
                                    # letter are renamed (nch__m), an info
+unique analysis dc ac tran beside op : ...   # the statements that count as an
+                                   # analysis where a netlist with more than
+                                   # one is refused: an error naming each and
+                                   # its line, with all of them written.
+                                   # `beside op`: `op` counts too, and two are
+                                   # taken when one is an `op`, which is then
+                                   # not run: a `caveat` warning on it
 hoist param from ngspice ltspice   # an instance sets only what a subcircuit's
                                    # header declares here: a parameter
                                    # statement inside one, read from a dialect

@@ -2070,6 +2070,42 @@ fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep,
     }
 }
 
+const Analysis = struct { kind: ir.Kind, line: u32 };
+
+/// `unique analysis`: the statements of `stmts` that count as an analysis
+/// in `g`, outside subcircuits, in the order written.
+fn collectAnalyses(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt, found: *std.ArrayList(Analysis)) Allocator.Error!void {
+    const u = g.unique_analysis orelse return;
+    for (stmts) |*s| {
+        if (s.kind == .subckt) continue;
+        if (std.mem.indexOfScalar(ir.Kind, u.kinds, s.kind) != null) try found.append(a, .{ .kind = s.kind, .line = s.line });
+        try collectAnalyses(a, g, s.body, found);
+    }
+}
+
+/// `unique analysis`: more analyses than the simulator loads in one netlist
+/// are an error that names them; two it loads, running one, a caveat on
+/// the other.
+fn uniqueAnalyses(a: Allocator, g: *const Grammar, found: []const Analysis, report: *ir.Report) Allocator.Error!void {
+    const u = g.unique_analysis orelse return;
+    if (found.len < 2) return;
+    var besides: usize = 0;
+    for (found) |f| besides += @intFromBool(f.kind == u.beside);
+    // Two of the kind are the same analysis twice: nothing is left out.
+    if (found.len == 2 and besides == 2) return;
+    const pair = found.len == 2 and besides == 1;
+    const first: usize = if (pair and found[1].kind == u.beside) 1 else 0;
+    var names: std.ArrayList(u8) = .empty;
+    for (0..found.len) |i| {
+        const f = found[if (pair) first ^ i else i];
+        const sep = if (i == 0) "" else if (pair) " beside " else if (i + 1 == found.len) " and " else ", ";
+        try names.print(a, "{s}{s} (line {d})", .{ sep, @tagName(f.kind), f.line });
+    }
+    if (pair) {
+        report.add(.warning, .caveat, found[first].line, "{s}; {s}", .{ names.items, u.reason });
+    } else report.add(.@"error", .invalid, found[1].line, "{s} in one netlist; {s}", .{ names.items, u.reason });
+}
+
 /// The parameter names `stmts` define that start with a name the dialect
 /// keeps for itself (`reserved`): those `reservedRenames` renames, and the
 /// names a new one could clash with. With `src`, a name not in it is copied.
@@ -2774,6 +2810,9 @@ pub fn write(
         }
     }
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
+        var found: std.ArrayList(Analysis) = .empty;
+        try collectAnalyses(arena, g, nl.stmts, &found);
+        try uniqueAnalyses(arena, g, found.items, report);
         if (g.unique_param.len > 0) try uniqueParams(nl.stmts, report, g);
         if (g.unique_master.len > 0) {
             var renames = try masterRenames(arena, nl.stmts, env);
@@ -2943,6 +2982,8 @@ pub const Survey = struct {
     early: std.ArrayList(ir.Stmt) = .empty,
     /// Top-level analyses.
     analyses: usize = 0,
+    /// `collectAnalyses`.
+    counted: std.ArrayList(Analysis) = .empty,
     /// Two names differing only by case may be in it: the check runs.
     check_case: bool = true,
     facts: topology.Facts = .{},
@@ -2981,6 +3022,7 @@ pub const Survey = struct {
         for (stmts) |*s| {
             if (schema.info(s.kind).class == .analysis and s.kind != .alter) sv.analyses += 1;
         }
+        try collectAnalyses(a, g, stmts, &sv.counted);
         sv.facts.add(stmts);
         try sv.addGlobals(k, stmts);
         try sv.refs.want(k, stmts);
@@ -3101,7 +3143,11 @@ pub const Stream = struct {
                 while (ei.next()) |n| try s.subckts.put(perm, n.*, {});
             }
         }
-        if (s.foreign) s.param_renames = try reservedRenames(perm, g, &sv.reserved, env);
+        if (s.foreign) {
+            report.phase = ir.Phase.params;
+            try uniqueAnalyses(perm, g, sv.counted.items, report);
+            s.param_renames = try reservedRenames(perm, g, &sv.reserved, env);
+        }
         if (!std.mem.eql(u8, nl.dialect, g.name))
             s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items, sv.early.items);
         if (caps) |c| for (c.grammars) |*sg| {

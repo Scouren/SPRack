@@ -1503,6 +1503,34 @@ Left open: `.lib file` with no section in an LTspice deck is read as the
 start of a section and reported as a block that is not closed; a seventh
 value of `sine` (a cycle count: `sine(0 1 1k 0 0 0 3)` stops after three)
 has no slot; the instance parameters of devices were not checked.
+Sections 8.7 to 8.11 close these and the analyses, and 8.12 is the load
+check again.
+
+### 8.7 One analysis a deck
+
+One circuit (`V1 a 0 dc 1 ac 1 sine(0 1 1k)`, `R1 a b 1k`, `C1 b 0 1u`)
+with two or three of `.op`, `.tran 1u 1m`, `.dc V1 0 1 0.5`, `.ac dec 2 1
+1k`, `.noise v(b) V1 dec 2 1 1k` and `.tf v(b) V1`, one deck for each row.
+"Refused" is "More than one analysis specified.", exit status 1, no `.raw`
+file: nothing runs, not the first analysis either.
+
+| deck | observed |
+|---|---|
+| `.op` with each of the other five, `.op` first or last | loads; the other analysis runs. `.tran`, `.ac`, `.noise` and `.tf` write a `.op.raw` file, as they do with no `.op` line; `.dc` and `.tran 1u 1m uic` write none, so there the operating point is not to be had |
+| every pair of `.tran`, `.dc`, `.ac`, `.noise`, `.tf` (ten pairs; `.ac` then `.noise` and `.noise` then `.ac`) | refused |
+| the same one twice, with other values: `.tran`, `.dc`, `.ac`, `.noise`, `.tf` | refused |
+| `.op` twice | loads, one operating point |
+| `.op` three times; `.op` twice with `.tran` or `.dc`, in every order | refused |
+| `.op`, `.tran` and `.ac` | refused |
+| `.tran` with `.four 1k v(b)`; with two `.meas`; with `.step param` and `.temp 0 50`; `.ac` with `.net v(b) V1` | loads and runs (four runs for the step and the two temperatures) |
+
+So each of the six counts, a deck may hold one, and a second is taken only
+when one of the two is `.op`, which is then not run on its own. The
+grammar line is `unique analysis dc ac tran noise tf beside op`. A netlist
+crossing into LTspice with more is an `invalid` error that names each
+analysis and its line; all of them are still written, and LTspice refuses
+the deck. One `.op` beside one other analysis is a `caveat` warning on the
+`.op`, with the same reason.
 
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2)
 
