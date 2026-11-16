@@ -429,8 +429,8 @@ W 1u, L 0.13u, source and bulk grounded, drain 1.2 V; the drain current.
   nothing. The operating-area parameters are copied; Xyce ignores them.
 * The module's own `level` (`level=103.6` on the IHP cards) changes nothing
   in ngspice: without it, with 103, 103.6 or 7 the current is the same
-  102.076 uA. In Xyce, HSPICE and ESPice `level` is what names the model, so
-  the card's own is not written (a `loss` warning). Xyce itself loads
+  102.076 uA. In Xyce and HSPICE `level` is what names the model, so the
+  card's own is not written (a `loss` warning). Xyce itself loads
   `level=103.6` as 103.
 * The instance parameters of the IHP cards (`w l nf mult as ad ps pd dta
   ngcon delvto factuo`) are all instance parameters of Xyce's level 103
@@ -443,7 +443,6 @@ W 1u, L 0.13u, source and bulk grounded, drain 1.2 V; the drain current.
 * ngspice 45 without the module loaded refuses the card (`Unknown model
   type psp103va - ignored`): a PSP103 card written for ngspice carries a
   caveat that the deck must load `psp103.osdi` with `pre_osdi`.
-* ESPice was not there to try `psp103va` on; its grammar is unchanged.
 
 ---
 
@@ -551,7 +550,6 @@ TEMP set to 100 it gives the default TNOM.
 | dialect | TNOM | TEMP | note |
 |---|---|---|---|
 | ngspice 45 | 27 | 27 | |
-| ESPice (ngspice dialect) | 27 | 27 | |
 | Xyce 7.10 | 27 | 27 | |
 | VACASK | 27 | 27 | `sp_resistor` |
 | Spectre | 27 | 27 | |
@@ -565,8 +563,7 @@ These are the `implied options` lines; CDL has none. LTspice's are 27 and
 when left out and cut to FC/FM). Measured: `sffm(0 1 10meg 0 1meg)` is
 sin(2 pi 1M t). HSPICE and Xyce are `SFFM(VO VA FC MDI FS)`: Xyce matches
 sin(2 pi 10M t + 0.5 sin(2 pi 1M t)) to the printed digits; HSPICE to its
-print step; HSPICE's MDI is 0 when left out and FS 1/TSTOP. ESPice follows
-ngspice (`net_waves.zig`).
+print step; HSPICE's MDI is 0 when left out and FS 1/TSTOP.
 
 **HSPICE.** `.OPTION GSHUNT= CSHUNT= DELMAX=` load; 1 mA into 1k with
 `gshunt=1m` and `cshunt=1n` settles at 0.5 V. `.PARAMETERS` is `.PARAM`.
@@ -580,19 +577,19 @@ operating point; `rshunt=1k` gives 0.5 V. `!` works in `.param`, instance
 braces and B sources; `%` in `.param` (10 % 3 is 1) but not in a B source.
 `.meas ... deriv` and `err1`/`err2` print "currently not supported"
 (`com_measure2.c`). Xyce refuses a unary `!`. Spectre takes `!` and refuses
-`10%3`. ESPice takes both `!` and `%` in its ngspice dialect.
+`10%3`.
 
 **HSPICE tolerances, GMINDC, BDF and POST (c5).** Four decks, each run
 with one option changed and read back through `.measure` (HSPICE, ten
-digits), `.measure` (ngspice 45, Xyce 7.10, ESPice), a PSF file (Spectre)
-or the raw file (VACASK).
+digits), `.measure` (ngspice 45, Xyce 7.10), a PSF file (Spectre) or the
+raw file (VACASK).
 
 - *gmin.* 1 V through 1G into a reverse diode (`is=1e-20`), an
   operating point and a 10 us transient; V(a) is 0.999 V with the default
   gmin and 0.5 V with 1 nS across the junction. HSPICE: `gmindc=1e-9`
   gives 0.5 at t=0 and 0.999 at 5 us; `gmin=1e-9` gives 0.999 at t=0 and
   0.5 at 5 us; both give 0.5 throughout. So GMINDC is the DC and
-  operating-point gmin and GMIN the transient one. ngspice, ESPice, Xyce
+  operating-point gmin and GMIN the transient one. ngspice, Xyce
   (`.options device gmin=`), Spectre and VACASK each give 0.5 in both with
   one `gmin=1e-9`. Mapping: GMINDC reads into its own slot, written as
   `gmin` elsewhere with a caveat; HSPICE GMIN keeps its reading as gmin,
@@ -607,8 +604,8 @@ or the raw file (VACASK).
   defaults, `reltol=1` moves nothing: HSPICE's RELTOL is RELV, voltages
   only, and RELI is the current one. A diode on a stepped source gave the
   same for ABSI against ABSTOL (a crossing time of 1.743061974 us for both,
-  1.743719900 us without). ngspice and ESPice: `reltol=1` alone moves the
-  operating point (2.410726 against 2.396933 in ngspice), as much as
+  1.743719900 us without). ngspice: `reltol=1` alone moves the
+  operating point (2.410726 against 2.396933), as much as
   `reltol=1 abstol=1`; `vntol=1` or `abstol=1` alone moves nothing,
   together they do. So ngspice's reltol bounds currents as well as
   voltages, and Spectre's (`reltol=0.9` alone moves it) likewise. Mapping:
@@ -628,9 +625,8 @@ or the raw file (VACASK).
   measurements to ten digits. It is dropped crossing out of HSPICE with an
   info note (`inert options post`).
 
-The ESPice suite's `hspice/gshunt.sp` (all six options at once) now
-translates with no error to ngspice and ESPice, and both give the
-oracle's 0.5 V.
+The Conformance Suite's `hspice/gshunt.sp` (all six options at once) now
+translates with no error to ngspice, which gives the oracle's 0.5 V.
 
 ### 4.8 Pole-zero ports (d2)
 
@@ -692,41 +688,40 @@ matter; the deck above is unequal for that reason.
 Where a double-quoted value is an expression and where a string. Each
 row a deck of a few lines written for it: a 1 V source across the
 resistor, its current read back (`.meas`, the `.print` column or the raw
-file). HSPICE Y-2026.03-SP2-1, Spectre 23.10, ngspice 45, Xyce 7.10, ESPice.
+file). HSPICE Y-2026.03-SP2-1, Spectre 23.10, ngspice 45, Xyce 7.10.
 
-| written | HSPICE | ngspice 45 | Xyce 7.10 | Spectre | ESPice |
-|---|---|---|---|---|---|
-| `.param a=2 t2="a^3"` (`a*3` elsewhere), used as `t2*1k` | 8k: expression | refused | refused | a string: 0 A as a number | 6k: expression |
-| `r1 a 0 "2*rv"`, rv=1k | 2k | refused (taken for a model name) | refused | no such form | refused |
-| `r1 a 0 r="2*rv"` | 2k | refused | refused (no number) | refused | 2k |
-| `"2 * rv"`, blanks inside | 2k | | | | |
-| `.model rmod r rsh="rv/10"`, l=10u w=1u | 1k | | | | |
-| subcircuit default `rv="3*rv0"`, instance `rv="2*rv0"` | 3k, 2k | | | | |
-| `v2 b 0 "vv*3"` and `dc="vv*3"`, vv=2 | 6 V both | | | | |
-| `.temp "tv*2"`, tv=50, tc1=0.01 | 100 degrees (1.75k) | | | | |
-| `.tran "st" "10*st"` | loads; a pulse at 2*st is seen by 9n | | | | |
-| `.meas dc ib param="ia*2"` | twice ia | | | | |
-| `.param n="4"` | 4 | | | | |
-| `.param s="abc"` | refused: abc is no parameter | | | | |
-| `.include "dir/inc-a.sp"`, `.lib "dir/lib.l" tt` | the files (5k, 9k) | | | | |
-| `.option search="sub"` then `.include "inc_b.sp"` | found in sub (7k) | | | | |
-| `.meas dc "ia" find ...` | the measurement ia | | | | |
-| `rlgcfile="line.rlgc"`, `tstonefile="m.s1p"` | the files, the same as unquoted | | | | |
-| `'3*"a"'` and `"3*'a'"` | both refused | | | | |
+| written | HSPICE | ngspice 45 | Xyce 7.10 | Spectre |
+|---|---|---|---|---|
+| `.param a=2 t2="a^3"` (`a*3` elsewhere), used as `t2*1k` | 8k: expression | refused | refused | a string: 0 A as a number |
+| `r1 a 0 "2*rv"`, rv=1k | 2k | refused (taken for a model name) | refused | no such form |
+| `r1 a 0 r="2*rv"` | 2k | refused | refused (no number) | refused |
+| `"2 * rv"`, blanks inside | 2k | | | |
+| `.model rmod r rsh="rv/10"`, l=10u w=1u | 1k | | | |
+| subcircuit default `rv="3*rv0"`, instance `rv="2*rv0"` | 3k, 2k | | | |
+| `v2 b 0 "vv*3"` and `dc="vv*3"`, vv=2 | 6 V both | | | |
+| `.temp "tv*2"`, tv=50, tc1=0.01 | 100 degrees (1.75k) | | | |
+| `.tran "st" "10*st"` | loads; a pulse at 2*st is seen by 9n | | | |
+| `.meas dc ib param="ia*2"` | twice ia | | | |
+| `.param n="4"` | 4 | | | |
+| `.param s="abc"` | refused: abc is no parameter | | | |
+| `.include "dir/inc-a.sp"`, `.lib "dir/lib.l" tt` | the files (5k, 9k) | | | |
+| `.option search="sub"` then `.include "inc_b.sp"` | found in sub (7k) | | | |
+| `.meas dc "ia" find ...` | the measurement ia | | | |
+| `rlgcfile="line.rlgc"`, `tstonefile="m.s1p"` | the files, the same as unquoted | | | |
+| `'3*"a"'` and `"3*'a'"` | both refused | | | |
 
 So HSPICE reads `"..."` in a value as it reads `'...'`; the slot decides,
 not the quote. Each grammar says which: `quotes '"' expr-in-values except
-rlgcfile tstonefile` in HSPICE, `quotes '"' expr-in-values` in ESPice
-(read leniently: its positional refusal is not modelled), `quotes '"'
-string` in ngspice, Xyce and Spectre. Read as an expression, the value is
-written in the target's form (`{a**3}`, `'a**3'`, `a**3`). A path slot
+rlgcfile tstonefile` in HSPICE, `quotes '"' string` in ngspice, Xyce and
+Spectre. Read as an expression, the value is written in the target's form
+(`{a**3}`, `'a**3'`, `a**3`). A path slot
 (`.include`, `.lib`, `.hdl`), an option not declared in the grammar and a
 key in the `except` list keep the string, written quoted; a `name` slot
 takes the quotes off.
 
 `hspice/hspice_expressions.sp` (Conformance Suite 9830a79c), translated
-to ngspice and to ESPice and run there: i(vdd) -1.66667e-4, i(v2)
--1.25e-4, i(v3) -1e-3, i(v4) -2.5e-4, its `.expected.json` in both.
+to ngspice and run there: i(vdd) -1.66667e-4, i(v2) -1.25e-4, i(v3) -1e-3,
+i(v4) -2.5e-4, its `.expected.json`.
 Before, `t2` was written as the string `"a^3"`, which ngspice refuses.
 
 ### 4.10 Blanks around Spectre operators (g1)
@@ -840,10 +835,7 @@ them, the 0 is in the netlist), `omitted ... : tran.step` and
 VACASK for TAU1, TD2 and TAU2, so a source read from them without one is an
 error. A crossing writes the source's value where the target's line differs
 or is missing: `exp(0 1 1n)` in Xyce for ngspice's `EXP(0 1)` at a 1 ns
-step, `delay=1n td2=1n tau1=1n tau2=1n` in VACASK. ESPice was not run here:
-its lines are ngspice's on the word of the Conformance Suite deck
-`netlist/tran/source_exp_defaults_ngspice` (TD1 = TAU1 = TAU2 = 1n, TD2 = 2n
-at a 1 ns step).
+step, `delay=1n td2=1n tau1=1n tau2=1n` in VACASK.
 
 ### 4.13 A resistor model's NARROW and SHORT (s3, y2)
 
@@ -1018,8 +1010,8 @@ The Xyce grammar now says it: `hoist param from ngspice ltspice`. A
 subcircuit's parameter statements read from those two are written on its
 header, in order, a later value of a name replacing an earlier one, with one
 `oneway` info a file (the output reads back as header parameters). Xyce's
-own stay where they are. HSPICE and ESPice were not measured: theirs stay
-too, with one `ambiguous` warning a file. Spectre's and VACASK's
+own stay where they are. HSPICE was not measured: its own stay too, with
+one `ambiguous` warning a file. Spectre's and VACASK's
 `parameters` lines are read as the header already. A parameter inside a
 conditional block of the subcircuit is not moved.
 
@@ -1383,7 +1375,7 @@ unclear and untested but is not counted.
 
 What the sweep rules rest on. HSPICE and Spectre: observed by running decks
 of a few lines written for this; the others: run locally (ngspice 45,
-Xyce 7.10, VACASK b2c1551, ESPice 0.3.0) or cited.
+Xyce 7.10, VACASK b2c1551) or cited.
 
 | dialect | observed |
 |---|---|
@@ -1392,7 +1384,6 @@ Xyce 7.10, VACASK b2c1551, ESPice 0.3.0) or cited.
 | VACASK | `instance="__topinst__" parameter="p"` sweeps a top-level parameter; `variable="p"` does not find it. Leaving out `parameter=` sweeps the principal one (docs/cmd-sweep.md). `option="temp"`, `values=[...]`, `mode="dec"` and a zero-width sweep run. A sweep applies to the one analysis after it (docs/cmd-sweep.md), hence `no step`. |
 | Xyce | `.DC LIST v1 ...` and `.DC DEC v1 ...` put the type first; `.STEP DEC rv ...` too, but a list is `.STEP rv LIST ...` (`.STEP LIST rv` is refused). A second sweep may follow a list. `.DC` of a resistor, of a parameter, `.DATA` rows on one line, `.DC DATA=` and `.STEP DATA=` run. |
 | ngspice | `.dc` of a parameter stops with "not in the circuit"; `.temp` with several values is ignored with a warning. No `.step` (hence `no step`). |
-| ESPice | `.dc` of a parameter runs alone but not nested with a second sweep. A deck with `.data` is taken for HSPICE unless run with `--tokenizer ngspice` (a `caveat`). |
 
 ### Alters and SWEEP tails (c2)
 

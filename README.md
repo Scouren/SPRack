@@ -2,8 +2,8 @@
 
 SPRack translates SPICE netlists between simulators: it reads a netlist in one
 dialect and writes it in another, and it gives Python one way to describe a
-circuit for all of them. Eight dialects are built in: ngspice, HSPICE, Xyce,
-Spectre, VACASK, ESPice, LTspice and CDL.
+circuit for all of them. Seven dialects are built in: ngspice, HSPICE, Xyce,
+Spectre, VACASK, LTspice and CDL.
 
 [![Tests](https://github.com/Scouren/SPRack/actions/workflows/test.yaml/badge.svg)](https://github.com/Scouren/SPRack/actions/workflows/test.yaml)
 [![Nightly corpus audit](https://github.com/Scouren/SPRack/actions/workflows/nightly.yaml/badge.svg)](https://github.com/Scouren/SPRack/actions/workflows/nightly.yaml)
@@ -52,7 +52,7 @@ The same file for Xyce, which has no pole-zero analysis, exits with status 1:
     ...
     * [sprack] not written: analysis 'pz' has no xyce form
     .end
-    error[unsupported]: line 6: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre
+    error[unsupported]: line 6: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre
 
 The same from Python (`PYTHONPATH=python`):
 
@@ -96,7 +96,6 @@ The same from Python (`PYTHONPATH=python`):
 | `vacask` | VACASK | VACASK built from source: load and results; its manual and parser |
 | `spectre` | Spectre's own language | Spectre 25.10: every error-free translation of the corpus loaded (`tools/licensed_check.py`) |
 | `hspice` | HSPICE | HSPICE Y-2026.03: the same |
-| `espice` | ESPice (ngspice's dialect plus its own analyses) | ESPice's documentation and its maintainers' runs |
 | `ltspice` | LTspice | LTspice 26.0.2, run in batch mode on decks written for the check (`nix develop .#ltspice`): the tables, the `no` lines, source waveforms and topologies. Not checked: instance parameters, and MOS levels other than 1, 2, 3, 8/49 and 14/54. It runs one analysis a deck |
 | `cdl` | CDL, the connectivity netlist of LVS: no sources, analyses or controls | no tool; a few lines marked `assumed` |
 
@@ -286,14 +285,14 @@ What the tests hold the translator to:
   same circuit or the report says why not; and what the target read, it
   writes again without an error.
 - **The whole vocabulary.** Every statement kind, with all its slots and with
-  each alone, is written by every dialect (about 4,900 cases); every `no`
-  line of every grammar gives its reason; all 64 pairs of dialects translate
+  each alone, is written by every dialect (about 4,300 cases); every `no`
+  line of every grammar gives its reason; all 49 pairs of dialects translate
   one circuit and read it back.
 - **Damaged input.** 20,000 randomly damaged netlists and a fuzz target go
   through every reader and writer without a crash, one in eight through the
   byte-for-byte checks above; truncated input, deeply nested and oversized
   grammars are refused with a message.
-- **Both compilers of a grammar agree.** Each of the eight grammar files
+- **Both compilers of a grammar agree.** Each of the seven grammar files
   compiled at run time equals, field for field, the one compiled into the
   binary.
 
@@ -319,7 +318,7 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
 
 ## Layout
 
-    grammars/*.spgrammar   the eight dialects
+    grammars/*.spgrammar   the seven dialects
     src/schema.zig         canonical kinds, slots, model families, functions
     src/grammar.zig        the .spgrammar compiler (at compile time and at run time)
     src/lexer.zig          lines, tokens, exact numbers
@@ -362,7 +361,7 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   analysis alone; VACASK, whose sweep belongs to the one analysis after it,
   has no `step`. Not in the vocabulary: Spectre's `paramset`, and `.data`
   read from files (`MER`, `LAM`).
-* Alters (`alter`, whose body is its edits): HSPICE `.alter` (also ESPice's), Spectre
+* Alters (`alter`, whose body is its edits): HSPICE `.alter`, Spectre
   `altergroup` and one-change `alter` statements, each a rerun of every
   analysis on top of the alters before it. Spectre gets the analyses again
   after each altergroup, and an altergroup cannot add an instance. VACASK

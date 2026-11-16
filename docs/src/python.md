@@ -206,7 +206,7 @@ except sprack.Unsupported as e:
 
 ```text
 1 thing cannot be written for xyce:
-  - line 10: statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask
+  - line 10: statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask
 ```
 
 The exception has `.report` (every entry), `.text` (the netlist as far as it
@@ -235,7 +235,7 @@ print(sprack.why_not("pz", "xyce"))
 
 ```text
 False
-Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre
+Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre
 ```
 
 ## Existing netlists

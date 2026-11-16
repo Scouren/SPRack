@@ -66,8 +66,8 @@ R1 in out 1k
 C1 out 0 100n $ load
 * [sprack] not written: analysis 'tran' has no cdl form
 .end
-error[unsupported]: line 3: device 'vsource' cannot be written for cdl: CDL describes connectivity for LVS; it has no sources. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 6: analysis 'tran' cannot be written for cdl: CDL is a netlist, not a simulation deck; it has no analyses. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 3: device 'vsource' cannot be written for cdl: CDL describes connectivity for LVS; it has no sources. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 6: analysis 'tran' cannot be written for cdl: CDL is a netlist, not a simulation deck; it has no analyses. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
 $ echo $?
 1
 ```
@@ -201,7 +201,6 @@ named, with the value it was given (`null` where none was). This is the list
 ```console
 $ sprack dialects
 cdl
-espice
 hspice
 ltspice
 ngspice
@@ -238,7 +237,7 @@ segments	value list
 
 ```console
 $ sprack translate --from pspice --to xyce rc.sp
-unknown dialect 'pspice'. Built in: cdl espice hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file
+unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file
 $ echo $?
 2
 ```

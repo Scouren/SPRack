@@ -4,8 +4,8 @@ SPRack reads a netlist in one SPICE dialect and writes it in another, and lets
 a Python program describe a circuit once and get it in any of them. It
 translates; it does not simulate.
 
-Eight dialects are built in: ngspice, HSPICE, Xyce, Spectre, VACASK, ESPice,
-LTspice and CDL. Each is described by one `grammars/<name>.spgrammar` file.
+Seven dialects are built in: ngspice, HSPICE, Xyce, Spectre, VACASK, LTspice
+and CDL. Each is described by one `grammars/<name>.spgrammar` file.
 The readers and writers are generated from those files, so there is no
 hand-written parser per dialect and no converter per pair of dialects: every
 reader produces the same canonical statements and every writer consumes them.
@@ -22,7 +22,7 @@ the line that could not be translated left in it as a comment.
 **Errors say why, and who can.**
 
 ```text
-error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre
+error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre
 ```
 
 **Numbers are exact.** `1.5p` is stored as the digits `1.5` and the exponent

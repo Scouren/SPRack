@@ -10,7 +10,6 @@ Python (`netlist`, `write`, `check`, `translate`, `read`, `code`,
 ```console
 $ sprack dialects
 cdl
-espice
 hspice
 ltspice
 ngspice
@@ -26,7 +25,6 @@ xyce
 | `vacask` | VACASK | checked against its manual and parser, and in VACASK itself |
 | `spectre` | Spectre's own language | checked by loading translations in the simulator; a `simulator lang=spice` section is read as HSPICE |
 | `hspice` | HSPICE | checked by loading translations in the simulator |
-| `espice` | ESPice | ngspice's dialect with ESPice's own cards, from its documentation |
 | `ltspice` | LTspice | checked on LTspice 26.0.2 in batch mode, on decks written for the check |
 | `cdl` | CDL, the netlist of layout-versus-schematic checks | connectivity only: every source, analysis and control is an error that says so; no tool was run, and unsettled lines are marked `assumed` |
 
@@ -51,13 +49,13 @@ A few of its rows:
 
 ```console
 $ sprack caps | grep -E '^( |resistor|diode|ic |pz|hb|montecarlo)'
-            cdl      espice   hspice   ltspice  ngspice  spectre  vacask   xyce
-resistor    yes      yes      yes      yes      yes      yes      yes      yes
-diode       yes      yes      yes      yes      yes      inst     inst     yes
-ic          none     yes      yes      yes      yes      yes      param    yes
-pz          none     yes      yes      none     yes      yes      none     none
-hb          none     yes      yes      none     none     yes      yes      yes
-montecarlo  none     none     yes      none     none     yes      none     yes
+            cdl      hspice   ltspice  ngspice  spectre  vacask   xyce
+resistor    yes      yes      yes      yes      yes      yes      yes
+diode       yes      yes      yes      yes      inst     inst     yes
+ic          none     yes      yes      yes      yes      param    yes
+pz          none     yes      none     yes      yes      none     none
+hb          none     yes      none     none     yes      yes      yes
+montecarlo  none     yes      none     none     yes      none     yes
 ```
 
 | mark | meaning |
@@ -80,7 +78,7 @@ Every translation has a report. On the command line it goes to standard
 error, one entry per line; in Python it is the `.report` of the netlist.
 
 ```text
-error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre
+error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre
 ```
 
 An entry is `severity[code]: line N: message`. The line is the line of the

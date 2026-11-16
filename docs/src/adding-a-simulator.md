@@ -94,9 +94,9 @@ R1 in out 1k
 * [sprack] not written: device 'capacitor' has no mini form
 * [sprack] not written: analysis 'tran' has no mini form
 .end
-error[unsupported]: line 3: device 'vsource' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 5: device 'capacitor' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: cdl, espice, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 6: analysis 'tran' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 3: device 'vsource' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 5: device 'capacitor' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: cdl, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 6: analysis 'tran' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
 ```
 
 The resistor is written. Everything else is an error that names what is
@@ -197,11 +197,11 @@ C1 out 0 20f
 R1 out 0 {sqrt(wn)*1g}
 .transient 12n by 5p cold
 .end
-error[unsupported]: line 3: model 'nch': mini.spgrammar has no spelling for model family 'bsim4 n'. Defined by: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 4: model 'pch': mini.spgrammar has no spelling for model family 'bsim4 p'. Defined by: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 3: model 'nch': mini.spgrammar has no spelling for model family 'bsim4 n'. Defined by: hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 4: model 'pch': mini.spgrammar has no spelling for model family 'bsim4 p'. Defined by: hspice, ltspice, ngspice, spectre, vacask, xyce
 info[rename]: line 6: renamed 'M1' to 'XM1': mini tells devices apart by the first letter
 info[rename]: line 7: renamed 'M2' to 'XM2': mini tells devices apart by the first letter
-error[unsupported]: line 12: expression 'sqrt(wn)*1e9': function 'sqrt' has no spelling in mini. Dialects that have it: cdl, espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 12: expression 'sqrt(wn)*1e9': function 'sqrt' has no spelling in mini. Dialects that have it: cdl, hspice, ltspice, ngspice, spectre, vacask, xyce
 ```
 
 The subcircuit, its instance and the parameters are there. Three things are
@@ -244,7 +244,7 @@ C1 out 0 20f
 R1 out 0 {sqrt(wn)*1g}
 .transient 12n by 5p cold
 .end
-error[unsupported]: line 12: expression 'sqrt(wn)*1e9': function 'sqrt' has no spelling in mini. Dialects that have it: cdl, espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 12: expression 'sqrt(wn)*1e9': function 'sqrt' has no spelling in mini. Dialects that have it: cdl, hspice, ltspice, ngspice, spectre, vacask, xyce
 warning[caveat]: line 3: model 'nch' (bsim4) and 1 more model cards: ngspice and mini ship different implementations and versions of these models; parameters were copied as written, check them against mini
 ```
 
@@ -276,8 +276,8 @@ R1 a 0 1k
 * [sprack] not written: analysis 'ac' has no mini form
 * [sprack] not written: analysis 'noise' has no mini form
 .end
-error[unsupported]: line 3: analysis 'ac' cannot be written for mini: Mini has no small-signal analysis. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 4: analysis 'noise' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: espice, hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 3: analysis 'ac' cannot be written for mini: Mini has no small-signal analysis. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 4: analysis 'noise' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
 ```
 
 `ac` has a `no` line and gets its reason. `noise` has neither a rule nor a
