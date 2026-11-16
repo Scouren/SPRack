@@ -92,7 +92,6 @@ no sp        : CDL is a netlist, not a simulation deck; it has no analyses
 no pss       : CDL is a netlist, not a simulation deck; it has no analyses
 no stb       : CDL is a netlist, not a simulation deck; it has no analyses
 no xspice : CDL has no XSPICE code models
-no verilog : CDL cannot load Verilog
 # analyses (b3)
 no pac        : CDL is a netlist, not a simulation deck; it has no analyses
 no pnoise     : CDL is a netlist, not a simulation deck; it has no analyses

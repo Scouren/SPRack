@@ -106,7 +106,6 @@ pub const Kind = enum(u8) {
     include,
     lib,
     hdl,
-    verilog,
     options,
     save,
     print,
@@ -225,8 +224,6 @@ const defs = [_]Def{
     .{ .include, .structure, "path:path" },
     .{ .lib, .structure, "path:path section:ident" },
     .{ .hdl, .structure, "path:path" },
-    // A digital Verilog design, loaded as source (ESPice's `.verilog`).
-    .{ .verilog, .structure, "path:path" },
     // `package` is for dialects that file options under headings (Xyce).
     // `gmin` acts in every analysis; `gmindc` in DC ones only (HSPICE GMINDC).
     // `gshunt` and `cshunt` load every node to ground; `delmax` caps the
@@ -279,7 +276,7 @@ const defs = [_]Def{
     .{ .four, .analysis, "name freq:value signals:signal* params:params" },
     .{ .hb, .analysis, "name freqs:value* harms:value* params:params" ++ ns },
     .{ .sp, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
-    .{ .pss, .analysis, "name fund:value harms:value tstab:value points:value params:params ic:params" ++ ns },
+    .{ .pss, .analysis, "name fund:value harms:value tstab:value params:params ic:params" ++ ns },
     .{ .stb, .analysis, "name " ++ sweep_spec ++ " probe:ref params:params" ++ ns },
     .{ .@"opaque", .other, "" },
     .{ .comment, .other, "" },

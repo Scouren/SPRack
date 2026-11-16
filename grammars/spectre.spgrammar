@@ -229,7 +229,6 @@ no simctl  : Spectre has no control commands of this kind; its analyses and opti
 no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
-no verilog : this grammar has no form that loads a digital Verilog design
 # analyses (b3)
 implied pnoise ref = 0
 implied pxf ref = 0

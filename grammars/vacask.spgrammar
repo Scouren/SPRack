@@ -324,7 +324,6 @@ no sens    : VACASK has no sensitivity analysis
 no vswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module (demo/sc/swtest.sim loads vsw.va)
 no cswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module
 no xspice  : XSPICE code models are ngspice's; VACASK has no such element
-no verilog : VACASK has no card that loads a digital Verilog design
 
 caveat bsource name : VACASK (b2c1551) names the module it synthesizes after the instance but looks it up in lower case, so an instance name with capitals is not found
 caveat hdl path : VACASK loads compiled OSDI files, or compiles a .va file it is given

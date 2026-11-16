@@ -171,7 +171,6 @@ caveat isource mdi : ngspice limits the SFFM modulation index to the carrier ove
 no hb  : ngspice has no harmonic-balance analysis
 no pss : ngspice's .pss is an experimental oscillator analysis with a different meaning; there is no driven periodic steady state
 no stb : ngspice has no loop-stability analysis
-no verilog : ngspice runs digital Verilog through an XSPICE d_cosim model of a design compiled with Icarus Verilog (vvp); no card loads Verilog source
 # analyses (b3)
 no pac        : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)
 no pnoise     : ngspice has no periodic steady state to run it on (its .pss is an experimental oscillator analysis)

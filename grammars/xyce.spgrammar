@@ -163,7 +163,6 @@ no save   : Xyce records only what .PRINT lists, and .PRINT needs an analysis ty
 no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist
 no device : Xyce instantiates a Verilog-A model through its compiled plugin's own device letter and level; there is no netlist form for an arbitrary module
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
-no verilog : Xyce has no netlist card that loads a digital Verilog design
 # analyses (b3)
 no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
 no pnoise     : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
