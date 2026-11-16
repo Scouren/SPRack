@@ -134,8 +134,6 @@ const core_vacask =
     \\endc
 ;
 
-// ESPice reads ngspice's dialect: core_ngspice is an ESPice deck as written.
-
 const core_ltspice =
     \\Core test circuit
     \\* comment line
@@ -522,8 +520,8 @@ test "out of memory at any allocation comes back as that: no crash, no leak" {
     // The samples are read whole (each has a sweep); `stream_deck` is
     // written as a stream, with the tables that keeps outside the arena.
     for ([_][3][]const u8{
-        .{ "ngspice", "spectre", "" },         .{ "spectre", "vacask", "" },           .{ "vacask", "hspice", "" },           .{ "hspice", "xyce", "" },
-        .{ "ngspice", "espice", stream_deck }, .{ "ngspice", "spectre", stream_deck }, .{ "ngspice", "vacask", stream_deck },
+        .{ "ngspice", "spectre", "" },          .{ "spectre", "vacask", "" },           .{ "vacask", "hspice", "" },           .{ "hspice", "xyce", "" },
+        .{ "ngspice", "ltspice", stream_deck }, .{ "ngspice", "spectre", stream_deck }, .{ "ngspice", "vacask", stream_deck },
     }) |pair| {
         errdefer std.debug.print("{s} -> {s}\n", .{ pair[0], pair[1] });
         const src = if (pair[2].len > 0) pair[2] else sample(pair[0]);
@@ -1218,7 +1216,7 @@ fn viaJson(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const 
     return writeAs(a, to, &back, report);
 }
 
-test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive the JSON trip" {
+test "Schemify decks: paths, scopes, control blocks and XSPICE survive the JSON trip" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -1249,17 +1247,8 @@ test "Schemify decks: paths, scopes, control blocks, XSPICE and Verilog survive 
     try clean(&r0);
     // XSPICE is ngspice's alone, and the reason says so.
     var r2: ir.Report = .init(a);
-    _ = try viaJson(a, "ngspice", "espice", ng, &r2);
-    try reported(&r2, .@"error", "ESPice has no XSPICE code models");
-
-    // ESPice loads a digital design with .verilog.
-    const es = "t\n.verilog \"cnt.v\"\nNU1 clk q cnt vdd=1.8\n.model cnt cnt\n.end\n";
-    var r3: ir.Report = .init(a);
-    try testing.expectEqualStrings(es, try viaJson(a, "espice", "espice", es, &r3));
-    try clean(&r3);
-    var r4: ir.Report = .init(a);
-    _ = try viaJson(a, "espice", "ngspice", es, &r4);
-    try reported(&r4, .@"error", "ngspice runs digital Verilog through an XSPICE d_cosim model");
+    _ = try viaJson(a, "ngspice", "xyce", ng, &r2);
+    try reported(&r2, .@"error", "XSPICE code models are ngspice's");
 
     // Nets are local to a subcircuit: `IN` inside and `in` outside are
     // different nets, not a case collision. In one scope they still are.
@@ -2233,7 +2222,7 @@ test "translation memory stays a small multiple of the input" {
 // statement: two option lines that are one, a subcircuit the top level and
 // another subcircuit use before it is defined, dev/gauss and agauss(); and
 // what it reads again after the last: two islands at the top level, one fed
-// by a current source (ESPice's `cutset`).
+// by a current source (LTspice's `cutset`).
 const stream_deck =
     \\* t
     \\.option temp=30
@@ -2265,7 +2254,7 @@ test "a stream writes what the whole netlist does" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    for ([_][]const u8{ "spectre", "xyce", "hspice", "vacask", "espice" }) |to| {
+    for ([_][]const u8{ "spectre", "xyce", "hspice", "vacask", "ltspice" }) |to| {
         var out: [2][]const u8 = undefined;
         var rep: [2][]const ir.Diag = undefined;
         for ([_]bool{ true, false }, 0..) |whole, i| {
@@ -3420,7 +3409,7 @@ test "statistics: the block's own parameters are a loss where its variations are
     const bare = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"statistics\"}]}", &rj);
     try testing.expectEqual(0, rj.items.items.len);
     // (Spectre is the one that keeps the block: its writer says the same.)
-    for ([_][]const u8{ "ngspice", "xyce", "vacask", "espice", "hspice", "spectre" }) |to| {
+    for ([_][]const u8{ "ngspice", "xyce", "vacask", "hspice", "spectre" }) |to| {
         errdefer std.debug.print("to {s}\n", .{to});
         var r1: ir.Report = .init(a);
         _ = try writeAs(a, to, &with, &r1);
@@ -3566,7 +3555,7 @@ test "b3 analyses: periodic small-signal, mismatch, transient noise, loop stabil
 
     // HSPICE transient noise: its own card there, an error naming why elsewhere.
     var r7: ir.Report = .init(a);
-    const tn = try tr(a, "hspice", "espice", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2 seed=1\n", &r7);
+    const tn = try tr(a, "hspice", "hspice", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2 seed=1\n", &r7);
     try has(tn, ".trannoise v(out) samples=2 seed=1\n");
     var r8: ir.Report = .init(a);
     _ = try tr(a, "hspice", "spectre", "t\nR1 out 0 1k\n.tran 1u 1m\n.trannoise v(out) samples=2\n", &r8);
@@ -3883,10 +3872,10 @@ test "sweeps: a step repeats the analyses it holds" {
     var r: ir.Report = .init(a);
     // A .step line sweeps every analysis; nested, the first is the outer loop.
     const src = "t\n.param rv=1k\nV1 a 0 1\nR1 a b 1k\nR2 b 0 {rv}\n.step param rv list 1k 3k\n.step temp list -40 85\n.op\n.tran 1n 10n\n.end\n";
-    const sp = try sameBack(a, "espice", "spectre", src, &r);
+    const sp = try sameBack(a, "ltspice", "spectre", src, &r);
     try has(sp, "swp1 sweep param=rv values=[1k 3k] {\nswp2 sweep param=temp values=[-40 85] {\nop1 dc\ntran1 tran step=1n stop=10n\n}\n}\n");
-    try has(try sameBack(a, "espice", "xyce", src, &r), ".step rv list 1k 3k\n.step temp list -40 85\n.op\n.tran 1n 10n\n");
-    try has(try sameBack(a, "espice", "ltspice", src, &r), ".step param rv list 1k 3k\n.step temp list -40 85\n");
+    try has(try sameBack(a, "ltspice", "xyce", src, &r), ".step rv list 1k 3k\n.step temp list -40 85\n.op\n.tran 1n 10n\n");
+    try has(try sameBack(a, "ltspice", "ltspice", src, &r), ".step param rv list 1k 3k\n.step temp list -40 85\n");
     try clean(&r);
     // HSPICE's .TEMP with several values is a step over the temperature.
     var r2: ir.Report = .init(a);
@@ -3898,7 +3887,7 @@ test "sweeps: a step repeats the analyses it holds" {
     try reported(&r3, .@"error", "a xyce sweep applies to every analysis of the netlist");
     // Where a sweep is one line per analysis, there is no step.
     var r4: ir.Report = .init(a);
-    _ = try tr(a, "espice", "vacask", src, &r4);
+    _ = try tr(a, "ltspice", "vacask", src, &r4);
     try reported(&r4, .@"error", "VACASK has no sweep of the whole netlist");
     // A .TEMP list in a deck with no analysis repeats nothing.
     var r5: ir.Report = .init(a);
@@ -4191,8 +4180,6 @@ test "c2 alter: reruns with cumulative edits, in each dialect's form" {
     const nl = try readAs(a, "hspice", src, &r);
     try testing.expectEqual(2, countKind(nl, .alter));
     try has(try sameBack(a, "hspice", "hspice", src, &r), ".op\n.alter one\n.param ra=3k\n.alter two\n.temp 75\n.end\n");
-    // ESPice reads HSPICE's .alter blocks.
-    try has(try sameBack(a, "hspice", "espice", src, &r), ".op\n.alter one\n.param ra=3k\n.alter two\n.temp 75\n");
     // Spectre runs analyses where they stand: each altergroup is followed by them.
     try has(try sameBack(a, "hspice", "spectre", src, &r), "op1 dc\none altergroup {\nparameters ra=3k\n}\nop2 dc\ntwo altergroup {\nsprackOptions2 options temp=75\n}\nop3 dc\n");
     try clean(&r);
@@ -4444,17 +4431,13 @@ test "topology: a loop through subcircuit instances, one and two levels down" {
     const lsrc = "t\n" ++ lib ++ "V2 c 0 1\nR2 c p 1k\nL2 p 0 1u\nX2 p 0 choke\n.op\n.end\n";
     try testing.expectEqual(0, (try topo(a, "ngspice", lsrc)).items.items.len);
     try reported(&(try topo(a, "xyce", lsrc)), .warning, "form a loop of inductors");
-    // ESPice, measured: it refuses islands at an operating point and every
-    // source loop, and solves an inductor loop.
-    try reported(&(try topo(a, "espice", lsrc)), .warning, "L2, X2(p,0) form a loop of inductors");
-    try reported(&(try topo(a, "espice", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.op\n.end\n")), .@"error", "node 'x' has no DC path to ground");
     // A loop inside a subcircuit is reported there, not again at each instance.
     r = try topo(a, "vacask", "t\n.subckt dbl p n\nV1 p n 1\nV2 p n 1\n.ends\nX1 a 0 dbl\nR1 a 0 1k\nX2 b 0 dbl\nR2 b 0 1k\n.op\n.end\n");
     try reported(&r, .@"error", "subcircuit 'dbl': V1, V2 form a loop of voltage sources");
     try testing.expectEqual(1, r.items.items.len);
 }
 
-// c4: HSPICE-reader gaps from the ESPice project
+// c4: HSPICE-reader gaps
 
 test "c4: a dialect's default TNOM and TEMP are written where the target's differ" {
     var arena_state: Arena = .init(testing.allocator);
@@ -4464,9 +4447,9 @@ test "c4: a dialect's default TNOM and TEMP are written where the target's diffe
     var r1: ir.Report = .init(a);
     try has(try tr(a, "hspice", "ngspice", "t\nV1 a 0 1\nR1 a 0 1k tc1=0.01\n.temp 125\n.op\n.end\n", &r1), ".options tnom=25\n");
     var r2: ir.Report = .init(a);
-    const ng = try tr(a, "hspice", "espice", "t\nI1 0 a 1m\nD1 a 0 dm\n.model dm d\n.op\n.end\n", &r2);
+    const ng = try tr(a, "hspice", "ngspice", "t\nI1 0 a 1m\nD1 a 0 dm\n.model dm d\n.op\n.end\n", &r2);
     try has(ng, ".options temp=25 tnom=25\n");
-    try reported(&r2, .warning, "hspice assumes other defaults for temp, tnom than espice does");
+    try reported(&r2, .warning, "hspice assumes other defaults for temp, tnom than ngspice does");
     // TEMP follows a TNOM the deck sets.
     var r3: ir.Report = .init(a);
     try has(try tr(a, "hspice", "ngspice", "t\n.option tnom=50\nV1 a 0 1\n.op\n.end\n", &r3), ".temp 50\n");
@@ -4484,14 +4467,14 @@ test "c4: a dialect's default TNOM and TEMP are written where the target's diffe
     _ = try sameBack(a, "hspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n", &r6);
 }
 
-test "c4: SFFM argument order, HSPICE and Xyce against ngspice and ESPice" {
+test "c4: SFFM argument order, HSPICE and Xyce against ngspice" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     // HSPICE SFFM(VO VA FC MDI FS); ngspice SFFM(VO VA FM MDI FC), MDI 90 when left out.
-    for ([_][]const u8{ "ngspice", "espice" }) |to| {
+    {
         var r: ir.Report = .init(a);
-        const out = try tr(a, "hspice", to, "t\nv1 a 0 sffm(0 1 10meg 0.5 1meg)\nv2 b 0 sffm(0 1 10meg)\n.tran 1n 2u\n.end\n", &r);
+        const out = try tr(a, "hspice", "ngspice", "t\nv1 a 0 sffm(0 1 10meg 0.5 1meg)\nv2 b 0 sffm(0 1 10meg)\n.tran 1n 2u\n.end\n", &r);
         try has(out, "v1 a 0 sffm(0 1 1meg 0.5 10meg)\n");
         try has(out, "v2 b 0 sffm(0 1 0 0 10meg)\n");
         try reported(&r, .warning, "limits the SFFM modulation index");
@@ -4514,7 +4497,7 @@ test "c4: gshunt, cshunt and delmax" {
     try clean(&r1);
     try reported(&r1, .info, "options.delmax is written as tran.maxstep");
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "espice", src, &r2), "gshunt=1m cshunt=1n delmax=50n");
+    try has(try tr(a, "hspice", "hspice", src, &r2), "gshunt=1m cshunt=1n delmax=50n");
     try clean(&r2);
 }
 
@@ -4534,9 +4517,9 @@ test "c4: HSPICE .pz output and source as ngspice node pairs" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const src = "t\nvin in 0 dc 0 ac 1\nr1 in out 1k\nc1 out 0 1n\n.pz v(out) vin\n.end\n";
-    for ([_][]const u8{ "ngspice", "espice" }) |to| {
+    {
         var r: ir.Report = .init(a);
-        try has(try tr(a, "hspice", to, src, &r), ".pz in 0 out 0 vol pz\n");
+        try has(try tr(a, "hspice", "ngspice", src, &r), ".pz in 0 out 0 vol pz\n");
         try clean(&r);
     }
     var r2: ir.Report = .init(a);
@@ -4629,7 +4612,7 @@ test "c4: unary ! and % are written only where the target has them" {
     var r1: ir.Report = .init(a);
     _ = try tr(a, "hspice", "ngspice", "t\nv1 a 0 1\nr1 a 0 '10 % 3'\n.end\n", &r1);
     try reported(&r1, .@"error", "% is not an operator the hspice grammar lists");
-    // HSPICE, ngspice, ESPice and Spectre take a unary `!`; Xyce refuses it.
+    // HSPICE, ngspice and Spectre take a unary `!`; Xyce refuses it.
     var r2: ir.Report = .init(a);
     try has(try tr(a, "hspice", "ngspice", "t\nr1 a 0 '1k*(!0)'\n.end\n", &r2), "r1 a 0 {1k*(!0)}\n");
     try clean(&r2);
@@ -4651,9 +4634,9 @@ test "c4: a .measure that names no analysis measures the last one" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var r: ir.Report = .init(a);
-    const out = try tr(a, "hspice", "espice", "t\nr1 a 0 1k\n.tran 10n 5u\n.measure t50 when v(out)=0.5\n.measure tran slope derivative v(out) at=1u\n.end\n", &r);
-    try has(out, ".meas tran t50 when v(out)=0.5\n");
-    try has(out, ".meas tran slope deriv v(out) at=1u\n");
+    const out = try tr(a, "hspice", "xyce", "t\nr1 a 0 1k\n.tran 10n 5u\n.measure t50 when v(out)=0.5\n.measure tran slope derivative v(out) at=1u\n.end\n", &r);
+    try has(out, ".measure tran t50 when v(out)=0.5\n");
+    try has(out, ".measure tran slope deriv v(out) at=1u\n");
     try clean(&r);
     // ngspice 45 measures no derivative.
     var r2: ir.Report = .init(a);
@@ -4661,12 +4644,12 @@ test "c4: a .measure that names no analysis measures the last one" {
     try testing.expect(r2.count(.@"error") > 0);
 }
 
-test "c4: ESPice .noise takes the summary interval" {
+test "c4: ngspice .noise takes the summary interval" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var r: ir.Report = .init(a);
-    const out = try tr(a, "hspice", "espice", "t\nvin in 0 ac 1\nr1 in out 1k\n.ac dec 10 1 1meg\n.noise v(out) vin 1\n.end\n", &r);
+    const out = try tr(a, "hspice", "ngspice", "t\nvin in 0 ac 1\nr1 in out 1k\n.ac dec 10 1 1meg\n.noise v(out) vin 1\n.end\n", &r);
     try has(out, ".noise v(out) vin dec 10 1 1meg 1\n");
     try clean(&r);
 }
@@ -4683,7 +4666,7 @@ test "c5: HSPICE ABSV, ABSI and RELV are vntol, abstol and reltol" {
     try testing.expectEqual(1, r.countCode(.caveat));
     // RELV bounds voltages only there; ngspice's reltol bounds currents too.
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "espice", "t\n.option relv=1e-3\n.end\n", &r2), ".options reltol=1m\n");
+    try has(try tr(a, "hspice", "ngspice", "t\n.option relv=1e-3\n.end\n", &r2), ".options reltol=1m\n");
     try clean(&r2);
     try reported(&r2, .warning, "options.reltol: HSPICE's RELTOL (RELV) bounds node voltages only");
     // Into HSPICE one reltol is RELTOL and RELI; within HSPICE, RELTOL alone.
@@ -4710,7 +4693,7 @@ test "c5: HSPICE GMINDC and GMIN are one gmin elsewhere" {
     try reported(&r, .warning, "options.gmindc: HSPICE's GMINDC acts in DC");
     // Equal values say one gmin; different ones cannot both be said.
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "espice", "t\n.option gmin=1n gmindc=1n\n.end\n", &r2), ".options gmin=1n\n");
+    try has(try tr(a, "hspice", "ngspice", "t\n.option gmin=1n gmindc=1n\n.end\n", &r2), ".options gmin=1n\n");
     try clean(&r2);
     var r3: ir.Report = .init(a);
     try has(try tr(a, "hspice", "spectre", "t\n.option gmin=1n gmindc=1p\n.end\n", &r3), "options gmin=1n\n");
@@ -5038,20 +5021,19 @@ test "e1: a deck with no analysis reports no topology; the analyses a rule lists
     // A cell netlisted on its own (Schemify's inv.shcomp): its input is
     // driven by whatever uses it, and nothing solves it as it stands.
     const inv = "t\n.global vdd!\nMMN Y A 0 0 nm\nMMP Y A vdd! vdd! pm\n.model nm nmos level=1\n.model pm pmos level=1\n";
-    try testing.expectEqual(0, (try topo(a, "espice", inv ++ ".end\n")).items.items.len);
+    try testing.expectEqual(0, (try topo(a, "vacask", inv ++ ".end\n")).items.items.len);
     try testing.expectEqual(0, (try topo(a, "vacask", "t\nV1 a 0 1\nV2 a 0 1\nC1 a x 1p\n.end\n")).items.items.len);
-    // An operating point refuses it in ESPice.
-    try reported(&(try topo(a, "espice", inv ++ ".op\n.end\n")), .@"error", "node 'A' has no DC path to ground: only MMN, MMP reach it");
-    // ESPice's transient solves an island; VACASK's solves the operating
-    // point first, and fails.
+    // An operating point fails on it in VACASK.
+    try reported(&(try topo(a, "vacask", inv ++ ".op\n.end\n")), .@"error", "node 'A' has no DC path to ground: only MMN, MMP reach it");
+    // VACASK's transient solves the operating point first, and fails on an
+    // island.
     const island = "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.tran 1n 10n\n.end\n";
-    try testing.expectEqual(0, (try topo(a, "espice", island)).items.items.len);
     try reported(&(try topo(a, "vacask", island)), .@"error", "node 'x' has no DC path to ground");
-    // ESPice refuses an unbalanced current cutset in every analysis that
-    // solves an operating point (f514173f): a transient without UIC too.
-    try reported(&(try topo(a, "espice", "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n.tran 1n 10n\n.end\n")), .@"error", "node 'a' has no DC path to ground");
+    // LTspice logs an error on an unbalanced current cutset in every
+    // analysis that solves an operating point: a transient without UIC too.
+    try reported(&(try topo(a, "ltspice", "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n.tran 1n 10n\n.end\n")), .@"error", "node 'a' has no DC path to ground");
     // A loop needs only some analysis.
-    try reported(&(try topo(a, "espice", "t\nV1 a 0 1\nV2 a 0 1\n.tran 1n 10n\n.end\n")), .@"error", "V1, V2 form a loop of voltage sources");
+    try reported(&(try topo(a, "xyce", "t\nV1 a 0 1\nV2 a 0 1\n.tran 1n 10n\n.end\n")), .@"error", "V1, V2 form a loop of voltage sources");
 }
 
 test "e1: statements all read in the target's dialect are not translated: no topology report" {
@@ -5059,18 +5041,18 @@ test "e1: statements all read in the target's dialect are not translated: no top
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
-    // As Python's `code(..., "espice")` builds it: a netlist of no dialect,
+    // As Python's `code(..., "xyce")` builds it: a netlist of no dialect,
     // each statement tagged with the one it was read in.
-    var nl = try readAs(a, "espice", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.op\n.end\n", &report);
+    var nl = try readAs(a, "xyce", "t\nV1 in 0 1\nC1 in x 1p\nC2 x 0 1p\n.op\n.end\n", &report);
     nl.dialect = "sprack";
-    const espice = (try sprack.internDialect("espice")).?;
-    for (nl.stmts) |*s| s.dialect = espice;
-    _ = try writeAs(a, "espice", &nl, &report);
-    try testing.expect(!report.contains(.@"error", "DC path"));
+    const xyce = (try sprack.internDialect("xyce")).?;
+    for (nl.stmts) |*s| s.dialect = xyce;
+    _ = try writeAs(a, "xyce", &nl, &report);
+    try testing.expect(!report.contains(.warning, "DC path"));
     // One statement from another dialect makes it a translation.
     nl.stmts[1].dialect = (try sprack.internDialect("ngspice")).?;
-    _ = try writeAs(a, "espice", &nl, &report);
-    try reported(&report, .@"error", "node 'x' has no DC path to ground");
+    _ = try writeAs(a, "xyce", &nl, &report);
+    try reported(&report, .warning, "node 'x' has no DC path to ground");
 }
 
 test "d3: a double-quoted HSPICE value is an expression; a path or label stays a string" {
@@ -5147,19 +5129,19 @@ test "g1: Spectre's != is written with blanks; one global line" {
     try has(try tr(a, "hspice", "spectre", "t\nr1 a 0 1k\n.end\n", &r3), "insensitive=yes\nglobal 0\n");
 }
 
-// h1: ESPice f514173f (PR #267): a current cutset is refused by every
-// analysis that solves an operating point (grammars/espice.spgrammar).
+// h1: a current cutset is an error in every analysis that solves an
+// operating point (grammars/ltspice.spgrammar).
 
-test "h1: an ESPice current cutset follows its own requires line: not under a UIC transient" {
+test "h1: a current cutset follows its own requires line: not under a UIC transient" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const cut = "t\nI1 0 a 1m\nR1 b 0 1k\nC1 a b 1p\n";
-    try testing.expectEqual(0, (try topo(a, "espice", cut ++ ".tran 1n 10n uic\n.end\n")).items.items.len);
-    try reported(&(try topo(a, "espice", cut ++ ".op\n.end\n")), .@"error", "node 'a' has no DC path to ground: only I1, C1 reach it, which conduct no DC there, and the currents of the sources into it must balance; ESPice refuses it in every analysis that solves an operating point");
-    try reported(&(try topo(a, "espice", cut ++ ".tran 1n 10n\n.end\n")), .@"error", "its transient too unless UIC");
-    // A UIC transient beside an operating point: the operating point refuses it.
-    try reported(&(try topo(a, "espice", cut ++ ".tran 1n 10n uic\n.op\n.end\n")), .@"error", "node 'a' has no DC path to ground");
+    try testing.expectEqual(0, (try topo(a, "ltspice", cut ++ ".tran 1n 10n uic\n.end\n")).items.items.len);
+    try reported(&(try topo(a, "ltspice", cut ++ ".op\n.end\n")), .@"error", "node 'a' has no DC path to ground: only I1, C1 reach it, which conduct no DC there, and the currents of the sources into it must balance; LTspice logs an error and solves on");
+    try reported(&(try topo(a, "ltspice", cut ++ ".tran 1n 10n\n.end\n")), .@"error", "LTspice logs an error and solves on");
+    // A UIC transient beside an operating point: the operating point reports it.
+    try reported(&(try topo(a, "ltspice", cut ++ ".tran 1n 10n uic\n.op\n.end\n")), .@"error", "node 'a' has no DC path to ground");
     // A grammar with no cutset line reports it under its dc-path rule.
     try reported(&(try topo(a, "hspice", cut ++ ".tran 1n 10n\n.end\n")), .warning, "the currents of the sources into it must balance; HSPICE solves it");
 }
@@ -5527,9 +5509,6 @@ test "y1: a 0 in an ngspice EXP source is a value left out" {
     try reported(&r, .warning, "vsource.td1 is 0: ngspice means the tran.step by that, and xyce needs it said; wrote 2n");
     try reported(&r, .warning, "vsource.td2 is 0: ngspice means td1 plus the tran.step by that, and xyce needs it said; wrote 4n");
     try testing.expectEqual(0, r.count(.@"error"));
-    // ESPice is not known to read a 0 so.
-    var r1: ir.Report = .init(a);
-    try has(try tr(a, "ngspice", "espice", src, &r1), "V1 a 0 exp(0 1 2n 0.5n 4n 2n)\n");
     // Into ngspice a 0 delay is the smallest one it takes as given.
     var r2: ir.Report = .init(a);
     const out = try tr(a, "hspice", "ngspice", "t\nV1 a 0 EXP(0 1 3n 0.5n)\nI2 0 b EXP(0 1)\nR1 a 0 1k\nR2 b 0 1k\n.tran 2n 50n\n.end\n", &r2);
