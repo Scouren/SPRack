@@ -27,7 +27,7 @@ def test_translate():
     assert "R1 (a 0) resistor r=1m\n" in out and "tran1 tran step=1n stop=1u\n" in out
     assert out.report == []
     e = raises(sprack.Unsupported, lambda: sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce"),
-               "Xyce has no pole-zero analysis", "Dialects that define it: espice, hspice, ngspice, spectre")
+               "Xyce has no pole-zero analysis", "Dialects that define it: hspice, ngspice, spectre")
     assert "not written: analysis 'pz'" in e.text and e.report.errors[0].code == "unsupported"
     lax = sprack.translate("t\n.pz a 0 b 0 vol pz\n.end\n", frm="ngspice", to="xyce", strict=False)
     assert len(lax.report.errors) == 1
@@ -101,7 +101,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "espice", "ltspice", "cdl"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
@@ -424,7 +424,7 @@ def test_pdk_asap7():
     xy = open(os.path.join(p.translate("xyce"), "7nm_FF.pm")).read()
     assert ".model nmos_rvt nmos level=111" in xy
     # ngspice has no built-in BSIM-CMG: an error that says who has.
-    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: espice, hspice, spectre, xyce")
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: hspice, spectre, xyce")
 
 
 def test_pdk_freepdk45():
@@ -533,27 +533,26 @@ def test_topology_needs_an_analysis():
     def alarms(c, d):
         return [e for e in c.netlist(d, strict=False).report if "DC path" in e.message or "form a loop" in e.message]
     def inv(extra=""):
-        c = sprack.Circuit("inv (schemify espice)")
+        c = sprack.Circuit("inv (schemify ngspice)")
         c.global_("vdd!")
         c.param(wn=1, wp=2)
-        c.code("MMN Y A 0 0 nmos W=wn L=1\nMMP Y A vdd! vdd! pmos W=wp L=1\n.model nmos nmos level=1\n.model pmos pmos level=1\n" + extra, "espice")
+        c.code("MMN Y A 0 0 nmos W=wn L=1\nMMP Y A vdd! vdd! pmos W=wp L=1\n.model nmos nmos level=1\n.model pmos pmos level=1\n" + extra, "ngspice")
         return c
     # No analysis: nothing to report, in its own dialect or another.
-    assert "MMN Y A 0 0 nmos" in inv().netlist("espice")
+    assert "MMN Y A 0 0 nmos" in inv().netlist("ngspice")
     assert not alarms(inv(), "vacask")
     # Same dialect in and out: no report even with an operating point.
-    assert not alarms(inv(".op\n"), "espice")
+    assert not alarms(inv(".op\n"), "ngspice")
     # Translated, an operating point refuses it.
     c = sprack.Circuit("inv")
     c.code("MMN Y A 0 0 nmos W=1 L=1\n.model nmos nmos level=1\n.op\n", "ngspice")
-    raises(sprack.Unsupported, lambda: c.netlist("espice"), "node 'A' has no DC path to ground")
-    # A transient alone: ESPice solves an island, VACASK's operating point fails.
+    raises(sprack.Unsupported, lambda: c.netlist("vacask"), "node 'A' has no DC path to ground")
+    # A transient alone: VACASK's operating point fails on an island.
     c = sprack.Circuit("island")
     c.V("1", "in", 0, 1)
     c.C("1", "in", "x", "1p")
     c.C("2", "x", 0, "1p")
     c.tran("1n", "10n")
-    assert not alarms(c, "espice")
     raises(sprack.Unsupported, lambda: c.netlist("vacask"), "node 'x' has no DC path to ground")
 
 

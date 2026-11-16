@@ -156,10 +156,10 @@ fn cliTests(c: Cli) void {
 
     // What needs no input.
     c.run(&.{}, "", 2).expectStdErrMatch("usage:\n  sprack translate --from <dialect> --to <dialect> [file] [-o out]");
-    c.run(&.{"dialects"}, "", 0).expectStdOutEqual("cdl\nespice\nhspice\nltspice\nngspice\nspectre\nvacask\nxyce\n");
-    c.run(&.{"info"}, "", 0).expectStdOutMatch("{\"dialects\":[\"cdl\",\"espice\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"");
+    c.run(&.{"dialects"}, "", 0).expectStdOutEqual("cdl\nhspice\nltspice\nngspice\nspectre\nvacask\nxyce\n");
+    c.run(&.{"info"}, "", 0).expectStdOutMatch("{\"dialects\":[\"cdl\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"");
     const caps = c.run(&.{"caps"}, "", 0);
-    caps.expectStdOutMatch("            cdl      espice   hspice   ltspice  ngspice  spectre  vacask   xyce     \nresistor    yes      yes      yes      yes      yes      yes      yes      yes      \n");
+    caps.expectStdOutMatch("            cdl      hspice   ltspice  ngspice  spectre  vacask   xyce     \nresistor    yes      yes      yes      yes      yes      yes      yes      \n");
     caps.expectStdOutMatch("\nnone: the simulator has no such thing; an error that says why.\n");
 
     // translate: standard input to standard output, the report to standard error.
@@ -169,7 +169,7 @@ fn cliTests(c: Cli) void {
     // An error in the report: the output is still written, and the status is 1.
     const lost = c.run(&.{ "translate", "--from", "ngspice", "--to", "xyce" }, "t\n.pz a 0 b 0 vol pz\n.end\n", 1);
     lost.expectStdOutEqual("t\n* [sprack] not written: analysis 'pz' has no xyce form\n.end\n");
-    lost.expectStdErrEqual("error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre\n");
+    lost.expectStdErrEqual("error[unsupported]: line 2: analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre\n");
     // A warning alone is status 0.
     c.run(&.{ "translate", "--from", "ngspice", "--to", "vacask" }, deck, 0).expectStdErrMatch("warning[synthesized]: line 3: tran: vacask needs 'maxstep'");
     // To a file, and from one.
@@ -212,7 +212,7 @@ fn cliTests(c: Cli) void {
     // A wrong command line: status 2 and what is wrong, nothing translated.
     c.run(&.{ "translate", "--from", "ngspice" }, deck, 2).expectStdErrMatch("--to is required\nusage:");
     c.run(&.{ "translate", "--to", "xyce" }, deck, 2).expectStdErrMatch("--from is required\nusage:");
-    c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, deck, 2).expectStdErrEqual("unknown dialect 'pspice'. Built in: cdl espice hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file\n");
+    c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, deck, 2).expectStdErrEqual("unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file\n");
     c.run(&.{ "translate", "--frm", "ngspice" }, deck, 2).expectStdErrMatch("unknown option '--frm'\nusage:");
     c.run(&.{"frobnicate"}, "", 2).expectStdErrMatch("unknown command 'frobnicate'\nusage:");
     c.run(&.{ "translate", "--from", "ngspice", "--to", "xyce", "/no/such.sp" }, "", 2).expectStdErrEqual("cannot read /no/such.sp: FileNotFound\n");

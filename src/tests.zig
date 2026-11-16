@@ -6,7 +6,7 @@ const testing = std.testing;
 const ir = sprack.ir;
 const schema = sprack.schema;
 
-const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "espice", "ltspice", "cdl" };
+const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "ltspice", "cdl" };
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -173,7 +173,7 @@ const core_cdl =
 ;
 
 fn sample(name: []const u8) []const u8 {
-    if (std.mem.eql(u8, name, "ngspice") or std.mem.eql(u8, name, "espice")) return core_ngspice;
+    if (std.mem.eql(u8, name, "ngspice")) return core_ngspice;
     if (std.mem.eql(u8, name, "ltspice")) return core_ltspice;
     if (std.mem.eql(u8, name, "cdl")) return core_cdl;
     if (std.mem.eql(u8, name, "hspice")) return core_hspice;
@@ -766,7 +766,7 @@ test "an analysis the target cannot express is an error naming who can, and why"
         \\.end
     , &report);
     try testing.expect(report.hasErrors());
-    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: espice, hspice, ngspice, spectre");
+    try reported(&report, .@"error", "analysis 'pz' cannot be written for xyce: Xyce has no pole-zero analysis. Dialects that define it: hspice, ngspice, spectre");
     // The rest of the netlist is still produced.
     try has(out, "R1 in out 1k\n");
     try has(out, "* [sprack] not written: analysis 'pz'");
@@ -973,7 +973,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     try has(va, "M1 (out in 0 0) nch w=1u l=0.18u\n");
     // It ships no HiSIM2: say so, and say who has.
     _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
-    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'hisim2 n'. Defined by: espice, hspice, ngspice, spectre");
+    try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'hisim2 n'. Defined by: hspice, ngspice, spectre");
 
     // FinFET models: HSPICE level 72 is Xyce level 111, and ngspice has neither.
     var r5: ir.Report = .init(a);
@@ -982,7 +982,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     try has(try tr(a, "hspice", "spectre", fin, &r5), "model nfet bsimcmg type=n version=107\n");
     try clean(&r5);
     _ = try tr(a, "hspice", "ngspice", fin, &r5);
-    try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: espice, hspice, spectre, xyce");
+    try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: hspice, spectre, xyce");
 }
 
 test "an unknown level is an error across dialects, not a guess" {
@@ -3607,7 +3607,7 @@ test "b4: lossy and coupled lines take their letter from the model" {
     const x = try tr(a, "ngspice", "xyce", src, &r2);
     try has(x, "o1 a 0 b 0 lline\n");
     try reported(&r2, .@"error", "no xyce form of this statement can say a model of family 'txl'");
-    try reported(&r2, .@"error", "no spelling for model family 'cpl'. Defined by: espice, ngspice");
+    try reported(&r2, .@"error", "no spelling for model family 'cpl'. Defined by: ngspice");
     // HSPICE's W element with an RLGC model, read and written.
     const w = "t\nW1 a1 a2 0 b1 b2 0 RLGCmodel=pline N=2 l=10\n.model pline W modeltype=RLGC N=2 Lo=9.13n 3.3n 9.13n\n.end\n";
     var r3: ir.Report = .init(a);
