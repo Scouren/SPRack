@@ -1,0 +1,11 @@
+// #57 item 8: parameters a=1_ b=50% c=50c, each the voltage on 1 ohm:
+// expect 1, 0.5 and 0.5.
+simulator lang=spectre
+parameters a=1_ b=50% c=50c
+va (na 0) vsource dc=a
+ra (na 0) resistor r=1
+vb (nb 0) vsource dc=b
+rb (nb 0) resistor r=1
+vc (nc 0) vsource dc=c
+rc (nc 0) resistor r=1
+op1 dc

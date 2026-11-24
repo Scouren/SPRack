@@ -1,0 +1,17 @@
+// #57 item 14: a Spectre model for ngspice's MOS levels 4, 5, 6, 9, 55,
+// 56 and 57: one model line and one instance each (bsim1, bsim2, mos6,
+// mos9, b3soifd, b3soidd, b3soipd are guesses to try).
+simulator lang=spectre
+vd (d 0) vsource dc=1
+vg (g 0) vsource dc=1
+m4 (d g 0 0) n4 l=1u w=1u
+model n4 bsim1 type=n
+m5 (d g 0 0) n5 l=1u w=1u
+model n5 bsim2 type=n
+m6 (d g 0 0) n6 l=1u w=1u
+model n6 mos6 type=n
+m9 (d g 0 0) n9 l=1u w=1u
+model n9 mos9 type=n
+m57 (d g 0 0 0) n57 l=1u w=1u
+model n57 b3soipd type=n
+op1 dc

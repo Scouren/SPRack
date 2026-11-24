@@ -1,0 +1,14 @@
+// #57 item 12: can a statistics block vary every resistor by 10 % and
+// every capacitor by 5 % without naming parameters (HSPICE's
+// .element_variation)? Try the forms Spectre's manual gives, if any.
+simulator lang=spectre
+r1 (a b) resistor r=1k
+c1 (b 0) capacitor c=1n
+v1 (a 0) vsource dc=1
+statistics {
+    process {
+        vary resistor:r dist=gauss std=10 percent=yes
+        vary capacitor:c dist=gauss std=5 percent=yes
+    }
+}
+mc1 montecarlo numruns=20 { op1 dc }

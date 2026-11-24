@@ -1,0 +1,7 @@
+// #57 item 10: a library whose second section includes a missing file;
+// the first section asked for. Does Spectre open the second's include?
+simulator lang=spectre
+include "10_library_sections.lib" section=one
+v1 (a 0) vsource dc=1
+r1 (a 0) resistor r=rv
+op1 dc

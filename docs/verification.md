@@ -1866,6 +1866,17 @@ the grammar expects, so a licensed host runs them as they are; their rows
 go here when it has. Until then, the grammar lines they bear on keep their
 present marks (none says "measured" for these).
 
+### 4.39 Spectre checks waiting for a run (#57)
+
+Issue 57's fourteen checks need Spectre 25.10, which this environment has
+not. Their decks are in `tools/measure/spectre/` with what to read; the
+statistics deck is SPRack's own translation of an HSPICE deck that uses
+`agauss`, `aunif` and a subcircuit's random parameter, so the run checks
+exactly what the writer emits (the helper `parameters` line written after
+the lines that use it is one of its questions). Until the runs are here:
+the `measure` reason, the capacitor's `q` and the statistics lowering stay
+as they are.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

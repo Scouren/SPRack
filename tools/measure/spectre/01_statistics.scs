@@ -1,0 +1,29 @@
+// * stats
+simulator lang=spectre insensitive=yes
+global 0
+sprackOptions1 options temp=25 tnom=25
+parameters p1=100
+parameters p3=1000
+parameters p5=(2*(0 + (1)/(3)*sprack_rv_p5)+p1)
+subckt cell (a b)
+parameters pm=((1 + 0.1*sprack_rv_cell_pm))
+r1 (a b) resistor r=pm*p1
+ends cell
+x1 (in 0) cell
+x2 (in 0) cell
+v1 (in 0) vsource dc=1
+r5 (in 0) resistor r=p5+p3
+mc1 montecarlo numruns=200 {
+tran1 tran step=1n stop=10n
+}
+parameters sprack_rv_p5=0 sprack_rv_cell_pm=0
+statistics {
+process {
+vary p1 dist=gauss std=10
+vary p3 dist=unif N=30
+vary sprack_rv_p5 dist=gauss std=1
+}
+mismatch {
+vary sprack_rv_cell_pm dist=gauss std=1
+}
+}

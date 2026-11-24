@@ -1,0 +1,10 @@
+// #57 item 5: the 1 uH / 1 nF LC tank of verification 4.7 at the default
+// lteratio and ten times looser; compare v(a)'s amplitude after 100 periods
+// (the period is 199 ns).
+simulator lang=spectre
+l1 (a 0) inductor l=1u
+c1 (a 0) capacitor c=1n
+ic a=1
+tran1 tran stop=20u uic=yes
+opt2 options lteratio=35
+tran2 tran stop=20u uic=yes

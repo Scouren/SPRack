@@ -1,0 +1,8 @@
+// #57 item 11: the transfer function to the current through vmeasure, in
+// the form SPRack writes; expect 1e-3.
+simulator lang=spectre
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=1k
+vmeasure (b 0) vsource dc=0
+xf1 xf probe=vmeasure
+tf1 dcxf probe=vmeasure

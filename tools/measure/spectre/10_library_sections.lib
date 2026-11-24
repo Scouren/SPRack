@@ -1,0 +1,9 @@
+simulator lang=spectre
+library lib
+section one
+parameters rv=1k
+endsection one
+section two
+include "no_such_file.scs"
+endsection two
+endlibrary lib

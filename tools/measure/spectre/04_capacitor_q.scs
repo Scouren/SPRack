@@ -1,0 +1,9 @@
+// #57 item 4: capacitor q=1p*v(a) against c=1p under an AC source:
+// the same current, or refused?
+simulator lang=spectre
+v1 (a 0) vsource dc=0 mag=1
+c1 (a 0) capacitor q=1p*v(a)
+v2 (b 0) vsource dc=0 mag=1
+c2 (b 0) capacitor c=1p
+ac1 ac start=1k stop=1k lin=1
+save v1:p v2:p

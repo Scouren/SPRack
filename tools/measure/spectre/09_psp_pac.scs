@@ -1,0 +1,10 @@
+// #57 item 9: a psp with no ports= (stops?) and a pac over a source with
+// mag but no pacmag (stops?).
+simulator lang=spectre
+v1 (a 0) vsource type=sine freq=1M ampl=0.1 mag=1
+r1 (a b) resistor r=50
+d1 (b 0) dm
+model dm diode is=1e-14
+pss1 pss fund=1M harms=5
+psp1 psp start=1M stop=10M lin=3
+pac1 pac start=1k stop=1M dec=3

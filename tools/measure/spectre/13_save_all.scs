@@ -1,0 +1,8 @@
+// #57 item 13: what saves or prints every node voltage (HSPICE's
+// .print tran all)? Try save=allpub on the options and a save of all.
+simulator lang=spectre
+opt1 options save=allpub
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=1k
+r2 (b 0) resistor r=1k
+tran1 tran stop=1u

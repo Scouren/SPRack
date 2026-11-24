@@ -1,0 +1,18 @@
+// #57 item 3: .measure inside a SPICE section after a Spectre tran.
+// Does it load, where do results go, which kinds work?
+simulator lang=spectre
+v1 (a 0) vsource type=pulse val0=0 val1=1 rise=1n fall=1n width=1m period=2m
+r1 (a b) resistor r=1k
+c1 (b 0) capacitor c=1u
+tran1 tran stop=5m
+simulator lang=spice
+.measure tran trise trig v(b) val=0.1 rise=1 targ v(b) val=0.9 rise=1
+.measure tran tcross when v(b)=0.5 rise=1
+.measure tran vat find v(b) at=1m
+.measure tran vavg avg v(b) from=0 to=1m
+.measure tran vrms rms v(b) from=0 to=1m
+.measure tran vmax max v(b)
+.measure tran vpp pp v(b)
+.measure tran vint integ v(b) from=0 to=1m
+.measure tran twice param='2*vmax'
+simulator lang=spectre
