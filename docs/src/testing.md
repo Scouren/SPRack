@@ -72,11 +72,21 @@ python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv out.tsv
 ```
 
 `corpus_audit.py` runs every deck to every target and writes one row per
-run. `corpus_summary.py` prints how much was understood and what was not.
-`corpus_compare.py` is the gate: it fails if any run is *silent* (the
-circuit read back differs and no report entry explains it), or if crashes
-or any target's error count rise against the baseline. The nightly workflow
-runs these three on the conformance suite.
+run. Each deck is read in the dialect its oracle names (`tokenizer` in
+`<stem>.expected.json`, else ngspice; a `.sim` is VACASK), and also in each
+dialect the last argument lists; the `declared` column says which reads are
+the deck's own, and `expect` whether the suite expects it to be refused.
+`corpus_summary.py` prints how much was understood and what was not, for
+own-dialect and other-dialect reads apart; a deck expected to be refused
+whose translation reports an error agrees with its oracle and is listed
+apart, not counted as a failure. `corpus_compare.py` is the gate: it fails
+if any run is *silent* (the circuit read back differs and no report entry
+explains it; `sprack audit` exits 1 for it), or if crashes or any error
+count rise against the baseline, kept per target for own-dialect
+(`own.xyce`) and other-dialect (`other.xyce`) reads. A baseline from
+before those keys gates only silence and crashes until it is rewritten
+with `--update`. The nightly workflow runs these three on the
+conformance suite.
 
 ## 4. In the simulators
 

@@ -2,9 +2,13 @@
 
 Usage: python3 -I corpus_compare.py <baseline> <new.tsv> [--update]
 Fails if any run is SILENT (as corpus_summary.py counts it), or if crashes
-or the error count for any target rise against the baseline. The baseline is
-a summary: `runs`, `crashes` and each target's error count, one per line.
-`--update` rewrites it from <new.tsv> when the gate passes.
+or an error count rise against the baseline. Errors are counted per target,
+apart for runs in the deck's own dialect (`own.<target>`) and in another
+(`other.<target>`); a deck the suite expects to be refused whose
+translation reports an error is not counted (issue 59). The baseline is a
+summary: `runs`, `crashes` and each count, one per line. A key the baseline
+does not have yet gates nothing; `--update` rewrites it from <new.tsv> when
+the gate passes.
 """
 import sys, csv, collections
 
@@ -13,11 +17,14 @@ EXCUSES = ("untranslated", "unsupported", "loss", "synthesized", "invalid", "amb
 
 def tally(path):
     rows = list(csv.DictReader(open(path), delimiter="\t", quoting=csv.QUOTE_NONE))
-    I = lambda r, k: int(r[k] or 0)
-    ok = [r for r in rows if r["rc"] == "0"]
+    I = lambda r, k: int(r.get(k) or 0)
+    ok = [r for r in rows if r["rc"] in ("0", "1")]  # 1: a silent difference (issue 54)
     errors = collections.Counter()
     for r in ok:
-        errors[r["to"]] += I(r, "errors")
+        if r.get("expect") == "error" and I(r, "errors") > 0:
+            continue
+        own = r.get("declared", r["from"]) in ("", None, r["from"])
+        errors[("own." if own else "other.") + r["to"]] += I(r, "errors")
     silent = [r for r in ok if r["same"] != "1" and not sum(I(r, k) for k in EXCUSES)]
     return len(rows), len(rows) - len(ok), errors, silent
 
@@ -38,10 +45,11 @@ if silent:
     for r in silent[:25]:
         print("  silent:", r["from"], "->", r["to"], r["file"])
 for t in sorted(set(base_err) | set(err)):
-    mark = "  <- rose" if err[t] > base_err[t] else ""
-    print(f"  errors to {t:<8}{base_err[t]:>7} -> {err[t]}{mark}")
-    if mark:
-        fail.append(f"errors to {t} rose")
+    known = t in base_err
+    mark = "  <- rose" if known and err[t] > base_err[t] else ("  (new)" if not known else "")
+    print(f"  errors {t:<14}{base_err[t] if known else '-':>7} -> {err[t]}{mark}")
+    if known and err[t] > base_err[t]:
+        fail.append(f"errors {t} rose")
 if fail:
     sys.exit("FAIL: " + "; ".join(fail))
 if "--update" in sys.argv[3:]:
