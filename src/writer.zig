@@ -1170,8 +1170,11 @@ const Writer = struct {
     /// neither are those the target has one parameter for when they differ.
     fn cardParams(w: *Writer, a: Allocator, st: *const ir.Stmt, family: []const u8, ps: *std.ArrayList(ir.Param), own: usize) Allocator.Error!void {
         const to = w.g.modelParamsOf(family) orelse return;
+        const only = w.g.modelParamsOnly(family);
         const sg = w.sourceGrammar(st) orelse return;
-        const from = sg.modelParamsOf(family) orelse return;
+        // A source with no table: every name as it is written, against a
+        // table that lists all the target's card takes.
+        const from = sg.modelParamsOf(family) orelse if (only) &.{} else return;
         const name = st.get("name").atom;
         var em = w.emitter(a, st);
         // Canonical names and values; `wrote` is the key each was written by.
@@ -1206,7 +1209,27 @@ const Writer = struct {
         for (cs.items, 0..) |*c, i| {
             if (c.done) continue;
             const e = (if (c.as_is) null else spellingsOf(to, c.p.key)) orelse {
-                try ps.append(a, c.p);
+                // A name the target's card does not take: not written.
+                if (only and (if (c.as_is) spellingCanon(to, c.p.key) == null else true)) {
+                    var takes_list: std.ArrayList(u8) = .empty;
+                    for (to, 0..) |t, k| {
+                        const dup = for (to[0..k]) |u| {
+                            if (std.ascii.eqlIgnoreCase(u.spellings[0], t.spellings[0])) break true;
+                        } else false;
+                        if (!dup) try takes_list.print(a, "{s}{s}", .{ if (takes_list.items.len > 0) ", " else "", t.spellings[0] });
+                    }
+                    w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: the {s} card of {s} takes no such parameter; it takes {s}", .{
+                        name, try em.describe(.{ .params = &.{.{ .key = c.wrote, .val = c.p.val }} }), family, w.g.name, takes_list.items,
+                    });
+                    continue;
+                }
+                // Under the name it was written by: the canonical one may
+                // mean something else to a target that does not list it,
+                // unless a `noparam` line of the target names it.
+                const refused = for (w.g.noparams) |np| {
+                    if (std.mem.eql(u8, np.family, family) and std.ascii.eqlIgnoreCase(np.key, c.p.key)) break true;
+                } else false;
+                try ps.append(a, .{ .key = if (refused) c.p.key else c.wrote, .val = c.p.val });
                 continue;
             };
             if (!e.halved) {

@@ -395,6 +395,17 @@ write alter     = ".control" / ( "alterparam" keys ~"=" vals / )* "reset" / [ "o
 modelparams resistor
   narrow = narrow dw
   short  = short dlr
+  # ngspice 45 devhelp: one parameter under two names (docs/verification.md 4.22).
+  tc1    = tc1 tc1r
+  tc2    = tc2 tc2r
+  defw   = defw w
+  r      = r res
+end
+modelparams capacitor
+  cj     = cj cox
+  cjsw   = cjsw capsw
+  defw   = defw w
+  same cap
 end
 modelparams inductor
   same ind tc1

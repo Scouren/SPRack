@@ -257,6 +257,9 @@ modelparams resistor
   narrow = narrow / 2              # the canonical value is half the one here;
   short  = narrow / 2              # two names of one spelling: one parameter
 end                                # here, for both
+modelparams capacitor only         # `only`: every parameter the card takes
+  same c cj cjsw defw narrow tc1 tc2 tnom   # here; any other is a `loss`
+end
 models
   bsim4 n = nmos level=14 | nmos level=54     # first spelling is written
   vbic npn = npn level=12 when nodes>=4 | npn level=11
@@ -285,7 +288,9 @@ A model card that crosses between two dialects that both have a
 `modelparams` table for its family gets the target's first spelling of each
 parameter the source's table lists (an info `rename`), at the target's
 number. What the tables do not list is copied as written, and so is every
-card of a family without a table on either side. A name the source's table
+card of a family without a table on either side, except where the
+target's table says `only`: a name it does not list is then not written,
+a `loss` error, whatever the source's table says. A name the source's table
 lists without itself among its spellings (`narrow` where it says `narrow =
 dw`) is
 not a parameter of the source's model: it is not written, a `loss` warning.

@@ -168,10 +168,10 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-150 files, 26 errors, 79 warnings
+150 files, 46 errors, 79 warnings
 ```
 
-Status 1: two lines and twenty-four model cards of the library have no form in
+Status 1: two lines and forty-four model cards of the library have no form in
 Xyce. Each error names its file and line, and says what is wrong:
 
 ```text
@@ -191,6 +191,15 @@ does not have:
 
 ```text
 pdks/sky130_fd_pr/models/parasitics/sky130_fd_pr__model__parasitic__diode_ps2nw.model.spice:16: error[loss]: model 'sky130_fd_pr__model__parasitic__diode_ps2nw': level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002 and refuses a device of a level 3 card; ngspice's level 3 has no counterpart there (level 2 on a sky130 card is 38.5 % off and ignores 27 of its parameters)
+```
+
+And twenty are resistor cards with a parameter Xyce's resistor card does not
+take: the card's own value, which Xyce gives no device, and names it has no
+parameter for:
+
+```text
+pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:143: error[loss]: model 'mrcn': r not written: Xyce lists R among its resistor card's parameters, but not what a device without a value of its own takes from it; give the value on the instance
+pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:34: error[loss]: model 'sky130_fd_pr__res_generic_po__monte': tref=30.0 not written: the resistor card of xyce takes no such parameter; it takes narrow, defw, r, rsh, tc1, tc2, tce, tnom
 ```
 
 The rest of the tree is translated (a parameter named `vt`, which Xyce

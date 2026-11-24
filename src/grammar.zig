@@ -343,7 +343,9 @@ pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 /// this dialect's. Canonical names that share such a spelling are one
 /// parameter here and must be equal to be written (one left out counts as
 /// 0); a name listed without itself among its spellings is not taken here.
-pub const ModelParamTable = struct { family: []const u8, names: []const Spellings };
+/// `modelparams family [only]`: with `only`, the table lists every
+/// parameter the family's card takes here, and any other is a loss.
+pub const ModelParamTable = struct { family: []const u8, names: []const Spellings, only: bool = false };
 
 /// Does a `params` table end in `same ...`: unlisted parameters are not checked?
 pub fn paramsOpen(table: []const Spellings) bool {
@@ -486,6 +488,13 @@ pub const Grammar = struct {
     pub fn modelParamsOf(g: *const Grammar, family: []const u8) ?[]const Spellings {
         for (g.modelparams) |t| if (std.mem.eql(u8, t.family, family)) return t.names;
         return null;
+    }
+
+    /// Does the family's `modelparams` table list every parameter its card
+    /// takes here (`only`)?
+    pub fn modelParamsOnly(g: *const Grammar, family: []const u8) bool {
+        for (g.modelparams) |t| if (std.mem.eql(u8, t.family, family)) return t.only;
+        return false;
     }
 
     /// The formula of the `computes` line for `family` that names `key`.
@@ -1744,8 +1753,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (schema.info(kind).class != .device or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device kind with parameters", .{});
             params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
         } else if (std.mem.eql(u8, head, "modelparams")) {
-            if (schema.familyKind(rest) == null) return c.fail(no, "unknown model family '{s}'", .{rest});
-            modelparams = try c.add(ModelParamTable, modelparams, .{ .family = rest, .names = try parseSpellings(c, &lines, fold, "model parameter", null) });
+            const only = std.mem.endsWith(u8, rest, " only");
+            const fam = if (only) rest[0 .. rest.len - " only".len] else rest;
+            if (schema.familyKind(fam) == null) return c.fail(no, "unknown model family '{s}'", .{fam});
+            modelparams = try c.add(ModelParamTable, modelparams, .{ .family = fam, .names = try parseSpellings(c, &lines, fold, "model parameter", null), .only = only });
         } else if (std.mem.eql(u8, head, "differs")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "differs is `differs function-or-operator : reason`", .{});
             const canon = std.mem.trim(u8, rest[0..colon], " \t");

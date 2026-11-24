@@ -431,10 +431,21 @@ move options.delmax -> tran.maxstep oneway
 # length and NARROW off the width twice each. So it is ngspice's NARROW and
 # SHORT both, at twice the number, and a card whose two differ has no form
 # here. An inductor's TC1 (docs/verification.md 9.1).
-modelparams resistor
+# Every parameter the cards take (Xyce 7.10 -param): any other name is a
+# loss, where Xyce would drop it with a warning and simulate without it
+# (docs/verification.md 4.22).
+modelparams resistor only
   narrow = narrow / 2
   short  = narrow / 2
+  same defw r rsh tc1 tc2 tce tnom
 end
+modelparams capacitor only
+  same c cj cjsw defw narrow tc1 tc2 tnom
+end
+# A card's own value: whether Xyce gives it to a device that has none was
+# not measured, and Xyce refuses a capacitor whose value is on its card.
+noparam resistor r error : Xyce lists R among its resistor card's parameters, but not what a device without a value of its own takes from it; give the value on the instance
+
 modelparams inductor
   same tc1
 end

@@ -1066,6 +1066,38 @@ test "a model card's level by its version or by its instances' terminals (when)"
     try has(try tr(a, "xyce", "hspice", "t\n.model nf nmos level=107\n.model q npn level=12\n.end\n", &r6), ".model nf nmos level=72\n");
 }
 
+test "resistor and capacitor cards: ngspice's other names, and Xyce's cards take only theirs" {
+    // docs/verification.md 4.22.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.model rnd r rsh=120 tc1r=1.422e-3 tc2r=6.569e-7 tnom=30 w=1u\nr1 a 0 rnd w=0.42 l=4.2\n.model cm c cox=1m capsw=1n w=1u\nc1 a 0 cm l=1u\nV1 a 0 1\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".model rnd r rsh=120 tc1=1.422m tc2=0.6569u tnom=30 defw=1u\n");
+    try has(xy, ".model cm c cj=1m cjsw=1n defw=1u\n");
+    try reported(&r1, .info, "model 'rnd': the parameter 'tc1r' is spelled 'tc1' in xyce");
+    try reported(&r1, .info, "model 'cm': the parameter 'cox' is spelled 'cj' in xyce");
+    try clean(&r1);
+    // A name Xyce's card does not take: a loss, not a copy Xyce ignores.
+    var r2: ir.Report = .init(a);
+    const lost = try tr(a, "ngspice", "xyce", "t\n.model rk r rsh=1k kf=1e-25 af=1\n.model cc c cap=1p\n.model rr r res=5\n.end\n", &r2);
+    try has(lost, ".model rk r rsh=1k\n");
+    try has(lost, ".model cc c\n");
+    try reported(&r2, .@"error", "model 'rk': kf=1e-25 not written: the resistor card of xyce takes no such parameter; it takes narrow, defw, r, rsh, tc1, tc2, tce, tnom");
+    try reported(&r2, .@"error", "model 'rk': af=1 not written");
+    try reported(&r2, .@"error", "model 'cc': cap=1p not written: the capacitor card of xyce takes no such parameter");
+    try reported(&r2, .@"error", "model 'rr': r not written: Xyce lists R among its resistor card's parameters");
+    try testing.expectEqual(4, r2.count(.@"error"));
+    // From a dialect with no table for the family: each name as written.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\n.model cm c cj=1m cox=2m\n.end\n", &r3);
+    try reported(&r3, .@"error", "model 'cm': cox=2m not written: the capacitor card of xyce takes no such parameter");
+    // A target without `only` keeps the name as written.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", src, &r4), ".model rnd r rsh=120 tc1r=1.422m tc2r=0.6569u tnom=30 w=1u\n");
+}
+
 test "an unknown level is an error across dialects, not a guess" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

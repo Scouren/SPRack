@@ -1504,6 +1504,33 @@ inferred, not run (#56).
 VACASK's table has the same shape (`vbic13_4t` and `vbic13`, and a
 5-terminal module it does not list); it was not run here.
 
+### 4.22 Resistor and capacitor cards between ngspice and Xyce (#32)
+
+ngspice takes several names for one model parameter and Xyce's card one or
+none; Xyce drops any other with a warning and simulates without it. ngspice
+45 `devhelp`, single-ID parameters: resistor `narrow`/`dw`, `short`/`dlr`,
+`tc1`/`tc1r`, `tc2`/`tc2r`, `defw`/`w`, `r`/`res`; capacitor `cj`/`cox`,
+`cjsw`/`capsw`, `defw`/`w`, and `cap` alone. Xyce 7.10 `-param`: resistor
+model `DEFW NARROW R RSH TC1 TC2 TCE TNOM`, capacitor model `C CJ CJSW DEFW
+NARROW TC1 TC2 TNOM`.
+
+| deck | ngspice 45 | Xyce 7.10, the card copied by name |
+|---|---|---|
+| sky130 TT, 1 V, 27 C, `r1 a 0 sky130_fd_pr__res_generic_nd w=0.42 l=4.2` (`rsh=120 dw=-0.0085u tc1r=1.422e-3 tc2r=6.569e-7 tnom=30`) | i(v1) = -8.707730618e-04 (1148.40 ohm) | -8.33333333e-04 (1200 ohm, RSH L/W), 4.3 % less; TC1R, TC2R and DW "not found" and ignored |
+| GF180 typical, 1 V AC at 1 MHz, `x1 a 0 cap_mim_1f5_m2m3_noshield c_length=10u c_width=10u` (`.model ..._model c cap={c_c0}`, `c_cap 1 2 ..._model dtemp={dtemp}`) | imaginary i(v1) = -1.018963790e-06 (162.17 fF) | CAP "not found", then the device has neither C, Q nor L: the deck is refused |
+
+120 x 4.2 / (0.42 + 0.017) x (1 - 3 x 1.422e-3 + 9 x 6.569e-7) = 1148.40
+ohm: `dw` is 3.9 %, the temperature coefficients 0.43 % at 27 C and 8 % at
+85 C. The grammars now say so: ngspice's `modelparams` tables give the
+names above, Xyce's list every parameter its cards take (`only`), so
+`tc1r` crosses as `tc1`, `w` as `defw`, `cox` as `cj` and `capsw` as
+`cjsw`, and any other name (`cap`, `kf`, `af`, `noise`, ...) is a loss
+error. A card's own `R` is an error into Xyce (`noparam resistor r`):
+whether a device without a value takes it was not measured. The 12 `dw`
+cards stay the errors of 4.13; written exactly they would need each
+card's NARROW and SHORT carried to its instances (NARROW doubled, each
+length raised by 2 NARROW - 2 SHORT). Neither deck was run again for this.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
