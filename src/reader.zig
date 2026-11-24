@@ -733,6 +733,23 @@ const Matcher = struct {
                     for (try self.vector(vt.text)) |v| try self.log.append(self.arena, .{ .slot = e.slot, .val = v });
                 },
                 .pairs => if (!try self.pairs(e.slot, vt)) return false,
+                .pair => {
+                    if (vt.tag == .str or vt.tag == .word) {
+                        try self.log.append(self.arena, .{ .slot = e.slot, .val = .{ .atom = try self.own(vt) } });
+                    } else if (vt.tag == .vec) {
+                        const items = try self.vector(vt.text);
+                        if (items.len != 2) return false;
+                        for ([_]u8{ e.slot, e.slot2 }, items) |sl, it| {
+                            const raw: []const u8 = switch (it) {
+                                .str, .atom, .expr => |x| x,
+                                else => return false,
+                            };
+                            const name = if (raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"') raw[1 .. raw.len - 1] else raw;
+                            if (name.len == 0) return false;
+                            try self.log.append(self.arena, .{ .slot = sl, .val = .{ .atom = name } });
+                        }
+                    } else return false;
+                },
                 .rest, .call => unreachable,
             }
             if (e.tag_slot != grammar.no_slot) {

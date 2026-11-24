@@ -97,7 +97,7 @@ fn unnamed(arena: Allocator, s: Stmt) Allocator.Error!Stmt {
 fn mentions(nodes: []const grammar.Node, slot: u8) bool {
     for (nodes) |n| {
         if (n.slot == slot) return true;
-        for (n.bag) |e| if (e.slot == slot) return true;
+        for (n.bag) |e| if (e.slot == slot or e.slot2 == slot) return true;
         if (mentions(n.kids, slot)) return true;
     }
     return false;

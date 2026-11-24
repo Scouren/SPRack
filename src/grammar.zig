@@ -113,11 +113,15 @@ pub const NodeTag = enum {
 
 /// `pairs`: `k={slot}` writes a params slot as a list of quoted names and
 /// values, `ic={"out",0.5,"a","b",1}` (a name pair is a difference).
-pub const BagForm = enum { plain, quoted, vector, fixed, rest, call, pairs };
+/// `pair`: `k=[a b]` writes `k="a"`, or `k=["a","b"]` when `b` is given
+/// and is not ground (VACASK's `out` of a noise analysis).
+pub const BagForm = enum { plain, quoted, vector, fixed, rest, call, pairs, pair };
 
 pub const BagEntry = struct {
     key: []const u8 = "",
     slot: u8 = no_slot,
+    /// The second slot of a `pair`.
+    slot2: u8 = no_slot,
     form: BagForm = .plain,
     /// `dec=points@sweep:dec`: reading the key also sets `sweep` to `dec`;
     /// the entry is written only when `sweep` is `dec`.
@@ -1113,9 +1117,17 @@ const P = struct {
                     p.i += 1;
                     e.form = .vector;
                     e.slot = try p.slotOf(try p.ident());
+                    if (p.peek() == ' ') {
+                        // `[a b]`: two slots, a node and the one it is
+                        // measured against.
+                        p.i += 1;
+                        e.form = .pair;
+                        e.slot2 = try p.slotOf(try p.ident());
+                        if (p.slotInfo(e.slot).list or p.slotInfo(e.slot2).list) return p.err("'[a b]' needs two slots of one value each", .{});
+                    }
                     if (p.peek() != ']') return p.err("missing ']'", .{});
                     p.i += 1;
-                    if (!p.slotInfo(e.slot).list) return p.err("'[slot]' needs a list slot", .{});
+                    if (e.form == .vector and !p.slotInfo(e.slot).list) return p.err("'[slot]' needs a list slot", .{});
                 },
                 else => {
                     e.slot = try p.slotOf(try p.ident());

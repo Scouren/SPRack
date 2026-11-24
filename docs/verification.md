@@ -1609,6 +1609,18 @@ says which. A two-section library whose second section includes a file
 that does not exist, copied for the first section, loads in ngspice 42
 here. VACASK, HSPICE and Spectre were not run on the question (#56, #57).
 
+### 4.25 VACASK forms for a transient's start, a node pair, gshunt and dcxf (#38)
+
+Four things were `loss` errors into VACASK (186 corpus lines in 95 decks),
+though VACASK says each. Measured in VACASK b2c1551, from its manual:
+
+| what | VACASK | grammar |
+|---|---|---|
+| `tran.start` | `start`, "Time at which results start being recorded" (`docs/cmd-analysis-tran.md:34`); `analysis tran1 tran step=10u stop=2m maxstep=10u start=1m`: the first row at t = 0.001, 103 points to 0.002 | `start=start` |
+| `noise.ref`, `tf.ref` | `out` is a node or a node pair (`docs/cmd-analysis-noise.md:38`, `docs/cmd-analysis-dcxf.md:36`); `out=["a","b"]` is taken, with a power gain of 0.153 at 1 kHz against 0.541 for `out="a"`, which is \|R2/(R1+R2+1/jwC)\|^2 of the deck | `out=[out ref]`, a new pattern form: `out="a"` alone, `out=["a","b"]` with a reference other than ground |
+| `options.gshunt` | "Shunt conductance from every potential node to ground" (`docs/cmd-options-temp.md:21`); 1 mA into 1k gives 0.5 V with `gshunt=1m`, 1.0 V without | `gshunt=gshunt` |
+| `tf.src` | dcxf saves every transfer function and input impedance by default (`docs/cmd-analysis-dcxf.md:47-49`) | not written (`-src`), a caveat and an info `loss`: the named source's are among them |
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

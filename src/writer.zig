@@ -70,6 +70,8 @@ const Emit = struct {
     buf: std.ArrayList(u8) = .empty,
     /// Bit per slot: spelled by the pattern so far.
     used: u64 = 0,
+    /// Bit per slot: left out on purpose (`-slot`).
+    dropped: u64 = 0,
     /// How many names this attempt had to change.
     renames: usize = 0,
     /// Value-less flags this rule had no way to write.
@@ -94,15 +96,16 @@ const Emit = struct {
     /// every list slot stands for the whole list.
     pass: ?usize = null,
 
-    const Save = struct { len: usize, used: u64, tight: bool };
+    const Save = struct { len: usize, used: u64, dropped: u64, tight: bool };
 
     fn save(e: *const Emit) Save {
-        return .{ .len = e.buf.items.len, .used = e.used, .tight = e.tight };
+        return .{ .len = e.buf.items.len, .used = e.used, .dropped = e.dropped, .tight = e.tight };
     }
 
     fn restore(e: *Emit, s: Save) void {
         e.buf.shrinkRetainingCapacity(s.len);
         e.used = s.used;
+        e.dropped = s.dropped;
         e.tight = s.tight;
     }
 
@@ -509,7 +512,10 @@ const Emit = struct {
                 e.tight = !std.mem.eql(u8, n.text, ")");
             },
             .nl => try e.buf.append(e.arena, '\n'),
-            .drop => if (e.present(n.slot)) e.mark(n.slot),
+            .drop => if (e.present(n.slot)) {
+                e.mark(n.slot);
+                if (n.slot < 64) e.dropped |= @as(u64, 1) << @intCast(n.slot);
+            },
             .taglit => {
                 const v = e.val(n.slot);
                 if (n.soft and !e.present(n.slot)) {
@@ -664,6 +670,20 @@ const Emit = struct {
                             try out.append(e.arena, '}');
                             try e.tok(out.items);
                             e.mark(b.slot);
+                        },
+                        .pair => {
+                            if (!e.bound(b.slot) or e.isUsed(b.slot)) continue;
+                            const first = (try e.slotText(b.slot, true)) orelse continue;
+                            const v2 = e.val(b.slot2);
+                            const ground = v2 == .atom and std.mem.eql(u8, v2.atom, "0");
+                            if (e.bound(b.slot2) and !ground) {
+                                const second = (try e.slotText(b.slot2, true)) orelse continue;
+                                // No blank: the reader takes the vector as one word.
+                                const sep = std.mem.trim(u8, e.g.lex.vector_sep, " ");
+                                try e.tok(try e.arena.print("{s}=[{s}{s}{s}]", .{ b.key, first, if (sep.len > 0) sep else " ", second }));
+                            } else try e.tok(try e.arena.print("{s}={s}", .{ b.key, first }));
+                            e.mark(b.slot);
+                            if (e.present(b.slot2)) e.mark(b.slot2);
                         },
                         .plain, .quoted, .vector => {
                             if (b.required and !e.bound(b.slot)) {
@@ -2053,6 +2073,12 @@ const Writer = struct {
         try w.lineTail(std.mem.trimEnd(u8, e.buf.items, "\n"), st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
+        } else if (e.dropped != 0) {
+            // Left out on purpose (`-slot`, its caveat says why): it reads
+            // back without it.
+            for (0..@min(schema.info(st.kind).slots.len, 64)) |i| if (e.dropped & (@as(u64, 1) << @intCast(i)) != 0) {
+                w.report.add(.info, .loss, st.line, "{s}.{s} is not written, so it reads back without it", .{ @tagName(st.kind), schema.info(st.kind).slots[i].name });
+            };
         }
         if (class == .control) {
             // What one statement cannot hold, further statements may:
@@ -3001,7 +3027,7 @@ fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allo
 fn mentions(nodes: []const Node, slot: u8) bool {
     for (nodes) |n| {
         if (n.slot == slot or mentions(n.kids, slot)) return true;
-        for (n.bag) |b| if (b.slot == slot) return true;
+        for (n.bag) |b| if (b.slot == slot or b.slot2 == slot) return true;
     }
     return false;
 }

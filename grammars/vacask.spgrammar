@@ -156,7 +156,10 @@ rule  model     = "model" name type [ "(" {...params} ")" ]
 read  model     = "model" name type {...params}
 rule  hdl       = "load" path
 # lib/options.cpp:245-260 and :317; there is no trtol (tran_lteratio is not the same quantity).
-rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc temp=temp tnom=tnom scale=scale chgtol=chgtol tran_method="method" tran_maxord=maxord ...params }
+# gshunt: "Shunt conductance from every potential node to ground"
+# (docs/cmd-options-temp.md:21); measured, 1 mA into 1k gives 0.5 V with
+# gshunt=1m and 1.0 V without (docs/verification.md 4.25).
+rule  options   = "options" { reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc temp=temp tnom=tnom scale=scale chgtol=chgtol tran_method="method" tran_maxord=maxord gshunt=gshunt ...params }
 rule  save      = "save" signals+
 read  opaque    = ( "ground" | "save" ) ...
 # devices and outputs (b4)
@@ -175,10 +178,14 @@ rule  ac        = "analysis" name?ac$# "ac" { from=fstart to=fstop mode="sweep" 
 # SPICE caps the time step at min(step, (stop-start)/50); VACASK only at
 # (stop-start)/tran_minpts, 50 by default (lib/coretran.cpp:1467-1482), so
 # without a maxstep it takes steps larger than SPICE's.
-rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop maxstep=maxstep?$step icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
-rule  noise     = "analysis" name?noise$# "noise" { out="out" in="src" from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
+# start: "Time at which results start being recorded" (docs/cmd-analysis-tran.md:34).
+rule  tran      = "analysis" name?tran$# "tran" { step=step stop=stop start=start maxstep=maxstep?$step icmode="skip_dc" ic={ic} nodeset={nodeset} ...params }
+# out is a node or a node pair (docs/cmd-analysis-noise.md:38, cmd-analysis-dcxf.md:36).
+rule  noise     = "analysis" name?noise$# "noise" { out=[out ref] in="src" from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
 # docs/cmd-analysis-dcxf.md: the transfer function to `out` from every source.
-rule  tf        = "analysis" name?tf$# "dcxf" { out="out" nodeset={nodeset} ...params }
+# It reports tf() and zin() for every source by default (docs/cmd-analysis-dcxf.md:47-49):
+# the source SPICE names is among them.
+rule  tf        = "analysis" name?tf$# "dcxf" -src { out=[out ref] nodeset={nodeset} ...params }
 rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] nodeset={nodeset} ...params }
 # docs/cmd-analysis-acsp.md, cmd-analysis-acstb.md, cmd-analysis-pss.md.
 rule  sp        = "analysis" name?sp$# "acsp" { from=fstart to=fstop mode="sweep" points=points nodeset={nodeset} ...params }
@@ -341,6 +348,7 @@ requires no-lloop  error : VACASK's operating point fails on it, where ngspice a
 
 caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
+caveat tf src : dcxf reports tf() and zin() for every independent source, the one SPICE names among them; it is not named
 caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form
 # docs/cmd-analysis-noise.md "Output": onoise, gain and n(...) per frequency.

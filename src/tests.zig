@@ -844,8 +844,10 @@ test "nothing is dropped: a value with no place in the target is an error" {
 
     var r1: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\n.tran 1n 100n 5n 0.5n uic\n.end\n", &r1);
-    try has(va, "analysis tran1 tran step=1n stop=100n maxstep=0.5n icmode=\"uic\"\n");
-    try reported(&r1, .@"error", "tran.start = 5n has no spelling in vacask");
+    try has(va, "analysis tran1 tran step=1n stop=100n start=5n maxstep=0.5n icmode=\"uic\"\n");
+    // VACASK records from start= on (docs/cmd-analysis-tran.md:34).
+    try has(va, "start=5n");
+    try testing.expect(!r1.contains(.@"error", "tran.start"));
 
     // HSPICE's step cap is .OPTION DELMAX; a fourth .TRAN number is nothing
     // to it (y1, docs/verification.md 4.18).
@@ -2618,7 +2620,8 @@ test "verification: VACASK behavioural sources, dcxf, subckt parentheses, val0/v
     try has(va, "B2 (0 c) i=v(in)*1m\n");
     try has(va, "analysis tf1 dcxf out=\"b\"\n");
     // dcxf has no input source of its own: it reports every source.
-    try reported(&r1, .@"error", "tf.src = V1 has no spelling in vacask");
+    // dcxf reports every source: the one named is among them.
+    try reported(&r1, .warning, "tf.src: dcxf reports tf() and zin() for every independent source");
     try reported(&r1, .warning, "tf.out: dcxf reports tf(), zin() and yin() for every independent source");
     // v0/v1 are not VACASK source parameters, so they are not pulse levels.
     var r2: ir.Report = .init(a);
@@ -4332,7 +4335,7 @@ test "VACASK tran: SPICE's step cap is written as maxstep" {
     try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 20n 20n\n.end\n", &r3), "analysis tran1 tran step=20n stop=20n\n");
     try testing.expectEqual(0, r3.items.items.len);
     var r4: ir.Report = .init(a);
-    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 101 20n 0 101\n.end\n", &r4), "analysis tran1 tran step=101 stop=20n\n");
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in 0 1k\n.tran 101 20n 0 101\n.end\n", &r4), "analysis tran1 tran step=101 stop=20n start=0\n");
     try reported(&r4, .info, "tran.maxstep at or above the stop time limits nothing and is not written");
     try testing.expectEqual(0, r4.countCode(.synthesized));
 }
@@ -4487,6 +4490,22 @@ test "Xyce: a diode card of ngspice's level 3 is an error, a level 1 card is not
     var r2: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\n.model dd d level=1 is=1e-15\nD1 a 0 dd\nV1 a 0 0.7\n.op\n.end\n", &r2);
     try clean(&r2);
+}
+
+test "VACASK: a node pair in noise and dcxf, gshunt, and a transient's start" {
+    // docs/verification.md 4.25.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\nV1 a 0 1 ac 1\nR1 a b 1k\nC1 b 0 1u\nR2 b 0 1k\n.noise v(a,b) V1 dec 10 1 1k\n.noise v(a) V1 dec 10 1 1k\n.tf v(a,b) V1\n.end\n", &r1);
+    try has(va, "analysis noise1 noise out=[\"a\",\"b\"] in=\"V1\"");
+    try has(va, "analysis noise2 noise out=\"a\" in=\"V1\"");
+    try has(va, "analysis tf1 dcxf out=[\"a\",\"b\"]\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "vacask", "t\nI1 0 a 1m\nR1 a 0 1k\n.options gshunt=1m\n.op\n.end\n", &r2), "gshunt=1m");
+    try testing.expect(!r2.contains(.@"error", "gshunt"));
 }
 
 test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
