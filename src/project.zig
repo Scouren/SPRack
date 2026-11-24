@@ -68,7 +68,54 @@ pub const Options = struct {
     /// Another value would reach other files, so a kept result is good
     /// only while these are the same. A catalogue says it as its `vars`.
     expanded: ?*Writer = null,
+    /// Lines a PDK ships that its own simulator refuses, and what to read
+    /// instead (a manifest's `errata`).
+    errata: []const Erratum = &.{},
 };
+
+/// `was`, whole lines of a file whose path ends in `file`, is read as
+/// `read`: a line the PDK's own simulator refuses (`why`).
+pub const Erratum = struct { file: []const u8, was: []const u8, read: []const u8, why: []const u8 = "" };
+
+/// Errata from JSON: a list of `{file, was, read, why}`, or an object that
+/// holds one under `errata` (a PDK manifest).
+pub fn parseErrata(arena: Allocator, text: []const u8) error{ OutOfMemory, BadErrata }![]const Erratum {
+    const v = std.json.parseFromSliceLeaky(std.json.Value, arena, text, .{}) catch return error.BadErrata;
+    const list = switch (v) {
+        .array => |a| a,
+        .object => |o| if (o.get("errata")) |e| (if (e == .array) e.array else return error.BadErrata) else return &.{},
+        else => return error.BadErrata,
+    };
+    var out: std.ArrayList(Erratum) = .empty;
+    for (list.items) |it| {
+        if (it != .object) return error.BadErrata;
+        const get = struct {
+            fn f(o: std.json.ObjectMap, k: []const u8) ?[]const u8 {
+                const x = o.get(k) orelse return null;
+                return if (x == .string) x.string else null;
+            }
+        }.f;
+        try out.append(arena, .{
+            .file = get(it.object, "file") orelse return error.BadErrata,
+            .was = get(it.object, "was") orelse return error.BadErrata,
+            .read = get(it.object, "read") orelse return error.BadErrata,
+            .why = get(it.object, "why") orelse "",
+        });
+    }
+    return out.items;
+}
+
+/// Where `was` stands in `text` as whole lines, from `from` on.
+fn wholeLines(text: []const u8, was: []const u8, from: usize) ?usize {
+    var i = from;
+    while (std.mem.indexOfPos(u8, text, i, was)) |at| : (i = at + 1) {
+        const starts = at == 0 or text[at - 1] == '\n';
+        const end = at + was.len;
+        const ends = end == text.len or text[end] == '\n' or text[end] == '\r';
+        if (starts and ends) return at;
+    }
+    return null;
+}
 
 // ------------------------------------------------------------------- paths
 
@@ -186,6 +233,11 @@ const Run = struct {
     /// Why the last file `readFile` gave nothing was refused; empty: it
     /// could not be opened.
     refusal: []const u8 = "",
+    /// For each erratum: a file it names was read, and its text found there.
+    errata_seen: []bool = &.{},
+    errata_found: []bool = &.{},
+    /// `path NUL index` of each erratum said, so each is said once.
+    errata_said: std.StringHashMapUnmanaged(void) = .empty,
     /// Every `$NAME` an include path named, with the value it was given.
     expanded: std.StringArrayHashMapUnmanaged(?[]const u8) = .empty,
 
@@ -534,7 +586,39 @@ const Run = struct {
             r.refusal = std.fmt.comptimePrint("larger than {d} MiB, the most an input may hold; not read", .{ir.max_input >> 20});
             return null;
         }
-        return std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch null;
+        const text = std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch return null;
+        return r.applyErrata(path, text, a) catch null;
+    }
+
+    /// `text`, the file at `path`, with its errata read in: one caveat each.
+    fn applyErrata(r: *Run, path: []const u8, text_in: []const u8, a: Allocator) Allocator.Error![]const u8 {
+        var text = text_in;
+        for (r.opts.errata, 0..) |e, i| {
+            if (!std.mem.endsWith(u8, path, e.file)) continue;
+            r.errata_seen[i] = true;
+            const at = wholeLines(text, e.was, 0) orelse continue;
+            r.errata_found[i] = true;
+            const line = std.mem.count(u8, text[0..at], "\n") + 1;
+            text = try std.mem.concat(a, u8, &.{ text[0..at], e.read, text[at + e.was.len ..] });
+            const key = try std.fmt.allocPrint(r.arena, "{s}\x00{d}", .{ path, i });
+            if (r.errata_said.contains(key)) continue;
+            try r.errata_said.put(r.arena, key, {});
+            const msg = try std.fmt.allocPrint(r.arena, "read through an erratum of the PDK: '{s}'{s}{s}; read as '{s}'", .{
+                std.mem.sliceTo(e.was, '\n'), if (e.why.len > 0) ": " else "", e.why, std.mem.sliceTo(e.read, '\n'),
+            });
+            r.logLine(path, .{ .sev = .warning, .code = .caveat, .line = @intCast(line), .msg = msg });
+        }
+        return text;
+    }
+
+    /// An erratum whose file was read and whose text is not in it: the PDK
+    /// has changed, and the erratum can go.
+    fn staleErrata(r: *Run) Allocator.Error!void {
+        for (r.opts.errata, r.errata_seen, r.errata_found) |e, seen, found| {
+            if (!seen or found) continue;
+            const msg = try std.fmt.allocPrint(r.arena, "the PDK's erratum for this file no longer applies: '{s}' is not in it", .{std.mem.sliceTo(e.was, '\n')});
+            r.logLine(e.file, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
+        }
     }
 
     /// Pass one: find every file and learn what each declares.
@@ -672,9 +756,14 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
         r.wanted = .empty;
         for (opts.sections) |sec| try r.wanted.?.put(r.arena, sec, {});
     }
+    r.errata_seen = try r.arena.alloc(bool, opts.errata.len);
+    r.errata_found = try r.arena.alloc(bool, opts.errata.len);
+    @memset(r.errata_seen, false);
+    @memset(r.errata_found, false);
     for (opts.tops) |t| try r.enqueue(try resolve(r.arena, r.cwd, t));
     try r.discover();
     try r.process();
+    try r.staleErrata();
     if (opts.expanded) |w| try r.writeExpanded(w);
     return r.sum;
 }
@@ -690,6 +779,45 @@ test "paths" {
     try std.testing.expectEqualStrings("n.lib", try relative(a, "pdk", "pdk/n.lib"));
     try std.testing.expectEqualStrings("sub/n.lib", try relative(a, ".", "sub/n.lib"));
     try std.testing.expectEqualStrings("/pdk", try commonDir(a, &.{ "/pdk/libs/a.lib", "/pdk/models/n.lib" }));
+}
+
+test "errata: a line the PDK's own simulator refuses is read as the manifest says, once" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.createDirPath(io, "in/cells");
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/lib.spice", .data = "* lib\n.include \"cells/r.spice\"\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/cells/r.spice", .data = "* cell\n.subckt rr a b\nres a b rm r = 1k tc1r = 1m\n.ends\n" });
+    const errata = try parseErrata(a,
+        \\{"name": "x", "errata": [
+        \\  {"file": "cells/r.spice", "was": "res a b rm r = 1k tc1r = 1m", "read": "Rres a b rm r = 1k tc1 = 1m", "why": "a switch to ngspice"},
+        \\  {"file": "cells/r.spice", "was": "gone a b 1k", "read": "Rgone a b 1k"}
+        \\]}
+    );
+    try std.testing.expectEqual(2, errata.len);
+    const ngspice = @import("root.zig").find("ngspice").?.*;
+    const xyce = @import("root.zig").find("xyce").?.*;
+    var log: Writer.Allocating = .init(a);
+    const sum = try run(io, std.testing.allocator, .{
+        .from = &ngspice,
+        .to = &xyce,
+        .tops = &.{try std.fmt.allocPrint(a, "{s}/in/lib.spice", .{base})},
+        .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
+        .library = true,
+        .log = &log.writer,
+        .errata = errata,
+    });
+    try std.testing.expectEqual(0, sum.errors);
+    const out = try tmp.dir.readFileAlloc(io, "out/cells/r.spice", a, .unlimited);
+    try std.testing.expect(std.mem.indexOf(u8, out, "Rres a b 1k rm tc1=1m\n") != null);
+    // Said once, though both passes read the file.
+    try std.testing.expectEqual(1, std.mem.count(u8, log.written(), "r.spice:3: warning[caveat]: read through an erratum of the PDK: 'res a b rm r = 1k tc1r = 1m': a switch to ngspice; read as 'Rres a b rm r = 1k tc1 = 1m'"));
+    try std.testing.expect(std.mem.indexOf(u8, log.written(), "info[cosmetic]: the PDK's erratum for this file no longer applies: 'gone a b 1k' is not in it") != null);
+    try std.testing.expectError(error.BadErrata, parseErrata(a, "[1]"));
 }
 
 test "an include that is no regular file is refused, not read until memory runs out" {

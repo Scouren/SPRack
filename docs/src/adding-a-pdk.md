@@ -258,3 +258,28 @@ AttributeError: 'nfte' is neither a statement kind nor a device of mine. Did you
 
 The manifest is fine; the call does not match the device the library
 defines.
+
+## Lines the PDK's own simulator refuses: errata
+
+A PDK can ship a line its own simulator refuses; sprack then cannot read
+it either, and it is an `untranslated` error into every other dialect. A
+manifest's `errata` list says what to read instead, as an installer such
+as open_pdks does:
+
+```json
+"errata": [
+  {"file": "models/r+c.mrp1monte.spice",
+   "was": "sky130_fd_pr__res_generic_po r0 r1 ... tc1r = {tc1} tc2r = {tc2}",
+   "read": "Rsky130_fd_pr__res_generic_po r0 r1 ... tc1 = {tc1} tc2 = {tc2}",
+   "why": "ngspice reads a line starting with s as a switch", "issue": 25}
+]
+```
+
+`file` is matched against the end of each path read; `was` and `read` are
+whole lines (several, joined by newlines, for a statement with
+continuations). Each one read is a `caveat` warning with its line; one
+whose file is read but whose `was` is not in it is an info that the
+erratum no longer applies, and can go. `sprack.PDK` passes the list to the
+core; `sprack project --errata manifest.json` reads it from a file. A PDK
+used in its own dialect is referenced in place and not changed.
+

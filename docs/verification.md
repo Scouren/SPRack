@@ -1651,6 +1651,23 @@ all without a `.tran`: Spectre says the method on the tran statement
 nothing. A value moved onto an analysis the netlist does not have is now
 not written, with an info `loss` saying so.
 
+### 4.28 Lines sky130 ships that ngspice refuses, read through errata (#42)
+
+ngspice 45 on the three lines of #25:
+
+| line | ngspice 45 | read instead |
+|---|---|---|
+| `cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16` `include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"` | `Not enough parameters`, fatal; every corner reaches it (`sky130.lib.spice:24`, `..._nvt__tt.corner.spice:280`); no file has the name | `.include "../esd_nfet_05v0_nvt/sky130_fd_pr__esd_nfet_05v0_nvt.pm3.spice"` |
+| `models/r+c.mrp1monte.spice:33` `sky130_fd_pr__res_generic_po r0 r1 ... tc1r = {tc1} tc2r = {tc2}` | a switch, interrupted; with an R in front, `unknown parameter (tc1r)` | `R` in front and `tc1`, `tc2`, open_pdks' form |
+| installed sky130A, `libs.ref/sky130_fd_pr/spice/sky130_fd_pr__special_pfet_latch.pm3.spice:350` | the subcircuit's name after the parameters: `unknown subckt` | the name before them |
+
+With the first two read so, ngspice loads `tt`;
+`sky130_fd_pr__res_generic_po w=1 l=10` draws 1.95851 mA at 1 V and
+`sky130_fd_pr__esd_nfet_05v0_nvt w=10 l=2` 250.946 uA at 1 V on gate and
+drain. The sky130A manifest holds the three as errata; sky130 to HSPICE,
+Spectre and VACASK is then 0 errors, and the installed sky130A loses its
+Xyce error of the third.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

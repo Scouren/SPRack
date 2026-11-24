@@ -188,7 +188,18 @@ pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: 
 pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:33: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: sky130_fd_pr__res_generic_po r0 r1 sky130_fd_pr__res_generic_po__monte r = {r_tot} tc1r = {tc1} tc2r = {tc2}
 ```
 
-Both are lines of the library that are not ngspice syntax. Twelve more
+Both are lines of the library that are not ngspice syntax, and ngspice
+itself refuses them (issue 25). The sky130A manifest's errata say what to
+read instead, as open_pdks installs them; `--errata` takes them (the
+manifests are in the Python package's `pdks` directory):
+
+```console
+$ sprack project --from ngspice --to xyce --lib --section tt --errata "$(python -c 'import os, sprack; print(os.path.dirname(sprack.__file__))')/pdks/sky130A.json" --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
+pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: warning[caveat]: read through an erratum of the PDK: 'include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"': ngspice refuses an include without its dot (Not enough parameters, fatal), and no file has that name; the ESD transistor is in ../esd_nfet_05v0_nvt; read as '.include "../esd_nfet_05v0_nvt/sky130_fd_pr__esd_nfet_05v0_nvt.pm3.spice"'
+...
+```
+
+`sprack.PDK` reads them from its manifest by itself. Twelve more
 are the resistor models that narrow the width by `dw`, one entry each:
 
 ```text
@@ -237,7 +248,7 @@ print(pdk.device("nfet_01v8")["ports"])
 ```text
 PDK('sky130A', root='…/pdks/sky130_fd_pr', corner='tt', dialect='ngspice')
 ('tt', 'ff', 'ss', 'sf', 'fs', 'll', 'hh', 'hl', 'lh')
-236 devices
+237 devices
 ['d', 'g', 's', 'b']
 ```
 
@@ -314,15 +325,15 @@ other, and `netlist()` raises:
 
 ```python
 try:
-    c.netlist("spectre")
+    c.netlist("xyce")
 except sprack.Unsupported as err:
     print(len(err.report.errors), "errors")
     print(err.report.errors[0])
 ```
 
 ```text
-2 errors
-error[untranslated]: pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:line 16: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
+47 errors
+error[loss]: pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:line 130: model 'sky130_fd_pr__res_generic_nd': dw="-tol_nfom/2-nfom_dw/2" not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 ```
 
 `strict=False` accepts the copy as it is and puts those errors in the
@@ -330,23 +341,22 @@ netlist's report. Use it when the lines in question are not in the devices
 you instantiate:
 
 ```python
-out = c.netlist("spectre", strict=False)
+out = c.netlist("xyce", strict=False)
 print(out)
 print(len(out.report.errors), "errors in the report")
 ```
 
 ```text
-// inverter
-simulator lang=spectre
-global 0
-include "…/cache/sky130A/spectre-tt-67114f2025387e38/models/sky130.lib.spice" section=tt
-Vdd (vdd 0) vsource dc=1.8
-Vin (in 0) vsource type=pulse val0=0 val1=1.8 delay=1n rise=50p fall=50p width=2n period=4n
-Mp (out in vdd vdd) sky130_fd_pr__pfet_01v8 w=1 l=0.15
-Mn (out in 0 0) sky130_fd_pr__nfet_01v8 w=0.5 l=0.15
-tran1 tran step=10p stop=8n
+inverter
+.lib "…/cache/sky130A/xyce-tt-a44f9078963de0de/models/sky130.lib.spice" tt
+Vdd vdd 0 dc 1.8
+Vin in 0 pulse(0 1.8 1n 50p 50p 2n 4n)
+XMp out in vdd vdd sky130_fd_pr__pfet_01v8 params: w=1 l=0.15
+XMn out in 0 0 sky130_fd_pr__nfet_01v8 params: w=0.5 l=0.15
+.tran 10p 8n
+.end
 
-2 errors in the report
+47 errors in the report
 ```
 
 `pdk.translate(dialect, strict=False)` does the translation alone and

@@ -367,24 +367,25 @@ def test_pdk_sky130():
     raises(AttributeError, lambda: c.nfet_1v8, "Did you mean: nfet_01v8")
     # Another dialect: the library itself is translated, once, and referenced.
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
-    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 50, str(e)
+    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 48, str(e)
     xy = c.netlist("xyce", strict=False)
-    # Two lines that are not ngspice syntax, the twelve resistor cards with dw (ngspice's NARROW,
+    # The twelve resistor cards with dw (ngspice's NARROW,
     # with no SHORT), which no Xyce card computes, the twelve diode cards of ngspice's level 3,
     # which Xyce's diode has not, and the parameters Xyce's cards do not take: twenty on resistor
     # cards (nine of them the card's own value) and three temperature coefficients of the pnp.
     # (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    assert codes == ["loss"] * 47 + ["untranslated", "untranslated"], codes
+    # The two lines ngspice itself refuses (#25) are read through the manifest's errata.
+    assert codes == ["loss"] * 47, codes
     losses = [x.message for x in xy.report.errors if x.code == "loss"]
     assert sum("__res_generic_" in m and "dw=" in m for m in losses) == 12
     assert sum("level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002" in m for m in losses) == 12
     assert sum("r not written: Xyce lists R" in m for m in losses) == 9
     assert sum("the resistor card of xyce takes no such parameter" in m for m in losses) == 11
     assert sum("the bjt card of xyce takes no such parameter" in m for m in losses) == 3
-    assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
+    assert "warning[caveat]: read through an erratum of the PDK" in open(os.path.join(tree, "sprack.log")).read()
     lib = open(os.path.join(tree, "models", "sky130.lib.spice")).read()
     assert '.include "../cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"' in lib
     assert os.path.isfile(os.path.join(tree, "cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"))

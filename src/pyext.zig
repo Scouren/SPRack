@@ -200,6 +200,14 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
         .library = flag(args, 5),
         // Optional: the library sections to follow, one per line.
         .sections = if (args != null and PyTuple_Size(args.?) > 6) try lines(arena, try arg(args, 6)) else &.{},
+        // Optional: a manifest's errata, as JSON.
+        .errata = if (args != null and PyTuple_Size(args.?) > 7) sprack.project.parseErrata(arena, try arg(args, 7)) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.BadErrata => {
+                PyErr_SetString(valueError(), "errata: a list of {file, was, read, why}");
+                return error.Raised;
+            },
+        } else &.{},
         .log = &log.writer,
         .catalog = if (gt == null) &cat.writer else null,
         .expanded = &expanded.writer,
@@ -233,7 +241,7 @@ var methods = [_]PyMethodDef{
     .{ .name = "translate", .meth = pyTranslate, .flags = METH_VARARGS, .doc = "translate(from, to, source) -> (netlist, report JSON)" },
     .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)" },
     .{ .name = "write", .meth = pyWrite, .flags = METH_VARARGS, .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)" },
-    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections]) -> (summary or catalogue JSON, log)" },
+    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata]]) -> (summary or catalogue JSON, log)" },
     .{ .name = null, .meth = null, .flags = 0, .doc = null },
 };
 

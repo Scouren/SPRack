@@ -243,7 +243,7 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 280 | 0 | 2 | 49 | 2 | 2 |
+| sky130 (ngspice) | 281 | 0 | 0 | 47 | 0 | 0 |
 | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 71 | 0 | 0 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
@@ -251,7 +251,7 @@ Whole model libraries, all corners, errors per target:
 
 Every error names a file and a line. What is left, and whose it is:
 
-- sky130 to every other target, 2: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses. Upstream: [issue 25](https://github.com/Scouren/SPRack/issues/25).
+- sky130: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses ([issue 25](https://github.com/Scouren/SPRack/issues/25)), are read through the errata of its manifest (`python/sprack/pdks/sky130A.json`, `sprack project --errata`), each a caveat: the include of the ESD transistor with its real path, and the Monte Carlo resistor as a resistor with `tc1` and `tc2`. A third, in the installed sky130A, puts an instance's subcircuit after its parameters.
 - sky130 to Xyce 3, IHP to Xyce 22, GF180 to Xyce 88: diode, BJT and VBIC card parameters that ngspice's models have and Xyce's devices do not (`tlev`, `tlevc`, `cta` on diodes; BJT temperature coefficients such as `tnf1`, `tbf1`, `tikf1`, `trc1`): every name Xyce 7.10 declares for each family is now listed (`tools/param_lists.py`), and any other is an error where Xyce would ignore it. At ngspice's default value they are warnings.
 - sky130 to Xyce 12, IHP to Xyce 13, GF180 to Xyce 29: diode cards of ngspice's level 3, which most of the three PDKs' junction diodes are, and with them the transistors with a drain diode and the diffusion and well resistors that hold one. The target has no such thing: Xyce 7.10's diode has levels 1, 2, 200 and 2002 and refuses a device of a level 3 card, and its level 2 is another model ([issue 30](https://github.com/Scouren/SPRack/issues/30)).
 - sky130 to Xyce 20, GF180 to Xyce 64: resistor and capacitor cards with a parameter Xyce's card does not take, which Xyce would drop with a warning and simulate without (`modelparams resistor only`, from `Xyce -param`): a card's own value (sky130's `res` on 9 resistor cards; GF180's `cap` on 15 MIM capacitors, whose devices Xyce then refuses), noise parameters (`kf`, `af`, `noise`) and names Xyce has no parameter for. ngspice's other names for a parameter Xyce has (`tc1r`, `tc2r`, `w`, `cox`, `capsw`) are written in Xyce's spelling.

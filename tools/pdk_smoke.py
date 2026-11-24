@@ -33,8 +33,6 @@ def inverter(name, sub, vdd, n, p, **kw):
 # Known lines the simulators reject, edited in the cached copy so the inverter
 # can run; each one is printed. ponytail: delete an entry once sprack handles it.
 PATCHES = [
-    # sky130_fd_pr itself: `include "x.pm3"` without the dot, which ngspice and Xyce reject.
-    (None, re.compile(r'^include "', re.M), '* include "', "sky130 `include` without a dot"),
     # HSPICE variation syntax that sky130 carries; Xyce rejects the key.
     ("xyce", re.compile(r"\+?\s*dev/gauss=\{[^}]*\}"), "", "dev/gauss= on .param (TODO: sprack should report it)"),
     # Xyce reserves VT (the thermal voltage) as a name.

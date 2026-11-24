@@ -1368,7 +1368,7 @@ class PDK:
             base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
             data = _cached(base, cache, self._defines())
             if data is None:
-                text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", _lines(self._defines()), True)
+                text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", _lines(self._defines()), True, "", self._errata())
                 data = json.loads(text)
                 # Kept while every file read, through includes too, is unchanged.
                 data["files"] = _stats(data["files"])
@@ -1419,6 +1419,11 @@ class PDK:
         return sorted(set(super().__dir__()) | {s for s in short if s.isidentifier()})
 
     # -- the libraries, per dialect ------------------------------------
+    def _errata(self) -> str:
+        """The manifest's errata, as the core takes them: lines the PDK's own
+        simulator refuses, and what is read instead (issue 25)."""
+        return json.dumps(self.manifest.get("errata", []))
+
     def translate(self, dialect: str, out: str | None = None, *, strict: bool = True) -> str:
         """Translate the PDK's model libraries to `dialect`; returns the directory.
 
@@ -1440,7 +1445,7 @@ class PDK:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
-            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections))
+            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections), self._errata())
             summary = json.loads(text)
             # Kept while every file translated is unchanged.
             summary["files"] = _sources(out, summary["root"])

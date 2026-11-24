@@ -19,7 +19,9 @@ const usage =
     \\        libraries themselves (no title line), as in a PDK. Each
     \\        --section NAME (a corner: tt) limits the library sections
     \\        followed to those named and the ones they name; the others
-    \\        are listed as not followed.
+    \\        are listed as not followed. --errata FILE reads the lines a
+    \\        PDK's own simulator refuses as the JSON file says (a list of
+    \\        {file, was, read, why}, or a manifest's "errata").
     \\  sprack read --from <dialect> [file]
     \\        The netlist as JSON (the internal representation).
     \\  sprack write --to <dialect> [file.json] [-o out]
@@ -66,6 +68,7 @@ const Args = struct {
     vars: std.ArrayList([2][]const u8) = .empty,
     library: bool = false,
     sections: std.ArrayList([]const u8) = .empty,
+    errata: ?[]const u8 = null,
 };
 
 fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []const u8) *const sprack.Grammar {
@@ -201,6 +204,9 @@ pub fn main(init: std.process.Init) !void {
             a.out = argv[i];
         } else if (std.mem.eql(u8, arg, "--lib")) {
             a.library = true;
+        } else if (std.mem.eql(u8, arg, "--errata") and has_next) {
+            i += 1;
+            a.errata = argv[i];
         } else if (std.mem.eql(u8, arg, "--section") and has_next) {
             i += 1;
             try a.sections.append(arena, argv[i]);
@@ -231,6 +237,13 @@ pub fn main(init: std.process.Init) !void {
             .vars = a.vars.items,
             .library = a.library or listing,
             .sections = a.sections.items,
+            .errata = if (a.errata) |path| blk: {
+                const text = cwd.readFileAlloc(io, path, arena, .limited(16 << 20)) catch |e| die(io, "cannot read {s}: {s}\n", .{ path, @errorName(e) });
+                break :blk sprack.project.parseErrata(arena, text) catch |e| switch (e) {
+                    error.OutOfMemory => return e,
+                    error.BadErrata => die(io, "{s}: errata are a list of {{file, was, read, why}}, or a manifest that holds one\n", .{path}),
+                };
+            } else &.{},
         });
         try out.flush();
         try err.print("{d} file{s}, {d} error{s}, {d} warning{s}", .{
