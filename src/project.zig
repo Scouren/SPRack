@@ -71,6 +71,8 @@ pub const Options = struct {
     /// Lines a PDK ships that its own simulator refuses, and what to read
     /// instead (a manifest's `errata`).
     errata: []const Erratum = &.{},
+    /// Verilog-A modules with a plugin, and its file (`ir.Env.plugins`).
+    plugins: []const [2][]const u8 = &.{},
 };
 
 /// `was`, whole lines of a file whose path ends in `file`, is read as
@@ -756,6 +758,7 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
         r.wanted = .empty;
         for (opts.sections) |sec| try r.wanted.?.put(r.arena, sec, {});
     }
+    r.env.plugins = opts.plugins;
     r.errata_seen = try r.arena.alloc(bool, opts.errata.len);
     r.errata_found = try r.arena.alloc(bool, opts.errata.len);
     @memset(r.errata_seen, false);

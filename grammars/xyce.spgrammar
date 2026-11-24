@@ -171,7 +171,12 @@ no stb    : Xyce has no loop-stability analysis
 no sens   : Xyce's .SENS takes an objective function and a parameter list, not an output variable
 no save   : Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give
 no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist
-no device : Xyce instantiates a Verilog-A model through its compiled plugin's own device letter and level; there is no netlist form for an arbitrary module
+# A Verilog-A module compiled to a plugin (buildxyceplugin, loaded with
+# -plugin on the command line) is a Y device named by its module:
+# `Ytype name node [node]* [model-name] [param=value]*`
+# (N_IO_DeviceBlock.C extractYDeviceData; user_plugin/rlc_adms.cir). Written
+# only for a module named with --xyce-plugin (#52).
+rule  device    = module~"Y" name nodes+ master {...params}
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
 # analyses (b3)
 no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top

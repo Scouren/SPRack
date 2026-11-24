@@ -22,6 +22,9 @@ const usage =
     \\        are listed as not followed. --errata FILE reads the lines a
     \\        PDK's own simulator refuses as the JSON file says (a list of
     \\        {file, was, read, why}, or a manifest's "errata").
+    \\        --xyce-plugin MODULE=FILE (translate and project): a Xyce
+    \\        plugin of that Verilog-A module, built with buildxyceplugin;
+    \\        its instances are written as Y<module> lines.
     \\  sprack read --from <dialect> [file]
     \\        The netlist as JSON (the internal representation).
     \\  sprack write --to <dialect> [file.json] [-o out]
@@ -69,6 +72,7 @@ const Args = struct {
     library: bool = false,
     sections: std.ArrayList([]const u8) = .empty,
     errata: ?[]const u8 = null,
+    plugins: std.ArrayList([2][]const u8) = .empty,
 };
 
 fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []const u8) *const sprack.Grammar {
@@ -204,6 +208,10 @@ pub fn main(init: std.process.Init) !void {
             a.out = argv[i];
         } else if (std.mem.eql(u8, arg, "--lib")) {
             a.library = true;
+        } else if (std.mem.eql(u8, arg, "--xyce-plugin") and has_next) {
+            i += 1;
+            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(io, "--xyce-plugin takes MODULE=FILE\n", .{});
+            try a.plugins.append(arena, .{ argv[i][0..eq], argv[i][eq + 1 ..] });
         } else if (std.mem.eql(u8, arg, "--errata") and has_next) {
             i += 1;
             a.errata = argv[i];
@@ -219,6 +227,9 @@ pub fn main(init: std.process.Init) !void {
         } else try a.files.append(arena, arg);
     }
     const cwd = std.Io.Dir.cwd();
+    // Plugins only (`--xyce-plugin`): an environment that holds nothing else.
+    var plugin_holder: ir.Env = .{ .plugins = a.plugins.items };
+    const plugin_env: ?*const ir.Env = if (a.plugins.items.len > 0) &plugin_holder else null;
 
     if (std.mem.eql(u8, cmd, "project") or std.mem.eql(u8, cmd, "catalog")) {
         const listing = cmd[0] == 'c';
@@ -237,6 +248,7 @@ pub fn main(init: std.process.Init) !void {
             .vars = a.vars.items,
             .library = a.library or listing,
             .sections = a.sections.items,
+            .plugins = a.plugins.items,
             .errata = if (a.errata) |path| blk: {
                 const text = cwd.readFileAlloc(io, path, arena, .limited(16 << 20)) catch |e| die(io, "cannot read {s}: {s}\n", .{ path, @errorName(e) });
                 break :blk sprack.project.parseErrata(arena, text) catch |e| switch (e) {
@@ -279,7 +291,7 @@ pub fn main(init: std.process.Init) !void {
         const nl = try sprack.read(arena, gf, src, &read_report);
         // The text is translated as `translate` does, a statement at a time.
         var aw: std.Io.Writer.Allocating = .init(arena);
-        _ = try sprack.stream.translate(arena, gf, gt, src, &aw.writer, &report, &sprack.caps, .{ .whole = whole });
+        _ = try sprack.stream.translate(arena, gf, gt, src, &aw.writer, &report, &sprack.caps, .{ .whole = whole, .env = plugin_env });
         var report_back: ir.Report = .init(arena);
         const back = try sprack.read(arena, gt, aw.written(), &report_back);
 
@@ -324,7 +336,7 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, cmd, "translate")) {
         const gf = dialect(io, arena, a.from, "--from");
         const gt = dialect(io, arena, a.to, "--to");
-        const why = try sprack.stream.translate(arena, gf, gt, src, result, &report, &sprack.caps, .{ .whole = whole });
+        const why = try sprack.stream.translate(arena, gf, gt, src, result, &report, &sprack.caps, .{ .whole = whole, .env = plugin_env });
         if (why) |w| if (init.environ_map.get("SPRACK_STREAM_WHY") != null) try err.print("sprack: read whole: {s}\n", .{w});
     } else if (std.mem.eql(u8, cmd, "read")) {
         const nl = try sprack.read(arena, dialect(io, arena, a.from, "--from"), src, &report);

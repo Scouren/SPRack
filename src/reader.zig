@@ -2251,6 +2251,29 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
 ///    (the HSPICE quick reference: `.SN TONE=F1 NHARMS=Round(PERIOD/TRES)`).
 ///  - A Monte Carlo count written as `list(2 5)` (HSPICE `monte=list(...)`,
 ///    one value to its lexer): the trials so numbered.
+/// Xyce's `Yr3_cmc n1 ...`: the module without its letter, and none at all
+/// where the model card the instance names says it.
+fn foldModules(arena: Allocator, list: []ir.Stmt, all: []const ir.Stmt) Allocator.Error!void {
+    const mi = schema.slotIndex(.device, "module").?;
+    for (list) |*st| {
+        if (st.body.len > 0) try foldModules(arena, @constCast(st.body), all);
+        if (st.kind != .device or st.at(mi) != .atom) continue;
+        var m = st.at(mi).atom;
+        if (m.len > 1 and (m[0] == 'y' or m[0] == 'Y')) m = m[1..];
+        const master = if (st.get("master") == .atom) st.get("master").atom else "";
+        const said = modelType(all, master);
+        try st.set(arena, mi, if (said != null and std.ascii.eqlIgnoreCase(said.?, m)) .none else Value{ .atom = m });
+    }
+}
+
+fn modelType(stmts: []const ir.Stmt, name: []const u8) ?[]const u8 {
+    for (stmts) |*s| {
+        if (s.kind == .model and s.get("name") == .atom and std.ascii.eqlIgnoreCase(s.get("name").atom, name) and s.get("type") == .atom) return s.get("type").atom;
+        if (modelType(s.body, name)) |t| return t;
+    }
+    return null;
+}
+
 fn foldForms(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
     for (list) |*st| {
         if (st.body.len > 0) try foldForms(arena, @constCast(st.body), report);
@@ -2431,6 +2454,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     try gatherMonteCarlo(arena, &list);
     try foldSegments(arena, list.items, report);
     try foldForms(arena, list.items, report);
+    try foldModules(arena, list.items, list.items);
     try measureAnalysis(arena, list.items);
     try gatherAlters(g, arena, &list, report);
     try expr.convertFlat(arena, g, list.items, false);
@@ -2670,6 +2694,7 @@ pub const Source = struct {
         report.phase = ir.Phase.segments;
         try foldSegments(arena, list.items, report);
         try foldForms(arena, list.items, report);
+        try foldModules(arena, list.items, list.items);
         try measureWith(arena, list.items, last);
         try expr.convert(arena, g, list.items, false);
     }

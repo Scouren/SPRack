@@ -1926,7 +1926,7 @@ test "Verilog-A: loading a module and instantiating it" {
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", ng, &r3);
     try reported(&r3, .@"error", "statement 'hdl' cannot be written for xyce: Xyce loads Verilog-A models as compiled plugins");
-    try reported(&r3, .@"error", "device 'device' cannot be written for xyce");
+    try reported(&r3, .@"error", "device: xyce instantiates the Verilog-A module 'mydiode' only through a plugin of it");
 }
 
 test "an ADE-style Spectre netlist" {
@@ -6744,4 +6744,32 @@ test "#51: a statement only its dialect has is its words; HSPICE measure forms; 
     try testing.expectEqual(1, countKind(vn, .embed));
     var r6: ir.Report = .init(a);
     try has(try sameBack(a, "vacask", "vacask", v, &r6), "embed \"runme.py\" <<<FILE\nprint(1)\n>>>FILE\n");
+}
+
+test "#52: a Verilog-A instance into Xyce is a Y line of its module, with a plugin" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.model rmod r3_cmc rsh=100\nN1 a b c rmod w=1u l=2u\nv1 a 0 1\n.op\n.end\n";
+    // Without a plugin: the card and the instance say how to get one.
+    var r: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", src, &r);
+    try reported(&r, .@"error", "model 'rmod' is of the Verilog-A module 'r3_cmc': xyce takes it only from a plugin of the module");
+    try reported(&r, .@"error", "device: xyce instantiates the Verilog-A module 'r3_cmc' only through a plugin of it");
+    // With one: `Y<module> name nodes model params`, read back the same.
+    const env: ir.Env = .{ .plugins = &.{.{ "r3_cmc", "r3_cmc.so" }} };
+    var r1: ir.Report = .init(a);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    _ = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find("xyce").?, src, &aw.writer, &r1, &sprack.caps, .{ .env = &env });
+    const xy = aw.written();
+    try has(xy, "Yr3_cmc N1 a b c rmod w=1u l=2u\n");
+    try reported(&r1, .warning, "the Verilog-A module 'r3_cmc' is the plugin r3_cmc.so: run xyce with -plugin r3_cmc.so");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    const back = try readAs(a, "xyce", xy, &r2);
+    try has(try jsonOf(a, &back), "{\"kind\":\"device\",\"line\":3,\"name\":\"N1\",\"nodes\":[\"a\",\"b\",\"c\"],\"master\":\"rmod\"");
+    try testing.expect(std.mem.indexOf(u8, try jsonOf(a, &back), "\"module\"") == null);
+    // A Y line whose model card is elsewhere keeps its module.
+    var r3: ir.Report = .init(a);
+    try has(try jsonOf(a, &try readAs(a, "xyce", "t\nYrlc rlc1 1 0 rmod R=1k\n.end\n", &r3)), "\"module\":\"rlc\"");
 }

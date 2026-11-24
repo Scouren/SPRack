@@ -1101,6 +1101,20 @@ def test_to_python():
     assert ".control\nrun\n.endc\n" in _run(out).netlist("ngspice")
 
 
+def test_xyce_plugins():
+    # #52: a Verilog-A instance into Xyce is a Y line only with a plugin.
+    cir = "t\n.model rmod r3_cmc rsh=100\nN1 a b c rmod w=1u\nv1 a 0 1\n.op\n.end\n"
+    raises(sprack.Unsupported, lambda: sprack.translate(cir, frm="ngspice", to="xyce"), "only through a plugin of it")
+    d = tempfile.mkdtemp()
+    open(os.path.join(d, "m.lib"), "w").write("* m\n")
+    open(os.path.join(d, "r3.so"), "w").write("")
+    m = {"name": "x", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["{root}/m.lib", ""]]},
+         "xyce_plugins": {"r3_cmc": "{root}/r3.so", "mosvar": "{root}/missing.so"}}
+    pdk = sprack.PDK("x", root=d, manifest=m)
+    assert pdk.run_options("ngspice") == []
+    assert pdk.run_options("xyce") == ["-plugin", os.path.join(d, "r3.so")]
+
+
 def test_no_code_for_dialect_only_statements():
     # #51: a statement only its dialect has is a call of its words, not text.
     hs = "t\nr1 d 0 1k\n.acmatch v(d)\n.check edge (a b) 1n 2n\ns1 p1 p2 mname=smod\n.meas tran g1 find v(d) at=1m goal=2\n.end\n"

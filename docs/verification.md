@@ -1819,6 +1819,27 @@ phnoise at=10k`), and forms of a dialect's measure no rule lists.
 Not measured here: the corpus count of `code` calls (the corpus is not in
 this tree).
 
+### 4.36 Verilog-A modules into Xyce through plugins (#52, in part)
+
+From the Xyce source: a compiled Verilog-A plugin (buildxyceplugin, named
+with `-plugin` on the command line, N_IO_CmdParse.C) is a Y device,
+`Ytype name node [node]* [model-name] [param=value]*`
+(N_IO_DeviceBlock.C, extractYDeviceData; user_plugin/rlc_adms.cir writes
+`Yrlc rlc1 1 0 R=1kohm ...`). SPRack writes a Verilog-A instance into Xyce
+so, and its model card as it is, only for a module named with
+`--xyce-plugin MODULE=FILE` (`sprack translate` and `sprack project`; a
+manifest's `xyce_plugins` and `PDK.run_options("xyce")` in Python); a
+warning says to run Xyce with `-plugin FILE`. Without one, the card and the
+instance are errors that say how to get a plugin. Read back, a Y line's
+module is dropped where its model card names it.
+
+IHP SG13G2's libraries into Xyce: 73 errors here, 57 with the four
+modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` named.
+
+Not run here (no Xyce with ADMS in this environment): whether those
+modules build as Xyce plugins, the plugin's own model-card type, and their
+results against ngspice. Until they are, IHP's manifest names no plugin.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

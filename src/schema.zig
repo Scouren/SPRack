@@ -226,7 +226,9 @@ const defs = [_]Def{
     .{ .tline, .device, "name p1:node n1:node p2:node n2:node z0:value td:value f:value nl:value params:params" },
     // An instance of a compact model that is not one of the families below,
     // typically a Verilog-A module. Any number of terminals.
-    .{ .device, .device, "name nodes:node* master:ident params:params" },
+    // `module`: the Verilog-A module, where a dialect names it on the
+    // instance (Xyce `Y<module>`); elsewhere the model card's type says it.
+    .{ .device, .device, "name nodes:node* master:ident params:params module:ident" },
     // An ngspice XSPICE code-model instance (`A1 [ a b ] y model`). A vector
     // port's `[` and `]` are items of `nodes` of their own.
     .{ .xspice, .device, "name nodes:node* master:ident params:params" },

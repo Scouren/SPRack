@@ -1425,6 +1425,21 @@ class PDK:
         return sorted(set(super().__dir__()) | {s for s in short if s.isidentifier()})
 
     # -- the libraries, per dialect ------------------------------------
+    def run_options(self, dialect: str) -> list[str]:
+        """What the simulator's command line needs for this PDK's decks.
+
+        Xyce takes a PDK's Verilog-A modules only as plugins named with
+        `-plugin` (issue 52): a manifest's `xyce_plugins` maps each module
+        to its plugin file (built with Xyce's buildxyceplugin), and those
+        that exist under the PDK are listed. Empty for any other dialect,
+        or where the PDK builds no plugin.
+        """
+        if _dialect(dialect) != "xyce":
+            return []
+        files = [os.path.normpath(self._fmt(f)) for f in self.manifest.get("xyce_plugins", {}).values()]
+        files = [f for f in files if os.path.exists(f)]
+        return ["-plugin", ",".join(files)] if files else []
+
     def _errata(self) -> str:
         """The manifest's errata, as the core takes them: lines the PDK's own
         simulator refuses, and what is read instead (issue 25)."""

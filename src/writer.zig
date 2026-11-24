@@ -599,7 +599,11 @@ const Emit = struct {
                 // `path!`: a path with no blank goes out without quotes.
                 const v = e.st.at(n.slot);
                 if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null) text = v.str;
-                if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
+                // A module's letter (Xyce `Y<module>`) is part of the form,
+                // not a new name.
+                if (n.prefix.len > 0 and !std.mem.eql(u8, e.slot(n.slot).name, "name")) {
+                    text = try e.arena.print("{c}{s}{s}", .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text });
+                } else if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
                     const upper = text.len > 0 and std.ascii.isUpper(text[0]);
                     const renamed = if (upper)
                         try e.arena.print("{c}{s}{s}", .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text })
@@ -908,6 +912,10 @@ const Writer = struct {
     /// Model name to its family, for rules that depend on it (`bjt[hicum2]`):
     /// the models of this file, then those of the project's other files.
     families: std.StringHashMapUnmanaged([]const u8) = .empty,
+    /// Model name to the Verilog-A module its card names (a type no table
+    /// lists), for a dialect that names the module on the instance.
+    modules: std.StringHashMapUnmanaged([]const u8) = .empty,
+    plugins_said: std.StringHashMapUnmanaged(void) = .empty,
     env: ?*const ir.Env = null,
     /// Model cards whose parameters were copied by name: one caveat per
     /// file, naming the first, not one per card (sky130 has thousands).
@@ -1064,6 +1072,8 @@ const Writer = struct {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}': type '{s}' with these parameters is not in the {s} models table, so its {s} name is unknown; written as it was", .{
                         st.get("name").atom, ty, w.sourceOf(st), w.g.name,
                     });
+                } else if (w.needsPlugin(ty)) {
+                    w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from a plugin of the module; build one with buildxyceplugin and name it with --xyce-plugin {s}=FILE", .{ st.get("name").atom, ty, w.g.name, ty });
                 } else if (w.g.absentReason(.device)) |why| {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s}", .{ st.get("name").atom, ty, why });
                 } else {
@@ -1712,6 +1722,51 @@ const Writer = struct {
         try w.bodyComments(a, st.body);
     }
 
+    /// A Verilog-A instance where the target names the module on it (Xyce
+    /// `Y<module>`): the module of its model card, if the target has a
+    /// plugin of it (`ir.Env.plugins`); else an error that says how to get
+    /// one. Null: written as it is.
+    /// Does this dialect name the module on the instance (a plugin's), and
+    /// has no plugin of this one been named?
+    fn needsPlugin(w: *const Writer, module: []const u8) bool {
+        const mi = schema.slotIndex(.device, "module").?;
+        const says = for (w.g.rules) |*r| {
+            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) break true;
+        } else false;
+        if (!says) return false;
+        const plugins: []const [2][]const u8 = if (w.env) |e| e.plugins else &.{};
+        for (plugins) |p| if (std.ascii.eqlIgnoreCase(p[0], module)) return false;
+        return true;
+    }
+
+    const WithModule = union(enum) { keep, done, stmt: ir.Stmt };
+
+    fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
+        const mi = schema.slotIndex(.device, "module").?;
+        const says = for (w.g.rules) |*r| {
+            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) break true;
+        } else false;
+        if (!says) return .keep;
+        const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
+        const module = w.modules.get(master) orelse return .keep;
+        const plugins: []const [2][]const u8 = if (w.env) |e| e.plugins else &.{};
+        const file = for (plugins) |p| {
+            if (std.ascii.eqlIgnoreCase(p[0], module)) break p[1];
+        } else {
+            w.report.add(.@"error", .unsupported, st.line, "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of it: build one with buildxyceplugin and name it with --xyce-plugin {s}=FILE", .{ w.g.name, module, module });
+            try w.comment(try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom) st.get("name").atom else "device"}));
+            return .done;
+        };
+        if (w.plugins_said.get(module) == null) {
+            try w.plugins_said.put(w.arena, module, {});
+            w.report.add(.warning, .caveat, st.line, "device: the Verilog-A module '{s}' is the plugin {s}: run {s} with -plugin {s}", .{ module, file, w.g.name, file });
+        }
+        var d = st.*;
+        try d.own(w.arena);
+        try d.set(w.arena, mi, .{ .atom = module });
+        return .{ .stmt = d };
+    }
+
     /// A statement only one dialect has: as its words there, an
     /// `unsupported` with that grammar's reason anywhere else.
     fn native(w: *Writer, st: *const ir.Stmt) Error!void {
@@ -1752,6 +1807,11 @@ const Writer = struct {
             return;
         }
         if (st.kind == .native) return w.native(st);
+        if (st.kind == .device and st.get("module") == .none) switch (try w.withModule(st)) {
+            .keep => {},
+            .done => return,
+            .stmt => |d| return w.stmt(&d),
+        };
         if (st.kind == .embed) if (w.g.rawOf(.embed)) |rb| {
             // `embed "name" <<<FILE`, the text, `>>>FILE`.
             const path: []const u8 = switch (st.get("path")) {
@@ -3277,6 +3337,14 @@ fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allo
     }
 }
 
+fn collectModules(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
+    for (stmts) |*s| {
+        if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and s.get("name") == .atom)
+            try out.put(arena, s.get("name").atom, s.get("type").atom);
+        try collectModules(arena, s.body, out);
+    }
+}
+
 fn mentions(nodes: []const Node, slot: u8) bool {
     for (nodes) |n| {
         if (n.slot == slot or mentions(n.kids, slot)) return true;
@@ -3583,6 +3651,7 @@ pub fn write(
 
     try collectDeclared(arena, nl.stmts, &w.declared);
     try ir.collectFamilies(arena, nl.stmts, &w.families, null);
+    try collectModules(arena, nl.stmts, &w.modules);
     w.env = env;
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
@@ -3791,6 +3860,7 @@ pub const Survey = struct {
     folds_case: bool = false,
     declared: std.StringHashMapUnmanaged(void) = .empty,
     families: std.StringHashMapUnmanaged([]const u8) = .empty,
+    modules: std.StringHashMapUnmanaged([]const u8) = .empty,
     funcs: expr.Funcs = .empty,
     used: [schema.kind_count]bool = @splat(false),
     fams: [schema.families.len]bool = @splat(false),
@@ -3837,6 +3907,7 @@ pub const Survey = struct {
         const a = k.perm;
         try collectDeclared(a, stmts, &sv.declared);
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
+        try collectModules(a, stmts, &sv.modules);
         try collectFuncs(a, stmts, &sv.funcs);
         markUsed(stmts, &sv.used);
         markCapParts(g, sv.dialect, stmts, &sv.used);
@@ -3921,6 +3992,7 @@ pub const Stream = struct {
         const nl = &s.nl;
         w.declared = sv.declared;
         w.families = sv.families;
+        w.modules = sv.modules;
         w.env = env;
         w.funcs = sv.funcs;
         w.ic_nodes = sv.ic_nodes;
