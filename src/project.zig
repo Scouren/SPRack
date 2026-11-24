@@ -343,8 +343,42 @@ const Run = struct {
         }
     }
 
-    fn rewriteIncludes(r: *Run, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report) Allocator.Error!void {
+    /// A section of `path` not followed, where the target opens the
+    /// includes of every section (`libsections opened`): its includes would
+    /// name files the copy has not.
+    fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool {
+        const gt = r.opts.to orelse return false;
+        if (gt.libsections_opened.len == 0 or st.kind != .libsection or st.get("name") != .atom) return false;
+        for (r.skipped.items) |sk| {
+            if (!sk.released and std.mem.eql(u8, sk.path, path) and std.ascii.eqlIgnoreCase(sk.name, st.get("name").atom)) return true;
+        }
+        return false;
+    }
+
+    /// The includes of an emptied section, as comments.
+    fn commentIncludes(scratch: Allocator, stmts: []ir.Stmt, n: *usize) Allocator.Error!void {
         for (stmts) |*st| {
+            if (pathOf(st)) |p| {
+                const sec = sectionOf(st);
+                const raw = try std.fmt.allocPrint(scratch, "[sprack] not in this copy: {s} \"{s}\"{s}{s}", .{ @tagName(st.kind), p, if (sec.len > 0) " " else "", sec });
+                st.* = .{ .kind = .comment, .raw = raw, .line = st.line };
+                n.* += 1;
+                continue;
+            }
+            try commentIncludes(scratch, st.body, n);
+        }
+    }
+
+    fn rewriteIncludes(r: *Run, path_of_file: []const u8, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report) Allocator.Error!void {
+        for (stmts) |*st| {
+            if (r.emptied(path_of_file, st)) {
+                var n: usize = 0;
+                try commentIncludes(scratch, st.body, &n);
+                if (n > 0) report.add(.warning, .caveat, st.line, "section '{s}' is not followed, and {s} opens the includes of every section of a library: its includes are left out of this copy as comments ({d}), so the section is empty here ({s})", .{
+                    st.get("name").atom, r.opts.to.?.name, n, r.opts.to.?.libsections_opened,
+                });
+                continue;
+            }
             // Every include is rewritten to the copy it resolved to, so the
             // search directories are no longer needed.
             if (st.kind == .options and st.get("search") != .none) {
@@ -365,7 +399,7 @@ const Run = struct {
                     }
                 }
             }
-            try r.rewriteIncludes(dir, st.body, scratch, report);
+            try r.rewriteIncludes(path_of_file, dir, st.body, scratch, report);
         }
     }
 
@@ -451,11 +485,11 @@ const Run = struct {
         return out_path;
     }
 
-    const Includes = struct { r: *Run, dir: []const u8 };
+    const Includes = struct { r: *Run, path: []const u8, dir: []const u8 };
 
     fn includes(ctx: *anyopaque, a: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
         const in: *Includes = @ptrCast(@alignCast(ctx));
-        try in.r.rewriteIncludes(in.dir, stmts, a, report);
+        try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report);
     }
 
     fn translateFile(r: *Run, a: Allocator, path: []const u8, root_dir: []const u8, text: []const u8, report: *ir.Report, library: bool) (Allocator.Error || Writer.Error)!void {
@@ -467,7 +501,7 @@ const Run = struct {
         var fw: std.Io.File.Writer = undefined;
         if (file) |f| fw = f.writer(r.io, &buf);
         const out: *Writer = if (file != null) &fw.interface else &discard.writer;
-        var in: Includes = .{ .r = r, .dir = dirOf(path) };
+        var in: Includes = .{ .r = r, .path = path, .dir = dirOf(path) };
         const ok = if (stream.translate(a, r.opts.from, r.opts.to.?, text, out, report, r.opts.caps, .{
             .env = &r.env,
             .library = library,
@@ -571,7 +605,7 @@ const Run = struct {
                 if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
                 if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
                 if (r.opts.to) |gt| {
-                    try r.rewriteIncludes(dirOf(path), nl.stmts, scratch, &report);
+                    try r.rewriteIncludes(path, dirOf(path), nl.stmts, scratch, &report);
                     var aw: Writer.Allocating = .init(scratch);
                     try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
                     const out_path = try r.outPath(scratch, root_dir, path);
@@ -640,6 +674,55 @@ test "paths" {
     try std.testing.expectEqualStrings("n.lib", try relative(a, "pdk", "pdk/n.lib"));
     try std.testing.expectEqualStrings("sub/n.lib", try relative(a, ".", "sub/n.lib"));
     try std.testing.expectEqualStrings("/pdk", try commonDir(a, &.{ "/pdk/libs/a.lib", "/pdk/models/n.lib" }));
+}
+
+test "one section for a target that opens every section: the others' includes are comments" {
+    // docs/verification.md 4.24: ngspice 45 stops at the missing ff.mod.
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.createDirPath(io, "in");
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/corners.lib", .data =
+        \\* corners
+        \\.lib tt
+        \\.include "tt.mod"
+        \\.endl tt
+        \\.lib ff
+        \\.include "ff.mod"
+        \\.lib "corners.lib" tt
+        \\.endl ff
+        \\
+    });
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/tt.mod", .data = "* tt\n.model nch nmos level=1\n" });
+    const ngspice = @import("root.zig").find("ngspice").?.*;
+    const xyce = @import("root.zig").find("xyce").?.*;
+    for ([_]*const Grammar{ &ngspice, &xyce }) |to| {
+        var log: Writer.Allocating = .init(a);
+        const out = try std.fmt.allocPrint(a, "{s}/out-{s}", .{ base, to.name });
+        _ = try run(io, std.testing.allocator, .{
+            .from = &ngspice,
+            .to = to,
+            .tops = &.{try std.fmt.allocPrint(a, "{s}/in/corners.lib", .{base})},
+            .out_dir = out,
+            .library = true,
+            .log = &log.writer,
+            .sections = &.{"tt"},
+        });
+        const lib = try tmp.dir.readFileAlloc(io, try std.fmt.allocPrint(a, "out-{s}/corners.lib", .{to.name}), a, .unlimited);
+        if (to == &ngspice) {
+            try std.testing.expect(std.mem.indexOf(u8, lib, ".lib ff\n* [sprack] not in this copy: include \"ff.mod\"\n* [sprack] not in this copy: lib \"corners.lib\" tt\n.endl ff\n") != null);
+            try std.testing.expect(std.mem.indexOf(u8, lib, ".include \"tt.mod\"\n") != null);
+            try std.testing.expect(std.mem.indexOf(u8, log.written(), "warning[caveat]: section 'ff' is not followed, and ngspice opens the includes of every section of a library") != null);
+        } else {
+            // Xyce opens only the section asked for: the copy keeps the line.
+            try std.testing.expect(std.mem.indexOf(u8, lib, ".include \"ff.mod\"\n") != null);
+            try std.testing.expect(std.mem.indexOf(u8, log.written(), "opens the includes") == null);
+        }
+    }
 }
 
 test "a small project: includes followed, declarations shared, tree copied" {

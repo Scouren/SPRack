@@ -176,6 +176,11 @@ unique master : ...                # a name both a model and a subcircuit define
                                    # (in any file of a project): the model and
                                    # the devices that use it by their SPICE
                                    # letter are renamed (nch__m), an info
+libsections opened : ...          # the simulator opens the includes of every
+                                   # section of a library, not only the one
+                                   # asked for: a copy of one section
+                                   # (`sprack project --section`) has the
+                                   # others' includes as comments, a `caveat`
 unique analysis dc ac tran beside op : ...   # the statements that count as an
                                    # analysis where a netlist with more than
                                    # one is refused: an error on each, naming

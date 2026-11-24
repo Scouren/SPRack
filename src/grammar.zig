@@ -450,6 +450,10 @@ pub const Grammar = struct {
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
+    /// `libsections opened : why`: the simulator opens the includes of
+    /// every section of a library file, not only those of the section a
+    /// netlist asks for. Empty: only those.
+    libsections_opened: []const u8 = "",
     /// `unique analysis kind... [beside kind] : why`: the statements that
     /// count as an analysis where the simulator refuses a netlist with more
     /// than one. Null: any number is taken.
@@ -1417,6 +1421,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var omitted: []const Omitted = &.{};
     var unique_param: []const u8 = "";
     var unique_master: []const u8 = "";
+    var libsections_opened: []const u8 = "";
     var unique_analysis: ?UniqueAnalysis = null;
     var hoist_param: []const []const u8 = &.{};
     var spreads: []const Spread = &.{};
@@ -1688,6 +1693,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 } else o.terms = try c.add(Omitted.Term, o.terms, term);
             }
             omitted = try c.add(Omitted, omitted, o);
+        } else if (std.mem.eql(u8, head, "libsections")) {
+            if (!std.mem.startsWith(u8, rest, "opened : ")) return c.fail(no, "libsections is `libsections opened : reason`", .{});
+            libsections_opened = rest["opened : ".len..];
         } else if (std.mem.eql(u8, head, "unique")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master|analysis kind... [beside kind] : reason`", .{});
             const what = std.mem.trim(u8, rest[0..colon], " \t");
@@ -1842,6 +1850,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .omitted = omitted,
         .unique_param = unique_param,
         .unique_master = unique_master,
+        .libsections_opened = libsections_opened,
         .unique_analysis = unique_analysis,
         .hoist_param = hoist_param,
         .spreads = spreads,

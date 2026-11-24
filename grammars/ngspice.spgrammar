@@ -36,6 +36,11 @@ block subckt
   close  ".ends" [name]
 end
 
+# ngspice 45 opens the includes of every section of a library file, not only
+# those of the section a netlist asks for, and stops at the first missing
+# file (docs/verification.md 4.24); Xyce 7.10 opens only the one asked for.
+libsections opened : ngspice 45 opens them all and stops at a missing file
+
 block libsection
   open   ".lib" name
   close  ".endl" [name]

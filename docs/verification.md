@@ -1591,6 +1591,24 @@ itself and the four decks of step 2 (no Xyce run in this environment);
 VACASK's OSDI descriptors (its source was not reachable); HSPICE and
 Spectre. The general caveat stays for every pair, since none is compared.
 
+### 4.24 A library copied for one section (#35)
+
+`sprack project --section tt` follows only that section; the others stay
+in the library file with their include lines, and the files they name are
+not copied. ngspice 45 opens the includes of every section of a library
+file, not only those of the section a deck asks for, and stops at the
+first missing one: a deck with `.lib` of sky130's `models/sky130.lib.spice`
+section `tt` on the 150-file tt copy ends with a fatal error on a missing
+`sky130_fd_pr__nfet_01v8__sf.corner.spice` (exit 1), and loads with all
+280 files. Xyce 7.10 reads only the section asked for: the tt copy loads,
+and the `nfet_01v8` current is the all-corners copy's (-1.84628087e-04).
+
+ngspice's grammar says so (`libsections opened`): into ngspice, a section
+not followed is written with its includes as comments, empty, and a caveat
+says which. A two-section library whose second section includes a file
+that does not exist, copied for the first section, loads in ngspice 42
+here. VACASK, HSPICE and Spectre were not run on the question (#56, #57).
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
