@@ -1181,7 +1181,78 @@ def test_everything_has_a_function():
     assert c.vary("vth0", "gauss", "0.01", model="nch")["model"] == "nch"
 
 
+def _peak_mib():
+    """This process's peak resident memory so far, in MiB (None where unknown)."""
+    try:
+        import resource
+    except ImportError:
+        return None
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (1 << 20) if sys.platform == "darwin" else peak / 1024
+
+
+def _rss_mib():
+    """Resident memory now, in MiB, from /proc (None elsewhere)."""
+    try:
+        with open("/proc/self/statm") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / (1 << 20)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def test_memory():
+    # Bounds about three times what was measured (issue 63), so a runaway is
+    # a failed test, not a machine out of memory.
+    # Reading a 4 MB deck whole: under 60 times its size (38 measured).
+    deck = "t\n" + "".join(f"R{k} n{k} n{k + 1} 1k\nC{k} n{k + 1} 0 1p\n" for k in range(100000)) + ".tran 1n 1u\n.end\n"
+    before = _rss_mib()
+    c = sprack.Circuit.read(deck, "ngspice")
+    after = _rss_mib()
+    if before is not None:
+        assert after - before < 60 * len(deck) / (1 << 20), f"reading {len(deck) >> 20} MiB took {after - before:.0f} MiB"
+    del c
+    # 1,000 translations: resident memory grows by less than 4 MiB.
+    small = "t\nR1 a 0 1k\nC1 a 0 1p\nV1 a 0 1\n.tran 1n 1u\n.end\n"
+    for _ in range(50):
+        sprack.translate(small, frm="ngspice", to="spectre")
+    start = _rss_mib()
+    for _ in range(1000):
+        sprack.translate(small, frm="ngspice", to="spectre")
+    if start is not None:
+        grew = _rss_mib() - start
+        assert grew < 4, f"1000 translations grew resident memory by {grew:.1f} MiB"
+    # A PDK's catalogue and one netlist per target: peak under 150 MiB.
+    if PDKS:
+        pdk = sprack.PDK("ihp-sg13g2", root=os.path.join(PDKS, "ihp"), cache_dir=tempfile.mkdtemp())
+        n = sprack.Circuit("one", pdk=pdk)
+        n.sg13_lv_nmos("M1", "d", "g", 0, 0)
+        n.V("d", "d", 0, 1.2)
+        n.op()
+        for d in ("ngspice", "hspice", "xyce", "spectre", "vacask"):
+            n.netlist(d, strict=False)
+        peak = _peak_mib()
+        if peak is not None:
+            # The deck above was read in this process too: its peak counts.
+            assert peak < 150 + 60 * len(deck) / (1 << 20), f"peak {peak:.0f} MiB"
+
+
+def _limit_memory(gib):
+    """An address-space limit for this run, where the platform has one: a
+    runaway raises MemoryError in the test that caused it (issue 63)."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        want = gib << 30
+        if hard == resource.RLIM_INFINITY or hard > want:
+            resource.setrlimit(resource.RLIMIT_AS, (want, hard))
+    except (ImportError, ValueError, OSError, AttributeError):
+        pass
+
+
 if __name__ == "__main__":
+    # Room for the ngspice runs the tests start (separate processes with
+    # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.
+    _limit_memory(int(os.environ.get("SPRACK_TEST_MEMORY_GIB", "8")))
     failed = skipped = 0
     for name, fn in list(globals().items()):
         if not name.startswith("test_"):
