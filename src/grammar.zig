@@ -359,6 +359,10 @@ pub fn paramsOpen(table: []const Spellings) bool {
 /// A function or operator this dialect spells like the others but
 /// evaluates differently (HSPICE `pow` truncates its exponent).
 pub const Differs = struct { canon: []const u8, text: []const u8 };
+/// `means [kind] f(x, y) = body`: what this dialect means by a function,
+/// in canonical functions, for a target that lacks it; with a kind, in
+/// statements of that kind only (a behavioural source).
+pub const Means = struct { kind: ?Kind = null, canon: []const u8, args: []const []const u8, body: []const u8 };
 /// A kind the simulator itself lacks, and why; with a slot, the one value
 /// of a kind it has (`no options vntol : why`), the reason ending the error.
 pub const Absent = struct { kind: Kind, slot: u8 = no_slot, reason: []const u8 };
@@ -443,6 +447,7 @@ pub const Grammar = struct {
     converts: []const Convert = &.{},
     checks: []const Check = &.{},
     differs: []const Differs = &.{},
+    means: []const Means = &.{},
     thresholds: []const Threshold = &.{},
     params: []const ParamTable = &.{},
     modelparams: []const ModelParamTable = &.{},
@@ -1426,6 +1431,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var converts: []const Convert = &.{};
     var checks: []const Check = &.{};
     var differs: []const Differs = &.{};
+    var means: []const Means = &.{};
     var thresholds: []const Threshold = &.{};
     var params: []const ParamTable = &.{};
     var modelparams: []const ModelParamTable = &.{};
@@ -1788,6 +1794,22 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
             if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
             differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "means")) {
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "means is `means [kind] f(x, y) = expression`", .{});
+            var lhs = std.mem.trim(u8, rest[0..eq], " \t");
+            var kind: ?Kind = null;
+            if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp| if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
+                kind = try kindOf(c, no, lhs[0..sp]);
+                lhs = std.mem.trim(u8, lhs[sp + 1 ..], " \t");
+            };
+            const open = std.mem.indexOfScalar(u8, lhs, '(') orelse return c.fail(no, "means needs `f(x, y)` before '='", .{});
+            if (lhs[lhs.len - 1] != ')') return c.fail(no, "means needs `f(x, y)` before '='", .{});
+            const canon = lhs[0..open];
+            if (!schema.isFunction(canon)) return c.fail(no, "unknown function '{s}'", .{canon});
+            var margs: []const []const u8 = &.{};
+            var it = std.mem.splitScalar(u8, lhs[open + 1 .. lhs.len - 1], ',');
+            while (it.next()) |a| margs = try c.add([]const u8, margs, std.mem.trim(u8, a, " \t"));
+            means = try c.add(Means, means, .{ .kind = kind, .canon = canon, .args = margs, .body = std.mem.trim(u8, rest[eq + 3 ..], " \t") });
         } else if (std.mem.eql(u8, head, "switch")) {
             const arrow = std.mem.indexOf(u8, rest, " -> ") orelse return c.fail(no, "switch is `switch \"words\" -> dialect`", .{});
             const lits = try args(c, no, rest[0..arrow]);
@@ -1855,6 +1877,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .converts = converts,
         .checks = checks,
         .differs = differs,
+        .means = means,
         .thresholds = thresholds,
         .params = params,
         .modelparams = modelparams,

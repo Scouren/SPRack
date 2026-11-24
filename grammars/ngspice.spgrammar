@@ -270,6 +270,9 @@ end
 # Measured with ngspice 45 on decks written for it (.param and a B source).
 differs pow    : a negative base loses its sign, in .param and B sources alike: (-2)**3 is 8
 differs pwr    : in .param the sign of a negative base is dropped (pwr(-2,3) is 8); B sources keep it (-8)
+# What pwr means, for a target without it (docs/verification.md 4.26).
+means pwr(x, y) = pow(abs(x),y)
+means bsource pwr(x, y) = sign2(pow(abs(x),y),x)
 differs int    : only .param expressions have int(); a B source refuses it
 differs mod    : only .param expressions have %; a B source refuses it
 differs negpow : in .param a minus right after another operator binds before the power: 1+-2**2 is 5, not -3

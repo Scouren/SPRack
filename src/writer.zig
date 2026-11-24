@@ -225,10 +225,37 @@ const Emit = struct {
 
     /// A canonical expression in this dialect's spelling, with what it
     /// cannot say (an error) and what it says differently (a caveat) reported.
-    fn exprText(e: *Emit, canon: []const u8) Allocator.Error![]const u8 {
+    /// A function the target lacks, said by what the source means by it
+    /// (`means`), one note a rewrite.
+    fn meant(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
+        const sg = e.sourceGrammar() orelse return canon_in;
+        var canon = canon_in;
+        for (sg.means) |*m| {
+            if (m.kind != null and m.kind.? != e.st.kind) continue;
+            // A line for this kind wins over the general one.
+            const specific = m.kind != null or for (sg.means) |o| {
+                if (o.kind != null and o.kind.? == e.st.kind and std.mem.eql(u8, o.canon, m.canon)) break false;
+            } else true;
+            if (!specific) continue;
+            if (spellingsOf(e.g.functions, m.canon) != null or !expr.uses(canon, m.canon)) continue;
+            var n: usize = 0;
+            const out = try expr.applyMeans(e.arena, canon, m, &n);
+            if (n == 0) continue;
+            if (!e.quiet) e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}; written as what {s} means by it, {s}; it reads back in that form", .{
+                canon_in, e.g.name, m.canon, sg.name, m.body,
+            });
+            canon = out;
+        }
+        return canon;
+    }
+
+    fn exprText(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
         var problems: std.ArrayList(expr.Problem) = .empty;
+        const canon = if (e.foreign) try e.meant(canon_in) else canon_in;
         const s = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
-        e.semantics(canon);
+        // What the source's functions mean differently, as it wrote them,
+        // but for those written as what they mean (`means`).
+        e.semantics(canon_in, canon);
         if (!e.quiet) for (problems.items) |pb| {
             if (pb.kind == .form) {
                 e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}, so the choice is written {s}; it reads back in that form", .{
@@ -275,12 +302,17 @@ const Emit = struct {
 
     /// A function or operator that one side of a translation evaluates
     /// differently (`differs` in either grammar): a caveat, never silence.
-    fn semantics(e: *Emit, canon: []const u8) void {
+    /// `written`: `canon` as it is written, functions the target lacks said
+    /// by what they mean; a function gone from it is not a caveat, and
+    /// one the meaning brought in is the meaning's, not the source's.
+    fn semantics(e: *Emit, canon: []const u8, written: []const u8) void {
         if (e.quiet or !e.foreign) return;
         for ([_]?*const Grammar{ e.g, e.sourceGrammar() }) |og| {
             const g = og orelse continue;
             for (g.differs) |d| {
-                if (expr.uses(canon, d.canon)) e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
+                if (expr.uses(canon, d.canon) and expr.uses(written, d.canon)) {
+                    e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
+                }
             }
         }
     }

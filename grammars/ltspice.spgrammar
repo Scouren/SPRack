@@ -251,6 +251,7 @@ functions
 end
 differs nint : halves round away from zero (round(2.5) is 3), not to even
 differs pwr  : the sign of a negative base is dropped: pwr(-2,3) is 8
+means pwr(x, y) = pow(abs(x),y)
 differs minuspow : a minus binds before the power: -2**2 is 4, not -4
 differs andor : LTspice has no && and ||; its & and | are the logical operators, of one precedence, taken from the left
 

@@ -243,7 +243,7 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 280 | 0 | 2 | 49 | 2 | 8 |
+| sky130 (ngspice) | 280 | 0 | 2 | 49 | 2 | 2 |
 | IHP SG13G2 (ngspice) | 31 | 0 | 0 | 72 | 0 | 0 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
@@ -261,7 +261,6 @@ Every error names a file and a line. What is left, and whose it is:
 - IHP to Xyce, 16: the Verilog-A modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` (7 model cards) and their 9 instances. Not yet translated.
 - IHP to Xyce, 17: the NQS module of PSP103 (`pspnqs103va`), 5 model cards and their 12 instances, one in the `rfmode` branch of each transistor subcircuit. The target has no such thing: Xyce's PSP103 has no NQS.
 - IHP to Xyce, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off.
-- sky130 to VACASK, 6: the function `pwr`. Not yet translated.
 
 ## Tests
 

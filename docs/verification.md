@@ -1621,6 +1621,22 @@ though VACASK says each. Measured in VACASK b2c1551, from its manual:
 | `options.gshunt` | "Shunt conductance from every potential node to ground" (`docs/cmd-options-temp.md:21`); 1 mA into 1k gives 0.5 V with `gshunt=1m`, 1.0 V without | `gshunt=gshunt` |
 | `tf.src` | dcxf saves every transfer function and input impedance by default (`docs/cmd-analysis-dcxf.md:47-49`) | not written (`-src`), a caveat and an info `loss`: the named source's are among them |
 
+### 4.26 What a dialect means by pwr, for a target without it (#40)
+
+VACASK has no `pwr` (section 1), and sky130 has six in parameter
+expressions of `res_high_po` and `res_xhigh_po`: six `unsupported` errors
+into VACASK. What each dialect means by it is recorded in 4.3: ngspice's
+`.param` drops the sign of a negative base (`pwr(-2,3)` is 8, `pow(fabs(z),
+x)` in `xpressn.c`), its B sources keep it (-8), as HSPICE and Spectre do
+(`pwr(-2,2)` is -4); LTspice drops it; Xyce's is `pow`. A grammar now says
+so with `means` lines, in canonical functions, and a target without the
+function gets the meaning: `pow(abs(x),y)`, `sign2(pow(abs(x),y),x)`
+(VACASK's `sign(a, b)`, the magnitude of a with the sign of b) or
+`pow(x,y)`. sky130 to VACASK: 8 errors to 2, the lines of #25.
+
+Not measured here: `pow(abs(-2), 3)` setting a resistor in VACASK (expected
+8; no VACASK in this environment). ngspice 42 gives 8 for it in `.param`.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

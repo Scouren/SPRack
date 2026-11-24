@@ -301,6 +301,8 @@ functions
 end
 
 differs pow : a negative base with a fractional exponent stops the run instead of giving a value
+# pwr keeps the sign of a negative base: pwr(-2,2) is -4 (docs/verification.md 4.3).
+means pwr(x, y) = sign2(pow(abs(x),y),x)
 
 variables
   temper = temp

@@ -293,6 +293,8 @@ differs pow  : the exponent is cut to an integer first, so pow(2,2.5) and 2**2.5
 differs nint : halves round away from zero (nint(2.5) is 3), not to even
 differs ln   : a negative argument gives -ln|x| instead of an error: log(-2) is -0.693
 differs log10 : a negative argument gives -log10|x| instead of an error: log10(-100) is -2
+# pwr keeps the sign of a negative base: pwr(-2,2) is -4 (docs/verification.md 4.3).
+means pwr(x, y) = sign2(pow(abs(x),y),x)
 
 variables
   same temper time hertz

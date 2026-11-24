@@ -231,6 +231,10 @@ computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 no options vntol : Xyce has no ...              # one value of a kind it has: the
                                                 # reason ends the error of that slot
+means pwr(x, y) = pow(abs(x),y)    # what this dialect means by a function, in
+means bsource pwr(x, y) = sign2(pow(abs(x),y),x)   # canonical ones (in that
+                                   # kind's statements): a target without it
+                                   # gets the meaning, an `oneway` info
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
                                                  # (`negpow`: a minus after an

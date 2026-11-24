@@ -4508,6 +4508,28 @@ test "VACASK: a node pair in noise and dcxf, gshunt, and a transient's start" {
     try testing.expect(!r2.contains(.@"error", "gshunt"));
 }
 
+test "a function the target lacks is written as what the source means by it (means)" {
+    // docs/verification.md 4.26: VACASK has no pwr.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice's .param pwr drops the sign; its B sources keep it.
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\n.param p={pwr(-2,3)}\nR1 a 0 {p*1k}\nB1 b 0 V={pwr(v(a),3)}\nR2 b 0 1k\nV1 a 0 1\n.op\n.end\n", &r1);
+    try has(va, "parameters p=pow(abs(-2),3)\n");
+    try has(va, "B1 (b 0) v=sign(pow(abs(v(a)),3),v(a))\n");
+    try reported(&r1, .info, "expression 'pwr(-2,3)': vacask has no pwr; written as what ngspice means by it, pow(abs(x),y)");
+    try testing.expectEqual(0, r1.count(.@"error"));
+    // HSPICE keeps the sign everywhere; Xyce's is pow.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "vacask", "t\n.param p=pwr(x,2) x=-2\n.end\n", &r2), "p=sign(pow(abs(x),2),x)");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "vacask", "t\n.param x=-2\n.param p={pwr(x,2)}\n.end\n", &r3), "p=pow(x,2)");
+    // A target that has pwr gets it as it was.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.param p={pwr(-2,3)}\n.end\n", &r4), "pwr(-2,3)");
+}
+
 test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
