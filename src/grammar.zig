@@ -193,6 +193,13 @@ pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Ki
 /// A region in a different language, kept verbatim (ngspice `.control`).
 /// `reason`: why no other dialect can take it (`raw "embed" ">>>FILE" : ...`).
 pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []const u8 = "" };
+/// `own ".check" ".dout" : reason`: statements of this dialect that no kind
+/// of the schema holds, and why no other dialect gets them. Read as text,
+/// as any line no rule reads; written elsewhere they are `unsupported` with
+/// the reason, not `untranslated`. `"S*"`: every line whose first word
+/// starts so (an element letter).
+/// `own model "opt" : reason`: a `.model` type word, not a line's first.
+pub const Own = struct { word: []const u8, reason: []const u8, model: bool = false };
 /// Boilerplate this dialect needs when a kind, or a model of a family, is
 /// used (VACASK `load`).
 pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const []const u8 };
@@ -431,6 +438,7 @@ pub const Grammar = struct {
     needs: []const Needs,
     wraps: []const Wrap,
     raws: []const RawBlock,
+    owns: []const Own = &.{},
     blocks: []const Block,
     rules: []const Rule,
     models: []const ModelEntry,
@@ -494,6 +502,29 @@ pub const Grammar = struct {
     pub fn checksSlot(g: *const Grammar, kind: Kind, slot: u8) bool {
         for (g.checks) |ck| if (ck.kind == kind and ck.slot == slot) return true;
         return false;
+    }
+
+    /// Why a line of this dialect no kind holds has no form elsewhere
+    /// (`own`), by its first word.
+    pub fn ownReason(g: *const Grammar, line: []const u8) ?[]const u8 {
+        const t = std.mem.trimStart(u8, line, " \t");
+        var end: usize = 0;
+        while (end < t.len and t[end] != ' ' and t[end] != '\t' and t[end] != '\n' and t[end] != '(' and t[end] != '=') end += 1;
+        const first = t[0..end];
+        for (g.owns) |o| {
+            if (o.model) continue;
+            if (o.word.len > 1 and o.word[o.word.len - 1] == '*') {
+                const pre = o.word[0 .. o.word.len - 1];
+                if (first.len > pre.len and (if (g.lex.case_sensitive) std.mem.startsWith(u8, first, pre) else std.ascii.startsWithIgnoreCase(first, pre))) return o.reason;
+            } else if (if (g.lex.case_sensitive) std.mem.eql(u8, first, o.word) else std.ascii.eqlIgnoreCase(first, o.word)) return o.reason;
+        }
+        return null;
+    }
+
+    /// Why a model type of this dialect (`own model`) has no form elsewhere.
+    pub fn ownModelReason(g: *const Grammar, ty: []const u8) ?[]const u8 {
+        for (g.owns) |o| if (o.model and std.ascii.eqlIgnoreCase(o.word, ty)) return o.reason;
+        return null;
     }
 
     pub fn paramsOf(g: *const Grammar, kind: Kind) ?[]const Spellings {
@@ -1414,6 +1445,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var needs: []const Needs = &.{};
     var wraps: []const Wrap = &.{};
     var raws: []const RawBlock = &.{};
+    var owns: []const Own = &.{};
     var blocks: []const Block = &.{};
     var rules: []const Rule = &.{};
     var models: []const ModelEntry = &.{};
@@ -1489,6 +1521,13 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .close = try c.foldIf(fold, lits[1]),
                 .kinds = kinds,
             });
+        } else if (std.mem.eql(u8, head, "own")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "own is `own \"word\"... : reason`", .{});
+            var words = try args(c, no, rest[0..colon]);
+            const model = words.len > 1 and std.mem.eql(u8, words[0], "model") and !std.mem.startsWith(u8, rest, "\"");
+            if (model) words = words[1..];
+            if (words.len == 0) return c.fail(no, "own needs a word", .{});
+            for (words) |wd| owns = try c.add(Own, owns, .{ .word = try c.foldIf(fold, wd), .reason = rest[colon + 3 ..], .model = model });
         } else if (std.mem.eql(u8, head, "raw")) {
             const colon = std.mem.indexOf(u8, rest, " : ");
             const lits = try args(c, no, if (colon) |k| rest[0..k] else rest);
@@ -1779,7 +1818,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
         } else if (std.mem.eql(u8, head, "params")) {
             const kind = try kindOf(c, no, rest);
-            if (schema.info(kind).class != .device and schema.info(kind).class != .analysis or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device or analysis kind with parameters", .{});
+            if (schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a kind with parameters", .{});
             params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
         } else if (std.mem.eql(u8, head, "modelparams")) {
             const only = std.mem.endsWith(u8, rest, " only");
@@ -1861,6 +1900,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .needs = needs,
         .wraps = wraps,
         .raws = raws,
+        .owns = owns,
         .blocks = blocks,
         .rules = rules,
         .models = models,

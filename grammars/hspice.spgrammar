@@ -157,6 +157,14 @@ rule  pss       = ".sn" { tone=fund! nharms=harms trinit=tstab ...params }
 read  pss       = ".sn" { tres=tres! period=period! trinit=tstab ...params }
 rule  sens      = ".sens" out
 rule  four      = ".four" freq signals+
+# The spectrum of a transient signal. Measured (docs/verification.md 4.32):
+# each window below runs; another window, format or key is warned about
+# and the statement dropped, so the table below lists every key.
+rule  fft       = ".fft" out { start=start from=start stop=stop to=stop np=np window=window alfa=alfa format=format freq=freq fmin=fmin fmax=fmax ...params }
+enum  fft window : rect=rect bart=bart hann=hann hamm=hamm black=black harris=harris gauss=gauss kaiser=kaiser
+enum  fft format : norm=norm unorm=unorm
+params fft
+end
 rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {...params}
 read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
 # One tone and its harmonics, by position.
@@ -224,6 +232,11 @@ read  montecarlo = "sweep" "monte" ~"=" "list" ( trials )+
 rule  montecarlo = "sweep" "monte" ~"=" runs -seed
 # `.dc monte=30` (an operating point above).
 read  montecarlo = "monte" ~"=" runs
+# An optimization, the ending of the analysis it optimizes over:
+# `.dc v1 0 5 1 sweep optimize=opt1 results=vout model=optmod`.
+spread optimize
+rule  optimize   = "sweep" "optimize" ~"=" param "results" ~"=" ( results )+~"," "model" ~"=" model
+own model "opt" : HSPICE's optimizer is set by a .MODEL of type OPT; no other dialect has an optimizer statement for it to drive
 caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, which is not written
 
 implied tf ref = 0
@@ -476,3 +489,17 @@ modelparams resistor
   short  = dlr
 end
 computes resistor narrow short : R = RSH (L - 2 DLR) / (W - 2 DW)
+# Statements of HSPICE's own that no kind holds: written elsewhere, each is
+# an `unsupported` with the reason. The other dialects' references were read
+# for each (docs/verification.md 4.32).
+own ".connect" : HSPICE's .CONNECT makes two nets one; SPRack has no kind for it, and in the other dialects the same circuit is one of the nodes renamed to the other (or a 0 V source between them)
+own "S*" : an HSPICE S element is an S-parameter block read from its .MODEL's TSTONEFILE; SPRack has no kind for it (Spectre's nport file= and Xyce's YLIN with a LIN model are the nearest forms)
+own ".dcsens" : HSPICE's .DCSENS (DC mismatch sensitivity) is not mapped: that it equals another dialect's .SENS or dcmatch has not been measured
+own ".acmatch" : HSPICE's .ACMATCH (AC mismatch) is not mapped: SPRack has no kind for an AC mismatch analysis
+own ".net" : HSPICE's .NET (network parameters over an .AC) is not mapped: SPRack has no kind for it (LTspice's .NET is a different statement)
+own ".power" : HSPICE's .POWER (the power of each instance) is an output request SPRack has no kind for
+own ".check" ".dout" ".biaschk" : HSPICE's timing, output and bias checks have no kind in SPRack; Spectre's checks (check, checklimit, assert) are not mapped either
+own ".mosra" ".appendmodel" : HSPICE's MOSRA reliability (aging) analysis and its model appending have no form in the other dialects
+own ".ptdnoise" ".sample" ".acphasenoise" : HSPICE's time-domain periodic noise, sampling noise and AC phase noise have no kind in SPRack
+own ".load" : HSPICE's .LOAD reads an operating point HSPICE saved (.SAVE); the file is HSPICE's own format
+own ".vec" : HSPICE's .VEC reads digital vectors from a file in HSPICE's own vector format

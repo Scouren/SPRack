@@ -507,3 +507,5 @@ modelparams bsim4
 end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 no pattern : ngspice has no pattern sources; a bit pattern is a PWL
+no fft : ngspice's spectrum is the fft command of its control language, run on a vector after the analysis; it is no netlist statement
+no optimize : ngspice has no optimizer statement; an optimization is a loop in its control language

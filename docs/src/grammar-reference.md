@@ -170,6 +170,11 @@ omitted vsource td1=0 wave=exp : tran.step zero 1e-18  # unless the line
 omitted vsource tau2 wave=exp : tran.stop / 100 given td2  # holds where the
                                    # statement gives that slot; without it
                                    # the value plays no part
+own ".check" ".dout" : ...         # statements of this dialect no kind holds:
+                                   # read as text; written elsewhere, an
+                                   # `unsupported` with this reason ("S*": a
+                                   # first word starting so)
+own model "opt" : ...              # a .model type word of the same sort
 unique param : ...                 # a parameter defined twice in one scope is
                                    # refused here: an error
 unique master : ...                # a name both a model and a subcircuit define

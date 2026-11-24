@@ -1729,6 +1729,29 @@ run here (#56); each form is as the issue's decks give it.
 A lone `.tran ... sweep monte=10` was written as the line `sweep monte=10`
 before its `.tran`; it is now the ending of the analysis, as read.
 
+### 4.32 HSPICE statements no kind held (#47)
+
+Eighteen HSPICE statements were reported as lines no rule understood. Each
+now has a kind or a grammar line (`own`) that makes it `unsupported` with a
+reason; in HSPICE itself it is written back as read, with no note.
+
+| statement | decision | HSPICE run | the other dialects |
+|---|---|---|---|
+| `.fft` | kind `fft`: signal, start, stop, np, window, alfa, format, freq, fmin, fmax | the issue's runs on Y-2026.03-SP2-1: the nine keys and the eight windows (rect bart hann hamm black harris gauss kaiser) and `format=norm/unorm` run; an unknown key, window or format is warned about and the statement dropped, so an unknown key is read as an `invalid` error and an unknown word as an `invalid` warning | Xyce: `.FFT` read from its source (N_IO_FFTMgr.C, N_IO_FFTAnalysis.C), the same keys plus `from=`/`to=`; windows rect bart hamm hann black harris and its own (nuttall, cosine2, ...), with long aliases; no gauss or kaiser, which are a loss. Defaults alike: NP 1024, RECT, NORM. ngspice (a control-language command), LTspice (the waveform viewer), Spectre and VACASK (post-processing): `no` lines |
+| `sweep optimize= results= model=` | kind `optimize`, the ending of the analysis it optimizes over; a `.model` of type OPT is `own` | not run | no optimizer statement in any other dialect: `no` lines; the analysis inside is not written either, as the report says |
+| `.connect` | `own` | not run | none has one; the reason says how to write the same circuit |
+| S element | `own "S*"` | not run | Spectre `nport file=` and Xyce `YLIN` are named as the nearest forms, not mapped |
+| `.dcsens`, `.acmatch` | `own` | not run | not mapped: equality with `.sens`/`dcmatch` is not measured |
+| `.net`, `.power` | `own` | not run | not mapped |
+| `.check`, `.dout`, `.biaschk` | `own` | not run | Spectre's checks are not mapped either |
+| `.mosra`, `.appendmodel` | `own` | not run | none has MOSRA |
+| `.ptdnoise`, `.sample`, `.acphasenoise` | `own` | not run | not mapped |
+| `.load`, `.vec` | `own` | not run | HSPICE's own file formats |
+
+Also: an analysis that wraps others (a sweep, a Monte Carlo, an
+optimization) and has no form in the target no longer has its body written
+after the comment that says it is not written.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

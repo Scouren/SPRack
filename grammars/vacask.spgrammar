@@ -531,3 +531,5 @@ modelparams inductor
 end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 no pattern : VACASK has no pattern sources; a bit pattern is a PWL
+no fft : VACASK has no FFT statement; a spectrum is post-processing of the transient result
+no optimize : VACASK has no optimizer statement

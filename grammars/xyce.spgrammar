@@ -733,3 +733,10 @@ end
 noparam inductor ind warning : Xyce's inductor model has no IND, the inductance of a line that gives none; a line gives its own here, and one that gives none is refused whatever the card says
 computes resistor narrow short : R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored)
 no pattern : Xyce has no named bit patterns; a bit pattern is a PWL
+# .FFT, as the Xyce source reads it (N_IO_FFTMgr.C, N_IO_FFTAnalysis.C):
+# these keys only, the windows below (no gauss or kaiser), NP 1024, RECT
+# and NORM unless given.
+rule  fft       = ".fft" out { start=start from=start stop=stop to=stop np=np window=window alfa=alfa format=format freq=freq fmin=fmin fmax=fmax }
+enum  fft window : rect=rect rect=rectangular bart=bart bart=bartlett bartletthann=bartletthann hamm=hamm hamm=hamming hann=hann hann=hanning black=black black=blackman harris=harris harris=blackmanharris nuttall=nuttall halfcyclesine=halfcyclesine halfcyclesine3=halfcyclesine3 halfcyclesine6=halfcyclesine6 cosine2=cosine2 cosine4=cosine4
+enum  fft format : norm=norm unorm=unorm
+no optimize : Xyce has no optimizer statement (Dakota drives Xyce from outside)

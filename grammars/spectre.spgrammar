@@ -446,3 +446,5 @@ modelparams inductor
 end
 computes resistor narrow short : R = RSH (L - 2 ETCHL) / (W - 2 ETCH)
 no pattern : Spectre names a bit pattern on the source itself (type=bit data=); HSPICE's .PAT has no form here
+no fft : Spectre has no FFT statement; a spectrum is post-processing of the transient result
+no optimize : Spectre's netlist has no optimizer statement; optimization is driven from outside the simulator

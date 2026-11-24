@@ -6553,3 +6553,75 @@ test "#46: an HSPICE element variation is read, and Spectre says it has no form 
     try reported(&r2, .@"error", "statgroup scope=element cannot be written for spectre: Spectre varies netlist parameters");
     try testing.expectEqual(1, r2.countCode(.unsupported));
 }
+
+// #47: HSPICE statements no kind held.
+
+test "#47: .fft is a statement of HSPICE and Xyce, its windows and keys checked" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* fft\nv1 a 0 sin(0 1 1meg)\nr1 a 0 1k\n.tran 10n 8u\n.fft v(a)\n" ++
+        ".fft v(a) start=0 stop=8u np=256 format=unorm window=hann alfa=3 freq=1meg fmin=1meg fmax=5meg\n.end\n";
+    var r: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce", src, &r);
+    try has(xy, ".fft v(a)\n.fft v(a) start=0 stop=8u np=256 window=hann alfa=3 format=unorm freq=1meg fmin=1meg fmax=5meg\n");
+    try clean(&r);
+    var r1: ir.Report = .init(a);
+    _ = try sameBack(a, "xyce", "hspice", xy, &r1);
+    // Xyce has no Kaiser window; ngspice no .FFT statement.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", "t\nv1 a 0 1\n.tran 1n 1u\n.fft v(a) window=kaiser\n.end\n", &r2);
+    try reported(&r2, .@"error", "fft.window = kaiser has no spelling in xyce");
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", src, &r3);
+    try reported(&r3, .@"error", "statement 'fft' cannot be written for ngspice: ngspice's spectrum is the fft command of its control language");
+    // A key HSPICE does not take: it drops the statement.
+    var r4: ir.Report = .init(a);
+    _ = try readAs(a, "hspice", "t\n.fft v(a) zzfoo=1\n.end\n", &r4);
+    try reported(&r4, .@"error", "fft: 'zzfoo' is not a key hspice takes there");
+    // Xyce's own spellings of a window.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "hspice", "t\nv1 a 0 1\n.tran 1n 1u\n.fft v(a) window=hanning\n.end\n", &r5), ".fft v(a) window=hann\n");
+}
+
+test "#47: an HSPICE optimization is the ending of its analysis, and nowhere else" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* opt\n.param rx=opt1(1k, 100, 10k)\nv1 a 0 1\nr1 a b rx\nr2 b 0 1k\n.model optmod opt itropt=30\n" ++
+        ".dc v1 0 5 1 sweep optimize=opt1 results=vout model=optmod\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try testing.expectEqual(1, countKind(nl, .optimize));
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", src, &r1), ".dc v1 0 5 1 sweep optimize=opt1 results=vout model=optmod\n");
+    var r2: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce", src, &r2);
+    try reported(&r2, .@"error", "model 'optmod' of type 'opt' cannot be written for xyce: HSPICE's optimizer is set by a .MODEL of type OPT");
+    try reported(&r2, .@"error", "analysis 'optimize' cannot be written for xyce: Xyce has no optimizer statement");
+    // What it holds is left out with it, as the report says.
+    try testing.expect(std.mem.indexOf(u8, xy, "\n.dc ") == null);
+}
+
+test "#47: HSPICE statements of its own are unsupported elsewhere, with the reason" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const lines = [_][]const u8{
+        ".connect b c",                          ".dcsens v(d)",                   ".acmatch v(d)",       ".net v(out) vin",
+        ".power v1",                             ".check edge (a b) 1n 2n",        ".dout a 0.5 (0n 1)",  ".biaschk 'nmos' region=cutoff",
+        ".mosra reltotaltime=1e8",               ".appendmodel m1 mosra nch nmos", ".ptdnoise v(a) 1n",   ".sample fs=1meg",
+        ".acphasenoise v(a) (v1) dec 10 1 1meg", ".load file=load_ic.ic0",         ".vec 'vec_stim.vec'", "s1 p1 p2 mname=smod",
+    };
+    for (lines) |l| {
+        const src = try std.fmt.allocPrint(a, "t\nr1 a 0 1k\n{s}\n.end\n", .{l});
+        var r: ir.Report = .init(a);
+        _ = try tr(a, "hspice", "spectre", src, &r);
+        try testing.expectEqual(0, r.countCode(.untranslated));
+        try testing.expectEqual(1, r.countCode(.unsupported));
+        // In HSPICE itself the line is understood: no note that it was not.
+        var r1: ir.Report = .init(a);
+        try has(try tr(a, "hspice", "hspice", src, &r1), l);
+        try testing.expectEqual(0, r1.countCode(.oneway));
+    }
+}

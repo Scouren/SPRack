@@ -1048,6 +1048,11 @@ const Writer = struct {
                 var builtin = w.caps == null;
                 if (w.caps) |c| for (c.grammars) |*sg| {
                     if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
+                    if (sg.ownModelReason(ty)) |why| {
+                        w.report.add(.@"error", .unsupported, st.line, "model '{s}' of type '{s}' cannot be written for {s}: {s}", .{ st.get("name").atom, ty, w.g.name, why });
+                        try w.comment(try a.print("[sprack] not written: model '{s}' ({s})", .{ st.get("name").atom, ty }));
+                        return error.Skip;
+                    }
                     for (sg.models) |*m| for (m.spellings) |*sp| {
                         if (std.ascii.eqlIgnoreCase(sp.type, ty)) builtin = true;
                     };
@@ -1789,7 +1794,9 @@ const Writer = struct {
         }
         // A sweep this dialect writes as one line for the whole netlist
         // (`.step`): what it sweeps follows it.
-        if (schema.info(st.kind).class == .analysis) for (st.body) |*child| try w.stmt(child);
+        // Not where the sweep itself has no form: its statements were said
+        // to be left out with it.
+        if (schema.info(st.kind).class == .analysis and w.g.canWrite(st.kind)) for (st.body) |*child| try w.stmt(child);
     }
 
     /// The subcircuit `st` once for each of `v`, a comment above each
@@ -2019,13 +2026,21 @@ const Writer = struct {
         }
         if (st.kind == .@"opaque") {
             if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) {
-                if (w.kept.n == 0) w.kept.line = st.line;
-                w.kept.n += 1;
+                // A statement the grammar names as its own is understood.
+                if (w.g.ownReason(st.raw) == null) {
+                    if (w.kept.n == 0) w.kept.line = st.line;
+                    w.kept.n += 1;
+                }
                 return w.lineTail(st.raw, st.tail);
             }
             // A region the source grammar keeps verbatim, and says why.
             if (w.caps) |c| for (c.grammars) |*sg| {
                 if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
+                if (sg.ownReason(st.raw)) |why| {
+                    const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
+                    w.report.add(.@"error", .unsupported, st.line, "'{s}'{s} cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" and the {d} line{s} after it", .{ more, if (more == 1) "" else "s" }), w.g.name, why });
+                    return w.comment(try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}));
+                }
                 for (sg.raws) |rb| {
                     if (rb.reason.len == 0 or !std.mem.startsWith(u8, st.raw, rb.open)) continue;
                     const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");

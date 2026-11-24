@@ -158,6 +158,10 @@ pub const Kind = enum(u8) {
     alter,
     // A named bit pattern a pattern source refers to (HSPICE .PAT).
     pattern,
+    // The spectrum of a signal of the transient run (HSPICE and Xyce .FFT).
+    fft,
+    // An optimization of the analyses in its body (HSPICE `sweep optimize=`).
+    optimize,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -377,6 +381,15 @@ const defs = [_]Def{
     // `data`: the bits and the repeats after the name's `=`, as written
     // (`[b10 b01] r=1`); only HSPICE has pattern sources to use it.
     .{ .pattern, .structure, "name data:text" },
+    // From `start` to `stop` of the transient run, `np` points (a power of
+    // two), windowed by `window` (with `alfa` for gauss and kaiser), its
+    // magnitudes normalized (`format` norm) or not (unorm); `freq` the
+    // fundamental the harmonics are of, `fmin` to `fmax` what is printed.
+    .{ .fft, .control, "out:signal start:value stop:value np:value window:atom alfa:value format:atom freq:value fmin:value fmax:value params:params" },
+    // `param` names the .PARAM group of parameters varied (opt1 in
+    // `.param rx=opt1(1k, 100, 10k)`), `results` the measurements whose
+    // goals are met, `model` the optimizer's .MODEL (type OPT).
+    .{ .optimize, .analysis, "name param:ident results:ident* model:ident params:params" },
 };
 
 pub const kind_count = defs.len;

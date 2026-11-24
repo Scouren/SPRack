@@ -1625,6 +1625,18 @@ const Reader = struct {
             };
             vals[e.slot] = .{ .atom = hit };
         }
+        // A statement (not a device) whose keys this dialect lists, closed:
+        // another key is one the simulator refuses (HSPICE drops an .FFT
+        // with one it does not know).
+        if (schema.info(st.kind).class != .device) if (self.g.paramsOf(st.kind)) |table| if (!grammar.paramsOpen(table)) {
+            if (schema.slotIndex(st.kind, "params")) |pi| if (vals[pi] == .params) for (vals[pi].params) |p| {
+                const known = blk: {
+                    for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, p.key)) break :blk true;
+                    break :blk false;
+                };
+                if (!known) self.report.add(.@"error", .invalid, st.line, "{s}: '{s}' is not a key {s} takes there; {s} does not run the statement with it", .{ @tagName(st.kind), p.key, self.g.name, self.g.name });
+            };
+        };
         for (self.g.implied) |im| {
             // Options hold for the whole netlist, not per statement: the
             // writer says a default the target does not share (`defaultOptions`).

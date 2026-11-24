@@ -302,3 +302,5 @@ no data : LTspice has no .data tables; .step lists values with list
 # alter (c2)
 no alter : LTspice has no .alter; a rerun with other values is a .step
 no pattern : LTspice has no pattern sources; a bit pattern is a PWL
+no fft : LTspice takes the FFT of a trace in its waveform viewer; no netlist statement asks for one
+no optimize : LTspice has no optimizer statement
