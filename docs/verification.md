@@ -1668,6 +1668,24 @@ drain. The sky130A manifest holds the three as errata; sky130 to HSPICE,
 Spectre and VACASK is then 0 errors, and the installed sky130A loses its
 Xyce error of the third.
 
+### 4.29 ngspice forms the reader did not take (#43)
+
+Lines ngspice 45 loads that the ngspice reader kept as text (60 corpus
+lines, 13 statements of gf180mcu's test decks), from the issue's runs:
+
+| form | ngspice 45 | now |
+|---|---|---|
+| `.opt temp=127`, `.opts tnom=77` | both applied: 1 V across 1k of `tc1=0.01` gives i(v1) = -6.66667e-04 | read as `.options` |
+| `.width in=72` | taken silently; it sets the columns of printed output | read as an option, `inert` |
+| `.parameters c=4`, `r3 n3 0 {1k*c}` at 1 V | i(v3) = -2.5e-04: c is 4 | read as `.param` |
+| `.param p1=10 %3`, `.param p2=10 \ 3` | p1 is 1, p2 is 3: modulo and integer division | read, a blank before `%` or `\` joining the value when an operand follows; `\` is the operator `idiv`, which only ngspice spells |
+| `Vin1 I1 0 dc pulse(...)` | runs, 141 rows | `dc` with no value before a waveform is read |
+| `.print ac ii(v1)` | ngspice 42 here: `no such function as ii` | not read: ngspice refuses it |
+
+Not done: `.tf i(Vmeasure) Vin`, a current as the output, which needs the
+Spectre and VACASK forms measured, and the URC element (`U1 in out 0 umod
+L=100u N=10`), which needs a kind and a reason in every other grammar.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

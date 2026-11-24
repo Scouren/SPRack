@@ -604,7 +604,9 @@ fn isOperator(c: u8) bool {
 /// An operator an expression goes on across a blank with: of arithmetic,
 /// or of a condition (`c ? a : b`, a comparison, `&` and `|`).
 fn joins(c: u8) bool {
-    return isOperator(c) or std.mem.indexOfScalar(u8, "?:<>!&|", c) != null;
+    // `%` and `\` are ngspice's modulo and integer division: `10 %3` is one
+    // value (docs/verification.md 4.29).
+    return isOperator(c) or std.mem.indexOfScalar(u8, "?:<>!&|%\\", c) != null;
 }
 
 /// `==`, `<=`, `>=` or `!=` at `i`: its `=` assigns nothing.
@@ -643,6 +645,8 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
             // Past the blanks the expression goes on only after or before an operator.
             if (j < text.len and text[j] == '=' and spaced and !comparesAt(text, j)) return null;
             if (j == text.len or !(last_op or joins(text[j]) or comparesAt(text, j))) break;
+            // `5 %` alone is HSPICE's percent of a variation, no operator.
+            if (!last_op and (text[j] == '%' or text[j] == '\\') and !operandAfter(text, j + 1)) break;
             // `100p -60p`: a sign, the start of the next value of a list.
             if (!last_op and (text[j] == '-' or text[j] == '+') and j + 1 < text.len and text[j + 1] != ' ' and text[j + 1] != '\t') break;
             try out.append(arena, ' ');
@@ -675,6 +679,13 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
     // expression may follow `=`, and only with blanks in it.
     if (!op_outside or !(delimited or (cfg.bare_after_eq and spaced))) return null;
     return .{ .text = std.mem.trim(u8, out.items, " "), .end = i };
+}
+
+/// Is there a value after the operator, past blanks?
+fn operandAfter(text: []const u8, from: usize) bool {
+    var k = from;
+    while (k < text.len and (text[k] == ' ' or text[k] == '\t')) k += 1;
+    return k < text.len and (std.ascii.isAlphanumeric(text[k]) or text[k] == '(' or text[k] == '.' or text[k] == '{' or text[k] == '_');
 }
 
 fn topComma(run: []const u8) bool {

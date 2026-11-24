@@ -951,6 +951,30 @@ test "the report says what crosses: a dropped block's statements, text in anothe
     try testing.expectEqual(0, r6.countCode(.ambiguous));
 }
 
+test "ngspice forms ngspice 45 takes: .opt, .opts, .width, .parameters, % and \\ after a blank, dc before a waveform" {
+    // Issue 43, docs/verification.md 4.29.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r0: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", "t\n.opt temp=127\n.opts tnom=77\n.width in=72\n.parameters a=2 b=3\n.param p1=10 %3\n.param p2=10 \\ 3\nVin1 I1 0 dc pulse(0 1 1n 1n 1n 5n 10n)\nI2 I1 0 dc pwl(0 0 1n 1m)\n.end\n", &r0);
+    for (nl.stmts) |st| try testing.expect(st.kind != .@"opaque");
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", "t\n.opt temp=127\n.opts tnom=77\n.width in=72\n.parameters c=4\nV1 a 0 dc pulse(0 1 1n 1n 1n 5n 10n)\nR1 a 0 {1k*c}\n.tran 1n 20n\n.end\n", &r1);
+    try has(xy, ".options device temp=127 tnom=77\n");
+    try has(xy, ".param c=4\n");
+    try has(xy, "V1 a 0 pulse(0 1 1n 1n 1n 5n 10n)\n");
+    try reported(&r1, .info, "options: 'in=72' is not written: ngspice's .width in= only sets the columns of printed input");
+    try clean(&r1);
+    // ngspice's modulo and integer division: none of the others has the second.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param p1=10 %3\n.param p2=10 \\ 3\n.end\n", &r2);
+    try reported(&r2, .@"error", "operator 'mod' has no spelling in xyce");
+    try reported(&r2, .@"error", "operator 'idiv' has no spelling in xyce. Dialects that have it: ngspice");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ngspice", "t\n.param p2=10 \\ 3\n.end\n", &r3), ".param p2={10 \\ 3}\n");
+}
+
 test "comments, blank lines and trailing comments are carried over" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

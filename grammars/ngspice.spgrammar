@@ -46,6 +46,8 @@ libsections opened : ngspice 45 opens them all and stops at a missing file
 # 4.137450e-01 (docs/verification.md 4.27).
 inert options noacct : ngspice's NOACCT only leaves out the accounting printout; no result depends on it
 inert options klu : ngspice's KLU only picks the sparse solver; no result depends on it
+inert options in : ngspice's .width in= only sets the columns of printed input; no result depends on it
+inert options out : ngspice's .width out= only sets the columns of printed output; no result depends on it
 
 block libsection
   open   ".lib" name
@@ -63,6 +65,8 @@ read  func      = ".func" name args* "=" expr
 read  func      = ".param" name args+ "=" expr
 rule  param     = ".param" {...params}
 read  param     = ".params" {...params}
+# ngspice 45: `.parameters c=4` with r3 n3 0 {1k*c} at 1 V gives -2.5e-04.
+read  param     = ".parameters" {...params}
 rule  cond_elif = ".elseif" cond...
 rule  cond_else = ".else"
 rule  global    = ".global" nodes+
@@ -74,6 +78,13 @@ rule  model     = ".model" name type {...params?}
 # pre_osdi is a .control command, written as ngspice's manual writes it: unquoted.
 rule  hdl       = ".control" / "pre_osdi" path! / ".endc"
 
+# .opt and .opts are .options too (ngspice 45 applied `.opt temp=127` and
+# `.opts tnom=77`: i(v1) = -6.66667e-04 through a 1k of tc1=0.01).
+read  options   = ".opt" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
+read  options   = ".opts" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
+# .width sets the columns of printed output; read as an option no result
+# depends on (inert below).
+read  options   = ".width" {...params}
 rule  options   = ".temp" temp
 rule  options   = ".options" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
 read  options   = ".option" { temp=temp reltol=reltol abstol=abstol vntol=vntol gmin=gmin gmin=gmindc tnom=tnom scale=scale method=method maxord=maxord chgtol=chgtol trtol=trtol rshunt=gshunt cshunt=cshunt ...params? }
@@ -93,12 +104,15 @@ rule  mutual    = name~"K" l1 l2 k
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+# `dc` with no value before a waveform: ngspice 45 runs it (gf180mcu's test decks).
+read  vsource   = name~"V" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 # b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
 read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  isource   = name~"I" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {...params}
 read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 # The HSPICE and PSpice spellings of a behavioural source, which ngspice also reads.
@@ -271,6 +285,8 @@ operators
   ternary "?"
   not "!"
   mod "%"
+  # `\` divides and drops the fraction: 10 \ 3 is 3 (docs/verification.md 4.29).
+  idiv "\\"
 end
 
 # Measured with ngspice 45 on decks written for it (.param and a B source).

@@ -341,6 +341,8 @@ pub fn write(
             continue;
         }
         if (c == '^' and foreign) try problems.append(arena, .{ .kind = .operator, .text = "^" });
+        // ngspice's integer division.
+        if (c == '\\' and foreign and spellingOf(g.operators, "idiv") == null) try problems.append(arena, .{ .kind = .operator, .text = "idiv" });
         // A `%` glued to a number is the number's suffix (`30%`), not a modulo.
         if (foreign and ((c == '%' and !prev_word) or (c == '!' and !(i + 1 < text.len and text[i + 1] == '=')))) {
             const canon = if (c == '%') "mod" else "not";

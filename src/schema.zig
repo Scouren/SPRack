@@ -454,7 +454,7 @@ pub const variables = [_][]const u8{ "temper", "time", "hertz" };
 /// dialect that wants it spelled with blanks around it. `minuspow` and
 /// `andor` have no spelling either: a minus on the base of a power wherever
 /// it stands (`-2**2`), and a `&&` or `||`.
-pub const operators = [_][]const u8{ "pow", "xor", "ternary", "negpow", "minuspow", "andor", "not", "mod", "ne" };
+pub const operators = [_][]const u8{ "pow", "xor", "ternary", "negpow", "minuspow", "andor", "not", "mod", "ne", "idiv" };
 
 /// Signal forms a `signals` section may spell.
 pub const signal_forms = [_][]const u8{
