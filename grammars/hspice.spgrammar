@@ -115,7 +115,10 @@ write mesfet    = name~"J" d g s master [area] {...params}
 rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
 rule  instance  = name~"X" nodes+ master {...params}
 
-rule  op        = ".op"
+# `.op 1n 5n`: the operating point at these times of a transient run.
+rule  op        = ".op" ( times )*
+# `.dc monte=30`: a Monte Carlo of the operating point (the ending below).
+read  op        = ".dc"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
 rule  pz        = ".pz" out src
 # What is swept: the temperature, a source or a parameter. The range is a
@@ -130,33 +133,44 @@ read  dc        = ".dc" <what> "poi" _ ( values )+ <what2> start2 stop2 step2
 rule  dc        = ".dc" <what> <range> [ <what2> ( ( sweep2:"dec" | sweep2:"oct" | sweep2:"lin" ) points2 start2 stop2 | start2 stop2 step2 ) ]
 read  dc        = ".dc" <what> { start=start! stop=stop! step=step! }
 rule  dc        = ".dc" { data=data! }
-rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+# A frequency sweep, or a list of frequencies (POI, the count first).
+define freqs = ( ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop | "poi" _?$+values ( values )+ )
+rule  ac        = ".ac" <freqs>
 rule  tran      = ".tran" step?'$stop/1000' stop { start=start } [ skip_dc:"uic"=yes ]
 # More step and stop pairs: one run to the last stop (read at the smallest
 # step). Numbers that do not rise are SPICE's start time and step ceiling:
 # measured, `.tran 1n 100n 90n` outputs from 90n and `.tran 1n 10n 0 1n`
 # stops at 10n, while `.tran 1n 10n 2n 20n` runs to 20n.
 read  tran      = ".tran" step stop ( segments )+ { start=start } [ skip_dc:"uic"=yes ]
-write noise     = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
+write noise     = ".ac" <freqs> / ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 read  noise     = ".noise" "v" ~"(" out [ ~"," ref ] ~")" src [interval]
 merge ac -> noise
 # S-parameters: .LIN over the .AC sweep, ports are P elements.
-write sp        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop / ".lin"
-read  sp        = ".lin"
+# Its parameters say what is computed and written (gdcalc=1: group delay).
+write sp        = ".ac" <freqs> / ".lin" {...params}
+read  sp        = ".lin" {...params}
 merge ac -> sp
 rule  pss       = ".sn" { tone=fund! nharms=harms trinit=tstab ...params }
+# The period and the time resolution: NHARMS is round(PERIOD/TRES).
+read  pss       = ".sn" { tres=tres! period=period! trinit=tstab ...params }
 rule  sens      = ".sens" out
 rule  four      = ".four" freq signals+
 rule  hb        = ".hb" "tones" ~"=" ( freqs )+ [ "nharms" ~"=" ( harms )+ ] {...params}
 read  hb        = ".hb" { tones=freqs! nharms=harms ...params }
+# One tone and its harmonics, by position.
+read  hb        = ".hb" freqs#1 harms#1 {...params}
 
 # analyses (b3). Each was loaded in HSPICE Y-2026.03. The SN forms follow a
 # .SN (pss), the HB forms a .HB.
 rule  pac        = ( engine:".hbac"=hb | ".snac" ) ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
-rule  pnoise     = ( engine:".hbnoise"=hb | ".snnoise" ) "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+# The band the noise is referred to, a harmonic and a sideband, after the
+# sweep; `0 1` is the output band itself, as without it.
+read  pnoise     = ( engine:".hbnoise"=hb | ".snnoise" ) "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop "0" [ "," ] "1"
+read  pnoise     = ( engine:".hbnoise"=hb | ".snnoise" ) "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop band#1 [ "," ] ( band )*
+rule  pnoise     = ( engine:".hbnoise"=hb | ".snnoise" ) "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop ( band )*
 rule  pxf        = ( engine:".hbxf"=hb | ".snxf" ) "v" ~"(" out [ ~"," ref ] ~")" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 # S-parameters of the P ports around the .HB solution.
-rule  psp        = engine:".hblin"=hb ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop {...params}
+rule  psp        = engine:".hblin"=hb <freqs> {...params}
 # Without a .VARIATION block HSPICE warns and has no mismatch to report.
 rule  dcmatch    = ".dcmatch" "v" ~"(" out [ ~"," ref ] ~")"
 # Runs on the deck's .TRAN.
@@ -199,7 +213,11 @@ caveat library name : HSPICE has no library wrapper around .LIB sections; it is 
 caveat subckt inline : HSPICE has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
 # Monte Carlo is a sweep added to each analysis: `.tran 1n 1u sweep monte=30`.
 spread montecarlo
+rule  montecarlo = "sweep" "monte" ~"=" ~"list" ~"(" ( trials )+ ~")" -seed -runs
+read  montecarlo = "sweep" "monte" ~"=" "list" ( trials )+
 rule  montecarlo = "sweep" "monte" ~"=" runs -seed
+# `.dc monte=30` (an operating point above).
+read  montecarlo = "monte" ~"=" runs
 caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, which is not written
 
 implied tf ref = 0
@@ -425,6 +443,11 @@ params mosfet
   same rgatemod rgeomod sa sb sc sca scb scc sd tfin trnqsmod w xgw
   # PSP's own name for the instance's temperature offset (level 69 takes dtemp, not dta).
   dta = dtemp
+end
+# What .LIN takes (HSPICE's .LIN reference); a parameter of another
+# dialect's S-parameter analysis has no place on it.
+params sp
+  same dataformat filename format gdcalc mixedmode2port modelcalc noisecalc sparcalc
 end
 # alter (c2)
 # Each .alter reruns every analysis with its lines on top of those of the

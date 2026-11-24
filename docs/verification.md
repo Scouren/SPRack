@@ -1686,6 +1686,32 @@ Not done: `.tf i(Vmeasure) Vin`, a current as the output, which needs the
 Spectre and VACASK forms measured, and the URC element (`U1 in out 0 umod
 L=100u N=10`), which needs a kind and a reason in every other grammar.
 
+### 4.30 HSPICE analysis forms of kinds the schema has (#45)
+
+Spellings of analyses the HSPICE grammar read only in another form (72
+corpus lines, 18 distinct). HSPICE is not run here: each form is as the
+issue's decks and the HSPICE quick reference give it, and the column
+says what SPRack makes of it.
+
+| form | now |
+|---|---|
+| `.ac poi 3 10 159.1549431 1k` | `ac` with `values`; Spectre `values=[10 159.1549431 1k]`. A target with no frequency list (ngspice, Xyce, LTspice) reports the line as one it cannot say |
+| `.hblin poi 2 1meg 2meg` | `psp` with `values` (new slot); Spectre `hbsp values=[...]` |
+| `.lin gdcalc=1 noisecalc=1` | `sp` with its parameters; a `params sp` table lists what .LIN takes, so another dialect's (Spectre `ports=`) is a loss, not a line HSPICE refuses |
+| `.sn tres=1n period=10n` | `pss`: fund is 1/period and harms round(period/tres), the quick reference's `NHARMS=Round(PERIOD/TRES)`; written back as `.sn tone= nharms=` |
+| `.snnoise ... 0 1`, `... 1, -1` | `pnoise`; `0 1` is the output band and reads as no band, any other is `band` (new slot), which no other dialect has |
+| `.op 1n 5n` | `op` with `times` (new slot), which no other dialect has |
+| `.dc monte=30` | a `montecarlo` of 30 runs around an `op`; written `.op sweep monte=30` |
+| `.op sweep monte=list 3`, `monte=list(2 5)` | `montecarlo` with `trials` (new slot); written `monte=list(...)` |
+| `.hb 1meg 4` | `hb` of one tone and its harmonics; written `.hb tones= nharms=` |
+
+A `.noise`, `.lin` or `.lstb` takes its sweep from the `.ac` before it; an
+`.ac` that says what the second statement has no slot for (a list before
+an `.lstb`) now stays an analysis of its own instead of being folded away.
+
+Not run: whether HSPICE loads `.op sweep monte=` as written for an operating
+point Monte Carlo, and which input band Spectre's `refsideband` is.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

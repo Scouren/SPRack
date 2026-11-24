@@ -122,7 +122,7 @@ rule  tran      = name?tran$# "tran" { step=step stop=stop start=start maxstep=m
 rule  noise     = name?noise$# "(" out ref?0 ")" "noise" { iprobe=src start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params }
 rule  stb       = name?stb$# "stb" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin probe=probe! ...params }
 rule  pss       = name?pss$# "pss" { fund=fund! harms=harms tstab=tstab ...params }
-rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin ...params }
+rule  sp        = name?sp$# "sp" { start=fstart stop=fstop dec=points@sweep:dec oct=points@sweep:oct lin=points@sweep:lin values=[values] ...params }
 # xf at one frequency, 0 Hz, is the DC transfer function. It is computed
 # from every source at once, so the source is not named, and an xf read
 # back names none: the form is write-only.
@@ -141,7 +141,7 @@ rule  pnoise    = name?pnoise$# "(" out ref?0 ")" ( engine:"hbnoise"=hb | "pnois
 rule  pnoise    = name?pnoise$# "(" out ref?0 ")" ( engine:"hbnoise"=hb | "pnoise" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
 rule  pxf       = name?pxf$# "(" out ref?0 ")" ( engine:"hbxf"=hb | "pxf" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
 # The ports and the harmonic each one is driven at (portharmsvec) are parameters.
-rule  psp       = name?psp$# ( engine:"hbsp"=hb | "psp" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
+rule  psp       = name?psp$# ( engine:"hbsp"=hb | "psp" ) { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin values=[values] ...params }
 rule  xf        = name?xf$# "(" out ref?0 ")" "xf" { start=fstart stop=fstop dec=points@sweep:dec lin=points@sweep:lin ...params }
 rule  dcmatch   = name?dcmatch$# "(" out ref?0 ")" "dcmatch" {...params}
 rule  envelope  = name?envlp$# "envlp" { clockname="clock"! stop=stop ...params }

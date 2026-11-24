@@ -6365,3 +6365,95 @@ test "z2: the cycles of an LTspice sine have a slot, and are a loss where a sine
     try has(try tr(a, "ngspice", "ltspice", "t\nV1 a 0 pulse(0 1 0 1u 1u 0.5m 1m 2)\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r3), "V1 a 0 pulse(0 1 0 1u 1u 0.5m 1m 2)\n");
     try clean(&r3);
 }
+
+// #45: HSPICE analysis forms of kinds the schema has.
+
+test "#45: an HSPICE .ac POI list of frequencies is the ac's values" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nv1 in 0 dc 0 ac 1\nr1 in out 1k\nc1 out 0 1p\n.ac poi 3 10 159.1549431 1k\n.end\n";
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", src, &r), "ac1 ac values=[10 159.1549431 1k]\n");
+    try clean(&r);
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", src, &r1), ".ac poi 3 10 159.1549431 1k\n");
+    // A list before an .LSTB, which has no list: the .ac stays an analysis.
+    var r2: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", "t\nv1 in 0 dc 0 ac 1\nr1 in 0 1k\n.ac poi 2 1k 2k\n.lstb mode=single vsource=v1\n.end\n", &r2);
+    try testing.expectEqual(1, countKind(nl, .ac));
+    try testing.expectEqual(1, countKind(nl, .stb));
+}
+
+test "#45: HSPICE .lin parameters, .hblin POI and a positional .hb" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nv1 in 0 dc 0 ac 1 sin 0 1 1meg\nr1 in 0 1k\n.ac dec 10 1 1g\n.lin gdcalc=1 noisecalc=1\n.hb 1meg 4\n.hblin poi 2 1meg 2meg\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try clean(&r);
+    try testing.expectEqual(1, countKind(nl, .sp));
+    try testing.expectEqual(1, countKind(nl, .hb));
+    try testing.expectEqual(1, countKind(nl, .psp));
+    var r1: ir.Report = .init(a);
+    const hs = try sameBack(a, "hspice", "hspice", src, &r1);
+    try has(hs, ".ac dec 10 1 1g\n.lin gdcalc=1 noisecalc=1\n");
+    try has(hs, ".hb tones=1meg nharms=4\n");
+    try has(hs, ".hblin poi 2 1meg 2meg\n");
+    var r2: ir.Report = .init(a);
+    const sc = try tr(a, "hspice", "spectre", src, &r2);
+    try has(sc, "hb1 hb fundfreqs=[1M] maxharms=[4]\n");
+    try has(sc, "hbsp values=[1M 2M]");
+    try reported(&r2, .@"error", "sp: 'gdcalc=1' has no spelling in spectre");
+    // Another dialect's S-parameter options have no place on .LIN.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "hspice", "simulator lang=spectre\nsp1 sp start=1 stop=1G dec=10 ports=[p1 p2]\n", &r3);
+    try reported(&r3, .@"error", "whose sp takes no such parameter");
+}
+
+test "#45: HSPICE .sn by period and time resolution, and an .snnoise band" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nv1 in 0 sin 0 1 100meg\nr1 in out 1k\nc1 out 0 1p\n.sn tres=1n period=10n trinit=5n\n" ++
+        ".snnoise v(out) v1 dec 10 1k 1meg 0 1\n.snnoise v(out) v1 dec 10 1k 1meg 1, -1\n.end\n";
+    var r: ir.Report = .init(a);
+    const hs = try tr(a, "hspice", "hspice", src, &r);
+    // NHARMS = round(PERIOD/TRES), TONE = 1/PERIOD.
+    try has(hs, ".sn tone=100000000 nharms=10 trinit=5n\n");
+    // `0 1` is the output band itself: as without it.
+    try has(hs, ".snnoise v(out) v1 dec 10 1k 1meg\n.snnoise v(out) v1 dec 10 1k 1meg 1 -1\n");
+    try clean(&r);
+    var r1: ir.Report = .init(a);
+    const sc = try tr(a, "hspice", "spectre", src, &r1);
+    try has(sc, "pss1 pss fund=100000000 harms=10 tstab=5n\n");
+    try reported(&r1, .@"error", "pnoise.band = 1 -1 has no spelling in spectre");
+    try testing.expectEqual(1, r1.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "vacask", src, &r2), "analysis pss1 pss tper=1e-8 tstab=5n maxharm=10\n");
+}
+
+test "#45: HSPICE .op times, .dc monte= and a Monte Carlo trial list" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nr1 a 0 1k\n.op 1n 5n\n.dc monte=30\n.op sweep monte=list 3\n.tran 1n 1u sweep monte=list(2 5)\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try clean(&r);
+    try testing.expectEqual(3, countKind(nl, .montecarlo));
+    try testing.expectEqualStrings("[\"1e-9\",\"5e-9\"]", blk: {
+        const j = try jsonOf(a, &nl);
+        const at = std.mem.indexOf(u8, j, "\"times\":").? + 8;
+        break :blk j[at .. std.mem.indexOfScalarPos(u8, j, at, ']').? + 1];
+    });
+    var r1: ir.Report = .init(a);
+    const hs = try sameBack(a, "hspice", "hspice", src, &r1);
+    try has(hs, ".op 1n 5n\n.op sweep monte=30\n.op sweep monte=list(3)\n.tran 1n 1u sweep monte=list(2 5)\n");
+    var r2: ir.Report = .init(a);
+    const sc = try tr(a, "hspice", "spectre", src, &r2);
+    try has(sc, "montecarlo numruns=30 {\nop");
+    try reported(&r2, .@"error", "op.times = 1n 5n has no spelling in spectre");
+    try reported(&r2, .@"error", "montecarlo.trials = 3 has no spelling in spectre");
+}

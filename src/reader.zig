@@ -1878,7 +1878,15 @@ fn undoMerges(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt)
                 try dst.set(arena, k, src.at(fk));
             }
             // Only comments between: the two lines were one statement.
-            const adjacent = for (list.items[from + 1 .. i]) |st| {
+            // Unless the first says what the second has no slot for (an
+            // .AC list of frequencies before an .LSTB): then it stays an
+            // analysis of its own, so nothing is dropped.
+            const fits = for (schema.info(mg.from).slots, 0..) |sl, k| {
+                if (!isBound(src.at(k)) or std.mem.eql(u8, sl.name, "name")) continue;
+                const dk = schema.slotIndex(mg.into, sl.name) orelse break false;
+                if (!dst.at(dk).eql(src.at(k))) break false;
+            } else true;
+            const adjacent = fits and for (list.items[from + 1 .. i]) |st| {
                 if (st.kind != .comment) break false;
             } else true;
             if (!adjacent) continue;
@@ -2163,6 +2171,75 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
     }
 }
 
+/// Forms one dialect has for what the schema says another way, folded into
+/// the canonical slots (bodies too):
+///  - HSPICE `.sn tres= period=`: fund is 1/period and harms round(period/tres)
+///    (the HSPICE quick reference: `.SN TONE=F1 NHARMS=Round(PERIOD/TRES)`).
+///  - A Monte Carlo count written as `list(2 5)` (HSPICE `monte=list(...)`,
+///    one value to its lexer): the trials so numbered.
+fn foldForms(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
+    for (list) |*st| {
+        if (st.body.len > 0) try foldForms(arena, @constCast(st.body), report);
+        switch (st.kind) {
+            .pss => try foldPeriod(arena, st),
+            .montecarlo => try foldTrials(arena, st, report),
+            else => {},
+        }
+    }
+}
+
+fn numText(arena: Allocator, v: Value) Allocator.Error![]const u8 {
+    return switch (v) {
+        .num => |n| try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
+        .expr, .atom, .str => |x| x,
+        else => "0",
+    };
+}
+
+fn floatNum(arena: Allocator, f: f64) Allocator.Error!Value {
+    return .{ .num = ir.Number.init(try std.fmt.allocPrint(arena, "{d}", .{f}), 0) };
+}
+
+fn foldPeriod(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
+    const pi = schema.slotIndex(.pss, "period").?;
+    const ri = schema.slotIndex(.pss, "tres").?;
+    const period = st.at(pi);
+    const tres = st.at(ri);
+    if (period == .none) return;
+    try st.set(arena, pi, .none);
+    try st.set(arena, ri, .none);
+    const fi = schema.slotIndex(.pss, "fund").?;
+    const hi = schema.slotIndex(.pss, "harms").?;
+    if (period == .num) {
+        try st.set(arena, fi, try floatNum(arena, 1.0 / period.num.toFloat()));
+    } else try st.set(arena, fi, .{ .expr = try std.fmt.allocPrint(arena, "1/({s})", .{try numText(arena, period)}) });
+    if (tres == .none) return;
+    if (period == .num and tres == .num) {
+        try st.set(arena, hi, try floatNum(arena, @round(period.num.toFloat() / tres.num.toFloat())));
+    } else try st.set(arena, hi, .{ .expr = try std.fmt.allocPrint(arena, "nint(({s})/({s}))", .{ try numText(arena, period), try numText(arena, tres) }) });
+}
+
+fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
+    const ri = schema.slotIndex(.montecarlo, "runs").?;
+    const v = st.at(ri);
+    if (v != .expr) return;
+    const e = std.mem.trim(u8, v.expr, " ");
+    if (e.len < 6 or !std.ascii.startsWithIgnoreCase(e, "list(") or e[e.len - 1] != ')') return;
+    var items: std.ArrayList(Value) = .empty;
+    var it = std.mem.tokenizeAny(u8, e[5 .. e.len - 1], " ,");
+    while (it.next()) |w| {
+        const n = std.fmt.parseInt(u32, w, 10) catch {
+            report.add(.@"error", .invalid, st.line, "montecarlo: '{s}' in {s} is not a run number", .{ w, e });
+            return;
+        };
+        _ = n;
+        try items.append(arena, .{ .num = ir.Number.init(w, 0) });
+    }
+    if (items.items.len == 0) return;
+    try st.set(arena, ri, .none);
+    try st.set(arena, schema.slotIndex(.montecarlo, "trials").?, .{ .list = items.items });
+}
+
 fn numericSegments(st: *const ir.Stmt) bool {
     const v = st.at(schema.slotIndex(.tran, "segments").?);
     if (v != .list) return true;
@@ -2212,6 +2289,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     try flattenBins(g, arena, &list, report);
     try gatherMonteCarlo(arena, &list);
     try foldSegments(arena, list.items, report);
+    try foldForms(arena, list.items, report);
     try measureAnalysis(arena, list.items);
     try gatherAlters(g, arena, &list, report);
     try expr.convertFlat(arena, g, list.items, false);
@@ -2450,6 +2528,7 @@ pub const Source = struct {
         try flattenBins(g, arena, list, report);
         report.phase = ir.Phase.segments;
         try foldSegments(arena, list.items, report);
+        try foldForms(arena, list.items, report);
         try measureWith(arena, list.items, last);
         try expr.convert(arena, g, list.items, false);
     }

@@ -246,7 +246,9 @@ const defs = [_]Def{
         "trig:signal trigval:value trigtd:value trigedge:atom trign:value " ++
         "targ:signal targval:value targtd:value targedge:atom targn:value " ++
         "when:signal whenval:value whentd:value whenedge:atom whenn:value expr:value spec:text params:params" },
-    .{ .op, .analysis, "name params:params" ++ ns },
+    // `times`: HSPICE `.op 1n 5n`, the operating point at these times of a
+    // transient run up to the last.
+    .{ .op, .analysis, "name params:params" ++ ns ++ " times:value*" },
     // src2 is the outer loop of a nested sweep; src is swept for each of its values.
     // What is swept is an instance (`src`), a netlist parameter (`param`) or
     // the temperature (`var`); the outer loop likewise. `devparam` is the
@@ -275,8 +277,12 @@ const defs = [_]Def{
     .{ .disto, .analysis, "name " ++ sweep_spec ++ " f2overf1:value params:params" },
     .{ .four, .analysis, "name freq:value signals:signal* params:params" },
     .{ .hb, .analysis, "name freqs:value* harms:value* params:params" ++ ns },
-    .{ .sp, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns },
-    .{ .pss, .analysis, "name fund:value harms:value tstab:value params:params ic:params" ++ ns },
+    // `values` lists the frequencies instead of a sweep (HSPICE POI).
+    .{ .sp, .analysis, "name " ++ sweep_spec ++ " params:params" ++ ns ++ " values:value*" },
+    // `period` and `tres`: HSPICE's other .SN form, the period and the time
+    // resolution; the reader folds them into fund (1/period) and harms
+    // (period/tres, rounded), so no writer sees them.
+    .{ .pss, .analysis, "name fund:value harms:value tstab:value params:params ic:params" ++ ns ++ " period:value tres:value" },
     .{ .stb, .analysis, "name " ++ sweep_spec ++ " probe:ref params:params" ++ ns },
     .{ .@"opaque", .other, "" },
     .{ .comment, .other, "" },
@@ -287,9 +293,12 @@ const defs = [_]Def{
     // the state from the pss or hb statement before; VACASK solves it on the
     // same statement, from `fund`, `harms` and `tstab`.
     .{ .pac, .analysis, "name engine:atom " ++ sweep_spec ++ " fund:value harms:value tstab:value params:params" },
-    .{ .pnoise, .analysis, "name engine:atom out:node ref:node src:ref " ++ sweep_spec ++ " fund:value harms:value tstab:value params:params" },
+    // `band`: the input band the gain is referred to, a harmonic index and
+    // a sideband sign (HSPICE `.snnoise ... 1 -1`); unset, the output band
+    // itself (index 0, upper sideband).
+    .{ .pnoise, .analysis, "name engine:atom out:node ref:node src:ref " ++ sweep_spec ++ " fund:value harms:value tstab:value params:params band:value*" },
     .{ .pxf, .analysis, "name engine:atom out:node ref:node " ++ sweep_spec ++ " params:params" },
-    .{ .psp, .analysis, "name engine:atom " ++ sweep_spec ++ " params:params" },
+    .{ .psp, .analysis, "name engine:atom " ++ sweep_spec ++ " params:params values:value*" },
     // The AC transfer function to one output from every source.
     .{ .xf, .analysis, "name out:node ref:node " ++ sweep_spec ++ " params:params" },
     // The DC output spread from device mismatch, from sensitivities.
@@ -344,7 +353,9 @@ const defs = [_]Def{
     .{ .vary, .structure, "param:ident model:ident mtype:ident dist:atom std:value range:value rel:atom params:params" },
     .{ .correlate, .structure, "names:ident* cc:value params:params" },
     // A Monte Carlo run of the analyses in its body.
-    .{ .montecarlo, .analysis, "name runs:value seed:value params:params" },
+    // `trials`: the runs of the sequence to do, by number, instead of the
+    // first `runs` of it (HSPICE `monte=list(3 7)`).
+    .{ .montecarlo, .analysis, "name runs:value seed:value params:params trials:value*" },
     // A named group of library sections; nothing refers to the name.
     .{ .library, .structure, "name" },
     // c2: alter

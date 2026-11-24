@@ -1491,8 +1491,8 @@ const Writer = struct {
                 if (em.inert(p.key)) |why| {
                     // A loss all the same: the statement reads back without it.
                     w.report.add(.info, .loss, st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(st.kind), shown, why });
-                } else w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such instance parameter", .{
-                    @tagName(st.kind), shown, w.g.name, @tagName(st.kind),
+                } else w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such {s}", .{
+                    @tagName(st.kind), shown, w.g.name, @tagName(st.kind), if (schema.info(st.kind).class == .device) "instance parameter" else "parameter",
                 });
                 changed = true;
                 continue;

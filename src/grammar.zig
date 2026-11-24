@@ -1779,7 +1779,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
         } else if (std.mem.eql(u8, head, "params")) {
             const kind = try kindOf(c, no, rest);
-            if (schema.info(kind).class != .device or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device kind with parameters", .{});
+            if (schema.info(kind).class != .device and schema.info(kind).class != .analysis or schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a device or analysis kind with parameters", .{});
             params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
         } else if (std.mem.eql(u8, head, "modelparams")) {
             const only = std.mem.endsWith(u8, rest, " only");
