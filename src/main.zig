@@ -85,12 +85,42 @@ fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []cons
 /// All of `file`, in one buffer of its size where it has one: a buffer that
 /// grows as it is read is there twice at its last step, and in an arena
 /// every smaller one stays behind.
+/// An input not read: an entry, and status 1 when it was refused for what
+/// it is (a device, too large), 2 when it could not be read at all.
+fn refuse(io: std.Io, name: []const u8, e: anyerror) noreturn {
+    switch (e) {
+        error.NotARegularFile => {
+            stderrLine(io, "{s}: error[invalid]: not a regular file or a pipe; not read\n", .{name});
+            std.process.exit(1);
+        },
+        error.FileTooBig => {
+            stderrLine(io, "{s}: error[invalid]: larger than {d} MiB, the most an input may hold; not read\n", .{ name, ir.max_input >> 20 });
+            std.process.exit(1);
+        },
+        else => die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) }),
+    }
+}
+
+fn stderrLine(io: std.Io, comptime fmt: []const u8, args: anytype) void {
+    var buf: [2048]u8 = undefined;
+    var fw = std.Io.File.stderr().writer(io, &buf);
+    fw.interface.print(fmt, args) catch {};
+    fw.interface.flush() catch {};
+}
+
 fn readWhole(io: std.Io, file: std.Io.File) ![]u8 {
     const pages = std.heap.page_allocator;
+    // A device (`/dev/zero`) is never done: only a file or a pipe is read.
+    if (file.stat(io)) |st| switch (st.kind) {
+        .file, .named_pipe, .unix_domain_socket, .unknown => {},
+        else => return error.NotARegularFile,
+    } else |_| {}
     var fr = file.reader(io, &.{});
     const size = fr.getSize() catch 0;
-    if (size == 0) return fr.interface.allocRemaining(pages, .unlimited) catch |e| switch (e) {
+    if (size > ir.max_input) return error.FileTooBig;
+    if (size == 0) return fr.interface.allocRemaining(pages, .limited(ir.max_input)) catch |e| switch (e) {
         error.ReadFailed => fr.err.?,
+        error.StreamTooLong => error.FileTooBig,
         else => |x| x,
     };
     // ponytail: a file that grows meanwhile is read to the size it had.
@@ -219,8 +249,8 @@ pub fn main(init: std.process.Init) !void {
         const name = a.files.items[0];
         const file = cwd.openFile(io, name, .{}) catch |e| die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) });
         defer file.close(io);
-        break :blk readWhole(io, file) catch |e| die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) });
-    } else try readWhole(io, std.Io.File.stdin());
+        break :blk readWhole(io, file) catch |e| refuse(io, name, e);
+    } else readWhole(io, std.Io.File.stdin()) catch |e| refuse(io, "standard input", e);
     var report: ir.Report = .init(arena);
     // Read and write whole, never as a stream: to compare the two.
     const whole = init.environ_map.get("SPRACK_WHOLE") != null;

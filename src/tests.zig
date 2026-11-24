@@ -2062,6 +2062,50 @@ test "fuzz: deeply nested grammar groups are refused, not a stack overflow" {
     }
 }
 
+test "limits: blocks and JSON nested deeper than 100 are refused, not a stack overflow" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // 30,000 nested .subckt overflowed the stack and 3,000 took 316 MiB;
+    // 150 are enough to pass the limit. The same in Spectre and for .if.
+    for ([_][3][]const u8{
+        .{ "ngspice", ".subckt s{d} a\n", ".ends\n" },
+        .{ "ngspice", ".if (1)\n", ".endif\n" },
+        .{ "spectre", "subckt s{d} (a)\n", "ends\n" },
+    }) |c| {
+        var src: std.ArrayList(u8) = .empty;
+        try src.appendSlice(a, if (std.mem.eql(u8, c[0], "spectre")) "simulator lang=spectre\n" else "t\n");
+        for (0..150) |i| {
+            if (std.mem.indexOf(u8, c[1], "{d}")) |at| try src.print(a, "{s}{d}{s}", .{ c[1][0..at], i, c[1][at + 3 ..] }) else try src.appendSlice(a, c[1]);
+        }
+        for (0..150) |_| try src.appendSlice(a, c[2]);
+        var r: ir.Report = .init(a);
+        _ = try readAs(a, c[0], src.items, &r);
+        try reported(&r, .@"error", "blocks nested more than 100 deep");
+        var r2: ir.Report = .init(a);
+        _ = try sprack.translateAlloc(a, c[0], "xyce", src.items, &r2);
+        try testing.expect(r2.hasErrors());
+    }
+    // A JSON body and a JSON list, 150 deep.
+    var body: std.ArrayList(u8) = .empty;
+    try body.appendSlice(a, "{\"title\":\"t\",\"dialect\":\"ngspice\",\"stmts\":[");
+    for (0..150) |i| try body.print(a, "{{\"kind\":\"subckt\",\"name\":\"s{d}\",\"ports\":[\"a\"],\"body\":[", .{i});
+    for (0..150) |_| try body.appendSlice(a, "]}");
+    try body.appendSlice(a, "]}");
+    var r3: ir.Report = .init(a);
+    _ = try sprack.json.parseNetlist(a, body.items, &r3);
+    try reported(&r3, .@"error", "nested more than 100 deep: what is deeper is not read");
+    var list: std.ArrayList(u8) = .empty;
+    try list.appendSlice(a, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"param\",\"params\":{\"p\":");
+    for (0..150) |_| try list.append(a, '[');
+    try list.append(a, '1');
+    for (0..150) |_| try list.append(a, ']');
+    try list.appendSlice(a, "}}]}");
+    var r4: ir.Report = .init(a);
+    _ = try sprack.json.parseNetlist(a, list.items, &r4);
+    try reported(&r4, .@"error", "nested more than 100 deep");
+}
+
 test "a define that doubles at each level is refused, not expanded" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

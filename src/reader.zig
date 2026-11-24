@@ -1249,6 +1249,10 @@ const Reader = struct {
     m: Matcher,
     /// Index into the matcher's window.
     ti: usize = 0,
+    /// How many blocks the line being read is inside, and whether the
+    /// limit on that (`ir.max_depth`) was reported.
+    depth: usize = 0,
+    too_deep: bool = false,
     boiler: []const []const u8 = &.{},
     /// The grammar's `header folded` lines, normalized; seeing one sets `folded`.
     folded_boiler: []const []const u8 = &.{},
@@ -1393,12 +1397,21 @@ const Reader = struct {
             for (self.g.blocks) |*b| {
                 if (!try self.m.run(b.kind, b.open, ti)) continue;
                 if (b.closed and self.lastClose(b) < line.no) continue;
+                // Deeper than any netlist nests: no block, so no stack
+                // overflow; the line goes to the rules, and so to text.
+                if (self.depth >= ir.max_depth) {
+                    if (!self.too_deep) self.report.add(.@"error", .invalid, line.no, "blocks nested more than {d} deep: from here a line that would open one deeper is read as a statement, or kept as text", .{ir.max_depth});
+                    self.too_deep = true;
+                    break;
+                }
                 var st = try self.m.build(line.no);
                 // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
                 if (st.kind == .tran and !numericSegments(&st)) continue;
                 st.tail = self.toks()[self.m.end].text;
                 if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
                 self.ti = self.m.end + 1;
+                self.depth += 1;
+                defer self.depth -= 1;
                 st.body = try self.body(b, &st);
                 try out.append(self.arena, st);
                 return .more;
@@ -2184,7 +2197,7 @@ fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report:
     try foldSegments(arena, list.items, report);
     try measureAnalysis(arena, list.items);
     try gatherAlters(g, arena, &list, report);
-    try expr.convert(arena, g, list.items, false);
+    try expr.convertFlat(arena, g, list.items, false);
     try undoMoves(g, arena, &list, report);
     try undoMerges(g, arena, &list);
     try mergeOptions(arena, &list);

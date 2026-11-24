@@ -341,6 +341,17 @@ const J = std.json.Value;
 const Parser = struct {
     arena: Allocator,
     report: *ir.Report,
+    /// How deep the `body` or list being read is (`ir.max_depth`).
+    depth: usize = 0,
+    too_deep: bool = false,
+
+    /// Deeper than `ir.max_depth`: reported once, and not read.
+    fn deep(p: *Parser, line: u32) bool {
+        if (p.depth < ir.max_depth) return false;
+        if (!p.too_deep) p.fail(line, "nested more than {d} deep: what is deeper is not read", .{ir.max_depth});
+        p.too_deep = true;
+        return true;
+    }
 
     fn fail(p: *Parser, line: u32, comptime fmt: []const u8, args: anytype) void {
         p.report.add(.@"error", .invalid, line, fmt, args);
@@ -381,11 +392,19 @@ const Parser = struct {
             .number_string => |s| return p.scalar(s, line),
             .string => |s| return p.scalar(s, line),
             .array => |arr| {
+                if (p.deep(line)) return .none;
+                p.depth += 1;
+                defer p.depth -= 1;
                 const out = try p.arena.alloc(Value, arr.items.len);
                 for (arr.items, 0..) |it, i| out[i] = try p.any(it, line);
                 return .{ .list = out };
             },
-            .object => |obj| return typed(j) orelse p.params(obj, line),
+            .object => |obj| {
+                if (p.deep(line)) return .none;
+                p.depth += 1;
+                defer p.depth -= 1;
+                return typed(j) orelse p.params(obj, line);
+            },
         }
     }
 
@@ -499,7 +518,11 @@ const Parser = struct {
                         };
                     }
                 } else if (std.mem.eql(u8, key, "body")) {
-                    st.body = try p.stmtList(val);
+                    if (!p.deep(st.line)) {
+                        p.depth += 1;
+                        defer p.depth -= 1;
+                        st.body = try p.stmtList(val);
+                    }
                 } else if (schema.slotIndex(kind, key)) |si| {
                     try st.set(p.arena, si, try p.slotValue(schema.info(kind).slots[si], val, st.line));
                 } else {

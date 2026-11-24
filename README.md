@@ -395,6 +395,11 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   depends on its model (behavioural sources, Verilog-A, transmission lines,
   cells defined in other files) is taken to join all its terminals, and the
   branches of a conditional all count, so it errs towards no alarm.
+* Two limits keep damaged input from taking the process down. An input or
+  included file must be a regular file (or a pipe) of at most 1 GiB: an
+  include of `/dev/zero` is refused with an error naming it. Blocks nest at
+  most 100 deep (subcircuits, conditional blocks, a JSON `body` or list):
+  deeper, an `invalid` error, and the rest is read as statements or text.
 * Memory: `sprack translate` surveys the netlist, then reads and writes one
   top-level statement at a time. Measured peak: 1.5 times the input on a
   111 MiB RC mesh and 1.6 times on 45 MiB of sky130 cells (2.1 times into

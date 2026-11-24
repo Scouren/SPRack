@@ -183,6 +183,16 @@ pub const Stmt = struct {
     }
 };
 
+/// The most an input file may hold, a netlist or an included file: a larger
+/// one, or one that is not a regular file or a pipe (`/dev/zero`), is
+/// refused with a report entry rather than read until memory runs out.
+pub const max_input: usize = 1 << 30;
+
+/// How deep blocks may nest: subcircuits, conditional blocks, a JSON
+/// `body` or list. Deeper, the rest is refused with an `invalid` entry,
+/// not a stack overflow.
+pub const max_depth: usize = 100;
+
 /// Where reading and writing keep their large temporary tables (the line
 /// list, the token window, name sets): outside the arena, so that they are
 /// freed as soon as they are done with. A variable so that a test can count

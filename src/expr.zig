@@ -515,11 +515,19 @@ pub fn thresholds(arena: Allocator, g: *const Grammar, family: []const u8, param
 /// they change; bodies are walked too.
 pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: bool) Allocator.Error!void {
     if (g.converts.len == 0) return;
+    for (stmts) |*st| if (st.body.len > 0) {
+        st.body = try arena.dupe(ir.Stmt, st.body);
+        try convert(arena, g, st.body, forward);
+    };
+    try convertFlat(arena, g, stmts, forward);
+}
+
+/// `convert` on these statements, not on what their bodies hold: for a pass
+/// that visits every body itself (the reader's), where `convert` at each
+/// level would copy everything below it again.
+pub fn convertFlat(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: bool) Allocator.Error!void {
+    if (g.converts.len == 0) return;
     for (stmts) |*st| {
-        if (st.body.len > 0) {
-            st.body = try arena.dupe(ir.Stmt, st.body);
-            try convert(arena, g, st.body, forward);
-        }
         var copied = false;
         for (0..g.converts.len) |n| {
             const cv = g.converts[if (forward) n else g.converts.len - 1 - n];

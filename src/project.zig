@@ -183,6 +183,9 @@ const Run = struct {
     /// Directories an include not found beside its file is looked up in
     /// (HSPICE `.option search='dir'`), absolute.
     search: std.ArrayList([]const u8) = .empty,
+    /// Why the last file `readFile` gave nothing was refused; empty: it
+    /// could not be opened.
+    refusal: []const u8 = "",
     /// Every `$NAME` an include path named, with the value it was given.
     expanded: std.StringArrayHashMapUnmanaged(?[]const u8) = .empty,
 
@@ -517,8 +520,21 @@ const Run = struct {
         if (failed) r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
     }
 
+    /// The text of an input file; null when it cannot be read, or is
+    /// refused (`refusal` says why): not a regular file, or larger than
+    /// `ir.max_input`.
     fn readFile(r: *Run, path: []const u8, a: Allocator) ?[]const u8 {
-        return std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .unlimited) catch null;
+        r.refusal = "";
+        const st = std.Io.Dir.cwd().statFile(r.io, path, .{}) catch return null;
+        if (st.kind != .file) {
+            r.refusal = "not a regular file; not read";
+            return null;
+        }
+        if (st.size > ir.max_input) {
+            r.refusal = std.fmt.comptimePrint("larger than {d} MiB, the most an input may hold; not read", .{ir.max_input >> 20});
+            return null;
+        }
+        return std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch null;
     }
 
     /// Pass one: find every file and learn what each declares.
@@ -531,7 +547,7 @@ const Run = struct {
             const scratch = scratch_state.allocator();
             const text = r.readFile(path, scratch) orelse {
                 r.sum.missing += 1;
-                r.logLine(path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot open this file; it is included by the project" });
+                r.logLine(path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = if (r.refusal.len > 0) r.refusal else "cannot open this file; it is included by the project" });
                 // Keep the slot so indices stay stable, but mark it.
                 r.files.items[i] = "";
                 continue;
@@ -674,6 +690,29 @@ test "paths" {
     try std.testing.expectEqualStrings("n.lib", try relative(a, "pdk", "pdk/n.lib"));
     try std.testing.expectEqualStrings("sub/n.lib", try relative(a, ".", "sub/n.lib"));
     try std.testing.expectEqualStrings("/pdk", try commonDir(a, &.{ "/pdk/libs/a.lib", "/pdk/models/n.lib" }));
+}
+
+test "an include that is no regular file is refused, not read until memory runs out" {
+    if (@import("builtin").os.tag != .linux) return error.SkipZigTest;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.writeFile(io, .{ .sub_path = "top.sp", .data = "t\n.include /dev/zero\nR1 a 0 1k\n.end\n" });
+    const ngspice = @import("root.zig").find("ngspice").?.*;
+    var log: Writer.Allocating = .init(a);
+    const sum = try run(io, std.testing.allocator, .{
+        .from = &ngspice,
+        .to = &ngspice,
+        .tops = &.{try std.fmt.allocPrint(a, "{s}/top.sp", .{base})},
+        .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
+        .log = &log.writer,
+    });
+    try std.testing.expectEqual(1, sum.errors);
+    try std.testing.expect(std.mem.indexOf(u8, log.written(), "/dev/zero: error[invalid]: not a regular file; not read") != null);
 }
 
 test "one section for a target that opens every section: the others' includes are comments" {
