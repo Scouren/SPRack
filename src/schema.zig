@@ -442,7 +442,7 @@ pub const functions = [_][]const u8{
     "pow",   "pwr",   "floor", "ceil", "int",  "nint",  "fmod",   "hypot", "db",    "sin",
     "cos",   "tan",   "asin",  "acos", "atan", "atan2", "sinh",   "cosh",  "tanh",  "asinh",
     "acosh", "atanh", "limit", "if",   "stp",  "uramp", "agauss", "gauss", "aunif", "unif",
-    "v",     "i",
+    "v",     "i",     "ddt",
 };
 
 /// Variables the simulator provides.

@@ -863,6 +863,10 @@ const Writer = struct {
     splits: std.ArrayList(struct { name: []const u8, split: cond.Split }) = .empty,
     /// Why the subcircuit being written is not one of them.
     unsplit: []const u8 = "",
+    /// The nodes the netlist's `.ic` statements set (`capacitorParts`).
+    ic_nodes: ir.CaselessSet = .empty,
+    /// How many subcircuits the statement being written is inside.
+    depth: u32 = 0,
 
     const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 = "", line: u32 = 0 };
 
@@ -1340,6 +1344,96 @@ const Writer = struct {
         return copy;
     }
 
+    /// A capacitor's `ic=` or `q=` where the target's capacitor takes
+    /// neither and other devices of the target say it, as measured in
+    /// ngspice 45 and VACASK (docs/verification.md 4.16):
+    ///  - `ic`: the capacitor to a node of its own, `<name>__ic`, and from
+    ///    there to its second node a DC source of the initial voltage. With
+    ///    UIC the capacitor starts at 0 and the pair at `ic`; at an
+    ///    operating point and in AC the source is the short it adds.
+    ///  - `q`: a behavioural source whose current is `ddt` of the charge,
+    ///    times `m`.
+    /// False: the capacitor is written as it is.
+    fn capacitorParts(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!bool {
+        const sg = w.sourceGrammar(st) orelse readIn(w.source, st);
+        const parts = capParts(w.g, sg, st);
+        if (!parts.any()) return false;
+        const from = if (sg) |s| s.paramsOf(.capacitor) else null;
+        const name = st.get("name").atom;
+        var em = w.emitter(a, st);
+        var rest: std.ArrayList(ir.Param) = .empty;
+        var m: ?Value = null;
+        for (st.get("params").params) |p| {
+            const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
+            if (parts.q != null and std.ascii.eqlIgnoreCase(canon, "q")) continue;
+            if (parts.ic != null and std.ascii.eqlIgnoreCase(canon, "ic")) continue;
+            if (parts.q != null and std.ascii.eqlIgnoreCase(canon, "m")) {
+                m = p.val;
+                continue;
+            }
+            try rest.append(a, p);
+        }
+        if (parts.q) |q| {
+            // Whatever else the capacitor gives has no place on the source.
+            if (st.get("c") != .none) w.report.add(.@"error", .loss, st.line, "capacitor '{s}': 'c={s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, try em.describe(st.get("c")), w.g.name });
+            if (st.get("master") != .none) w.report.add(.@"error", .loss, st.line, "capacitor '{s}': the model '{s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, try em.describe(st.get("master")), w.g.name });
+            for (rest.items) |p| {
+                const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
+                w.report.add(.@"error", .loss, st.line, "capacitor '{s}': '{s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, shown, w.g.name });
+            }
+            const charge = try expr.canonText(a, q);
+            const current = if (m) |mv| blk: {
+                const mt = try expr.canonText(a, mv);
+                break :blk if (mv == .expr) try a.print("({s})*ddt({s})", .{ mt, charge }) else try a.print("{s}*ddt({s})", .{ mt, charge });
+            } else try a.print("ddt({s})", .{charge});
+            var b = try ir.newStmt(a, .bsource, st.line);
+            b.dialect = st.dialect;
+            b.tail = st.tail;
+            try b.set(a, schema.slotIndex(.bsource, "name").?, st.get("name"));
+            try b.set(a, schema.slotIndex(.bsource, "pos").?, st.get("pos"));
+            try b.set(a, schema.slotIndex(.bsource, "neg").?, st.get("neg"));
+            try b.set(a, schema.slotIndex(.bsource, "i").?, .{ .expr = current });
+            w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no charge (q=); it is written as a behavioural source whose current is {s}, which reads back as that source", .{ name, w.g.name, current });
+            try w.leaf(a, &b);
+            return true;
+        }
+        const ic = parts.ic.?;
+        const pos, const neg = .{ st.get("pos"), st.get("neg") };
+        // ngspice lets the capacitor's ic win over an .ic on one of its
+        // nodes; the source in series adds the two.
+        for ([_]Value{ pos, neg }) |n| {
+            if (n != .atom) continue;
+            const hit = if (w.depth == 0) w.ic_nodes.contains(n.atom) else blk: {
+                var it = w.ic_nodes.keyIterator();
+                while (it.next()) |k| {
+                    const dot = std.mem.lastIndexOfScalar(u8, k.*, '.') orelse continue;
+                    if (std.ascii.eqlIgnoreCase(k.*[dot + 1 ..], n.atom)) break :blk true;
+                }
+                break :blk false;
+            };
+            if (hit) w.report.add(.@"error", .invalid, st.line, "capacitor '{s}': ic={s}, and an .ic sets node {s} too; {s} takes the capacitor's, and the source in series that says it for {s} adds the two", .{
+                name, try em.describe(ic), n.atom, w.sourceOf(st), w.g.name,
+            });
+        }
+        const node: Value = .{ .atom = try a.print("{s}__ic", .{name}) };
+        var cap = st.*;
+        try cap.own(a);
+        try cap.set(a, schema.slotIndex(.capacitor, "neg").?, node);
+        try cap.set(a, schema.slotIndex(.capacitor, "params").?, if (rest.items.len > 0) .{ .params = rest.items } else .none);
+        var v = try ir.newStmt(a, .vsource, st.line);
+        v.dialect = st.dialect;
+        try v.set(a, schema.slotIndex(.vsource, "name").?, .{ .atom = try a.print("V{s}__ic", .{name}) });
+        try v.set(a, schema.slotIndex(.vsource, "pos").?, node);
+        try v.set(a, schema.slotIndex(.vsource, "neg").?, neg);
+        try v.set(a, schema.slotIndex(.vsource, "dc").?, ic);
+        w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no initial voltage (ic={s}); it is written to node {s}, with a DC source of {s} from there to {s}, which reads back as the two", .{
+            name, w.g.name, try em.describe(ic), node.atom, try em.describe(ic), try em.describe(neg),
+        });
+        try w.leaf(a, &cap);
+        try w.leaf(a, &v);
+        return true;
+    }
+
     fn emitter(w: *Writer, a: Allocator, st: *const ir.Stmt) Emit {
         return .{
             .g = w.g,
@@ -1384,7 +1478,12 @@ const Writer = struct {
         // conditions: the subcircuit once for each branch (`split`).
         const outer = w.unsplit;
         defer w.unsplit = outer;
-        if (st.kind == .subckt) w.unsplit = "";
+        const outer_depth = w.depth;
+        defer w.depth = outer_depth;
+        if (st.kind == .subckt) {
+            w.unsplit = "";
+            w.depth += 1;
+        }
         if (st.kind == .subckt and !w.g.canWrite(.cond_if)) switch (try cond.split(w.arena, st, expr.choiceForm(w.g), &w.declared)) {
             .none => {},
             .refused => |why| w.unsplit = why,
@@ -1680,6 +1779,7 @@ const Writer = struct {
                 st = &chosen;
             }
         }
+        if (st.kind == .capacitor and try w.capacitorParts(a, st)) return;
         w.ordinals[@backingInt(st.kind)] += 1;
 
         var mapped: ir.Stmt = undefined;
@@ -2498,6 +2598,72 @@ fn markUsed(stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {
     }
 }
 
+/// Does a `params` table take the canonical parameter `canon`?
+fn takes(table: []const grammar.Spellings, canon: []const u8) bool {
+    if (grammar.paramsOpen(table)) return true;
+    for (table) |e| if (std.ascii.eqlIgnoreCase(e.canon, canon)) return true;
+    return false;
+}
+
+/// A capacitor's initial voltage or charge where the target's capacitor
+/// takes neither (VACASK), and other devices of the target say it
+/// (`Writer.capacitorParts`). Empty: written as a capacitor.
+const CapParts = struct {
+    ic: ?Value = null,
+    q: ?Value = null,
+
+    fn any(c: CapParts) bool {
+        return c.ic != null or c.q != null;
+    }
+};
+
+/// `sg`: the dialect the statement was read in.
+fn capParts(g: *const Grammar, sg: ?*const Grammar, st: *const ir.Stmt) CapParts {
+    if (st.kind != .capacitor) return .{};
+    if (sg) |s| if (s == g or std.mem.eql(u8, s.name, g.name)) return .{};
+    const table = g.paramsOf(.capacitor) orelse return .{};
+    const v = st.get("params");
+    if (v != .params) return .{};
+    const from = if (sg) |s| s.paramsOf(.capacitor) else null;
+    var out: CapParts = .{};
+    for (v.params) |p| {
+        const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
+        if (std.ascii.eqlIgnoreCase(canon, "q") and !takes(table, "q") and g.canWrite(.bsource) and spellingsOf(g.functions, "ddt") != null) out.q = p.val;
+        if (std.ascii.eqlIgnoreCase(canon, "ic") and !takes(table, "ic") and g.canWrite(.vsource)) out.ic = p.val;
+    }
+    // A charge has no initial voltage of its own to put in series: that
+    // stays the loss it was.
+    if (out.q != null) out.ic = null;
+    return out;
+}
+
+/// The grammar a statement was read in: its own tag, else the netlist's.
+fn readIn(dialect: []const u8, st: *const ir.Stmt) ?*const Grammar {
+    return sprack.find(if (st.dialect != 0) sprack.dialectName(st.dialect) else dialect);
+}
+
+/// The kinds a capacitor is written as where `capParts` applies: a
+/// voltage source or a behavioural one, whose boilerplate (`needs`) the
+/// netlist then needs.
+fn markCapParts(g: *const Grammar, dialect: []const u8, stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {
+    for (stmts) |*s| {
+        const c = capParts(g, readIn(dialect, s), s);
+        if (c.ic != null) used[@backingInt(Kind.vsource)] = true;
+        if (c.q != null) used[@backingInt(Kind.bsource)] = true;
+        markCapParts(g, dialect, s.body, used);
+    }
+}
+
+/// The nodes an `.ic` statement sets, anywhere in `stmts`.
+fn collectIcNodes(a: Allocator, stmts: []const ir.Stmt, out: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
+    for (stmts) |*s| {
+        if (s.kind == .ic and s.get("values") == .params) {
+            for (s.get("values").params) |p| try ir.putName(out, a, src, p.key);
+        }
+        try collectIcNodes(a, s.body, out, src);
+    }
+}
+
 /// Two names that differ only by case are one name in a case-folding dialect.
 /// Each key is the spelling last seen. The tables hold every node and
 /// instance name, so they live outside the arena and are freed when done.
@@ -2871,6 +3037,7 @@ pub fn write(
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
+    try collectIcNodes(arena, nl.stmts, &w.ic_nodes, null);
     if (env) |e| {
         var it = e.declared.keyIterator();
         while (it.next()) |k| try w.declared.put(arena, try std.ascii.allocLowerString(arena, k.*), {});
@@ -2895,6 +3062,7 @@ pub fn write(
     if (!nl.library) {
         var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
         markUsed(nl.stmts, &used);
+        markCapParts(g, nl.dialect, nl.stmts, &used);
         const said = if (g.preamble_unless) |k| used[@backingInt(k)] else false;
         if (!said) for (g.preamble) |l| try w.line(l);
         var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
@@ -3091,6 +3259,8 @@ pub const Survey = struct {
     refs: Refs = .{},
     /// `collectReserved`.
     reserved: ir.CaselessSet = .empty,
+    /// `collectIcNodes`.
+    ic_nodes: ir.CaselessSet = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold.
     /// Keeps the value of `slot` on the netlist's first statement of `kind`
@@ -3112,6 +3282,8 @@ pub const Survey = struct {
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
         try collectFuncs(a, stmts, &sv.funcs);
         markUsed(stmts, &sv.used);
+        markCapParts(g, sv.dialect, stmts, &sv.used);
+        try collectIcNodes(a, stmts, &sv.ic_nodes, k.src);
         ir.markFamilies(stmts, &sv.fams);
         try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
         try collectReserved(a, g, stmts, &sv.reserved, k.src);
@@ -3193,6 +3365,7 @@ pub const Stream = struct {
         w.families = sv.families;
         w.env = env;
         w.funcs = sv.funcs;
+        w.ic_nodes = sv.ic_nodes;
         if (env) |e| {
             var it = e.declared.keyIterator();
             while (it.next()) |n| try w.declared.put(perm, try std.ascii.allocLowerString(perm, n.*), {});

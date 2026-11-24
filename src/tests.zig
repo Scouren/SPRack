@@ -4190,7 +4190,7 @@ test "VACASK model cards: a refused version is one warning per file, a refused l
     try testing.expectEqual(2, r2.count(.@"error"));
 }
 
-test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no place" {
+test "VACASK instance parameters: m is $mfactor, resistor ac has no place" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -4198,17 +4198,82 @@ test "VACASK instance parameters: m is $mfactor, ic and resistor ac have no plac
     const src = "t\nR1 a 0 1k m=2 tc=1m\nC1 a 0 1n ic=0.5\nR2 a b 1k ac=2k\nM1 d g 0 0 nm w=1u l=1u m=3 sa=1u\nVg g 0 1\n.model nm nmos level=1\n.end\n";
     const va = try tr(a, "ngspice", "vacask", src, &report);
     try has(va, "R1 (a 0) resistor r=1k $mfactor=2 tc=1m\n");
-    try has(va, "C1 (a 0) capacitor c=1n\n");
+    try has(va, "C1 (a C1__ic) capacitor c=1n\n");
     // An open table renames m and copies the rest.
     try has(va, "M1 (d g 0 0) nm w=1u l=1u $mfactor=3 sa=1u\n");
-    try reported(&report, .@"error", "capacitor: 'ic=0.5' has no spelling in vacask");
     try reported(&report, .@"error", "resistor: 'ac=2k' has no spelling in vacask");
-    try testing.expectEqual(2, report.count(.@"error"));
+    try testing.expectEqual(1, report.count(.@"error"));
     // And back: $mfactor is m again, where ngspice has a table and where it has none.
     var r2: ir.Report = .init(a);
     const ng = try tr(a, "vacask", "ngspice", va, &r2);
     try has(ng, "R1 a 0 1k m=2 tc=1m\n");
     try has(ng, "M1 d g 0 0 nm w=1u l=1u m=3 sa=1u\n");
+}
+
+test "VACASK capacitor: ic= is a DC source in series, q= a behavioural source of ddt(q)" {
+    // docs/verification.md 4.16: both measured in ngspice 45 and VACASK b2c1551.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // In a subcircuit, and in a branch of a conditional block (IHP's twelve).
+    const sub =
+        \\t
+        \\.subckt cic a b
+        \\C1 a b 1n ic=0.5
+        \\.ends
+        \\.subckt cc a b s=0
+        \\.if (s == 0)
+        \\C2 a b 1p ic=0.1
+        \\.else
+        \\C2 a b 2p ic=0.2
+        \\.endif
+        \\.ends
+        \\V1 in 0 1
+        \\R1 in b 1k
+        \\X1 b 0 cic
+        \\X2 b 0 cc
+        \\.tran 1n 50n uic
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", sub, &r1);
+    try has(va, "C1 (a C1__ic) capacitor c=1n\nVC1__ic (C1__ic b) vsource dc=0.5\n");
+    try has(va, "C2 (a C2__ic) capacitor c=1p\nVC2__ic (C2__ic b) vsource dc=0.1\n");
+    try has(va, "model vsource vsource\n");
+    try reported(&r1, .info, "capacitor 'C1': vacask's capacitor takes no initial voltage (ic=0.5); it is written to node C1__ic");
+    try clean(&r1);
+    // Read whole and as a stream: the same.
+    var outs: [2][]const u8 = undefined;
+    for ([_]bool{ true, false }, 0..) |whole, i| {
+        var r: ir.Report = .init(a);
+        var aw: std.Io.Writer.Allocating = .init(a);
+        _ = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find("vacask").?, sub, &aw.writer, &r, &sprack.caps, .{ .whole = whole });
+        outs[i] = aw.written();
+    }
+    try testing.expectEqualStrings(outs[0], outs[1]);
+    // An .ic on one of its nodes: ngspice takes the capacitor's, the series
+    // source would add the two.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\nV1 in 0 1\nR1 in b 1k\nC1 b 0 1n ic=0.5\n.ic v(b)=0.2\n.tran 1n 50n uic\n.end\n", &r2);
+    try reported(&r2, .@"error", "capacitor 'C1': ic=0.5, and an .ic sets node b too");
+    // Inside a subcircuit only a hierarchical name ending in the node counts.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\n.subckt cic a b\nC1 a b 1n ic=0.5\n.ends\nX1 b 0 cic\nV1 b 0 1\n.ic v(x1.a)=0.2 v(b)=1\n.tran 1n 50n uic\n.end\n", &r3);
+    try reported(&r3, .@"error", "capacitor 'C1': ic=0.5, and an .ic sets node a too");
+    try testing.expectEqual(1, r3.count(.@"error"));
+    // A charge: the current is its time derivative, times m.
+    var r4: ir.Report = .init(a);
+    const q = try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nR1 a b 100k\nCg b 0 q='1p*v(b)+min(v(b),0)*1f' m=2\n.tran 1n 300n\n.end\n", &r4);
+    try has(q, "Cg (b 0) i=2*ddt(1p*v(b)+min(v(b),0)*1f)\n");
+    try reported(&r4, .info, "capacitor 'Cg': vacask's capacitor takes no charge (q=)");
+    try clean(&r4);
+    // ngspice has no such restriction: its own capacitor, and ddt read back.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "vacask", "ngspice", q, &r5), "BCg b 0 i={2*ddt(1p*v(b)+min(v(b),0)*1f)}\n");
+    // ddt is a function of ngspice and VACASK alone.
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nB1 a 0 i='ddt(1p*v(a))'\nR1 a 0 1k\n.end\n", &r6);
+    try reported(&r6, .@"error", "function 'ddt' has no spelling in xyce");
 }
 
 test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
@@ -5032,10 +5097,10 @@ test "r1: an instance parameter the target says under another name, or that chan
     }
     var r5: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "xyce", dio, &r5), "D1 k 0 dm area=2 off\n");
-    // VACASK has no initial condition on a device: that stays an error.
+    // VACASK has no initial condition on a device: a DC source in series says it.
     var r6: ir.Report = .init(a);
-    _ = try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nC1 a 0 1n ic=0.5\n.end\n", &r6);
-    try reported(&r6, .@"error", "capacitor: 'ic=0.5' has no spelling in vacask");
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nC1 a 0 1n ic=0.5\n.end\n", &r6), "VC1__ic (C1__ic 0) vsource dc=0.5\n");
+    try testing.expectEqual(0, r6.count(.@"error"));
 }
 
 test "r1: a model in another file of a project decides its instances' form" {

@@ -432,6 +432,8 @@ end
 functions
   same abs min max sqrt exp pow floor ceil sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh hypot fmod
   same agauss gauss aunif unif v i
+  # ddt: the time derivative, in a behavioural source (docs/verification.md 4.16).
+  same ddt
   ln    = ln log
   log10 = log10
   sign2 = sign

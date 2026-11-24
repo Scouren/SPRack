@@ -244,6 +244,8 @@ functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
   same limit agauss gauss aunif unif v i
   same nint sqr asinh acosh atanh
+  # ddt: the time derivative, in a behavioural source (docs/verification.md 4.16).
+  same ddt
   ln    = ln log
   log10 = log10
   if    = ternary_fcn
