@@ -5689,14 +5689,57 @@ test "v1: a subcircuit is written once for each branch of a conditional block" {
     try testing.expectEqual(0, r2.count(.@"error"));
 }
 
+test "a subcircuit written once for each branch: constant values, and values passed down from a parent" {
+    // Issue 41: IHP's isolbox gives ddnwpsub xds=xds, its own parameter.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\t
+        \\.subckt msel a b r0=1k rfmode=0
+        \\.if (rfmode == 0)
+        \\R1 a b ra r={r0}
+        \\.else
+        \\R1 a b rb r={r0}
+        \\.endif
+        \\.ends
+        \\.subckt wrap a b mode=0
+        \\X1 a b msel rfmode=mode
+        \\.ends
+        \\X1 n1 0 wrap mode=1
+        \\X2 n2 0 msel rfmode={1}
+        \\X3 n3 0 msel rfmode='2-1'
+        \\X4 n4 0 msel RFMODE=1
+        \\X5 n5 0 wrap
+        \\V1 n 0 1
+        \\.model ra r tc1=0
+        \\.model rb r tc1=0.01
+        \\.op
+        \\.end
+    ;
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".subckt wrap a b params: mode=0\nX1 a b msel params: rfmode={mode}\n.ends wrap\n");
+    try has(xy, ".subckt wrap__1 a b params: mode=0\nX1 a b msel__1 params: rfmode={mode}\n.ends wrap__1\n");
+    try has(xy, "X1 n1 0 wrap__1 params: mode=1\n");
+    try has(xy, "X2 n2 0 msel__1 params: rfmode={1}\n");
+    try has(xy, "X3 n3 0 msel__1 params: rfmode={2-1}\n");
+    try has(xy, "X5 n5 0 wrap\n");
+    try clean(&r1);
+    // A global parameter can be swept or altered: still an error, in a parent too.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.param m=1\n.model ra r tc1=0\n.model rb r tc1=0.01\n.subckt msel a b rfmode=0\n.if (rfmode == 0)\nR1 a b ra r=1k\n.else\nR1 a b rb r=1k\n.endif\n.ends\n.subckt wrap a b\nX1 a 0 msel rfmode=m\n.ends\n.end\n", &r2);
+    try reported(&r2, .@"error", "depends on parameter 'rfmode', which is not a number here");
+}
+
 test "v1: where a subcircuit is not written once for each branch, the error says why" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    // An instance whose deciding value is its parent's: never the default one silently.
+    // An instance whose deciding value is a global parameter: never the default one silently.
     var r: ir.Report = .init(a);
-    const out = try tr(a, "ngspice", "xyce", "t\n" ++ split_lib ++ ".subckt wrap a b mode=0\nX1 a b msel rfmode=mode\nX2 a b msel r0={mode*1k} rfmode=1\n.ends\n.end\n", &r);
-    try has(out, "\n* [sprack] not written: instance 'X1'\nX2 a b msel__1 params: r0={mode*1k} rfmode=1\n");
+    const out = try tr(a, "ngspice", "xyce", "t\n" ++ split_lib ++ ".param m=0\nX1 a b msel rfmode=m\nX2 a b msel r0={m*1k} rfmode=1\n.end\n", &r);
+    try has(out, "\n* [sprack] not written: instance 'X1'\nX2 a b msel__1 params: r0={m*1k} rfmode=1\n");
     try testing.expectEqual(1, r.count(.@"error"));
     try reported(&r, .@"error", "instance 'X1': subcircuit 'msel' is written once for each branch of its conditional block, and which of them this instance is depends on parameter 'rfmode', which is not a number here");
 

@@ -244,7 +244,7 @@ Whole model libraries, all corners, errors per target:
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
 | sky130 (ngspice) | 280 | 0 | 2 | 49 | 2 | 2 |
-| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 72 | 0 | 0 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 71 | 0 | 0 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
 | GF180MCU (ngspice) | 4 | 0 | 0 | 181 | 0 | 0 |
@@ -257,7 +257,6 @@ Every error names a file and a line. What is left, and whose it is:
 - sky130 to Xyce 20, GF180 to Xyce 64: resistor and capacitor cards with a parameter Xyce's card does not take, which Xyce would drop with a warning and simulate without (`modelparams resistor only`, from `Xyce -param`): a card's own value (sky130's `res` on 9 resistor cards; GF180's `cap` on 15 MIM capacitors, whose devices Xyce then refuses), noise parameters (`kf`, `af`, `noise`) and names Xyce has no parameter for. ngspice's other names for a parameter Xyce has (`tc1r`, `tc2r`, `w`, `cox`, `capsw`) are written in Xyce's spelling.
 - sky130 to Xyce, 12: resistor models with a width reduction (`dw`) and no length reduction. Xyce's resistor model takes one number off both; not yet translated.
 - ASAP7 to ngspice and to VACASK, 24 each: BSIM-CMG, which neither has built in. Upstream: [issue 27](https://github.com/Scouren/SPRack/issues/27).
-- IHP to Xyce, 1: an instance in `diodes.lib` of a subcircuit written once for each branch of its conditional block, which passes the deciding parameter down from its parent. Not yet translated.
 - IHP to Xyce, 16: the Verilog-A modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` (7 model cards) and their 9 instances. Not yet translated.
 - IHP to Xyce, 17: the NQS module of PSP103 (`pspnqs103va`), 5 model cards and their 12 instances, one in the `rfmode` branch of each transistor subcircuit. The target has no such thing: Xyce's PSP103 has no NQS.
 - IHP to Xyce, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off.

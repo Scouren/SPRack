@@ -922,6 +922,8 @@ const Writer = struct {
     splits: std.ArrayList(struct { name: []const u8, split: cond.Split }) = .empty,
     /// Why the subcircuit being written is not one of them.
     unsplit: []const u8 = "",
+    /// The next subcircuit is one of those `split` writes.
+    variant: bool = false,
     /// The first instance that gives parameters to a subcircuit of another
     /// file, where the target has no conditional blocks (`foreignNote`).
     foreign_inst: ?struct { line: u32, name: []const u8, master: []const u8 } = null,
@@ -1700,7 +1702,10 @@ const Writer = struct {
             w.unsplit = "";
             w.depth += 1;
         }
-        if (st.kind == .subckt and !w.g.canWrite(.cond_if)) switch (try cond.split(w.arena, st, expr.choiceForm(w.g), &w.declared)) {
+        // One of the subcircuits `split` writes: written as it is.
+        const variant = w.variant;
+        w.variant = false;
+        if (st.kind == .subckt and !w.g.canWrite(.cond_if) and !variant) switch (try cond.split(w.arena, st, expr.choiceForm(w.g), &w.declared, try w.knownSplits(w.arena))) {
             .none => {},
             .refused => |why| w.unsplit = why,
             .clash => |name| w.unsplit = try std.fmt.allocPrint(w.arena, "'{s}', the name one of them would take, is already declared", .{name}),
@@ -1783,6 +1788,7 @@ const Writer = struct {
             try one.set(w.arena, schema.slotIndex(.subckt, "name").?, .{ .atom = x.name });
             one.body = x.body;
             const from = w.report.items.items.len;
+            w.variant = true;
             try w.stmt(&one);
             var kept = from;
             for (w.report.items.items[from..]) |d| {
@@ -1810,14 +1816,41 @@ const Writer = struct {
         return null;
     }
 
-    /// Notes every subcircuit of `stmts` that is written as several.
-    fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!void {
+    /// The subcircuits noted so far as written once for each branch.
+    fn knownSplits(w: *Writer, a: Allocator) Allocator.Error![]const cond.Known {
+        var out: std.ArrayList(cond.Known) = .empty;
+        for (w.splits.items) |*sp| if (sp.split == .variants) try out.append(a, .{ .name = sp.name, .variants = &sp.split.variants });
+        return out.items;
+    }
+
+    /// Notes every subcircuit of `stmts` that is written as several. A
+    /// subcircuit that holds an instance of one, decided by its own
+    /// parameters, is one too: noted once the other is (`cond.passDown`).
+    /// Returns how many were noted.
+    fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!usize {
+        var n: usize = 0;
         for (stmts) |*s| {
-            if (s.kind == .subckt) {
-                const sp = try cond.split(w.perm, s, expr.choiceForm(w.g), &w.declared);
-                if (sp == .variants or sp == .clash) try w.splits.append(w.perm, .{ .name = s.get("name").atom, .split = sp });
+            if (s.kind == .subckt and s.get("name") == .atom) noted: {
+                for (w.splits.items) |sp| if (std.ascii.eqlIgnoreCase(sp.name, s.get("name").atom)) break :noted;
+                const sp = try cond.split(w.perm, s, expr.choiceForm(w.g), &w.declared, try w.knownSplits(w.perm));
+                if (sp == .variants or sp == .clash) {
+                    try w.splits.append(w.perm, .{ .name = s.get("name").atom, .split = sp });
+                    n += 1;
+                }
             }
-            try w.noteSplits(s.body);
+            n += try w.noteSplits(s.body);
+        }
+        return n;
+    }
+
+    /// `noteSplits` until no more are noted: a subcircuit is noted after
+    /// the ones it holds instances of, at any depth.
+    fn noteAllSplits(w: *Writer, stmts: []const ir.Stmt, env: ?*const ir.Env) Allocator.Error!void {
+        var rounds: usize = 0;
+        while (rounds < cond.max_variants) : (rounds += 1) {
+            var n = try w.noteSplits(stmts);
+            if (env) |e| n += try w.noteSplits(e.conditional.items);
+            if (n == 0) break;
         }
     }
 
@@ -2004,7 +2037,7 @@ const Writer = struct {
             return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
         }
         var chosen: ir.Stmt = undefined;
-        if (st.kind == .instance and w.splits.items.len > 0 and st.get("master") == .atom) {
+        if (st.kind == .instance and w.splits.items.len > 0 and st.get("master") == .atom and st.raw.ptr != cond.chosen.ptr) {
             const name = try w.variantOf(a, st) orelse return w.comment(try a.print("[sprack] not written: instance '{s}'", .{st.get("name").atom}));
             if (!std.ascii.eqlIgnoreCase(name, st.get("master").atom)) {
                 chosen = st.*;
@@ -3448,9 +3481,8 @@ pub fn write(
         if (try w.foreignInstance(stmts)) |x| w.foreign_inst = .{ .line = x.line, .name = x.get("name").atom, .master = x.get("master").atom };
     }
     if (!g.canWrite(.cond_if)) {
-        try w.noteSplits(stmts);
         // ponytail: each file of a project works the environment's out again; once a project if a PDK has thousands.
-        if (env) |e| try w.noteSplits(e.conditional.items);
+        try w.noteAllSplits(stmts, env);
     }
     for (stmts) |*s| {
         if (g.wrapOf(s.kind) == null) try w.stmt(s);
@@ -3684,7 +3716,7 @@ pub const Stream = struct {
             while (fi.next()) |n| try w.funcs.put(perm, n.*, {});
         }
         // The netlist's own make it be written whole (`stream.zig`).
-        if (env) |e| if (!g.canWrite(.cond_if)) try w.noteSplits(e.conditional.items);
+        if (env) |e| if (!g.canWrite(.cond_if)) try w.noteAllSplits(e.conditional.items, null);
         const fold_header = g.header_folded.len > 0 and (nl.folds_case or
             if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
         s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;

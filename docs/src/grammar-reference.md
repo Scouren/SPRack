@@ -370,10 +370,15 @@ no number for its value); a branch that holds something other than devices
 (ngspice takes a `.param` in a branch whichever branch holds); more than
 eight subcircuits; a name `<name>__<n>` that is already declared; a block
 outside any subcircuit.
-And an instance whose deciding value is not a number, such as one passed
-down from the parameters of the subcircuit around it, is an `unsupported`
-error that names the parameter and is not written: it is never taken for
-the default one.
+A deciding value that is a constant expression (`rfmode={1}`,
+`rfmode='2-1'`) is its number. One passed down from the parameters of the
+subcircuit around it (`X1 a b msel rfmode=mode` in `wrap`) makes that
+subcircuit a block of its own: it is written once for each of the
+inner subcircuit's variants, by the same rule, `wrap` and `wrap__1`, each
+instance naming its variant, at any depth. Any other value (a global
+parameter, which can be swept or altered) is an `unsupported` error that
+names the parameter, and the instance is not written: it is never taken
+for the default one.
 
 ## Report codes
 

@@ -344,7 +344,15 @@ fn onlyDevices(stmts: []const ir.Stmt) bool {
 /// null: the target has no choice either). Only when the subcircuit's own
 /// parameters decide every condition; `declared` holds the names taken,
 /// lower-cased.
-pub fn split(arena: Allocator, st: *const ir.Stmt, form: ?expr.ChoiceForm, declared: *const std.StringHashMapUnmanaged(void)) Allocator.Error!Split {
+pub fn split(arena: Allocator, st_in: *const ir.Stmt, form: ?expr.ChoiceForm, declared: *const std.StringHashMapUnmanaged(void), known: []const Known) Allocator.Error!Split {
+    // An instance of a subcircuit written once for each branch, which its
+    // parent's parameters decide, is a block of the parent's.
+    var passed: ir.Stmt = undefined;
+    const st = if (try passDown(arena, st_in.body, known)) |b| blk: {
+        passed = st_in.*;
+        passed.body = b;
+        break :blk &passed;
+    } else st_in;
     for (st.body) |*s| {
         if (s.kind == .cond_if and st.get("name") == .atom) break;
     } else return .none;
@@ -381,13 +389,108 @@ pub fn split(arena: Allocator, st: *const ir.Stmt, form: ?expr.ChoiceForm, decla
     return .{ .variants = .{ .params = params.items, .list = sp.list.items, .line = sp.line, .more = sp.more } };
 }
 
+/// An expression that names no parameter (`{1}`, `'2-1'`): its number.
+fn constant(v: ir.Value) bool {
+    if (v != .expr) return false;
+    var stop: []const u8 = "";
+    return expr.eval(v.expr, &.{}, &stop, 0) != null;
+}
+
+/// The `raw` of an instance `passDown` names a variant for.
+pub const chosen = "\x00chosen";
+
+/// A subcircuit written once for each branch, for `split` of a subcircuit
+/// that holds an instance of it.
+pub const Known = struct { name: []const u8, variants: *const Variants };
+
+/// Does `text` (a variant's condition) name the parameter `key`?
+fn namesAny(text: []const u8, key: []const u8) bool {
+    var i: usize = 0;
+    while (i < text.len) {
+        if (!(std.ascii.isAlphabetic(text[i]) or text[i] == '_')) {
+            i += 1;
+            continue;
+        }
+        var j = i;
+        while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_' or text[j] == '.' or text[j] == '$')) j += 1;
+        if (std.ascii.eqlIgnoreCase(text[i..j], key)) return true;
+        i = j;
+    }
+    return false;
+}
+
+/// An instance of a subcircuit in `known` whose deciding values are
+/// expressions of names around it (the parent's parameters, `xds=xds`):
+/// a conditional block with one branch for each of the subcircuit's
+/// variants, its condition the variant's with the instance's values put
+/// in, the instance in it naming that variant. The parent can then be
+/// written once for each branch as for any block (`expand`). Null: no
+/// such instance in `body`.
+fn passDown(arena: Allocator, body: []const ir.Stmt, known: []const Known) Allocator.Error!?[]ir.Stmt {
+    var out: ?[]ir.Stmt = null;
+    for (body, 0..) |*s, i| {
+        if (s.kind != .instance or s.get("master") != .atom) continue;
+        const k = for (known) |*k| {
+            if (std.ascii.eqlIgnoreCase(k.name, s.get("master").atom)) break k;
+        } else continue;
+        const given = paramsOf(s.get("params"));
+        // A deciding value that is neither a number nor constant.
+        const open = open: for (given) |p| {
+            if (p.val == .num or constant(p.val)) continue;
+            for (k.variants.list) |v| if (namesAny(v.cond, p.key)) break :open true;
+        } else false;
+        if (!open) continue;
+        // The instance's values in place of the subcircuit's parameters;
+        // the subcircuit's own defaults for the rest.
+        var subst: std.StringHashMapUnmanaged([]const u8) = .empty;
+        for (k.variants.params) |p| try subst.put(arena, try std.ascii.allocLowerString(arena, p.key), try std.fmt.allocPrint(arena, "({s})", .{try expr.canonText(arena, p.val)}));
+        for (given) |p| try subst.put(arena, try std.ascii.allocLowerString(arena, p.key), try std.fmt.allocPrint(arena, "({s})", .{try expr.canonText(arena, p.val)}));
+        const Lower = struct {
+            map: *const std.StringHashMapUnmanaged([]const u8),
+            a: Allocator,
+            pub fn get(l: @This(), key: []const u8) ?[]const u8 {
+                const low = std.ascii.allocLowerString(l.a, key) catch return null;
+                return l.map.get(low);
+            }
+        };
+        var block = try ir.newStmt(arena, .cond_if, s.line);
+        var kids: std.ArrayList(ir.Stmt) = .empty;
+        for (k.variants.list, 0..) |v, vi| {
+            var hit: std.ArrayList([]const u8) = .empty;
+            const c = try expr.rename(arena, v.cond, Lower{ .map = &subst, .a = arena }, &hit);
+            if (vi == 0) {
+                try block.set(arena, schema.slotIndex(.cond_if, "cond").?, .{ .expr = c });
+            } else if (vi + 1 < k.variants.list.len) {
+                var el = try ir.newStmt(arena, .cond_elif, s.line);
+                try el.set(arena, schema.slotIndex(.cond_elif, "cond").?, .{ .expr = c });
+                try kids.append(arena, el);
+            } else {
+                try kids.append(arena, try ir.newStmt(arena, .cond_else, s.line));
+            }
+            var inst = s.*;
+            try inst.own(arena);
+            try inst.set(arena, schema.slotIndex(.instance, "master").?, .{ .atom = v.name });
+            // Its subcircuit is chosen: the writer takes the name as it is.
+            inst.raw = chosen;
+            try kids.append(arena, inst);
+        }
+        block.body = kids.items;
+        const list = out orelse blk: {
+            out = try arena.dupe(ir.Stmt, body);
+            break :blk out.?;
+        };
+        list[i] = block;
+    }
+    return out;
+}
+
 /// The name of the one of `vs` that an instance with `params` is. Null when
 /// that takes a parameter the instance gives as something other than a
 /// number, which `stop` then names: an expression there is one of the
 /// instance's surroundings, not of the subcircuit's parameters.
 pub fn choose(arena: Allocator, vs: *const Variants, params: []const ir.Param, stop: *[]const u8) Allocator.Error!?[]const u8 {
     const all = try arena.alloc(ir.Param, params.len + vs.params.len);
-    for (params, all[0..params.len]) |p, *o| o.* = .{ .key = p.key, .val = if (p.val == .num) p.val else .none };
+    for (params, all[0..params.len]) |p, *o| o.* = .{ .key = p.key, .val = if (p.val == .num or constant(p.val)) p.val else .none };
     @memcpy(all[params.len..], vs.params);
     for (vs.list) |v| {
         if ((expr.eval(v.cond, all, stop, 0) orelse return null) != 0) return v.name;
