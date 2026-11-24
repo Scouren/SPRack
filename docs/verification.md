@@ -1783,6 +1783,22 @@ The targets, each a row or a `no model` line with its reason:
 Not run: none of the rows above was simulated against ngspice; parameter
 agreement is #33's.
 
+### 4.34 S-parameter ports into VACASK (#49)
+
+SPICE marks a port on its source (`V1 in 0 dc 0 ac 1 portnum 1 z0 50`);
+VACASK's `acsp` takes `ports=[...]`, each port a source and a series
+resistor of the port impedance, so writing one adds an element and a node.
+
+Decision: SPRack does not add them yet. The two-port comparison the issue
+asks for (an RC two-port's S11 and S21 at three frequencies, ngspice `.sp`
+against VACASK `acsp`) needs a VACASK run, which this change could not
+make. Until it is recorded here, each `portnum` and `z0` stays a `loss`
+error, and the message now says how to rebuild the port by hand: the
+source to a node of its own, a resistor of z0 from there to the port node,
+and the pair named in `ports=` in port order. Synthesizing the port (a
+`synthesized` warning naming the resistor and node) is the next step once
+that measurement exists.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

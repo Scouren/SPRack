@@ -542,8 +542,19 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
     // Every such line of a grammar ends the error of its slot.
     for (&sprack.grammars) |*g| for (g.absent) |no| {
         if (no.slot == sprack.grammar.no_slot) continue;
-        try testing.expectEqualStrings("xyce", g.name);
-        try testing.expect(r4.contains(.@"error", no.reason));
+        if (std.mem.eql(u8, g.name, "xyce")) {
+            try testing.expect(r4.contains(.@"error", no.reason));
+        } else {
+            // Elsewhere (VACASK's ports, #49): a statement giving the slot.
+            var st = try sampleStmt(a, no.kind, null);
+            try st.set(a, no.slot, .{ .num = .init("1", 0) });
+            var stmts = [_]ir.Stmt{st};
+            const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
+            var rr: ir.Report = .init(a);
+            var w: std.Io.Writer.Allocating = .init(a);
+            try sprack.write(a, g, &w.writer, &nl, &rr);
+            try testing.expect(rr.contains(.@"error", no.reason));
+        }
     };
 
     // HSPICE says one reltol twice on one line; in its own dialect a line is kept as read.
@@ -6653,4 +6664,15 @@ test "#48: each family ngspice gained has a row or a reason in every target" {
     try reported(&r, .@"error", "model 'b1' (bsim1 p) cannot be written for xyce");
     var r1: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", "t\n.model b1 nmos level=4 k1=0.5\n.model b2 nmos level=5\n.end\n", &r1), ".model b1 nmos level=13 k1=0.5\n.model b2 nmos level=39\n");
+}
+
+test "#49: an S-parameter port into VACASK says how to rebuild it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\nV1 in 0 dc 0 ac 1 portnum 1 z0 50\nV2 out 0 dc 0 ac 0 portnum 2 z0 50\nr1 in out 1k\n.sp dec 10 1k 1g\n.end\n", &r);
+    try reported(&r, .@"error", "vsource.portnum = 1 has no spelling in vacask: a VACASK acsp port is a voltage source and a series resistor");
+    try reported(&r, .@"error", "vsource.z0 = 50 has no spelling in vacask: the port impedance is a series resistor");
+    try testing.expectEqual(4, r.countCode(.loss));
 }
