@@ -124,7 +124,12 @@ fn wholeLines(text: []const u8, was: []const u8, from: usize) ?usize {
 /// How much of `path` is its root: `/`, and on Windows also `C:/` and the
 /// `//` of a network share. Nothing for a relative path.
 fn rootLen(path: []const u8) usize {
-    if (windows) {
+    return rootLenOn(windows, path);
+}
+
+/// `rootLen` as on Windows (`win`) or elsewhere, so both are tested on any host.
+fn rootLenOn(win: bool, path: []const u8) usize {
+    if (win) {
         if (path.len >= 3 and path[1] == ':' and path[2] == '/') return 3;
         if (std.mem.startsWith(u8, path, "//")) return 2;
     }
@@ -133,8 +138,12 @@ fn rootLen(path: []const u8) usize {
 
 /// Remove `.` and resolve `..` without touching the file system.
 pub fn normalize(arena: Allocator, path: []const u8) Allocator.Error![]const u8 {
+    return normalizeOn(windows, arena, path);
+}
+
+fn normalizeOn(win: bool, arena: Allocator, path: []const u8) Allocator.Error![]const u8 {
     var parts: std.ArrayList([]const u8) = .empty;
-    const root = path[0..rootLen(path)];
+    const root = path[0..rootLenOn(win, path)];
     const absolute = root.len > 0;
     var it = std.mem.tokenizeScalar(u8, path[root.len..], '/');
     while (it.next()) |part| {
@@ -161,10 +170,35 @@ fn dirOf(path: []const u8) []const u8 {
 /// `/`, which Windows takes as well as `\`: the rest of this file, and the
 /// include lines of a translated copy, know one separator.
 pub fn resolve(arena: Allocator, base_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
-    const p = if (windows) try arena.dupe(u8, path) else path;
-    if (windows) std.mem.replaceScalar(u8, p, '\\', '/');
-    if (rootLen(p) > 0) return normalize(arena, p);
-    return normalize(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ base_dir, p }));
+    return resolveOn(windows, arena, base_dir, path);
+}
+
+fn resolveOn(win: bool, arena: Allocator, base_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+    var p = path;
+    if (win) {
+        const copy = try arena.dupe(u8, path);
+        std.mem.replaceScalar(u8, copy, '\\', '/');
+        p = copy;
+    }
+    if (rootLenOn(win, p) > 0) return normalizeOn(win, arena, p);
+    return normalizeOn(win, arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ base_dir, p }));
+}
+
+test "paths as Windows has them, on any host: a drive or a share is a root, a backslash a separator" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    try std.testing.expectEqual(3, rootLenOn(true, "C:/pdk/x.lib"));
+    try std.testing.expectEqual(2, rootLenOn(true, "//server/share/x.lib"));
+    try std.testing.expectEqual(0, rootLenOn(true, "pdk/x.lib"));
+    try std.testing.expectEqual(0, rootLenOn(false, "C:/pdk/x.lib"));
+    try std.testing.expectEqualStrings("C:/pdk/models/x.lib", try resolveOn(true, a, "C:/work", "C:\\pdk\\lib\\..\\models\\x.lib"));
+    try std.testing.expectEqualStrings("C:/work/inc/sub.sp", try resolveOn(true, a, "C:/work", "inc\\sub.sp"));
+    try std.testing.expectEqualStrings("//srv/share/m.lib", try resolveOn(true, a, "C:/work", "\\\\srv\\share\\m.lib"));
+    // `..` stops at the drive.
+    try std.testing.expectEqualStrings("C:/x.lib", try normalizeOn(true, a, "C:/../x.lib"));
+    // Elsewhere a backslash is a character of a name.
+    try std.testing.expectEqualStrings("/work/inc\\sub.sp", try resolveOn(false, a, "/work", "inc\\sub.sp"));
 }
 
 /// The path that leads from `from_dir` to `to`, both normalized.
@@ -187,6 +221,23 @@ pub fn relative(arena: Allocator, from_dir: []const u8, to: []const u8) Allocato
     }
     try out.appendSlice(arena, b.rest());
     return out.items;
+}
+
+/// The value of `$name`: the one spelled so, or on Windows, where the
+/// environment ignores case (`$pdk_root` is `PDK_ROOT`), one spelled
+/// otherwise when none is spelled so.
+fn varValue(vars: []const [2][]const u8, name: []const u8, fold: bool) ?[]const u8 {
+    for (vars) |kv| if (std.mem.eql(u8, kv[0], name)) return kv[1];
+    if (fold) for (vars) |kv| if (std.ascii.eqlIgnoreCase(kv[0], name)) return kv[1];
+    return null;
+}
+
+test "a $NAME of another case is the environment's on Windows only" {
+    const vars: []const [2][]const u8 = &.{ .{ "PDK_ROOT", "/p" }, .{ "pdk", "/q" } };
+    try std.testing.expectEqualStrings("/p", varValue(vars, "pdk_root", true).?);
+    try std.testing.expectEqual(null, varValue(vars, "pdk_root", false));
+    // A name spelled so wins over one that only folds to it.
+    try std.testing.expectEqualStrings("/q", varValue(vars, "pdk", true).?);
 }
 
 // ponytail: files on two Windows drives have no common directory; the first
@@ -286,9 +337,7 @@ const Run = struct {
             var j = start;
             while (j < path.len and (std.ascii.isAlphanumeric(path[j]) or path[j] == '_')) j += 1;
             const name = path[start..j];
-            const value = for (r.opts.vars) |kv| {
-                if (std.mem.eql(u8, kv[0], name)) break kv[1];
-            } else null;
+            const value = varValue(r.opts.vars, name, windows);
             if (name.len > 0 and !r.expanded.contains(name)) try r.expanded.put(r.arena, try r.arena.dupe(u8, name), value);
             if (braced and j < path.len and path[j] == '}') j += 1;
             try out.appendSlice(a, value orelse path[i..j]);
@@ -320,9 +369,7 @@ const Run = struct {
         const start: usize = 1 + @intFromBool(braced);
         var j = start;
         while (j < path.len and (std.ascii.isAlphanumeric(path[j]) or path[j] == '_')) j += 1;
-        const name = path[start..j];
-        for (r.opts.vars) |kv| if (std.mem.eql(u8, kv[0], name)) return true;
-        return false;
+        return varValue(r.opts.vars, path[start..j], windows) != null;
     }
 
     fn writeExpanded(r: *const Run, w: *Writer) Writer.Error!void {

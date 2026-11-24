@@ -9,7 +9,8 @@ version it is told to, so the tag is the build target, not the build host:
 - Linux: glibc 2.28, tagged manylinux_2_28_<arch>, without auditwheel.
 - macOS: $MACOSX_DEPLOYMENT_TARGET, default 11.0 (the first release on
   arm64), tagged macosx_<major>_<minor>_<arch>.
-- Windows on x86_64: tagged win_amd64. The extension there is _core.pyd,
+- Windows on x86_64 and ARM64: tagged win_amd64 and win_arm64 (the second
+  built by cross-compiling, as no CI runner has one yet). The extension there is _core.pyd,
   and it links python3.dll, the stable ABI's DLL.
 - Anything else: the interpreter's own platform and Zig's native target.
 
@@ -52,8 +53,10 @@ def _target(cross=None):
     # the machine the wheel was made on.
     if system == "windows" and arch == "x86_64":
         return "x86_64-windows", "win_amd64"
+    if system == "windows" and arch == "aarch64":
+        return "aarch64-windows", "win_arm64"
     if cross:
-        sys.exit(f"no wheel for target {cross!r}; one is x86_64-windows")
+        sys.exit(f"no wheel for target {cross!r}; one is x86_64-windows or aarch64-windows")
     return None, sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 

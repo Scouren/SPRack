@@ -160,6 +160,15 @@ op1 dc
 | `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. The log lists each section not followed; a name no file read defines is an error |
 | `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used. An include path that starts with the variable (`$PDK/corners.lib`) is the value's own path: a relative value is relative to the directory sprack runs in, whichever file names it. A variable inside a path (`lib/$CORNER.lib`) is text put into it, and the path stays relative to the including file |
 
+On Windows a path may use `\` or `/`, start with a drive (`C:/`) or a
+share (`//server/share`), and a `$NAME` from the environment matches it in
+any case (`$pdk_root` is `PDK_ROOT`), as Windows itself does; a name given
+with `-D` in the same case wins. The translated tree is copied under the
+directory the files have in common: files on two drives have none, so the
+first file's drive is taken, and a file on another drive is reported as
+not written (one copy tree per drive is the remedy, if a PDK ever spans
+two).
+
 Every log line names a file, and a line where there is one. The last line
 counts files, errors and warnings. An include that cannot be opened is an
 error, and the status is 1:
