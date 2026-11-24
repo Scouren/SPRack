@@ -168,11 +168,11 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-150 files, 46 errors, 79 warnings
+150 files, 49 errors, 109 warnings
 ```
 
-Status 1: two lines and forty-four model cards of the library have no form in
-Xyce. Each error names its file and line, and says what is wrong:
+Status 1: two lines and forty-seven model card parameters of the library have
+no form in Xyce. Each error names its file and line, and says what is wrong:
 
 ```text
 pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
@@ -201,6 +201,11 @@ parameter for:
 pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:143: error[loss]: model 'mrcn': r not written: Xyce lists R among its resistor card's parameters, but not what a device without a value of its own takes from it; give the value on the instance
 pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:34: error[loss]: model 'sky130_fd_pr__res_generic_po__monte': tref=30.0 not written: the resistor card of xyce takes no such parameter; it takes narrow, defw, r, rsh, tc1, tc2, tce, tnom
 ```
+
+The last three are temperature coefficients of the pnp's card (`tnf1`,
+`tnf2`, `tikf1`) that Xyce's BJT does not have. Names Xyce's model lacks at
+the value that is ngspice's default (the BSIM3 cards' `rd=0` and `ldif=0`)
+are warnings: they change nothing.
 
 The rest of the tree is translated (a parameter named `vt`, which Xyce
 refuses, is written as `vt__p` with a note), and whether these matter

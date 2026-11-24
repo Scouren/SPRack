@@ -1172,6 +1172,18 @@ const Writer = struct {
         const to = w.g.modelParamsOf(family) orelse return;
         const only = w.g.modelParamsOnly(family);
         const sg = w.sourceGrammar(st) orelse return;
+        // A card the target refuses by one value (a diode's level=3) is
+        // another model there: its other names are not checked against
+        // this one's.
+        const other_model = for (w.g.noparams) |np| {
+            if (!np.err or np.value.len == 0 or !std.mem.eql(u8, np.family, family)) continue;
+            const want = std.fmt.parseFloat(f64, np.value) catch continue;
+            for (ps.items[own..]) |p| {
+                if (std.ascii.eqlIgnoreCase(p.key, np.key) and p.val == .num and p.val.num.toFloat() == want) break;
+            } else continue;
+            break true;
+        } else false;
+        if (other_model) return;
         // A source with no table: every name as it is written, against a
         // table that lists all the target's card takes.
         const from = sg.modelParamsOf(family) orelse if (only) &.{} else return;
@@ -1209,8 +1221,14 @@ const Writer = struct {
         for (cs.items, 0..) |*c, i| {
             if (c.done) continue;
             const e = (if (c.as_is) null else spellingsOf(to, c.p.key)) orelse {
-                // A name the target's card does not take: not written.
-                if (only and (if (c.as_is) spellingCanon(to, c.p.key) == null else true)) {
+                // A name the target's card does not take: not written. One
+                // a `noparam` line names is left to that line.
+                const named = for (w.g.noparams) |np| {
+                    if (std.mem.eql(u8, np.family, family) and (std.ascii.eqlIgnoreCase(np.key, c.p.key) or std.ascii.eqlIgnoreCase(np.key, c.wrote))) break true;
+                } else false;
+                // A card's level picks the simulator's model, in every dialect.
+                const level = std.ascii.eqlIgnoreCase(c.p.key, "level");
+                if (only and !named and !level and (if (c.as_is) spellingCanon(to, c.p.key) == null else true)) {
                     var takes_list: std.ArrayList(u8) = .empty;
                     for (to, 0..) |t, k| {
                         const dup = for (to[0..k]) |u| {

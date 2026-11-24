@@ -367,19 +367,21 @@ def test_pdk_sky130():
     raises(AttributeError, lambda: c.nfet_1v8, "Did you mean: nfet_01v8")
     # Another dialect: the library itself is translated, once, and referenced.
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
-    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 47, str(e)
+    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 50, str(e)
     xy = c.netlist("xyce", strict=False)
     # Two lines that are not ngspice syntax, the twelve resistor cards with dw (ngspice's NARROW,
     # with no SHORT), which no Xyce card computes, the twelve diode cards of ngspice's level 3,
-    # which Xyce's diode has not, and twenty resistor cards with a parameter Xyce's card does not
-    # take (nine of them the card's own value). (A parameter named vt, which Xyce refuses, is renamed.)
+    # which Xyce's diode has not, and the parameters Xyce's cards do not take: twenty on resistor
+    # cards (nine of them the card's own value) and three temperature coefficients of the pnp.
+    # (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    assert codes == ["loss"] * 44 + ["untranslated", "untranslated"], codes
+    assert codes == ["loss"] * 47 + ["untranslated", "untranslated"], codes
     losses = [x.message for x in xy.report.errors if x.code == "loss"]
     assert sum("__res_generic_" in m and "dw=" in m for m in losses) == 12
     assert sum("level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002" in m for m in losses) == 12
     assert sum("r not written: Xyce lists R" in m for m in losses) == 9
     assert sum("the resistor card of xyce takes no such parameter" in m for m in losses) == 11
+    assert sum("the bjt card of xyce takes no such parameter" in m for m in losses) == 3
     assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
@@ -494,7 +496,7 @@ def test_pdk_gf180mcu():
     xyn = c.netlist("xyce", strict=False)
     # ... and its MIM capacitors take their value from the card (cap=), and some resistor cards
     # carry noise parameters, which Xyce's cards do not take.
-    assert xyn.report.errors and all("level not written: Xyce 7.10's diode" in x.message or "card of xyce takes no such parameter" in x.message for x in xyn.report.errors)
+    assert xyn.report.errors and all("level not written: Xyce 7.10's diode" in x.message or "card of xyce takes no such parameter" in x.message or "has no such parameter" in x.message for x in xyn.report.errors)
     assert sum("cap=" in x.message for x in xyn.report.errors) == 15
     xy = unwrap(xyn)
     assert f'.lib "{p.translate("xyce", strict=False)}/sm141064.spice" typical\n' in xy

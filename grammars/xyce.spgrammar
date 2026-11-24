@@ -442,6 +442,274 @@ end
 modelparams capacitor only
   same c cj cjsw defw narrow tc1 tc2 tnom
 end
+# Every model parameter Xyce 7.10 declares for the device a family is written
+# as (Traits::loadModelParameters, which `Xyce -param` lists), under the
+# canonical (ngspice) name where ngspice has another: made by
+# `tools/param_lists.py xyce <Xyce checkout>` (docs/verification.md 4.23).
+# A name not listed is a loss Xyce would drop with a warning. BSIM4 lists
+# the three versions Xyce selects by version=; BSIM-CMG has one list per
+# level and is not here.
+modelparams diode only
+  same jsw rs n ns isr nr ikf tt vj m mjsw eg
+  same xti tikf tbv1 tbv2 trs2 fc fcs ibv nbv ibvl nbvl tnom
+  same kf af
+  is = is js
+  cjo = cjo cj cj0
+  cjp = cjsw cjp
+  php = php vjsw
+  trs = trs1 trs
+  bv = bv vb
+end
+modelparams bjt only
+  same tnom is nf nr nc rb rbm re rc cje tf xtf
+  same vtf ptf cjc tr eg kf af fc c2 c4
+  bf = bf bfm
+  vaf = va vbf vaf
+  ikf = ikf ik jbf
+  ise = ise jle
+  ne = ne nle
+  br = br brm
+  var = var vb vrb bv
+  ikr = ikr jbr
+  isc = isc jlc
+  irb = irb jrb iob
+  vje = vje pe
+  mje = mje me
+  itf = itf jtf
+  vjc = vjc pc
+  mjc = mjc mc
+  xcjc = xcjc cdis
+  cjs = cjs ccs csub
+  vjs = vjs ps psub
+  mjs = mjs ms esub
+  xtb = xtb tb tcb
+  xti = xti pt
+  nkf = nk nkf
+end
+modelparams vbic only
+  same xyceadmsmodtemp off npn pnp type scale shrink tmin tmax gmin pnjmaxi maxexp
+  same tnom tminclip tmaxclip rcx rci vo gamm hrcf rbx rbi re rs
+  same rbp is isrr nf nr qbm isp wsp nfp fc cbeo cje
+  same pe me aje cbco cjc pc mc ajc vrt art qco cjep
+  same cjcp ps ms ajs ccso ibei wbe nei qnibeir iben nen ibci
+  same nci ibcn ncn ibeip ibenp ibcip ncip ibcnp ncnp vef ver ikf
+  same nkf ikr ikp tf qtf xtf vtf itf tr td avc1 avc2
+  same avcx1 avcx2 mcx vbbe nbbe ibbe tvbbe1 tvbbe2 tnbbe vpte ibk0 abk
+  same bbk kfn afn bfn rth cth xre xrb xrbi xrbx xrc xrci
+  same xrcx xrbp xrs xvo ea eaie eaic eais eane eanc eans eap
+  same dear xis xii xin xisr xikf tavc tavcx tnf tcvef tcver tcrth
+end
+modelparams bsim3 only
+  same tox toxm cdsc cdscb cdscd cit nfactor xj vsat at a0 ags
+  same a1 a2 keta nsub nch ngate gamma1 gamma2 vbx vbm xt k1
+  same kt1 kt1l kt2 k2 k3 k3b w0 nlx dvt0 dvt1 dvt2 dvt0w
+  same dvt1w dvt2w drout dsub vth0 ua ua1 ub ub1 uc uc1 u0
+  same ute voff rdsw prwg prwb prt eta0 etab pclm pdiblc1 pdiblc2 pdiblcb
+  same pscbe1 pscbe2 pvag delta wr dwg dwb b0 b1 alpha0 alpha1 beta0
+  same ijth vfb elm cgsl cgdl ckappa cf vfbcv clc cle dwc dlc
+  same noff voffcv acde moin tcj tcjsw tcjswg tpb tpbsw tpbswg lcdsc lcdscb
+  same lcdscd lcit lnfactor lxj lvsat lat la0 lags la1 la2 lketa lnsub
+  same lnch lngate lgamma1 lgamma2 lvbx lvbm lxt lk1 lkt1 lkt1l lkt2 lk2
+  same lk3 lk3b lw0 lnlx ldvt0 ldvt1 ldvt2 ldvt0w ldvt1w ldvt2w ldrout ldsub
+  same lvth0 lua lua1 lub lub1 luc luc1 lu0 lute lvoff lrdsw lprwg
+  same lprwb lprt leta0 letab lpclm lpdiblc1 lpdiblc2 lpdiblcb lpscbe1 lpscbe2 lpvag ldelta
+  same lwr ldwg ldwb lb0 lb1 lalpha0 lalpha1 lbeta0 lvfb lelm lcgsl lcgdl
+  same lckappa lcf lclc lcle lvfbcv lnoff lvoffcv lacde lmoin wcdsc wcdscb wcdscd
+  same wcit wnfactor wxj wvsat wat wa0 wags wa1 wa2 wketa wnsub wnch
+  same wngate wgamma1 wgamma2 wvbx wvbm wxt wk1 wkt1 wkt1l wkt2 wk2 wk3
+  same wk3b ww0 wnlx wdvt0 wdvt1 wdvt2 wdvt0w wdvt1w wdvt2w wdrout wdsub wvth0
+  same wua wua1 wub wub1 wuc wuc1 wu0 wute wvoff wrdsw wprwg wprwb
+  same wprt weta0 wetab wpclm wpdiblc1 wpdiblc2 wpdiblcb wpscbe1 wpscbe2 wpvag wdelta wwr
+  same wdwg wdwb wb0 wb1 walpha0 walpha1 wbeta0 wvfb welm wcgsl wcgdl wckappa
+  same wcf wclc wcle wvfbcv wnoff wvoffcv wacde wmoin pcdsc pcdscb pcdscd pcit
+  same pnfactor pxj pvsat pat pa0 pags pa1 pa2 pketa pnsub pnch pngate
+  same pgamma1 pgamma2 pvbx pvbm pxt pk1 pkt1 pkt1l pkt2 pk2 pk3 pk3b
+  same pw0 pnlx pdvt0 pdvt1 pdvt2 pdvt0w pdvt1w pdvt2w pdrout pdsub pvth0 pua
+  same pua1 pub pub1 puc puc1 pu0 pute pvoff prdsw pprwg pprwb pprt
+  same peta0 petab ppclm ppdiblc1 ppdiblc2 ppdiblcb ppscbe1 ppscbe2 ppvag pdelta pwr pdwg
+  same pdwb pb0 pb1 palpha0 palpha1 pbeta0 pvfb pelm pcgsl pcgdl pckappa pcf
+  same pclc pcle pvfbcv pnoff pvoffcv pacde pmoin tnom cgso cgdo cgbo xpart
+  same rsh js jsw pb mj pbsw pbswg mjsw cj cjsw mjswg cjswg
+  same nj xti noia noib noic em ef af kf lintnoi lint ll
+  same llc lln lw lwc lwn lwl lwlc wint wl wlc wln ww
+  same wwc wwn wwl wwlc l w lmax lmin wmax wmin mobmod binunit
+  same capmod paramchk noimod version
+end
+modelparams bsim4 only
+  same eot vddeot tempeot leffeot weffeot ados bdos toxe toxp toxm toxref dtox
+  same epsrox cdsc cdscb cdscd cit nfactor xj vsat at a0 ags a1
+  same a2 keta phig epsrgate easub epsrsub ni0sub bg0sub tbgasub tbgbsub nsub ndep
+  same nsd phin ngate gamma1 gamma2 vbx vbm xt k1 kt1 kt1l kt2
+  same k2 k3 k3b w0 dvtp0 dvtp1 dvtp2 dvtp3 lpe0 lpeb dvt0 dvt1
+  same dvt2 dvt0w dvt1w dvt2w drout dsub vth0 ua ua1 ub ub1 uc
+  same uc1 ud ud1 up lp u0 eu ucs ute ucste voff minv
+  same minvcv voffl voffcvl tnom cgso cgdo cgbo xpart delta rsh rdsw rdswmin
+  same rsw rdw rdwmin rswmin prwg prwb prt eta0 etab pclm pdiblc1 pdiblc2
+  same pdiblcb fprout pdits pditsl pditsd pscbe1 pscbe2 pvag jss jsws jswgs pbs
+  same njs xtis mjs pbsws mjsws pbswgs mjswgs cjs cjsws cjswgs jsd jswd
+  same jswgd pbd njd xtid mjd pbswd mjswd pbswgd mjswgd cjd cjswd cjswgd
+  same vfbcv vfb tpb tcj tpbsw tcjsw tpbswg tcjswg acde moin noff voffcv
+  same dmcg dmci dmdg dmcgt xgw xgl rshg ngcon xrcrg1 xrcrg2 lambda vtl
+  same lc xn vfbsdoff tvfbsdoff tvoff tnfactor teta0 tvoffcv lintnoi lint ll llc
+  same lln lw lwc lwn lwl lwlc lmin lmax wr wint dwg dwb
+  same wl wlc wln ww wwc wwn wwl wwlc wmin wmax b0 b1
+  same cgsl cgdl ckappas ckappad cf clc cle dwc dlc xw xl dlcig
+  same dlcigd dwj alpha0 alpha1 beta0 agidl bgidl cgidl rgidl kgidl fgidl egidl
+  same agisl bgisl cgisl rgisl kgisl fgisl egisl aigc bigc cigc aigsd bigsd
+  same cigsd aigs bigs cigs aigd bigd cigd aigbacc bigbacc cigbacc aigbinv bigbinv
+  same cigbinv nigc nigbinv nigbacc ntox eigbinv pigcd poxedge ijthdfwd ijthsfwd ijthdrev ijthsrev
+  same xjbvd xjbvs bvd bvs jtss jtsd jtssws jtsswd jtsswgs jtsswgd jtweff njts
+  same njtssw njtsswg njtsd njtsswd njtsswgd xtss xtsd xtssws xtsswd xtsswgs xtsswgd tnjts
+  same tnjtssw tnjtsswg tnjtsd tnjtsswd tnjtsswgd vtss vtsd vtssws vtsswd vtsswgs vtsswgd gbmin
+  same rbdb rbpb rbsb rbps rbpd rbps0 rbpsl rbpsw rbpsnf rbpd0 rbpdl rbpdw
+  same rbpdnf rbpbx0 rbpbxl rbpbxw rbpbxnf rbpby0 rbpbyl rbpbyw rbpbynf rbsbx0 rbsby0 rbdbx0
+  same rbdby0 rbsdbxl rbsdbxw rbsdbxnf rbsdbyl rbsdbyw rbsdbynf lcdsc lcdscb lcdscd lcit lnfactor
+  same lxj lvsat lat la0 lags la1 la2 lketa lnsub lndep lnsd lphin
+  same lngate lgamma1 lgamma2 lvbx lvbm lxt lk1 lkt1 lkt1l lkt2 lk2 lk3
+  same lk3b lw0 ldvtp0 ldvtp1 ldvtp2 ldvtp3 ldvtp4 ldvtp5 llpe0 llpeb ldvt0 ldvt1
+  same ldvt2 ldvt0w ldvt1w ldvt2w ldrout ldsub lvth0 lua lua1 lub lub1 luc
+  same luc1 lud lud1 lup llp lu0 lute lucste lvoff lminv lminvcv ldelta
+  same lrdsw lrsw lrdw lprwg lprwb lprt leta0 letab lpclm lpdiblc1 lpdiblc2 lpdiblcb
+  same lfprout lpdits lpditsd lpscbe1 lpscbe2 lpvag lwr ldwg ldwb lb0 lb1 lcgsl
+  same lcgdl lckappas lckappad lcf lclc lcle lalpha0 lalpha1 lbeta0 lagidl lbgidl lcgidl
+  same lrgidl lkgidl lfgidl legidl lagisl lbgisl lcgisl lrgisl lkgisl lfgisl legisl laigc
+  same lbigc lcigc laigsd lbigsd lcigsd laigs lbigs lcigs laigd lbigd lcigd laigbacc
+  same lbigbacc lcigbacc laigbinv lbigbinv lcigbinv lnigc lnigbinv lnigbacc lntox leigbinv lpigcd lpoxedge
+  same lvfbcv lvfb lacde lmoin lnoff lvoffcv lxrcrg1 lxrcrg2 llambda lvtl lxn leu
+  same lucs lvfbsdoff ltvfbsdoff ltvoff ltnfactor lteta0 ltvoffcv wcdsc wcdscb wcdscd wcit wnfactor
+  same wxj wvsat wat wa0 wags wa1 wa2 wketa wnsub wndep wnsd wphin
+  same wngate wgamma1 wgamma2 wvbx wvbm wxt wk1 wkt1 wkt1l wkt2 wk2 wk3
+  same wk3b ww0 wdvtp0 wdvtp1 wdvtp2 wdvtp3 wdvtp4 wdvtp5 wlpe0 wlpeb wdvt0 wdvt1
+  same wdvt2 wdvt0w wdvt1w wdvt2w wdrout wdsub wvth0 wua wua1 wub wub1 wuc
+  same wuc1 wud wud1 wup wlp wu0 wute wucste wvoff wminv wminvcv wdelta
+  same wrdsw wrsw wrdw wprwg wprwb wprt weta0 wetab wpclm wpdiblc1 wpdiblc2 wpdiblcb
+  same wfprout wpdits wpditsd wpscbe1 wpscbe2 wpvag wwr wdwg wdwb wb0 wb1 wcgsl
+  same wcgdl wckappas wckappad wcf wclc wcle walpha0 walpha1 wbeta0 wagidl wbgidl wcgidl
+  same wrgidl wkgidl wfgidl wegidl wagisl wbgisl wcgisl wrgisl wkgisl wfgisl wegisl waigc
+  same wbigc wcigc waigsd wbigsd wcigsd waigs wbigs wcigs waigd wbigd wcigd waigbacc
+  same wbigbacc wcigbacc waigbinv wbigbinv wcigbinv wnigc wnigbinv wnigbacc wntox weigbinv wpigcd wpoxedge
+  same wvfbcv wvfb wacde wmoin wnoff wvoffcv wxrcrg1 wxrcrg2 wlambda wvtl wxn weu
+  same wucs wvfbsdoff wtvfbsdoff wtvoff wtnfactor wteta0 wtvoffcv pcdsc pcdscb pcdscd pcit pnfactor
+  same pxj pvsat pat pa0 pags pa1 pa2 pketa pnsub pndep pnsd pphin
+  same pngate pgamma1 pgamma2 pvbx pvbm pxt pk1 pkt1 pkt1l pkt2 pk2 pk3
+  same pk3b pw0 pdvtp0 pdvtp1 pdvtp2 pdvtp3 pdvtp4 pdvtp5 plpe0 plpeb pdvt0 pdvt1
+  same pdvt2 pdvt0w pdvt1w pdvt2w pdrout pdsub pvth0 pua pua1 pub pub1 puc
+  same puc1 pud pud1 pup plp pu0 pute pucste pvoff pminv pminvcv pdelta
+  same prdsw prsw prdw pprwg pprwb pprt peta0 petab ppclm ppdiblc1 ppdiblc2 ppdiblcb
+  same pfprout ppdits ppditsd ppscbe1 ppscbe2 ppvag pwr pdwg pdwb pb0 pb1 pcgsl
+  same pcgdl pckappas pckappad pcf pclc pcle palpha0 palpha1 pbeta0 pagidl pbgidl pcgidl
+  same prgidl pkgidl pfgidl pegidl pagisl pbgisl pcgisl prgisl pkgisl pfgisl pegisl paigc
+  same pbigc pcigc paigsd pbigsd pcigsd paigs pbigs pcigs paigd pbigd pcigd paigbacc
+  same pbigbacc pcigbacc paigbinv pbigbinv pcigbinv pnigc pnigbinv pnigbacc pntox peigbinv ppigcd ppoxedge
+  same pvfbcv pvfb pacde pmoin pnoff pvoffcv pxrcrg1 pxrcrg2 plambda pvtl pxn peu
+  same pucs pvfbsdoff ptvfbsdoff ptvoff ptnfactor pteta0 ptvoffcv saref sbref wlod ku0 kvsat
+  same kvth0 tku0 llodku0 wlodku0 llodvth wlodvth lku0 wku0 pku0 lkvth0 wkvth0 pkvth0
+  same stk2 lodk2 steta0 lodeta0 web wec kvth0we k2we ku0we scref lkvth0we lk2we
+  same lku0we wkvth0we wk2we wku0we pkvth0we pk2we pku0we noia noib noic tnoia tnoib
+  same tnoic rnoia rnoib rnoic gidlclamp idovvds ntnoi em ef af kf wpemod
+  same cvchargemod capmod diomod rdsmod trnqsmod acnqsmod mobmod rbodymod rgatemod permod geomod rgeomod
+  same fnoimod tnoimod mtrlmod mtrlcompatmod igcmod igbmod tempmod gidlmod paramchk binunit version
+  dvtp4 = dvtp4 dvtp5
+end
+modelparams psp103 only
+  same xyceadmsmodtemp level type tr swgeo swigate swimpact swgidl swjuncap swjunasym swnud swedge
+  same swdelvtac swign qmc vfb stvfb tox epsrox neff facneffac gfacnud vsbnud dvsbnud
+  same vnsub nslp dnsub dphib delvtac np ct toxov toxovd nov novd cf
+  same cfd cfb psce psceb psced betn stbet mue stmue themu stthemu cs
+  same stcs xcor stxcor feta rs strs rsb rsg thesat stthesat thesatb thesatg
+  same ax alp alp1 alp2 vp a1 a2 sta2 a3 a4 gco iginv
+  same igov igovd stig gc2 gc3 chib agidl agidld bgidl bgidld stbgidl stbgidld
+  same cgidl cgidld cox cgov cgovd cgbov cfr cfrd fnt fntexc nfa nfb
+  same nfc ef vfbedge stvfbedge dphibedge neffedge ctedge betnedge stbetedge psceedge pscebedge pscededge
+  same cfedge cfdedge cfbedge fntedge nfaedge nfbedge nfcedge efedge rg rse rde rbulk
+  same rwell rjuns rjund povfb plvfb pwvfb plwvfb postvfb plstvfb pwstvfb plwstvfb potox
+  same poepsrox poneff plneff pwneff plwneff pofacneffac plfacneffac pwfacneffac plwfacneffac pogfacnud plgfacnud pwgfacnud
+  same plwgfacnud povsbnud podvsbnud povnsub ponslp podnsub podphib pldphib pwdphib plwdphib podelvtac pldelvtac
+  same pwdelvtac plwdelvtac ponp plnp pwnp plwnp poct plct pwct plwct potoxov potoxovd
+  same ponov plnov pwnov plwnov ponovd plnovd pwnovd plwnovd pocf plcf pwcf plwcf
+  same pocfd pocfb popsce plpsce pwpsce plwpsce popsceb popsced pobetn plbetn pwbetn plwbetn
+  same postbet plstbet pwstbet plwstbet pomue plmue pwmue plwmue postmue pothemu postthemu pocs
+  same plcs pwcs plwcs postcs poxcor plxcor pwxcor plwxcor postxcor pofeta pors plrs
+  same pwrs plwrs postrs porsb porsg pothesat plthesat pwthesat plwthesat postthesat plstthesat pwstthesat
+  same plwstthesat pothesatb plthesatb pwthesatb plwthesatb pothesatg plthesatg pwthesatg plwthesatg poax plax pwax
+  same plwax poalp plalp pwalp plwalp poalp1 plalp1 pwalp1 plwalp1 poalp2 plalp2 pwalp2
+  same plwalp2 povp poa1 pla1 pwa1 plwa1 poa2 posta2 poa3 pla3 pwa3 plwa3
+  same poa4 pla4 pwa4 plwa4 pogco poiginv pliginv pwiginv plwiginv poigov pligov pwigov
+  same plwigov poigovd pligovd pwigovd plwigovd postig pogc2 pogc3 pochib poagidl plagidl pwagidl
+  same plwagidl poagidld plagidld pwagidld plwagidld pobgidl pobgidld postbgidl postbgidld pocgidl pocgidld pocox
+  same plcox pwcox plwcox pocgov plcgov pwcgov plwcgov pocgovd plcgovd pwcgovd plwcgovd pocgbov
+  same plcgbov pwcgbov plwcgbov pocfr plcfr pwcfr plwcfr pocfrd plcfrd pwcfrd plwcfrd pofnt
+  same pofntexc plfntexc pwfntexc plwfntexc ponfa plnfa pwnfa plwnfa ponfb plnfb pwnfb plwnfb
+  same ponfc plnfc pwnfc plwnfc poef povfbedge postvfbedge plstvfbedge pwstvfbedge plwstvfbedge podphibedge pldphibedge
+  same pwdphibedge plwdphibedge poneffedge plneffedge pwneffedge plwneffedge poctedge plctedge pwctedge plwctedge pobetnedge plbetnedge
+  same pwbetnedge plwbetnedge postbetedge plstbetedge pwstbetedge plwstbetedge popsceedge plpsceedge pwpsceedge plwpsceedge popscebedge popscededge
+  same pocfedge plcfedge pwcfedge plwcfedge pocfdedge pocfbedge pofntedge ponfaedge plnfaedge pwnfaedge plwnfaedge ponfbedge
+  same plnfbedge pwnfbedge plwnfbedge ponfcedge plnfcedge pwnfcedge plwnfcedge poefedge pokvthowe plkvthowe pwkvthowe plwkvthowe
+  same pokuowe plkuowe pwkuowe plwkuowe lmin lmax wmin wmax lvaro lvarl lvarw lap
+  same wvaro wvarl wvarw wot dlq dwq vfbo vfbl vfbw vfblw stvfbo stvfbl
+  same stvfbw stvfblw toxo epsroxo nsubo nsubw wseg npck npckw wsegp lpck lpckw
+  same fol1 fol2 facneffaco facneffacl facneffacw facneffaclw gfacnudo gfacnudl gfacnudlexp gfacnudw gfacnudlw vsbnudo
+  same dvsbnudo vnsubo nslpo dnsubo dphibo dphibl dphiblexp dphibw dphiblw delvtaco delvtacl delvtaclexp
+  same delvtacw delvtaclw npo npl cto ctl ctlexp ctw ctlw toxovo toxovdo lov
+  same lovd novo novdo cfl cflexp cfw cfdo cfbo pscel pscelexp pscew pscebo
+  same pscedo uo fbet1 fbet1w lp1 lp1w fbet2 lp2 betw1 betw2 wbet stbeto
+  same stbetl stbetw stbetlw mueo muew stmueo themuo stthemuo cso csl cslexp csw
+  same cslw stcso xcoro xcorl xcorw xcorlw stxcoro fetao rsw1 rsw2 strso rsbo
+  same rsgo thesato thesatl thesatlexp thesatw thesatlw stthesato stthesatl stthesatw stthesatlw thesatbo thesatgo
+  same axo axl alpl alplexp alpw alp1l1 alp1lexp alp1l2 alp1w alp2l1 alp2lexp alp2l2
+  same alp2w vpo a1o a1l a1w a2o sta2o a3o a3l a3w a4o a4l
+  same a4w gcoo iginvlw igovw igovdw stigo gc2o gc3o chibo agidlw agidldw bgidlo
+  same bgidldo stbgidlo stbgidldo cgidlo cgidldo cgbovl cfrw cfrdw fnto fntexcl nfalw nfblw
+  same nfclw efo lintnoi alpnoi wedge wedgew vfbedgeo stvfbedgeo stvfbedgel stvfbedgew stvfbedgelw dphibedgeo
+  same dphibedgel dphibedgelexp dphibedgew dphibedgelw nsubedgeo nsubedgel nsubedgew nsubedgelw ctedgeo ctedgel ctedgelexp fbetedge
+  same lpedge betedgew stbetedgeo stbetedgel stbetedgew stbetedgelw psceedgel psceedgelexp psceedgew pscebedgeo pscededgeo cfedgel
+  same cfedgelexp cfedgew cfdedgeo cfbedgeo fntedgeo nfaedgelw nfbedgelw nfcedgelw efedgeo kvthoweo kvthowel kvthowew
+  same kvthowelw kuoweo kuowel kuowew kuowelw rgo rint rvpoly rshg dlsil rsh rshd
+  same rbulko rwello rjunso rjundo saref sbref wlod kuo kvsat tkuo lkuo wkuo
+  same pkuo llodkuo wlodkuo kvtho lkvtho wkvtho pkvtho llodvth wlodvth stetao lodetao scref
+  same web wec imax trj frev cjorbot cjorsti cjorgat vbirbot vbirsti vbirgat pbot
+  same psti pgat phigbot phigsti phiggat idsatrbot idsatrsti idsatrgat csrhbot csrhsti csrhgat xjunsti
+  same xjungat ctatbot ctatsti ctatgat mefftatbot mefftatsti mefftatgat cbbtbot cbbtsti cbbtgat fbbtrbot fbbtrsti
+  same fbbtrgat stfbbtbot stfbbtsti stfbbtgat vbrbot vbrsti vbrgat pbrbot pbrsti pbrgat cjorbotd cjorstid
+  same cjorgatd vbirbotd vbirstid vbirgatd pbotd pstid pgatd phigbotd phigstid phiggatd idsatrbotd idsatrstid
+  same idsatrgatd csrhbotd csrhstid csrhgatd xjunstid xjungatd ctatbotd ctatstid ctatgatd mefftatbotd mefftatstid mefftatgatd
+  same cbbtbotd cbbtstid cbbtgatd fbbtrbotd fbbtrstid fbbtrgatd stfbbtbotd stfbbtstid stfbbtgatd vbrbotd vbrstid vbrgatd
+  same pbrbotd pbrstid pbrgatd swjunexp vjunref fjunq vjunrefd fjunqd dta
+end
+# Names ngspice's model has and Xyce's has not, at the value that is
+# ngspice's default: nothing changes there (ngspice's BSIM3 ACM resistances
+# and NQS switch, its BJT substrate current and emission coefficient).
+noparam bsim3 rd=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 rd error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 rs=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 rs error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 rdc=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 rdc error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 rsc=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 rsc error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 hdif=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 hdif error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 ldif=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 ldif error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bsim3 nqsmod=0 warning : Xyce's BSIM3 has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bsim3 nqsmod error : Xyce's BSIM3 has no such parameter; the device is simulated without its effect
+noparam bjt iss=0 warning : Xyce's BJT has no such parameter; at 0, ngspice's default, it changes nothing
+noparam bjt iss error : Xyce's BJT has no such parameter; the device is simulated without its effect
+noparam bjt ns=1 warning : Xyce's BJT has no such parameter; at 1, ngspice's default, it changes nothing
+noparam bjt ns error : Xyce's BJT has no such parameter; the device is simulated without its effect
+# VBIC's and PSP103's safe-operating-area parameters: Xyce's modules have
+# none, so the check they ask for is not made, and no current changes.
+noparam vbic vbe_max warning : Xyce's VBIC has no safe-operating-area check; vbe_max changes no current there, and the check it asks for is not made
+noparam vbic vbc_max warning : Xyce's VBIC has no safe-operating-area check; vbc_max changes no current there, and the check it asks for is not made
+noparam vbic vce_max warning : Xyce's VBIC has no safe-operating-area check; vce_max changes no current there, and the check it asks for is not made
+noparam vbic vsub_max warning : Xyce's VBIC has no safe-operating-area check; vsub_max changes no current there, and the check it asks for is not made
+noparam psp103 swsoa warning : Xyce's PSP103 has no safe-operating-area check; swsoa changes no current there, and the check it asks for is not made
+noparam psp103 vgs_max warning : Xyce's PSP103 has no safe-operating-area check; vgs_max changes no current there, and the check it asks for is not made
+noparam psp103 vgd_max warning : Xyce's PSP103 has no safe-operating-area check; vgd_max changes no current there, and the check it asks for is not made
+noparam psp103 vgb_max warning : Xyce's PSP103 has no safe-operating-area check; vgb_max changes no current there, and the check it asks for is not made
+noparam psp103 vds_max warning : Xyce's PSP103 has no safe-operating-area check; vds_max changes no current there, and the check it asks for is not made
+noparam psp103 vsb_max warning : Xyce's PSP103 has no safe-operating-area check; vsb_max changes no current there, and the check it asks for is not made
+noparam psp103 vdb_max warning : Xyce's PSP103 has no safe-operating-area check; vdb_max changes no current there, and the check it asks for is not made
 # A card's own value: whether Xyce gives it to a device that has none was
 # not measured, and Xyce refuses a capacitor whose value is on its card.
 noparam resistor r error : Xyce lists R among its resistor card's parameters, but not what a device without a value of its own takes from it; give the value on the instance

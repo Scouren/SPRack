@@ -1531,6 +1531,48 @@ cards stay the errors of 4.13; written exactly they would need each
 card's NARROW and SHORT carried to its instances (NARROW doubled, each
 length raised by 2 NARROW - 2 SHORT). Neither deck was run again for this.
 
+### 4.23 Card parameters by family and target (#33)
+
+Every name of a card was copied into the target under one caveat a file.
+Step 1 of the issue, the names: `tools/param_lists.py xyce <checkout>`
+reads every model parameter Xyce 7.10 (tag Release-7.10.0) declares for a
+device (`Traits::loadModelParameters`, which `Xyce -param` prints), with its
+synonyms (one member); `tools/param_lists.py ngspice` reads ngspice's
+`devhelp` (ngspice 42 here; one id, several names) and adds the three names
+ngspice 45 gives a diode besides (`tcv`, `vjsw`, `isw`). Xyce's tables are
+`only`: a name not in them is a loss error, or a `noparam` line's warning
+where the value is ngspice's default or the parameter changes no current.
+
+| family | into Xyce: names checked | result compared | into VACASK |
+|---|---|---|---|
+| resistor | 8 of 8 (4.22) | sky130 res_generic_nd, 4.22 (before the change) | not checked |
+| capacitor | 8 of 8 (4.22) | GF180 MIM, 4.22 (before the change) | not checked |
+| diode | 32 groups of 32 | no | not checked |
+| bjt | 44 of 44 | no | not checked |
+| vbic | 132 of 132 (levels 11 and 12) | IHP npn13G2, 4.21 (the level) | not checked |
+| bsim3 | 400 of 400 | no | not checked |
+| bsim4 | 876 of 876 (4.6.1, 4.7, 4.8.2) | no | not checked |
+| psp103 | 753 of 753 | 7 names, 3.5 | not checked |
+| bsimcmg | not checked: one list per level (107 to 111) | no | not checked |
+
+What the PDKs give that Xyce's device has not, after ngspice's other
+names are written in Xyce's spelling (`mj` as `m`, `ik` as `ikf`, `tref` as
+`tnom`, `cox` as `cj`): sky130 BSIM3 `rd rs rdc rsc hdif ldif nqsmod` (all
+0, a warning each) and pnp `tnf1 tnf2 tikf1` (errors; `iss=0` and `ns=1`
+warnings); GF180 npn and pnp temperature coefficients (`tbf1`, `tbf2`,
+`tikf1`, `tnf1`, `tne1`, `tnr1`, `tbr1`, `subs`, `tlevc`, `cte`, `ctc`,
+`tvje`, `tvjc`, `tre1`), resistor `kf`, `af`, `noise` and capacitor `cap`;
+IHP diode `tlev`, `tlevc`, `cta`, pnp `trc1 trc2 tre1 tre2 trm1 trm2`, the
+VBIC `vbe_max`, `vbc_max`, `vce_max` and PSP103 `swsoa` and six `v*_max`
+safe-operating-area parameters (warnings: Xyce's modules have no such check
+and no current changes). A card Xyce refuses by one value (a diode's
+`level=3`, 4.20) is another model, and its names are not checked.
+
+Not done here, for want of the tools: Xyce's tables against the simulator
+itself and the four decks of step 2 (no Xyce run in this environment);
+VACASK's OSDI descriptors (its source was not reachable); HSPICE and
+Spectre. The general caveat stays for every pair, since none is compared.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

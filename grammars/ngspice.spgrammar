@@ -405,9 +405,74 @@ modelparams capacitor
   cj     = cj cox
   cjsw   = cjsw capsw
   defw   = defw w
+  defl   = defl l
   same cap
 end
 modelparams inductor
   same ind tc1
+end
+# One parameter under several names, as ngspice's devhelp gives them (one id),
+# and the names ngspice 45 adds to a diode's (tcv, vjsw, isw): made by
+# `tools/param_lists.py ngspice` (docs/verification.md 4.23).
+modelparams diode
+  is = is js
+  jsw = jsw isw
+  tnom = tnom tref
+  trs = trs trs1
+  cjo = cjo cj0 cj
+  vj = vj pb
+  m = m mj
+  cjp = cjp cjsw
+  php = php vjsw
+  ikf = ikf ik
+  cta = cta ctc
+  tpb = tpb tvj
+  ibv = ibv ib
+  tbv1 = tbv1 tcv
+end
+modelparams bjt
+  tnom = tnom tref
+  vaf = vaf va
+  ikf = ikf ik
+  ise = ise c2
+  var = var vb
+  isc = isc c4
+  vje = vje pe
+  mje = mje me
+  vjc = vjc pc
+  mjc = mjc mc
+  cjs = cjs csub ccs
+  vjs = vjs ps
+  mjs = mjs ms
+  trb1 = trb1 trb
+  trc1 = trc1 trc
+  tre1 = tre1 tre
+  nkf = nkf nk
+end
+modelparams vbic
+  tnom = tnom tref
+  vo = vo v0
+  cbeo = cbeo cbe0
+  cbco = cbco cbc0
+  qco = qco qc0
+  xvo = xvo xv0
+  xrcx = xrcx xrc
+  xrbx = xrbx xrb
+  vbe_max = vbe_max bvbe
+  vbc_max = vbc_max bvbc
+  vce_max = vce_max bvce
+  vsub_max = vsub_max bvsub
+end
+modelparams bsim3
+  vth0 = vth0 vtho
+  lvth0 = lvth0 lvtho
+  wvth0 = wvth0 wvtho
+  pvth0 = pvth0 pvtho
+end
+modelparams bsim4
+  vth0 = vth0 vtho
+  lvth0 = lvth0 lvtho
+  wvth0 = wvth0 wvtho
+  pvth0 = pvth0 pvtho
 end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)

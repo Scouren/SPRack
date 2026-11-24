@@ -1098,6 +1098,32 @@ test "resistor and capacitor cards: ngspice's other names, and Xyce's cards take
     try has(try tr(a, "ngspice", "hspice", src, &r4), ".model rnd r rsh=120 tc1r=1.422m tc2r=0.6569u tnom=30 w=1u\n");
 }
 
+test "card parameters into Xyce: every name its device declares, ngspice's other names, the rest a loss" {
+    // docs/verification.md 4.23: the tables are tools/param_lists.py's.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", "t\n.model d1 d is=1e-14 mj=0.3 ik=1m tref=25 tlev=1 cta=1m\n.model q1 npn tref=25 trc=1m\n.model n1 nmos level=54 version=4.5 vth0=0.4\n.end\n", &r1);
+    try has(xy, ".model d1 d is=1e-14 m=0.3 ikf=1m tnom=25\n");
+    try has(xy, ".model q1 npn tnom=25\n");
+    try has(xy, ".model n1 nmos level=14 version=4.5 vth0=0.4\n");
+    try reported(&r1, .info, "model 'd1': the parameter 'mj' is spelled 'm' in xyce");
+    try reported(&r1, .@"error", "model 'd1': tlev=1 not written: the diode card of xyce takes no such parameter");
+    try reported(&r1, .@"error", "model 'd1': cta=1m not written");
+    try reported(&r1, .@"error", "model 'q1': trc=1m not written: the bjt card of xyce takes no such parameter");
+    try testing.expectEqual(3, r1.count(.@"error"));
+    // A card Xyce refuses by its level is another model: no name of it is checked.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.model d3 d level=3 is=1e-14 tlev=1 xw=1u\n.end\n", &r2);
+    try testing.expectEqual(1, r2.count(.@"error"));
+    // Safe-operating-area parameters change no current: one warning a file.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.model q2 npn level=4 vbe_max=1.6 is=1e-16\nQ1 c b e s t q2\n.end\n", &r3);
+    try reported(&r3, .warning, "vbe_max not written: Xyce's VBIC has no safe-operating-area check");
+    try clean(&r3);
+}
+
 test "an unknown level is an error across dialects, not a guess" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
