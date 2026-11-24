@@ -848,6 +848,13 @@ fn normalize(arena: Allocator, case_sensitive: bool, s: []const u8) Allocator.Er
     return out.toOwnedSlice(arena);
 }
 
+fn describeNum(arena: Allocator, v: Value) Allocator.Error![]const u8 {
+    return switch (v) {
+        .num => |n| try std.fmt.allocPrint(arena, "{d}", .{n.toFloat()}),
+        else => "?",
+    };
+}
+
 fn valueIsText(arena: Allocator, g: *const Grammar, v: Value, text: []const u8) bool {
     return switch (v) {
         .num => |n| blk: {
@@ -967,6 +974,9 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
                 }
                 if (kv.absent) {
                     if (found != null) ok = false;
+                } else if (kv.min) {
+                    const least = lexer.parseNumber(arena, &g.lex, kv.val) orelse unreachable;
+                    if (found == null or found.? != .num or found.?.num.toFloat() < least.toFloat()) ok = false;
                 } else if (found == null or !valueIsText(arena, g, found.?, kv.val)) ok = false;
             }
             if (!ok) continue;
@@ -984,6 +994,11 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
         }
         if (known_word) report.add(.warning, .unsupported, st.line, "model type '{s}' with these parameters is not in the {s} models table; kept as written", .{ ty, g.name });
         return;
+    };
+    for (hit.s.kv) |kv| if (kv.min) {
+        for (params) |p| if (std.mem.eql(u8, p.key, kv.key)) {
+            report.add(.warning, .caveat, st.line, "model type '{s}' with {s}={s}: {s} takes it as the {s} model (it warns that the value is out of range)", .{ ty, kv.key, try describeNum(arena, p.val), g.name, hit.e.family });
+        };
     };
     vals[schema.slotIndex(.model, "family").?] = .{ .atom = hit.e.family };
     if (hit.e.polarity.len > 0) vals[schema.slotIndex(.model, "polarity").?] = .{ .atom = hit.e.polarity };

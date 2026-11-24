@@ -304,3 +304,11 @@ no alter : LTspice has no .alter; a rerun with other values is a .step
 no pattern : LTspice has no pattern sources; a bit pattern is a PWL
 no fft : LTspice takes the FFT of a trace in its waveform viewer; no netlist statement asks for one
 no optimize : LTspice has no optimizer statement
+no model mos6 : an LTspice level for SPICE3's MOS6 is not established without an LTspice run
+no model mos9 : an LTspice level for SPICE3's MOS9 is not established without an LTspice run
+no model bsim1 : an LTspice level for BSIM1 is not established without an LTspice run
+no model bsim2 : an LTspice level for BSIM2 is not established without an LTspice run
+no model b3soifd : an LTspice level for B3SOIFD 2.1 is not established without an LTspice run
+no model b3soidd : an LTspice level for B3SOIDD 2.1 is not established without an LTspice run
+no model b3soipd : an LTspice level for B3SOIPD 2.2.3 is not established without an LTspice run
+no model mesa : an LTspice level for the MESA MESFET is not established without an LTspice run

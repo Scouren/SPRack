@@ -448,3 +448,11 @@ computes resistor narrow short : R = RSH (L - 2 ETCHL) / (W - 2 ETCH)
 no pattern : Spectre names a bit pattern on the source itself (type=bit data=); HSPICE's .PAT has no form here
 no fft : Spectre has no FFT statement; a spectrum is post-processing of the transient result
 no optimize : Spectre's netlist has no optimizer statement; optimization is driven from outside the simulator
+no model mos6 : a Spectre model of SPICE3's MOS6 is not established without a Spectre run
+no model mos9 : a Spectre model of SPICE3's MOS9 (Spectre's mos9 is Philips MOS9) is not established without a Spectre run
+no model bsim1 : a Spectre model of BSIM1 is not established without a Spectre run
+no model bsim2 : a Spectre model of BSIM2 is not established without a Spectre run
+no model b3soifd : a Spectre model of B3SOIFD 2.1 is not established without a Spectre run
+no model b3soidd : a Spectre model of B3SOIDD 2.1 is not established without a Spectre run
+no model b3soipd : a Spectre model of B3SOIPD 2.2.3 is not established without a Spectre run
+no model mesa : a Spectre model of the MESA MESFET is not established without a Spectre run

@@ -1752,6 +1752,37 @@ Also: an analysis that wraps others (a sweep, a Monte Carlo, an
 optimization) and has no form in the target no longer has its body written
 after the comment that says it is not written.
 
+### 4.33 ngspice MOS and MESFET levels without a family (#48)
+
+Which model ngspice 45 runs for each level, from `show m1` on a one-device
+deck (`.model mm nmos level=N`):
+
+| level | ngspice 45 | family |
+|---|---|---|
+| 4 | BSIM1 | bsim1 |
+| 5 | BSIM2 | bsim2 |
+| 6 | Mos6, "Level 6 MOSfet model with Meyer capacitance model" | mos6 |
+| 9 | Mos9, "Modified Level 3 MOSfet model" | mos9 |
+| 55 | B3SOIFD 2.1 | b3soifd |
+| 56 | B3SOIDD 2.1 | b3soidd |
+| 57 | B3SOIPD 2.2.3 | b3soipd |
+| 1040 | "Illegal value for level. Level must be < 99 (Setting Level to 1)" | mos1, with a warning |
+| nmf/pmf 2 to 4 | MESA (inpdomod.c, as the table's comment had it) | mesa |
+
+The targets, each a row or a `no model` line with its reason:
+
+| family | Xyce | HSPICE | Spectre, LTspice | VACASK |
+|---|---|---|---|---|
+| mos6 | level 6 (N_DEV_MOSFET6.C registers it) | no: its level 6 is the AMI IDS model | not established without a run | no built-in |
+| mos9 | no: its level 9 is BSIM3 | no: its MOS9 (level 50) is Philips MOS9 | not established | no built-in |
+| bsim1 | no level registered | level 13 (Star-HSPICE manual, MOSFET chapter) | not established | no built-in |
+| bsim2 | no level registered | level 39 (same) | not established | no built-in |
+| b3soifd, b3soidd, b3soipd | no: its BSIM3SOI (10, 57) is 3.2, read as bsimsoi | not established (#56) | not established | no built-in |
+| mesa | no: one Z level | no: its MESFETs are J level 3 | not established | no built-in |
+
+Not run: none of the rows above was simulated against ngspice; parameter
+agreement is #33's.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

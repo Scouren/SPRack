@@ -363,6 +363,11 @@ models
   mos2 p     = pmos level=2
   mos3 n     = nmos level=3
   mos3 p     = pmos level=3
+  # The Star-HSPICE manual's MOSFET chapter: level 13 is BSIM, 39 BSIM2.
+  bsim1 n    = nmos level=13
+  bsim1 p    = pmos level=13
+  bsim2 n    = nmos level=39
+  bsim2 p    = pmos level=39
   bsim3 n    = nmos level=49 | nmos level=53
   bsim3 p    = pmos level=49 | pmos level=53
   bsim4 n    = nmos level=54
@@ -503,3 +508,11 @@ own ".mosra" ".appendmodel" : HSPICE's MOSRA reliability (aging) analysis and it
 own ".ptdnoise" ".sample" ".acphasenoise" : HSPICE's time-domain periodic noise, sampling noise and AC phase noise have no kind in SPRack
 own ".load" : HSPICE's .LOAD reads an operating point HSPICE saved (.SAVE); the file is HSPICE's own format
 own ".vec" : HSPICE's .VEC reads digital vectors from a file in HSPICE's own vector format
+# Families ngspice has that HSPICE has no model of, or none known (#48);
+# a run is #56's to make.
+no model mos6 : HSPICE's level 6 is its own IDS model (AMI), not SPICE3's MOS6
+no model mos9 : HSPICE's MOS9 (level 50) is Philips MOS9, not SPICE3's modified level 3
+no model b3soifd : that an HSPICE level takes ngspice's B3SOIFD 2.1 cards is not established without an HSPICE run (#56)
+no model b3soidd : that an HSPICE level takes ngspice's B3SOIDD 2.1 cards is not established without an HSPICE run (#56)
+no model b3soipd : HSPICE's level 57 (BSIM3SOI) is read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards is not established without an HSPICE run (#56)
+no model mesa : HSPICE's MESFETs are J elements (level 3); none is the MESA model

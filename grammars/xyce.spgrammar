@@ -336,6 +336,9 @@ models
   mos2 p     = pmos level=2
   mos3 n     = nmos level=3
   mos3 p     = pmos level=3
+  # N_DEV_MOSFET6.C registers M level 6, SPICE3's MOS6.
+  mos6 n     = nmos level=6
+  mos6 p     = pmos level=6
   bsim3 n    = nmos level=9 | nmos level=49
   bsim3 p    = pmos level=9 | pmos level=49
   bsim4 n    = nmos level=14 | nmos level=54
@@ -740,3 +743,11 @@ rule  fft       = ".fft" out { start=start from=start stop=stop to=stop np=np wi
 enum  fft window : rect=rect rect=rectangular bart=bart bart=bartlett bartletthann=bartletthann hamm=hamm hamm=hamming hann=hann hann=hanning black=black black=blackman harris=harris harris=blackmanharris nuttall=nuttall halfcyclesine=halfcyclesine halfcyclesine3=halfcyclesine3 halfcyclesine6=halfcyclesine6 cosine2=cosine2 cosine4=cosine4
 enum  fft format : norm=norm unorm=unorm
 no optimize : Xyce has no optimizer statement (Dakota drives Xyce from outside)
+# Families ngspice has that Xyce has no model of (#48).
+no model mos9 : Xyce's M levels (DeviceModelPKG registerDevice) are 1, 2, 3, 6, 9 and 49 (BSIM3), 10 and 57 (BSIM3SOI 3.2), 14 and 54, 18, 70, 77, 103, 107 to 111 and others; none is SPICE3's MOS9 (Xyce's level 9 is BSIM3)
+no model bsim1 : Xyce's M levels (DeviceModelPKG registerDevice) are 1, 2, 3, 6, 9 and 49 (BSIM3), 10 and 57 (BSIM3SOI 3.2), 14 and 54, 18, 70, 77, 103, 107 to 111 and others; none is BSIM1
+no model bsim2 : Xyce's M levels (DeviceModelPKG registerDevice) are 1, 2, 3, 6, 9 and 49 (BSIM3), 10 and 57 (BSIM3SOI 3.2), 14 and 54, 18, 70, 77, 103, 107 to 111 and others; none is BSIM2
+no model b3soifd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read here as bsimsoi; ngspice's fully depleted B3SOIFD 2.1 is another model
+no model b3soidd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read here as bsimsoi; ngspice's dynamically depleted B3SOIDD 2.1 is another model
+no model b3soipd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards unchanged is not measured
+no model mesa : Xyce's MESFET (Z) has one level (N_DEV_MESFET.C registers z level 1), not MESA

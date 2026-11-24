@@ -175,6 +175,8 @@ own ".check" ".dout" : ...         # statements of this dialect no kind holds:
                                    # `unsupported` with this reason ("S*": a
                                    # first word starting so)
 own model "opt" : ...              # a .model type word of the same sort
+no model mos6 : ...                # this dialect has no model of the family:
+                                   # a card of it is unsupported with this reason
 unique param : ...                 # a parameter defined twice in one scope is
                                    # refused here: an error
 unique master : ...                # a name both a model and a subcircuit define
@@ -289,6 +291,11 @@ models
                                    # A card that cannot be told (no version,
                                    # no instance in the file) gets the first
                                    # spelling without conditions, a `caveat`
+  mos1 n = nmos level=1 | nmos !level | nmos level>=99
+                                   # `!key`: the card does not give it;
+                                   # `key>=n`: read only, any number from n
+                                   # up (a level the dialect itself takes as
+                                   # this one, with a warning)
 end
 ```
 

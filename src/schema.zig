@@ -461,6 +461,18 @@ pub const families = [_]Family{
     .{ .name = "hisim2", .kind = .mosfet },
     .{ .name = "hisimhv", .kind = .mosfet },
     .{ .name = "vdmos", .kind = .mosfet },
+    // SPICE3's level 6 (Sakurai-Newton) and level 9 (a modified level 3),
+    // BSIM1 and BSIM2, and BSIM3SOI 2.x in its three forms (fully depleted,
+    // dynamically depleted, partially depleted), as ngspice has them.
+    .{ .name = "mos6", .kind = .mosfet },
+    .{ .name = "mos9", .kind = .mosfet },
+    .{ .name = "bsim1", .kind = .mosfet },
+    .{ .name = "bsim2", .kind = .mosfet },
+    .{ .name = "b3soifd", .kind = .mosfet },
+    .{ .name = "b3soidd", .kind = .mosfet },
+    .{ .name = "b3soipd", .kind = .mosfet },
+    // The MESA MESFET (ngspice nmf levels 2 to 4).
+    .{ .name = "mesa", .kind = .mesfet },
     .{ .name = "vswitch", .kind = .vswitch },
     .{ .name = "cswitch", .kind = .cswitch },
     // b4: devices, sources, outputs

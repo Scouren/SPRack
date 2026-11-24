@@ -1242,10 +1242,14 @@ test "an unknown level is an error across dialects, not a guess" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
-    const out = try tr(a, "ngspice", "xyce", "t\n.model nx nmos level=99 foo=1\n.end\n", &report);
+    const out = try tr(a, "ngspice", "xyce", "t\n.model nx nmos level=11 foo=1\n.end\n", &report);
     try reported(&report, .warning, "model type 'nmos' with these parameters is not in the ngspice models table");
     try reported(&report, .@"error", "type 'nmos' with these parameters is not in the ngspice models table");
-    try has(out, ".model nx nmos level=99 foo=1\n");
+    try has(out, ".model nx nmos level=11 foo=1\n");
+    // 99 and up: ngspice runs level 1, and says so (#48).
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.model nx nmos level=1040\n.end\n", &r1), ".model nx nmos level=1\n");
+    try reported(&r1, .warning, "with level=1040: ngspice takes it as the mos1 model");
 }
 
 test "names: prefix letters and case" {
@@ -3183,7 +3187,7 @@ test "parse check: ngspice MESA and HFET cards are not plain MESFETs" {
     // nmf level=2 is MESA, which Xyce does not have; it was written as Xyce's Z level 1 card.
     var r1: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 nm\n.model nm nmf level=2 vto=-1\n.end\n", &r1);
-    try reported(&r1, .@"error", "'nmf' is a built-in ngspice model type that the ngspice models table does not list");
+    try reported(&r1, .@"error", "model 'nm' (mesa n) cannot be written for xyce: Xyce's MESFET (Z) has one level");
     // An HFET card with nothing but its level still names a model Xyce lacks.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\nZ1 d g 0 hm\n.model hm nhfet level=6\n.end\n", &r2);
@@ -6624,4 +6628,29 @@ test "#47: HSPICE statements of its own are unsupported elsewhere, with the reas
         try has(try tr(a, "hspice", "hspice", src, &r1), l);
         try testing.expectEqual(0, r1.countCode(.oneway));
     }
+}
+
+test "#48: each family ngspice gained has a row or a reason in every target" {
+    const fams = [_][]const u8{ "mos6", "mos9", "bsim1", "bsim2", "b3soifd", "b3soidd", "b3soipd", "mesa" };
+    for ([_][]const u8{ "xyce", "hspice", "spectre", "vacask", "ltspice", "ngspice" }) |d| {
+        const g = sprack.find(d).?;
+        for (fams) |f| {
+            const row = for (g.models) |e| {
+                if (std.mem.eql(u8, e.family, f)) break true;
+            } else false;
+            if (!row and g.noFamilyReason(f) == null) {
+                std.debug.print("{s}: family {s} has neither a row nor a reason\n", .{ d, f });
+                return error.TestMissingFamily;
+            }
+        }
+    }
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", "t\nm1 d g 0 0 m6 l=1u w=1u\n.model m6 nmos level=6 vto=0.5\n.model b1 pmos level=4\n.end\n", &r);
+    try has(out, ".model m6 nmos level=6 vto=0.5\n");
+    try reported(&r, .@"error", "model 'b1' (bsim1 p) cannot be written for xyce");
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.model b1 nmos level=4 k1=0.5\n.model b2 nmos level=5\n.end\n", &r1), ".model b1 nmos level=13 k1=0.5\n.model b2 nmos level=39\n");
 }

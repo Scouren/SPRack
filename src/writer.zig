@@ -1100,6 +1100,12 @@ const Writer = struct {
                 });
                 return null;
             }
+            if (w.g.noFamilyReason(fam.atom)) |why| {
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}{s}{s}) cannot be written for {s}: {s}. Defined by: {s}", .{
+                    st.get("name").atom, fam.atom, if (pol.len > 0) " " else "", pol, w.g.name, why, if (who.len > 0) who else "none",
+                });
+                return null;
+            }
             w.report.add(.@"error", .unsupported, st.line, "model '{s}': {s}.spgrammar has no spelling for model family '{s}{s}{s}'. Defined by: {s}", .{
                 st.get("name").atom,              w.g.name, fam.atom, if (pol.len > 0) " " else "", pol,
                 if (who.len > 0) who else "none",
@@ -1117,7 +1123,7 @@ const Writer = struct {
         try out.set(a, schema.slotIndex(.model, "polarity").?, .none);
         var ps: std.ArrayList(ir.Param) = .empty;
         for (sp.kv) |kv| {
-            if (kv.absent) continue;
+            if (kv.absent or kv.min) continue;
             const v: Value = if (lexer.parseNumber(a, &w.g.lex, kv.val)) |n| .{ .num = n } else .{ .atom = kv.val };
             try ps.append(a, .{ .key = kv.key, .val = v });
         }

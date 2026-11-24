@@ -314,13 +314,16 @@ models
   jfet p     = pjf
   # nmf/pmf/nhfet/phfet share one level switch: 0-1 MES, 2-4 MESA, 5 HFET1,
   # 6 HFET2 (inpdomod.c:124-175). An nhfet card without a level is a MESFET.
-  # MESA has no family here, so a MESA card is an error, not a MESFET.
   mesfet n   = nmf !level | nmf level=1 | nmf level=0
   mesfet p   = pmf !level | pmf level=1 | pmf level=0
+  mesa n     = nmf level=2 | nmf level=3 | nmf level=4
+  mesa p     = pmf level=2 | pmf level=3 | pmf level=4
   hfet n     = nhfet level=5 | nhfet level=6
   hfet p     = phfet level=5 | phfet level=6
-  mos1 n     = nmos level=1 | nmos !level
-  mos1 p     = pmos level=1 | pmos !level
+  # A level of 99 or more: ngspice warns "Illegal value for level" and runs
+  # level 1 (docs/verification.md 4.33).
+  mos1 n     = nmos level=1 | nmos !level | nmos level>=99
+  mos1 p     = pmos level=1 | pmos !level | pmos level>=99
   mos2 n     = nmos level=2
   mos2 p     = pmos level=2
   mos3 n     = nmos level=3
@@ -331,6 +334,21 @@ models
   bsim4 p    = pmos level=14 | pmos level=54
   bsimsoi n  = nmos level=10 | nmos level=58
   bsimsoi p  = pmos level=10 | pmos level=58
+  # Measured with `show` in ngspice 45 (docs/verification.md 4.33).
+  bsim1 n    = nmos level=4
+  bsim1 p    = pmos level=4
+  bsim2 n    = nmos level=5
+  bsim2 p    = pmos level=5
+  mos6 n     = nmos level=6
+  mos6 p     = pmos level=6
+  mos9 n     = nmos level=9
+  mos9 p     = pmos level=9
+  b3soifd n  = nmos level=55
+  b3soifd p  = pmos level=55
+  b3soidd n  = nmos level=56
+  b3soidd p  = pmos level=56
+  b3soipd n  = nmos level=57
+  b3soipd p  = pmos level=57
   hisim2 n   = nmos level=68
   hisim2 p   = pmos level=68
   hisimhv n  = nmos level=73

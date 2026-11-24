@@ -199,6 +199,8 @@ pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []con
 /// the reason, not `untranslated`. `"S*"`: every line whose first word
 /// starts so (an element letter).
 /// `own model "opt" : reason`: a `.model` type word, not a line's first.
+/// `no model family : reason`: why this dialect has no model of a family.
+pub const NoFamily = struct { family: []const u8, reason: []const u8 };
 pub const Own = struct { word: []const u8, reason: []const u8, model: bool = false };
 /// Boilerplate this dialect needs when a kind, or a model of a family, is
 /// used (VACASK `load`).
@@ -399,7 +401,9 @@ pub const Require = struct { what: Topo, err: bool, analyses: []const Kind = &.{
 /// counts too), which is then loaded and not run.
 pub const UniqueAnalysis = struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
 
-pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
+/// `level>=99`: read only, any number from `val` up (what the dialect itself
+/// takes as another level); never written.
+pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool, min: bool = false };
 /// `when key=value` or `when nodes>=n` after a spelling: it is the one
 /// written only where the card gives that value for the parameter, or
 /// every instance that names the card has at least `n` terminals. The
@@ -439,6 +443,7 @@ pub const Grammar = struct {
     wraps: []const Wrap,
     raws: []const RawBlock,
     owns: []const Own = &.{},
+    no_families: []const NoFamily = &.{},
     blocks: []const Block,
     rules: []const Rule,
     models: []const ModelEntry,
@@ -518,6 +523,11 @@ pub const Grammar = struct {
                 if (first.len > pre.len and (if (g.lex.case_sensitive) std.mem.startsWith(u8, first, pre) else std.ascii.startsWithIgnoreCase(first, pre))) return o.reason;
             } else if (if (g.lex.case_sensitive) std.mem.eql(u8, first, o.word) else std.ascii.eqlIgnoreCase(first, o.word)) return o.reason;
         }
+        return null;
+    }
+
+    pub fn noFamilyReason(g: *const Grammar, family: []const u8) ?[]const u8 {
+        for (g.no_families) |n| if (std.mem.eql(u8, n.family, family)) return n.reason;
         return null;
     }
 
@@ -1329,6 +1339,9 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
                 }
                 if (pair[0] == '!') {
                     kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true });
+                } else if (std.mem.indexOf(u8, pair, ">=")) |ge| {
+                    if (!isNumber(pair[ge + 2 ..])) return c.fail(lines.no, "`key>=n` takes a number: '{s}'", .{pair});
+                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..ge]), .val = pair[ge + 2 ..], .absent = false, .min = true });
                 } else {
                     const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "expected key=value or !key in '{s}'", .{pair});
                     kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..pe]), .val = pair[pe + 1 ..], .absent = false });
@@ -1446,6 +1459,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var wraps: []const Wrap = &.{};
     var raws: []const RawBlock = &.{};
     var owns: []const Own = &.{};
+    var no_families: []const NoFamily = &.{};
     var blocks: []const Block = &.{};
     var rules: []const Rule = &.{};
     var models: []const ModelEntry = &.{};
@@ -1884,6 +1898,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "no")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind [slot] : reason`", .{});
             const e = try args(c, no, rest[0..colon]);
+            // `no model mos6 : reason`: a family this dialect has no model of.
+            if (e.len == 2 and std.mem.eql(u8, e[0], "model")) {
+                if (schema.familyKind(e[1]) == null) return c.fail(no, "no model: '{s}' is no model family", .{e[1]});
+                no_families = try c.add(NoFamily, no_families, .{ .family = e[1], .reason = rest[colon + 3 ..] });
+                continue;
+            }
             if (e.len != 1 and e.len != 2) return c.fail(no, "no needs a kind, or a kind and a slot", .{});
             const kind, const slot = if (e.len == 2) try kindSlot(c, no, e[0], e[1]) else .{ try kindOf(c, no, e[0]), no_slot };
             absent = try c.add(Absent, absent, .{ .kind = kind, .slot = slot, .reason = rest[colon + 3 ..] });
@@ -1901,6 +1921,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .wraps = wraps,
         .raws = raws,
         .owns = owns,
+        .no_families = no_families,
         .blocks = blocks,
         .rules = rules,
         .models = models,
