@@ -6757,7 +6757,7 @@ test "#52: a Verilog-A instance into Xyce is a Y line of its module, with a plug
     try reported(&r, .@"error", "model 'rmod' is of the Verilog-A module 'r3_cmc': xyce takes it only from a plugin of the module");
     try reported(&r, .@"error", "device: xyce instantiates the Verilog-A module 'r3_cmc' only through a plugin of it");
     // With one: `Y<module> name nodes model params`, read back the same.
-    const env: ir.Env = .{ .plugins = &.{.{ "r3_cmc", "r3_cmc.so" }} };
+    const env: ir.Env = .{ .provided = &.{.{ "r3_cmc", "r3_cmc.so" }} };
     var r1: ir.Report = .init(a);
     var aw: std.Io.Writer.Allocating = .init(a);
     _ = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find("xyce").?, src, &aw.writer, &r1, &sprack.caps, .{ .env = &env });
@@ -6772,4 +6772,41 @@ test "#52: a Verilog-A instance into Xyce is a Y line of its module, with a plug
     // A Y line whose model card is elsewhere keeps its module.
     var r3: ir.Report = .init(a);
     try has(try jsonOf(a, &try readAs(a, "xyce", "t\nYrlc rlc1 1 0 rmod R=1k\n.end\n", &r3)), "\"module\":\"rlc\"");
+}
+
+test "#53: a family a dialect has only as a module given to the translation" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A grammar that has BSIM-CMG as a provided module (no built-in line
+    // is added to ngspice's own until the module is measured).
+    const base = try std.Io.Dir.cwd().readFileAlloc(testing.io, "grammars/ngspice.spgrammar", a, .limited(1 << 20));
+    var text = try std.mem.replaceOwned(u8, a, base, "  vdmos      = vdmos\n", "  vdmos      = vdmos\n  bsimcmg n  = bsimcmg type=1 provided\n");
+    text = try std.fmt.allocPrint(a, "{s}\nneeds bsimcmg\n  .control\n  pre_osdi {{file}}\n  .endc\nend\n", .{text});
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "cmg.spgrammar", .data = text });
+    const path = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/cmg.spgrammar", .{tmp.sub_path});
+    var diag: sprack.grammar.Diag = .{};
+    const g = sprack.resolve(a, testing.io, path, &diag) catch |e| {
+        std.debug.print("{s}\n", .{diag.msg});
+        return e;
+    };
+    const src = "t\n.model nmos_lvt nmos level=72 version=107\nm1 d g 0 0 nmos_lvt l=20n nfin=3\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    // Nothing given: an error that names the option.
+    var r1: ir.Report = .init(a);
+    var w1: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, g, &w1.writer, &nl, &r1, null);
+    try reported(&r1, .@"error", "has no built-in bsimcmg; it runs one as a compiled module given to the translation: --provide bsimcmg=FILE");
+    // Given: the card, the load line once with the file, one caveat.
+    const env: ir.Env = .{ .provided = &.{.{ "bsimcmg", "/m/bsimcmg.osdi" }} };
+    var r2: ir.Report = .init(a);
+    var w2: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, g, &w2.writer, &nl, &r2, &env);
+    try has(w2.written(), ".control\npre_osdi /m/bsimcmg.osdi\n.endc\n");
+    try has(w2.written(), ".model nmos_lvt bsimcmg type=1");
+    try reported(&r2, .warning, "written for the module /m/bsimcmg.osdi given to the translation");
+    try testing.expectEqual(0, r2.count(.@"error"));
 }

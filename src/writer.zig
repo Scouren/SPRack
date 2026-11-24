@@ -1073,7 +1073,7 @@ const Writer = struct {
                         st.get("name").atom, ty, w.sourceOf(st), w.g.name,
                     });
                 } else if (w.needsPlugin(ty)) {
-                    w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from a plugin of the module; build one with buildxyceplugin and name it with --xyce-plugin {s}=FILE", .{ st.get("name").atom, ty, w.g.name, ty });
+                    w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from a plugin of the module; build one with buildxyceplugin and name it with --provide {s}=FILE", .{ st.get("name").atom, ty, w.g.name, ty });
                 } else if (w.g.absentReason(.device)) |why| {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s}", .{ st.get("name").atom, ty, why });
                 } else {
@@ -1125,6 +1125,18 @@ const Writer = struct {
             });
             return null;
         };
+        if (entry.provided) {
+            const file = w.providedFile(fam.atom) orelse {
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}): {s} has no built-in {s}; it runs one as a compiled module given to the translation: --provide {s}=FILE", .{
+                    st.get("name").atom, fam.atom, w.g.name, fam.atom, fam.atom,
+                });
+                return null;
+            };
+            if (w.plugins_said.get(fam.atom) == null) {
+                try w.plugins_said.put(w.arena, fam.atom, {});
+                w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): written for the module {s} given to the translation; {s} has no built-in one", .{ st.get("name").atom, fam.atom, file, w.g.name });
+            }
+        }
         const sp = try w.chooseSpelling(a, st, entry, fam.atom);
         var out = try ir.newStmt(a, .model, st.line);
         out.tail = st.tail;
@@ -1724,8 +1736,15 @@ const Writer = struct {
 
     /// A Verilog-A instance where the target names the module on it (Xyce
     /// `Y<module>`): the module of its model card, if the target has a
-    /// plugin of it (`ir.Env.plugins`); else an error that says how to get
+    /// plugin of it (`ir.Env.provided`); else an error that says how to get
     /// one. Null: written as it is.
+    /// The file given to the translation under this name (`--provide`).
+    fn providedFile(w: *const Writer, name: []const u8) ?[]const u8 {
+        const given: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
+        for (given) |p| if (std.ascii.eqlIgnoreCase(p[0], name)) return p[1];
+        return null;
+    }
+
     /// Does this dialect name the module on the instance (a plugin's), and
     /// has no plugin of this one been named?
     fn needsPlugin(w: *const Writer, module: []const u8) bool {
@@ -1734,7 +1753,7 @@ const Writer = struct {
             if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) break true;
         } else false;
         if (!says) return false;
-        const plugins: []const [2][]const u8 = if (w.env) |e| e.plugins else &.{};
+        const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
         for (plugins) |p| if (std.ascii.eqlIgnoreCase(p[0], module)) return false;
         return true;
     }
@@ -1749,11 +1768,11 @@ const Writer = struct {
         if (!says) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
         const module = w.modules.get(master) orelse return .keep;
-        const plugins: []const [2][]const u8 = if (w.env) |e| e.plugins else &.{};
+        const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
         const file = for (plugins) |p| {
             if (std.ascii.eqlIgnoreCase(p[0], module)) break p[1];
         } else {
-            w.report.add(.@"error", .unsupported, st.line, "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of it: build one with buildxyceplugin and name it with --xyce-plugin {s}=FILE", .{ w.g.name, module, module });
+            w.report.add(.@"error", .unsupported, st.line, "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of it: build one with buildxyceplugin and name it with --provide {s}=FILE", .{ w.g.name, module, module });
             try w.comment(try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom) st.get("name").atom else "device"}));
             return .done;
         };
@@ -3337,6 +3356,16 @@ fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allo
     }
 }
 
+/// A `needs` line with `{file}`: the file given for the family.
+fn needLine(arena: Allocator, l: []const u8, family: []const u8, env: ?*const ir.Env) Allocator.Error![]const u8 {
+    const at = std.mem.indexOf(u8, l, "{file}") orelse return l;
+    const given: []const [2][]const u8 = if (env) |e| e.provided else &.{};
+    const file = for (given) |p| {
+        if (std.ascii.eqlIgnoreCase(p[0], family)) break p[1];
+    } else return l;
+    return std.fmt.allocPrint(arena, "{s}{s}{s}", .{ l[0..at], file, l[at + 6 ..] });
+}
+
 fn collectModules(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and s.get("name") == .atom)
@@ -3694,7 +3723,7 @@ pub fn write(
                 } else unreachable;
                 if (!fams[fi]) continue;
             } else if (!used[@backingInt(n.kind)]) continue;
-            for (n.lines) |l| try w.line(l);
+            for (n.lines) |l| try w.line(try needLine(arena, l, n.family, env));
         }
     }
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
@@ -4026,7 +4055,7 @@ pub const Stream = struct {
                     } else unreachable;
                     if (!fams[fi]) continue;
                 } else if (!used[@backingInt(n.kind)]) continue;
-                for (n.lines) |l| try w.line(l);
+                for (n.lines) |l| try w.line(try needLine(perm, l, n.family, env));
             }
         }
         if (s.foreign and g.unique_master.len > 0) {

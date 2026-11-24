@@ -415,9 +415,11 @@ pub const Env = struct {
     /// file is written with the one its parameters select.
     // ponytail: the whole statement; only its parameters and blocks if a PDK's are too many to hold.
     conditional: std.ArrayList(Stmt) = .empty,
-    /// Verilog-A modules there is a simulator plugin for, and its file
-    /// (`--xyce-plugin r3_cmc=r3_cmc.so`): Xyce loads them on its command line.
-    plugins: []const [2][]const u8 = &.{},
+    /// Files given to the translation by name (`--provide`): a Verilog-A
+    /// module's Xyce plugin (`r3_cmc=r3_cmc.so`, loaded on Xyce's command
+    /// line), or the compiled module of a family a dialect has no model of
+    /// built in (`bsimcmg=bsimcmg.osdi`, a `provided` line of its models).
+    provided: []const [2][]const u8 = &.{},
 
     /// Everything is copied into `arena`, so `stmts` may be freed afterwards.
     pub fn absorb(env: *Env, arena: Allocator, stmts: []const Stmt) Allocator.Error!void {

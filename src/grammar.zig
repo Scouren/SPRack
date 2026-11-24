@@ -425,10 +425,14 @@ pub const ModelWhen = struct {
     }
 };
 pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv, when: []const ModelWhen = &.{} };
+/// `provided`: the dialect has the family only as a compiled module the
+/// translation is given (`--provide family=FILE`); without one it is an
+/// error, as a family with no line.
 pub const ModelEntry = struct {
     family: []const u8,
     polarity: []const u8,
     spellings: []const ModelSpelling,
+    provided: bool = false,
 };
 
 pub const Grammar = struct {
@@ -1336,7 +1340,10 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
         if (lhs.len < 1 or lhs.len > 2) return c.fail(lines.no, "expected `family [polarity]` before '='", .{});
         if (schema.familyKind(lhs[0]) == null) return c.fail(lines.no, "unknown model family '{s}'", .{lhs[0]});
         var spellings: []const ModelSpelling = &.{};
-        var it = std.mem.splitScalar(u8, line[eq + 3 ..], '|');
+        var rhs = std.mem.trimEnd(u8, line[eq + 3 ..], " \t");
+        const provided = std.mem.endsWith(u8, rhs, " provided");
+        if (provided) rhs = rhs[0 .. rhs.len - " provided".len];
+        var it = std.mem.splitScalar(u8, rhs, '|');
         while (it.next()) |alt| {
             const w = try args(c, lines.no, alt);
             if (w.len == 0) return c.fail(lines.no, "empty model spelling", .{});
@@ -1375,6 +1382,7 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
             .family = lhs[0],
             .polarity = if (lhs.len == 2) lhs[1] else "",
             .spellings = spellings,
+            .provided = provided,
         });
     }
     return c.fail(lines.no, "models section is missing 'end'", .{});

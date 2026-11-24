@@ -291,6 +291,12 @@ models
                                    # A card that cannot be told (no version,
                                    # no instance in the file) gets the first
                                    # spelling without conditions, a `caveat`
+  bsimcmg n = bsimcmg type=1 provided
+                                   # `provided`: only as a compiled module
+                                   # given to the translation (`--provide
+                                   # bsimcmg=FILE`); without one, an error
+                                   # that names the option. A `needs` line
+                                   # may hold `{file}`: the file given
   mos1 n = nmos level=1 | nmos !level | nmos level>=99
                                    # `!key`: the card does not give it;
                                    # `key>=n`: read only, any number from n

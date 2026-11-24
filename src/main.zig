@@ -22,9 +22,11 @@ const usage =
     \\        are listed as not followed. --errata FILE reads the lines a
     \\        PDK's own simulator refuses as the JSON file says (a list of
     \\        {file, was, read, why}, or a manifest's "errata").
-    \\        --xyce-plugin MODULE=FILE (translate and project): a Xyce
-    \\        plugin of that Verilog-A module, built with buildxyceplugin;
-    \\        its instances are written as Y<module> lines.
+    \\        --provide NAME=FILE (translate and project, repeatable): a
+    \\        file given by name: a Xyce plugin of a Verilog-A module (built
+    \\        with buildxyceplugin; its instances become Y<module> lines;
+    \\        --xyce-plugin is the same), or the compiled module of a model
+    \\        family the target has only as a module (bsimcmg=FILE).
     \\  sprack read --from <dialect> [file]
     \\        The netlist as JSON (the internal representation).
     \\  sprack write --to <dialect> [file.json] [-o out]
@@ -72,7 +74,7 @@ const Args = struct {
     library: bool = false,
     sections: std.ArrayList([]const u8) = .empty,
     errata: ?[]const u8 = null,
-    plugins: std.ArrayList([2][]const u8) = .empty,
+    provided: std.ArrayList([2][]const u8) = .empty,
 };
 
 fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []const u8) *const sprack.Grammar {
@@ -208,10 +210,10 @@ pub fn main(init: std.process.Init) !void {
             a.out = argv[i];
         } else if (std.mem.eql(u8, arg, "--lib")) {
             a.library = true;
-        } else if (std.mem.eql(u8, arg, "--xyce-plugin") and has_next) {
+        } else if ((std.mem.eql(u8, arg, "--provide") or std.mem.eql(u8, arg, "--xyce-plugin")) and has_next) {
             i += 1;
-            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(io, "--xyce-plugin takes MODULE=FILE\n", .{});
-            try a.plugins.append(arena, .{ argv[i][0..eq], argv[i][eq + 1 ..] });
+            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(io, "{s} takes NAME=FILE\n", .{arg});
+            try a.provided.append(arena, .{ argv[i][0..eq], argv[i][eq + 1 ..] });
         } else if (std.mem.eql(u8, arg, "--errata") and has_next) {
             i += 1;
             a.errata = argv[i];
@@ -228,8 +230,8 @@ pub fn main(init: std.process.Init) !void {
     }
     const cwd = std.Io.Dir.cwd();
     // Plugins only (`--xyce-plugin`): an environment that holds nothing else.
-    var plugin_holder: ir.Env = .{ .plugins = a.plugins.items };
-    const plugin_env: ?*const ir.Env = if (a.plugins.items.len > 0) &plugin_holder else null;
+    var plugin_holder: ir.Env = .{ .provided = a.provided.items };
+    const plugin_env: ?*const ir.Env = if (a.provided.items.len > 0) &plugin_holder else null;
 
     if (std.mem.eql(u8, cmd, "project") or std.mem.eql(u8, cmd, "catalog")) {
         const listing = cmd[0] == 'c';
@@ -248,7 +250,7 @@ pub fn main(init: std.process.Init) !void {
             .vars = a.vars.items,
             .library = a.library or listing,
             .sections = a.sections.items,
-            .plugins = a.plugins.items,
+            .provided = a.provided.items,
             .errata = if (a.errata) |path| blk: {
                 const text = cwd.readFileAlloc(io, path, arena, .limited(16 << 20)) catch |e| die(io, "cannot read {s}: {s}\n", .{ path, @errorName(e) });
                 break :blk sprack.project.parseErrata(arena, text) catch |e| switch (e) {

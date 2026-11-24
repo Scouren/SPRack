@@ -1840,6 +1840,23 @@ Not run here (no Xyce with ADMS in this environment): whether those
 modules build as Xyce plugins, the plugin's own model-card type, and their
 results against ngspice. Until they are, IHP's manifest names no plugin.
 
+### 4.37 BSIM-CMG as a module given to the translation (#53, in part)
+
+The mechanism is in: a `models` line marked `provided` is written only
+when the translation is given the module's file (`--provide bsimcmg=FILE`,
+the same option as #52's plugins), its `needs` line takes the file in
+place of `{file}`, and one caveat names it; with no file, the error names
+the option. A test builds a grammar with such a line and checks both.
+
+Not done, and so no `provided` line is in ngspice's or VACASK's grammar:
+the measurement the issue asks for first. It needs the BSIM-CMG 107
+Verilog-A source and openvaf-r to compile it for ngspice, and VACASK to
+run it, none of which this environment has. The reference is Xyce 7.10's
+level 107 at L = 20n, NFIN = 3, 0.7 V on gate and drain (from the issue):
+nmos_rvt 113.55035 uA, pmos_rvt 98.631343 uA. Until a run matches it,
+ASAP7 into ngspice and VACASK keeps its 24 errors, and the version check
+and the manifest's per-target `load` keys wait with the grammar line.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
