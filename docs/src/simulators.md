@@ -101,6 +101,14 @@ nothing.
 | `oneway` | info | written in a form the target's own grammar does not read back |
 | `cosmetic` | info | something without meaning was not written (an analysis label) |
 
+Text a rule carried verbatim, such as an HSPICE `.meas` form no rule
+types, is the source's syntax: between two dialects it is an `invalid`
+error, written as it was. Written back in its own dialect, the lines no
+rule understood are kept as they were, and one `oneway` note a file says
+how many: the simulator itself may still refuse them. A block the target
+has not (HSPICE's `.variation`) is one error that counts the statements it
+held; each of them is in the output as a comment.
+
 One real entry of each, with what to do about it:
 
 ```text

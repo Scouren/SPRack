@@ -42,6 +42,15 @@ M1 d g s b pch w={w} l={l}
 
 ## Without a manifest
 
+A netlist translated on its own, apart from its library, cannot know what
+the library's subcircuits hold. Where the target has no conditional
+blocks (Xyce, CDL), a subcircuit that holds one is written once for each
+branch, and an instance names the one its parameters select; an instance
+of a library translated separately keeps the subcircuit's own name, which
+is the branch of the defaults. Such an instance with parameters is an
+`ambiguous` warning: translate the netlist and the library together, with
+`sprack project` or through `sprack.PDK`.
+
 ### In Python
 
 Name the library in the circuit, in the dialect it is written in. The

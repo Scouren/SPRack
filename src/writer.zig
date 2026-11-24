@@ -776,8 +776,11 @@ const Emit = struct {
                     };
                     if (!std.ascii.endsWithIgnoreCase(t, c.suffix)) continue;
                 }
-                // Text carried verbatim may read differently on the other side.
-                e.report.add(.warning, if (e.slot(c.slot).ty == .text) .ambiguous else .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
+                // Text carried verbatim is the source's syntax, not the
+                // target's: an error (a measure's spec that ngspice refuses).
+                if (e.slot(c.slot).ty == .text) {
+                    e.report.add(.@"error", .invalid, e.st.line, "{s}.{s}: {s}; it is {s} text, written as it was", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text, e.source });
+                } else e.report.add(.warning, .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
             }
         };
         if (e.lost_flags > 0) {
@@ -867,6 +870,12 @@ const Writer = struct {
     splits: std.ArrayList(struct { name: []const u8, split: cond.Split }) = .empty,
     /// Why the subcircuit being written is not one of them.
     unsplit: []const u8 = "",
+    /// The first instance that gives parameters to a subcircuit of another
+    /// file, where the target has no conditional blocks (`foreignNote`).
+    foreign_inst: ?struct { line: u32, name: []const u8, master: []const u8 } = null,
+    /// Lines no rule understood, written back as they were in their own
+    /// dialect: one note a file (`keptNote`).
+    kept: struct { n: usize = 0, line: u32 = 0 } = .{},
     /// The nodes the netlist's `.ic` statements set (`capacitorParts`).
     ic_nodes: ir.CaselessSet = .empty,
     /// How many subcircuits the statement being written is inside.
@@ -1294,6 +1303,23 @@ const Writer = struct {
         }
     }
 
+    /// After the last statement: an instance whose subcircuit may be
+    /// written once for each branch in its own file, said once.
+    fn foreignNote(w: *Writer) void {
+        const x = w.foreign_inst orelse return;
+        w.report.add(.warning, .ambiguous, x.line, "instance '{s}' gives parameters to subcircuit '{s}', which is not in this file; {s} has no conditional blocks, so a subcircuit that holds one is written once for each branch, and which one this instance names can only be told with the library: translate the two together (`sprack project`, or a PDK)", .{
+            x.name, x.master, w.g.name,
+        });
+    }
+
+    /// After the last statement: the lines written back as text, said once.
+    fn keptNote(w: *Writer) void {
+        if (w.kept.n == 0) return;
+        w.report.add(.info, .oneway, w.kept.line, "{d} statement{s} no {s} rule understood {s} written back as {s}, from this line on; {s} itself may refuse {s}, and they read back as text (`sprack audit` counts them)", .{
+            w.kept.n, if (w.kept.n == 1) "" else "s", w.g.name, if (w.kept.n == 1) "is" else "are", if (w.kept.n == 1) "it was" else "they were", w.g.name, if (w.kept.n == 1) "it" else "them",
+        });
+    }
+
     /// After the last statement: what `refused` gathered, one entry a rule.
     /// A loss, so that the cards reading back without the parameter is explained.
     fn refusals(w: *Writer) void {
@@ -1557,7 +1583,36 @@ const Writer = struct {
     }
 
     /// `also`: what more there is to the reason, as the end of its sentence.
+    /// The statements a block holds, at any depth, comments aside.
+    fn bodyCount(stmts: []const ir.Stmt) usize {
+        var n: usize = 0;
+        for (stmts) |*s| {
+            if (s.kind != .comment) n += 1;
+            n += bodyCount(s.body);
+        }
+        return n;
+    }
+
+    /// The statements of a block not written, each as a comment.
+    fn bodyComments(w: *Writer, a: Allocator, stmts: []const ir.Stmt) Error!void {
+        for (stmts) |*s| {
+            if (s.kind == .comment) continue;
+            if (s.kind == .@"opaque") {
+                var it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, s.raw, "\n"), '\n');
+                while (it.next()) |l| try w.comment(try a.print("[sprack] not written: {s}", .{l}));
+            } else {
+                const name = s.get("name");
+                try w.comment(try a.print("[sprack] not written: {s}{s}{s}", .{ @tagName(s.kind), if (name == .atom) " " else "", if (name == .atom) name.atom else "" }));
+            }
+            try w.bodyComments(a, s.body);
+        }
+    }
+
     fn unsupported(w: *Writer, a: Allocator, st: *const ir.Stmt, also: []const u8) Error!void {
+        const held = bodyCount(st.body);
+        const after = if (held == 0) "" else try a.print(". The {d} statement{s} it holds {s} not written either, and {s} in the output as comments", .{
+            held, if (held == 1) "" else "s", if (held == 1) "is" else "are", if (held == 1) "is" else "are",
+        });
         const who = w.supporters(st.kind);
         const what = switch (schema.info(st.kind).class) {
             .analysis => "analysis",
@@ -1570,10 +1625,11 @@ const Writer = struct {
             })
         else
             try a.print("{s}.spgrammar defines no rule for it", .{w.g.name});
-        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}{s}. Dialects that define it: {s}", .{
-            what, @tagName(st.kind), w.g.name, reason, also, if (who.len > 0) who else "none",
+        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}{s}. Dialects that define it: {s}{s}", .{
+            what, @tagName(st.kind), w.g.name, reason, also, if (who.len > 0) who else "none", after,
         });
         try w.comment(try a.print("[sprack] not written: {s} '{s}' has no {s} form", .{ what, @tagName(st.kind), w.g.name }));
+        try w.bodyComments(a, st.body);
     }
 
     fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
@@ -1688,6 +1744,18 @@ const Writer = struct {
             for (new.items) |key| try said.put(w.arena, key, {});
             new.clearRetainingCapacity();
         }
+    }
+
+    /// The first instance that gives parameters to a subcircuit no file
+    /// read declares.
+    fn foreignInstance(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!?*const ir.Stmt {
+        for (stmts) |*s| {
+            if (s.kind == .instance and s.get("master") == .atom and s.get("params") == .params and s.get("name") == .atom) {
+                if (!w.declared.contains(try std.ascii.allocLowerString(w.arena, s.get("master").atom))) return s;
+            }
+            if (try w.foreignInstance(s.body)) |x| return x;
+        }
+        return null;
     }
 
     /// Notes every subcircuit of `stmts` that is written as several.
@@ -1841,18 +1909,24 @@ const Writer = struct {
             return w.comment(st.raw);
         }
         if (st.kind == .@"opaque") {
-            if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return w.lineTail(st.raw, st.tail);
+            if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) {
+                if (w.kept.n == 0) w.kept.line = st.line;
+                w.kept.n += 1;
+                return w.lineTail(st.raw, st.tail);
+            }
             // A region the source grammar keeps verbatim, and says why.
             if (w.caps) |c| for (c.grammars) |*sg| {
                 if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
                 for (sg.raws) |rb| {
                     if (rb.reason.len == 0 or !std.mem.startsWith(u8, st.raw, rb.open)) continue;
-                    w.report.add(.@"error", .unsupported, st.line, "'{s}' cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), w.g.name, rb.reason });
+                    const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
+                    w.report.add(.@"error", .unsupported, st.line, "'{s}'{s} cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" and the {d} line{s} after it", .{ more, if (more == 1) "" else "s" }), w.g.name, rb.reason });
                     return w.comment(try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}));
                 }
             };
-            w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this line; it is in the output only as a comment: {s}", .{
-                w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'),
+            const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
+            w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this line; it is in the output only as a comment: {s}{s}", .{
+                w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" (and {d} more line{s} of it)", .{ more, if (more == 1) "" else "s" }),
             });
             return w.comment(try a.print("[sprack] untranslated {s}: {s}", .{ w.sourceOf(st), st.raw }));
         }
@@ -1909,6 +1983,15 @@ const Writer = struct {
             if (w.g.absentReason(st.kind) == null) {
                 if (try ir.demoteToInstance(a, st)) |inst| {
                     if (w.g.canWrite(.instance)) {
+                        // Written as an instance of its model: with no card for
+                        // it in any file read, it reads back as a subcircuit's.
+                        if (st.get("master") == .atom and !std.mem.eql(u8, w.sourceOf(st), w.g.name)) {
+                            const m = st.get("master").atom;
+                            const known = w.declared.contains(try std.ascii.allocLowerString(a, m)) or w.families.contains(m);
+                            if (!known) w.report.add(.warning, .ambiguous, st.line, "{s} '{s}': its model '{s}' is declared in no file read; {s} tells a {s} from a subcircuit instance only by its model, so it reads back as an instance of '{s}'", .{
+                                @tagName(st.kind), st.get("name").atom, m, w.g.name, @tagName(st.kind), m,
+                            });
+                        }
                         w.ordinals[@backingInt(st.kind)] -= 1;
                         return w.leaf(a, &inst);
                     }
@@ -3303,6 +3386,9 @@ pub fn write(
         w.sole = s;
     };
     if (n_analyses != 1) w.sole = null;
+    if (!g.canWrite(.cond_if) and env == null and !std.mem.eql(u8, nl.dialect, g.name)) {
+        if (try w.foreignInstance(stmts)) |x| w.foreign_inst = .{ .line = x.line, .name = x.get("name").atom, .master = x.get("master").atom };
+    }
     if (!g.canWrite(.cond_if)) {
         try w.noteSplits(stmts);
         // ponytail: each file of a project works the environment's out again; once a project if a PDK has thousands.
@@ -3325,6 +3411,8 @@ pub fn write(
     }
     if (g.lex.end_marker.len > 0 and !nl.library) try w.line(g.lex.end_marker);
     w.refusals();
+    w.keptNote();
+    w.foreignNote();
     const cp = w.copied;
     if (cp.n == 1) {
         report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
@@ -3614,6 +3702,9 @@ pub const Stream = struct {
         w.arena = arena;
         defer w.arena = s.keep.perm;
         var stmts = stmts_in;
+        if (s.foreign and w.foreign_inst == null and !g.canWrite(.cond_if) and w.env == null) {
+            if (try w.foreignInstance(stmts)) |x| w.foreign_inst = .{ .line = x.line, .name = try s.keep.text(x.get("name").atom), .master = try s.keep.text(x.get("master").atom) };
+        }
         try s.refs.add(s.keep, stmts);
         report.phase = ir.Phase.case;
         if (s.case) try checkCase(stmts, &s.seen, report, g.name, s.keep);
@@ -3712,6 +3803,8 @@ pub const Stream = struct {
         if (g.lex.end_marker.len > 0 and !s.nl.library) try w.line(g.lex.end_marker);
         report.phase = ir.Phase.caveat;
         w.refusals();
+        w.keptNote();
+        w.foreignNote();
         const cp = w.copied;
         if (cp.n == 1) {
             report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{

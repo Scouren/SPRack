@@ -105,9 +105,10 @@ const Matcher = struct {
         switch (ty) {
             // HSPICE `.meas dc "ia" ...` is the measurement ia: a label.
             .name => return if ((t.tag == .word or (t.tag == .str and cfg.dquote_expr)) and lexer.isNameLike(t.text)) .{ .atom = if (t.tag == .str) t.text else t.raw } else null,
-            .node => return if (t.tag == .word and lexer.isNameLike(t.text)) .{ .atom = t.raw } else null,
+            // A word ending in a colon is a keyword (`params:`), never a node.
+            .node => return if (t.tag == .word and lexer.isNameLike(t.text) and !std.mem.endsWith(u8, t.text, ":")) .{ .atom = t.raw } else null,
             .ident, .ref => {
-                if (t.tag != .word or !lexer.isNameLike(t.text)) return null;
+                if (t.tag != .word or !lexer.isNameLike(t.text) or std.mem.endsWith(u8, t.text, ":")) return null;
                 // A model or subcircuit name starts like a name, not like an operator.
                 if (!(std.ascii.isAlphanumeric(t.text[0]) or t.text[0] == '_')) return null;
                 if (lexer.parseNumber(self.arena, cfg, t.text) != null) return null;

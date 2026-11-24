@@ -909,7 +909,44 @@ test "lines no rule understands are errors across dialects and untouched within 
     var r2: ir.Report = .init(a);
     const ng = try tr(a, "ngspice", "ngspice", src, &r2);
     try has(ng, ".alter second run\n.control\nrun\nplot v(a) $ nutmeg\n.endc\n");
-    try testing.expectEqual(0, r2.items.items.len);
+    // One note says so: ngspice itself may refuse such a line.
+    try testing.expectEqual(1, r2.items.items.len);
+    try reported(&r2, .info, "2 statements no ngspice rule understood are written back as they were");
+    try testing.expectEqual(0, r2.count(.@"error"));
+}
+
+test "the report says what crosses: a dropped block's statements, text in another syntax, a block's lines" {
+    // Issue 36.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A block the target has not: its statements are counted and kept as comments.
+    var r1: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", "* t\n.variation\n.element_variation\nr r=10%\nc c=5%\n.end_element_variation\n.end_variation\nR1 a 0 1k\n.end\n", &r1);
+    try has(ng, "* [sprack] not written: r r=10%\n* [sprack] not written: c c=5%\n");
+    try reported(&r1, .@"error", "statement 'statistics' cannot be written for ngspice: ngspice has no statistics block");
+    try reported(&r1, .@"error", ". The 4 statements it holds are not written either, and are in the output as comments");
+    // A measure carried as text is the source's syntax: an error between dialects.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ngspice", "t\nV1 out 0 sin(0 1 1k)\nR1 out 0 1k\n.tran 1u 2m\n.meas tran thd1 thd v(out)\n.end\n", &r2);
+    try reported(&r2, .@"error", "measure.spec: carried as text: the probes, expressions and numbers in it were not translated; it is hspice text, written as it was");
+    // A raw block of three lines: the message says the rest.
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", "t\nR1 a 0 1k\n.control\nsave all\nop\n.endc\n.end\n", &r3);
+    try reported(&r3, .@"error", "it is in the output only as a comment: .control (and 3 more lines of it)");
+    // A word ending in a colon is no port: HSPICE reads ngspice's params: as no rule's.
+    var r4: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce", "t\n.subckt div a b params: rt=1k\nR1 a b rt\n.ends\nx1 in mid div params: rt=2k\n.end\n", &r4);
+    try testing.expect(std.mem.indexOf(u8, xy, "params: params:") == null);
+    try reported(&r4, .@"error", "no hspice rule understood this line; it is in the output only as a comment: .subckt div a b params: rt=1k");
+    // An instance given parameters, its subcircuit in another file: said once.
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nX1 a 0 msel rfmode=1\nX2 b 0 msel rfmode=0\n.end\n", &r5);
+    try reported(&r5, .warning, "instance 'X1' gives parameters to subcircuit 'msel', which is not in this file; xyce has no conditional blocks");
+    try testing.expectEqual(1, r5.countCode(.ambiguous));
+    var r6: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.subckt msel a b rfmode=0\nR1 a b 1k\n.ends\nX1 a 0 msel rfmode=1\n.end\n", &r6);
+    try testing.expectEqual(0, r6.countCode(.ambiguous));
 }
 
 test "comments, blank lines and trailing comments are carried over" {
@@ -1581,10 +1618,11 @@ test "a name an expression refers to keeps its spelling when its definition is e
         \\
     ;
     var r: ir.Report = .init(a);
-    // Not the same read back, and nothing says so: M1's model is declared
-    // in no file here, so Spectre's reader cannot tell it from a subcircuit
-    // instance (`ir.resolveInstances`).
-    const sp = try trx(a, "ngspice", "spectre", src, &r, .{ .silent = true });
+    // Not the same read back: M1's model is declared in no file here, so
+    // Spectre's reader cannot tell it from a subcircuit instance
+    // (`ir.resolveInstances`), and the report says so.
+    const sp = try tr(a, "ngspice", "spectre", src, &r);
+    try reported(&r, .warning, "mosfet 'M1': its model 'nch' is declared in no file read; spectre tells a mosfet from a subcircuit instance only by its model");
     for ([_][]const u8{
         "VP (inp 0) vsource dc=VCM mag=1\n",
         // The source VDD, its node vdd and the parameter VDD are three names.
@@ -3901,7 +3939,7 @@ test "b4: output forms and measurements" {
     try has(x, ".print dc {-i(vc)} i(vids)\n");
     try has(x, ".measure tran tb trig v(b)=0.2 rise=1 targ v(b)=0.4 rise=1\n");
     try has(x, ".measure tran q1 param={tb*2}\n");
-    try reported(&r2, .warning, "measure.spec: carried as text");
+    try reported(&r2, .@"error", "measure.spec: carried as text");
     var r3: ir.Report = .init(a);
     const hs = try tr(a, "ngspice", "hspice", src, &r3);
     try has(hs, ".print dc par('-i(vc)') i(vids)\n");
