@@ -48,7 +48,7 @@ for label, pick in (("OWN DIALECT", own), ("OTHER DIALECT", lambda r: not own(r)
         print(f"    {k:<16}{n:>6} / {kfiles[k]}")
     print("WRITING, per target (decks expected to be refused apart):")
     print(f"  {'target':<9}{'files':>6}{'same':>6}{'explained':>10}{'SILENT':>8}{'reread?':>9}{'err files':>10}{'refused ok':>11}  untranslated/unsupported/loss/synth/caveat/rename")
-    for t in ["ngspice", "hspice", "xyce", "spectre", "vacask"]:
+    for t in ["ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl"]:
         rs = [r for r in sel if r["to"] == t and ran(r)]
         agree = [r for r in rs if refused(r) and I(r, "errors") > 0]
         rs = [r for r in rs if r not in agree]

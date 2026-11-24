@@ -71,8 +71,8 @@ python3 -I tools/corpus_summary.py out.tsv
 python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv out.tsv
 ```
 
-`corpus_audit.py` runs every deck to every target and writes one row per
-run. Each deck is read in the dialect its oracle names (`tokenizer` in
+`corpus_audit.py` runs every deck to every target (all seven built-in
+writers, LTspice and CDL included) and writes one row per run. Each deck is read in the dialect its oracle names (`tokenizer` in
 `<stem>.expected.json`, else ngspice; a `.sim` is VACASK), and also in each
 dialect the last argument lists; the `declared` column says which reads are
 the deck's own, and `expect` whether the suite expects it to be refused.

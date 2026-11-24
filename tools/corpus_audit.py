@@ -17,7 +17,9 @@ import json, subprocess, sys, os, time
 from concurrent.futures import ThreadPoolExecutor
 
 sprack_bin, root, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
-targets = ["ngspice", "hspice", "xyce", "spectre", "vacask"]
+# Every built-in writer: LTspice and CDL too, so their errors and any silent
+# difference are gated like the others (issue 60).
+targets = ["ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl"]
 sources = sys.argv[4].split(",") if len(sys.argv) > 4 else ["ngspice"]
 
 

@@ -249,6 +249,14 @@ Whole model libraries, all corners, errors per target:
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
 | GF180MCU (ngspice) | 4 | 0 | 0 | 181 | 0 | 0 |
 
+LTspice and CDL have no column. CDL is the netlist of LVS, with no model
+cards to write, so a model library has nothing for it. LTspice has no
+resistor or capacitor model family and few of the functions PDKs use, so a
+whole library has errors by the hundred (87 for sky130, 241 for IHP and 250
+for GF180 when last counted, against 0 for FreePDK45), which says more about
+the target than about the translation; the corpus audit writes and gates
+both targets like the others.
+
 Every error names a file and a line. What is left, and whose it is:
 
 - sky130: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses ([issue 25](https://github.com/Scouren/SPRack/issues/25)), are read through the errata of its manifest (`python/sprack/pdks/sky130A.json`, `sprack project --errata`), each a caveat: the include of the ESD transistor with its real path, and the Monte Carlo resistor as a resistor with `tc1` and `tc2`. A third, in the installed sky130A, puts an instance's subcircuit after its parameters.
