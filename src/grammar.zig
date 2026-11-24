@@ -380,7 +380,22 @@ pub const Require = struct { what: Topo, err: bool, analyses: []const Kind = &.{
 pub const UniqueAnalysis = struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
 
 pub const ModelKv = struct { key: []const u8, val: []const u8, absent: bool };
-pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv };
+/// `when key=value` or `when nodes>=n` after a spelling: it is the one
+/// written only where the card gives that value for the parameter, or
+/// every instance that names the card has at least `n` terminals. The
+/// first spelling whose conditions hold is written.
+pub const ModelWhen = struct {
+    key: []const u8,
+    val: []const u8,
+    /// `>=`: at least; otherwise equal.
+    ge: bool = false,
+
+    /// The terminal count of the instances, not a parameter of the card.
+    pub fn isNodes(w: ModelWhen) bool {
+        return std.mem.eql(u8, w.key, "nodes");
+    }
+};
+pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv, when: []const ModelWhen = &.{} };
 pub const ModelEntry = struct {
     family: []const u8,
     polarity: []const u8,
@@ -1231,7 +1246,23 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
             const w = try args(c, lines.no, alt);
             if (w.len == 0) return c.fail(lines.no, "empty model spelling", .{});
             var kv: []const ModelKv = &.{};
+            var when: []const ModelWhen = &.{};
+            var conds = false;
             for (w[1..]) |pair| {
+                if (std.mem.eql(u8, pair, "when")) {
+                    conds = true;
+                    continue;
+                }
+                if (conds) {
+                    const ge = std.mem.indexOf(u8, pair, ">=");
+                    const pe = ge orelse (std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "expected key=value or nodes>=n after `when` in '{s}'", .{pair}));
+                    const key = pair[0..pe];
+                    const val = pair[pe + @as(usize, if (ge != null) 2 else 1) ..];
+                    if (val.len == 0 or !isNumber(val)) return c.fail(lines.no, "a `when` value is a number: '{s}'", .{pair});
+                    if (ge != null and !std.mem.eql(u8, key, "nodes")) return c.fail(lines.no, "only `nodes>=n` compares; a parameter is `key=value`: '{s}'", .{pair});
+                    when = try c.add(ModelWhen, when, .{ .key = try c.foldIf(fold, key), .val = val, .ge = ge != null });
+                    continue;
+                }
                 if (pair[0] == '!') {
                     kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true });
                 } else {
@@ -1239,7 +1270,8 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
                     kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..pe]), .val = pair[pe + 1 ..], .absent = false });
                 }
             }
-            spellings = try c.add(ModelSpelling, spellings, .{ .type = try c.foldIf(fold, w[0]), .kv = kv });
+            if (conds and when.len == 0) return c.fail(lines.no, "`when` with no condition after it", .{});
+            spellings = try c.add(ModelSpelling, spellings, .{ .type = try c.foldIf(fold, w[0]), .kv = kv, .when = when });
         }
         out = try c.add(ModelEntry, out, .{
             .family = lhs[0],
@@ -1842,6 +1874,7 @@ const tiny =
     \\models
     \\  bsim4 n = nmos level=14 | nmos level=54
     \\  mos1 n = nmos level=1 | nmos !level
+    \\  vbic npn = npn level=12 when nodes>=4 | npn level=11
     \\end
 ;
 
@@ -1855,8 +1888,11 @@ fn expectTiny(g: Grammar) !void {
     try std.testing.expectEqual(NodeTag.opt, g.rules[1].pat[3].tag);
     try std.testing.expectEqualStrings("yes", g.rules[1].pat[4].kids[0].atom);
     try std.testing.expectEqual(NodeTag.alt, g.rules[2].pat[1].tag);
-    try std.testing.expectEqual(2, g.models.len);
+    try std.testing.expectEqual(3, g.models.len);
     try std.testing.expect(g.models[1].spellings[1].kv[0].absent);
+    try std.testing.expect(g.models[2].spellings[0].when[0].ge and g.models[2].spellings[0].when[0].isNodes());
+    try std.testing.expectEqualStrings("4", g.models[2].spellings[0].when[0].val);
+    try std.testing.expectEqual(0, g.models[2].spellings[1].when.len);
     try std.testing.expect(g.canWrite(.tran) and !g.canWrite(.noise));
 }
 
@@ -1891,4 +1927,9 @@ test "a broken grammar at run time names the file and line" {
             return error.TestUnexpectedResult;
         }
     }
+}
+
+fn isNumber(text: []const u8) bool {
+    _ = std.fmt.parseFloat(f64, text) catch return false;
+    return true;
 }

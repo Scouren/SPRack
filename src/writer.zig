@@ -867,6 +867,8 @@ const Writer = struct {
     ic_nodes: ir.CaselessSet = .empty,
     /// How many subcircuits the statement being written is inside.
     depth: u32 = 0,
+    /// The terminals of the instances of each model (`collectTerminals`).
+    terminals: TerminalMap = .empty,
 
     const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 = "", line: u32 = 0 };
 
@@ -1028,7 +1030,7 @@ const Writer = struct {
             });
             return null;
         };
-        const sp = entry.spellings[0];
+        const sp = try w.chooseSpelling(a, st, entry, fam.atom);
         var out = try ir.newStmt(a, .model, st.line);
         out.tail = st.tail;
         out.mask = st.mask;
@@ -1044,7 +1046,19 @@ const Writer = struct {
             try ps.append(a, .{ .key = kv.key, .val = v });
         }
         const selectors = ps.items.len;
-        if (st.get("params") == .params) try ps.appendSlice(a, st.get("params").params);
+        if (st.get("params") == .params) for (st.get("params").params) |p| {
+            // A parameter the level says (`version=107` as `level=107`).
+            const said = !same and for (sp.when) |c| {
+                if (!c.isNodes() and std.ascii.eqlIgnoreCase(c.key, p.key)) break true;
+            } else false;
+            if (said) {
+                w.report.add(.info, .oneway, st.line, "model '{s}': {s}={s} is said by the {s} {s} spelling and is not written: {s} has no such parameter; it reads back without it", .{
+                    st.get("name").atom, p.key, try expr.canonText(a, p.val), w.g.name, try spellingText(a, sp), w.g.name,
+                });
+                continue;
+            }
+            try ps.append(a, p);
+        };
         if (!same) {
             try w.cardParams(a, st, fam.atom, &ps, selectors);
             // A key given twice: SPICE keeps the last, Xyce rejects the card.
@@ -1098,6 +1112,55 @@ const Writer = struct {
             w.copied.n += 1;
         }
         return out;
+    }
+
+    /// The spelling of the family `entry` a card is written with: the first
+    /// whose `when` conditions hold, on the card's own parameters or on the
+    /// terminals of the instances that name it. A condition that cannot be
+    /// told, or instances of more than one count, is said.
+    fn chooseSpelling(w: *Writer, a: Allocator, st: *const ir.Stmt, entry: *const grammar.ModelEntry, fam: []const u8) Allocator.Error!grammar.ModelSpelling {
+        const name = st.get("name").atom;
+        const ps: []const ir.Param = if (st.get("params") == .params) st.get("params").params else &.{};
+        const used = w.terminals.get(name);
+        var unknown: ?[]const u8 = null;
+        var mixed = false;
+        for (entry.spellings) |sp| {
+            const holds = for (sp.when) |c| {
+                const want = std.fmt.parseFloat(f64, c.val) catch unreachable;
+                if (c.isNodes()) {
+                    const t = used orelse {
+                        unknown = unknown orelse "no instance in this file names it";
+                        break false;
+                    };
+                    if (t.min < @as(u32, @intFromFloat(want)) and t.max >= @as(u32, @intFromFloat(want))) mixed = true;
+                    if (@as(f64, @floatFromInt(t.min)) < want) break false;
+                    continue;
+                }
+                const v = for (ps) |p| {
+                    if (std.ascii.eqlIgnoreCase(p.key, c.key)) break p.val;
+                } else {
+                    unknown = unknown orelse try a.print("it gives no {s}", .{c.key});
+                    break false;
+                };
+                if (v != .num) {
+                    unknown = unknown orelse try a.print("its {s} is not a number", .{c.key});
+                    break false;
+                }
+                if (v.num.toFloat() != want) {
+                    unknown = unknown orelse try a.print("{s}={s} is none of the values the spellings name", .{ c.key, try expr.canonText(a, v) });
+                    break false;
+                }
+            } else true;
+            if (!holds) continue;
+            if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return sp;
+            if (mixed) w.report.add(.warning, .ambiguous, st.line, "model '{s}' ({s}): instances with {d} and with {d} terminals name it, and {s} has a model of its own for each; it is written as {s}", .{
+                name, fam, used.?.min, used.?.max, w.g.name, try spellingText(a, sp),
+            }) else if (unknown) |why| if (sp.when.len == 0) w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} writes another model by its conditions, and {s}; it is written as {s}", .{
+                name, fam, w.g.name, why, try spellingText(a, sp),
+            });
+            return sp;
+        }
+        return entry.spellings[0];
     }
 
     /// The parameters of a model card, `ps` from `own` on, against the
@@ -2664,6 +2727,51 @@ fn collectIcNodes(a: Allocator, stmts: []const ir.Stmt, out: *ir.CaselessSet, sr
     }
 }
 
+/// The fewest and the most terminals of the instances that name a model.
+pub const Terminals = struct { min: u32, max: u32 };
+pub const TerminalMap = std.HashMapUnmanaged([]const u8, Terminals, ir.Caseless, std.hash_map.default_max_load_percentage);
+
+/// How many terminals a device statement connects.
+fn terminalCount(st: *const ir.Stmt) u32 {
+    var n: u32 = 0;
+    for (schema.info(st.kind).slots, 0..) |sl, i| {
+        if (sl.ty != .node) continue;
+        switch (st.at(i)) {
+            .list => |l| n += @intCast(l.len),
+            .none => {},
+            else => n += 1,
+        }
+    }
+    return n;
+}
+
+/// A spelling as the grammar's models table gives it, without its conditions.
+fn spellingText(a: Allocator, sp: grammar.ModelSpelling) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, sp.type);
+    for (sp.kv) |kv| if (!kv.absent) try out.print(a, " {s}={s}", .{ kv.key, kv.val });
+    return out.items;
+}
+
+/// For every model an instance of `stmts` names, the fewest and the most
+/// terminals of those instances (`when nodes>=n`).
+fn collectTerminals(a: Allocator, stmts: []const ir.Stmt, out: *TerminalMap, src: ?[]const u8) Allocator.Error!void {
+    for (stmts) |*s| {
+        if (schema.info(s.kind).class == .device) if (schema.slotIndex(s.kind, "master")) |mi| if (s.at(mi) == .atom) {
+            const n = terminalCount(s);
+            const gop = try out.getOrPut(a, s.at(mi).atom);
+            if (gop.found_existing) {
+                gop.value_ptr.min = @min(gop.value_ptr.min, n);
+                gop.value_ptr.max = @max(gop.value_ptr.max, n);
+            } else {
+                if (src) |t| gop.key_ptr.* = try ir.keepText(a, t, s.at(mi).atom);
+                gop.value_ptr.* = .{ .min = n, .max = n };
+            }
+        };
+        try collectTerminals(a, s.body, out, src);
+    }
+}
+
 /// Two names that differ only by case are one name in a case-folding dialect.
 /// Each key is the spelling last seen. The tables hold every node and
 /// instance name, so they live outside the arena and are freed when done.
@@ -3038,6 +3146,7 @@ pub fn write(
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
     try collectIcNodes(arena, nl.stmts, &w.ic_nodes, null);
+    try collectTerminals(arena, nl.stmts, &w.terminals, null);
     if (env) |e| {
         var it = e.declared.keyIterator();
         while (it.next()) |k| try w.declared.put(arena, try std.ascii.allocLowerString(arena, k.*), {});
@@ -3261,6 +3370,8 @@ pub const Survey = struct {
     reserved: ir.CaselessSet = .empty,
     /// `collectIcNodes`.
     ic_nodes: ir.CaselessSet = .empty,
+    /// `collectTerminals`.
+    terminals: TerminalMap = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold.
     /// Keeps the value of `slot` on the netlist's first statement of `kind`
@@ -3286,6 +3397,7 @@ pub const Survey = struct {
         try collectIcNodes(a, stmts, &sv.ic_nodes, k.src);
         ir.markFamilies(stmts, &sv.fams);
         try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
+        try collectTerminals(a, stmts, &sv.terminals, k.src);
         try collectReserved(a, g, stmts, &sv.reserved, k.src);
         for (g.fills) |f| try sv.takeFirst(k, stmts, f.from, f.from_slot);
         for (gf.omitted) |o| for (o.terms) |t| {
@@ -3366,6 +3478,7 @@ pub const Stream = struct {
         w.env = env;
         w.funcs = sv.funcs;
         w.ic_nodes = sv.ic_nodes;
+        w.terminals = sv.terminals;
         if (env) |e| {
             var it = e.declared.keyIterator();
             while (it.next()) |n| try w.declared.put(perm, try std.ascii.allocLowerString(perm, n.*), {});

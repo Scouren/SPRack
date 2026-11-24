@@ -1462,6 +1462,47 @@ is an error that says so; whether a card of level 2 could say what the
 PDKs' level 3 cards say, parameter by parameter (sky130's `area=1e12`,
 `mj` to `m`, `ik` to `ikf`, `tcv` to `tbv1`, `php` to `vjsw`, and the 27
 parameters without one), was not measured.
+### 4.21 A model card's level by its version or its terminals (#31)
+
+Xyce has one VBIC per terminal count and one BSIM-CMG per version, and a
+card took the first level of the grammar's table whatever it was. Xyce 7.10
+and ngspice 45 as in section 0; line numbers of commit d5ef6079.
+
+IHP's npn13G2 at Vbe 0.85 V, Vce 1.2 V, instance `Qnpn13G2 c b e s1 t
+npn13G2_NX_vbic dtemp={dtemp} m=1` (five nodes):
+
+| run | i(vc) |
+|---|---|
+| ngspice, the library as it is | -5.921574499e-04 |
+| Xyce, `level=11` on the six npn cards (the translation before) | -5.16163115e-04, 12.8 % low; the only warnings are VBE_MAX, VBC_MAX and VCE_MAX ignored |
+| Xyce, `level=12` | -5.92127198e-04, within 0.005 % |
+
+`Xyce -param`: level 11 is "VBIC 1.3 3T" (3 nodes, 6 optional), level 12
+"VBIC 1.3 4T" (4 nodes, 6 optional). The grammar now writes `level=12` for
+a card whose instances all have four terminals or more.
+
+ASAP7's cards (`7nm_TT.pm`) are HSPICE `level = 72` with `+version = 107`;
+they were written `level=111 version=107`. `m1 d g 0 0 nmos_rvt nfin=3` at
+Vgs = Vds = 0.7 V: -1.07435640e-04 at level 111 against -1.11899331e-04 at
+107 (4.0 %); `pmos_rvt` at -0.7 V 9.53447420e-05 against 9.59126504e-05
+(0.6 %). The same deck at L = 20n:
+
+| level | nmos_rvt | pmos_rvt | "no model parameter" warnings per card |
+|---|---|---|---|
+| 111 (the translation before) | 109.07185 uA | 98.122660 uA | 6 (XL, NSEG, ETAQM, COREMOD, CAPMOD, VERSION) |
+| 110 | 107.60317 uA | 95.580823 uA | 3 |
+| 108 | 113.55035 uA | 98.631343 uA | 1 (VERSION) |
+| 107 | 113.55035 uA | 98.631343 uA | 1 (VERSION) |
+
+Level 107 is "BSIM-CMG FINFET v107.0.0" with 910 parameters, 111
+"v111.2.1" with 1832; five of 107's are not in 111's list. Neither takes a
+VERSION, so a card's `version=` picks the level and is then not written. A
+card with no version, or one no level is, keeps 111 with a caveat. That
+HSPICE's level 72 at version 107 is the model Xyce's 107 implements is
+inferred, not run (#56).
+
+VACASK's table has the same shape (`vbic13_4t` and `vbic13`, and a
+5-terminal module it does not list); it was not run here.
 
 ## 5. Enum spellings (6.5): integration method
 

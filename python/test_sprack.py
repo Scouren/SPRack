@@ -425,7 +425,8 @@ def test_pdk_asap7():
     tree = p.translate("spectre")
     assert "model nmos_rvt bsimcmg type=n" in open(os.path.join(tree, "7nm_FF.pm")).read()
     xy = open(os.path.join(p.translate("xyce"), "7nm_FF.pm")).read()
-    assert ".model nmos_rvt nmos level=111" in xy
+    # ASAP7's cards say version = 107: Xyce's level 107, which the level says (docs/verification.md 4.21).
+    assert ".model nmos_rvt nmos level=107 " in xy and "version" not in xy
     # ngspice has no built-in BSIM-CMG: an error that says who has.
     raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: hspice, spectre, xyce")
 

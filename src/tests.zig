@@ -1025,14 +1025,45 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
     try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'hisim2 n'. Defined by: hspice, ngspice, spectre");
 
-    // FinFET models: HSPICE level 72 is Xyce level 111, and ngspice has neither.
+    // FinFET models: HSPICE level 72 is the Xyce level of its version, and ngspice has neither.
     var r5: ir.Report = .init(a);
     const fin = "t\n.model nfet nmos level=72 version=107\nM1 d g 0 0 nfet nfin=2\n.end\n";
-    try has(try tr(a, "hspice", "xyce", fin, &r5), ".model nfet nmos level=111 version=107\n");
+    try has(try tr(a, "hspice", "xyce", fin, &r5), ".model nfet nmos level=107\n");
+    try reported(&r5, .info, "model 'nfet': version=107 is said by the xyce nmos level=107 spelling and is not written");
     try has(try tr(a, "hspice", "spectre", fin, &r5), "model nfet bsimcmg type=n version=107\n");
     try clean(&r5);
     _ = try tr(a, "hspice", "ngspice", fin, &r5);
     try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: hspice, spectre, xyce");
+}
+
+test "a model card's level by its version or by its instances' terminals (when)" {
+    // docs/verification.md 4.21: Xyce's VBIC is level 11 with three terminals
+    // and 12 with four; its BSIM-CMG one level per version.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const v = try tr(a, "ngspice", "xyce", "t\n.model q1 npn level=4 is=1e-16\nQ1 c b e s t q1\n.model q2 npn level=4 is=1e-16\nQ2 c b e q2\nV1 c 0 1\nV2 b 0 0.8\nV3 e 0 0\nV4 s 0 0\nR1 t 0 1k\n.op\n.end\n", &r1);
+    try has(v, ".model q1 npn level=12 is=0.1f\n");
+    try has(v, ".model q2 npn level=11 is=0.1f\n");
+    // Instances of both counts: the one model, and a warning.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.model q3 npn level=4\nQ3 c b e q3\nQ4 c b e s q3\n.end\n", &r2), ".model q3 npn level=11\n");
+    try reported(&r2, .warning, "model 'q3' (vbic): instances with 3 and with 4 terminals name it");
+    // No instance to tell by (a library): the plain spelling, said.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.model q4 npn level=4\n.end\n", &r3), ".model q4 npn level=11\n");
+    try reported(&r3, .warning, "model 'q4' (vbic): xyce writes another model by its conditions, and no instance in this file names it");
+    // A version none of the levels is: the newest, said.
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\n.model nf nmos level=72 version=109\n.end\n", &r4), ".model nf nmos level=111 version=109\n");
+    try reported(&r4, .warning, "version=109 is none of the values the spellings name");
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\n.model nf pmos level=72\n.end\n", &r5), ".model nf pmos level=111\n");
+    try reported(&r5, .warning, "it gives no version");
+    // Read back, any of the levels is the family.
+    var r6: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "hspice", "t\n.model nf nmos level=107\n.model q npn level=12\n.end\n", &r6), ".model nf nmos level=72\n");
 }
 
 test "an unknown level is an error across dialects, not a guess" {

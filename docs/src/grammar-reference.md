@@ -259,6 +259,19 @@ modelparams resistor
 end                                # here, for both
 models
   bsim4 n = nmos level=14 | nmos level=54     # first spelling is written
+  vbic npn = npn level=12 when nodes>=4 | npn level=11
+                                   # `when`: the first spelling whose
+                                   # conditions hold is written; `nodes>=n`,
+                                   # every instance of the card has n
+                                   # terminals or more (instances of both
+                                   # counts: an `ambiguous` warning)
+  bsimcmg n = nmos level=107 when version=107 | nmos level=111
+                                   # `key=value`: the card gives that
+                                   # number; the parameter is then said by
+                                   # the spelling and not written (`oneway`).
+                                   # A card that cannot be told (no version,
+                                   # no instance in the file) gets the first
+                                   # spelling without conditions, a `caveat`
 end
 ```
 
