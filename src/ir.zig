@@ -420,6 +420,9 @@ pub const Env = struct {
     /// line), or the compiled module of a family a dialect has no model of
     /// built in (`bsimcmg=bsimcmg.osdi`, a `provided` line of its models).
     provided: []const [2][]const u8 = &.{},
+    /// Model name to the Verilog-A module its card names (a type no table
+    /// lists), from every file of the project.
+    modules: std.StringHashMapUnmanaged([]const u8) = .empty,
 
     /// Everything is copied into `arena`, so `stmts` may be freed afterwards.
     pub fn absorb(env: *Env, arena: Allocator, stmts: []const Stmt) Allocator.Error!void {
@@ -437,6 +440,7 @@ pub const Env = struct {
                     const fam = s.get("family");
                     const kind: ?Kind = if (fam == .atom) schema.familyKind(fam.atom) else if (s.get("type") == .atom) .device else null;
                     if (fam == .atom) try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
+                    if (fam != .atom and s.get("type") == .atom) try env.modules.put(arena, own, try arena.dupe(u8, s.get("type").atom));
                     if (kind) |k| {
                         try env.models.put(arena, own, k);
                         if (binBase(own)) |base| {

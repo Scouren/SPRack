@@ -1767,7 +1767,7 @@ const Writer = struct {
         } else false;
         if (!says) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
-        const module = w.modules.get(master) orelse return .keep;
+        const module = w.modules.get(master) orelse (if (w.env) |e| e.modules.get(master) else null) orelse return .keep;
         const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
         const file = for (plugins) |p| {
             if (std.ascii.eqlIgnoreCase(p[0], module)) break p[1];

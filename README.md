@@ -235,7 +235,7 @@ it moves the version, tests, tags, and uploads the sdist and wheels to PyPI.
 | Statement kinds | every kind has a rule, another statement that carries it, or a stated reason in every dialect (`sprack caps` shows no gap; a test keeps it so) |
 | Corpus | VAMS Conformance Suite, 969 decks, 9,670 translations: no crash, no difference the report does not explain |
 | Simulators | output loaded and compared in ngspice, Xyce and VACASK; loaded in Spectre and HSPICE; the LTspice grammar measured on LTspice 26.0.2 |
-| PDKs | five open PDKs translated whole (table below); inverters simulated in ngspice |
+| PDKs | five open PDKs translated whole (table below); inverters simulated in ngspice; every catalogue device of sky130, IHP and GF180 compared between ngspice and its Xyce translation nightly (`tools/pdk_devices.py`, the verdicts in `tools/pdk-devices-baseline.tsv` once the first run writes it; see docs/src/pdks.md) |
 | Python | every statement kind and slot reachable through the builder |
 | CI | tests on every push (Linux), wheels on Linux, macOS and Windows for CPython 3.10 and 3.13, corpus audit nightly |
 

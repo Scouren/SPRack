@@ -413,3 +413,18 @@ file it was made from, the included ones too, is unchanged, and while every
 from the environment); otherwise it is made again. A variable no include
 path names does not matter. The same holds for a `libs/` entry, whose
 variables are the environment's.
+
+## Devices compared between simulators
+
+`tools/pdk_devices.py` stimulates every device of a PDK's catalogue (a
+MOSFET's drain current at two biases, a resistor's current at 1 V, a
+capacitor's AC current at 1 MHz, a diode's forward current, a BJT's
+collector current) in the PDK's own simulator and in each target's
+translation, and writes one row per device, target and quantity with a
+verdict: same (within 1e-4 relative), differs, refused, no model, no
+reference or not run. The nightly workflow runs it for sky130, IHP and
+GF180 into Xyce and VACASK against `tools/pdk-devices-baseline.tsv` and
+fails when a verdict changes, either way. The table of counts per verdict
+is generated from that file once the first nightly run has written it;
+VACASK's results have no reader in the harness yet (its rows say not
+run), and HSPICE and Spectre are measured by hand (issues 56 and 57).
