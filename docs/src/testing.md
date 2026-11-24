@@ -129,3 +129,13 @@ when `SPRACK_TEST_PDKS` is set and are skipped otherwise.
 grammar's tables were checked against: the simulator's source or manual, or
 a deck run in the simulator. The file is `docs/verification.md` in the
 repository; grammar files and tests cite it by that path.
+
+## What a pull request runs
+
+`test.yaml` runs, on every push to `main` and every pull request: the Zig
+tests, the Python tests with the real PDKs, `zig fmt --check build.zig
+src`, the three checkers of the pages' examples (`docs/check/`), the corpus
+audit against `tools/corpus-baseline.tsv`, and the wheels. `publish.yaml`'s
+test job runs the same before a release. The nightly workflow keeps the
+audit, the VACASK load check (which builds VACASK) and the PDK device
+comparison.

@@ -124,6 +124,24 @@ jobs:
           export SPRACK_TEST_PDKS SPRACK_TEST_PDKS_INSTALLED PATH="$ngspice/bin:$PATH"
           nix develop .#ci --command sh -c 'zig build py && cd python && python3 test_sprack.py'
 
+      - name: Format and documentation examples
+        run: |
+          export SPRACK_TEST_PDKS=$(nix build .#test-pdks --no-link --print-out-paths)
+          nix develop .#ci --command sh -c '
+            zig fmt --check build.zig src &&
+            zig build && zig build py &&
+            python3 docs/check/checkfiles.py &&
+            python3 docs/check/checkpage.py &&
+            python3 docs/check/checkconsole.py'
+
+      - name: Corpus audit
+        run: |
+          export SPRACK_SUITE=$(nix eval --raw .#devShells.x86_64-linux.verify.SPRACK_SUITE)
+          nix develop .#ci --command sh -c '
+            zig build -Doptimize=ReleaseSafe &&
+            python3 -I tools/corpus_audit.py zig-out/bin/sprack "$SPRACK_SUITE/tests" out.tsv ngspice,hspice &&
+            python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv out.tsv'
+
   merge:
     needs: [bump, test]
     runs-on: ubuntu-latest
