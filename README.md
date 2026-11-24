@@ -243,15 +243,16 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 280 | 0 | 2 | 14 | 2 | 8 |
-| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 37 | 0 | 0 |
+| sky130 (ngspice) | 280 | 0 | 2 | 26 | 2 | 8 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 50 | 0 | 0 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
-| GF180MCU (ngspice) | 4 | 0 | 0 | 0 | 0 | 0 |
+| GF180MCU (ngspice) | 4 | 0 | 0 | 29 | 0 | 0 |
 
 Every error names a file and a line. What is left, and whose it is:
 
 - sky130 to every other target, 2: two lines of the PDK that are not ngspice syntax, which ngspice itself refuses. Upstream: [issue 25](https://github.com/Scouren/SPRack/issues/25).
+- sky130 to Xyce 12, IHP to Xyce 13, GF180 to Xyce 29: diode cards of ngspice's level 3, which most of the three PDKs' junction diodes are, and with them the transistors with a drain diode and the diffusion and well resistors that hold one. The target has no such thing: Xyce 7.10's diode has levels 1, 2, 200 and 2002 and refuses a device of a level 3 card, and its level 2 is another model ([issue 30](https://github.com/Scouren/SPRack/issues/30)).
 - sky130 to Xyce, 12: resistor models with a width reduction (`dw`) and no length reduction. Xyce's resistor model takes one number off both; not yet translated.
 - ASAP7 to ngspice and to VACASK, 24 each: BSIM-CMG, which neither has built in. Upstream: [issue 27](https://github.com/Scouren/SPRack/issues/27).
 - IHP to Xyce, 1: an instance in `diodes.lib` of a subcircuit written once for each branch of its conditional block, which passes the deciding parameter down from its parent. Not yet translated.

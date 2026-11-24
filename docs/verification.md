@@ -1441,6 +1441,28 @@ for currents; its vntol plays no part in the step.
   moved no step at 1e-6, 1 or 0). An error that says so.
 - Spectre's `trtol` and `chgtol` are not touched here.
 
+### 4.20 ngspice's level 3 diode in Xyce (#30)
+
+The sky130, GF180 and IHP libraries give most junction diodes a card of
+ngspice's level 3 (`.model ... d level=3.0 ...`): sky130 12, GF180 29 and
+IHP 18 cards over all corners. Xyce 7.10 as in section 0, ngspice 45; a
+diode at 0.7 V.
+
+| deck | ngspice 45 | Xyce 7.10, the card copied | grammar |
+|---|---|---|---|
+| sky130 tt, `d1 a 0 sky130_fd_pr__diode_pw2nd_05v5 area=1 pj=4` | i(v1) = -3.917324932e-06 | `Model is required for device D1 and no valid model card found` | `noparam diode level=3 error` |
+| GF180 typical, `d1 a 0 diode_nd2ps_03v3 area=1e-12 pj=4e-6` | -2.613458696e-07 | the same refusal | the same |
+| the sky130 card as `level=2` | | loads, -5.42643248e-06 (38.5 % above ngspice), and 27 `No model parameter ... parameter ignored` warnings (TLEVC, AREA, MJ, PB, IK, IKR, TREF, GAP1, WP, XW, ...) | another model, not a renumbering |
+
+`Xyce -param` lists diode levels 1, 2, 200 and 2002 and no other. Xyce loads
+a library that holds a level 3 card and refuses the deck once a diode names
+it, so the devices that hold one (transistors with a drain diode, diffusion
+and well resistors) do not load either. A level 3 card crossing into Xyce
+is an error that says so; whether a card of level 2 could say what the
+PDKs' level 3 cards say, parameter by parameter (sky130's `area=1e12`,
+`mj` to `m`, `ik` to `ikf`, `tcv` to `tbv1`, `php` to `vjsw`, and the 27
+parameters without one), was not measured.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

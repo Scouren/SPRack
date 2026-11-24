@@ -220,6 +220,12 @@ noparam psp103 stcto=1 warning : Xyce's PSP103 has no such parameter; at 1 it ch
 noparam psp103 stcto error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
 noparam psp103 stthecso=0 warning : Xyce's PSP103 has no such parameter; at 0 it changes nothing
 noparam psp103 stthecso error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
+# ngspice's level 3 diode, which sky130, GF180 and IHP use for most junction
+# diodes (docs/verification.md 4.20). Xyce 7.10's diode has levels 1, 2, 200
+# and 2002 (-param): it loads a library holding a level 3 card and refuses
+# the deck once a diode names it. The same sky130 card as level 2 loads, is
+# 38.5 % off ngspice and ignores 27 of its parameters: another model.
+noparam diode level=3 error : Xyce 7.10's diode has levels 1, 2, 200 and 2002 and refuses a device of a level 3 card; ngspice's level 3 has no counterpart there (level 2 on a sky130 card is 38.5 % off and ignores 27 of its parameters)
 noparam psp103 nsubedgelexp=1 warning : Xyce's PSP103 has no such parameter; at 1 it changes nothing
 noparam psp103 nsubedgelexp error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
 noparam psp103 thecso=2 warning : Xyce's PSP103 has no such parameter; at 2 it changes nothing

@@ -4276,6 +4276,21 @@ test "VACASK capacitor: ic= is a DC source in series, q= a behavioural source of
     try reported(&r6, .@"error", "function 'ddt' has no spelling in xyce");
 }
 
+test "Xyce: a diode card of ngspice's level 3 is an error, a level 1 card is not" {
+    // docs/verification.md 4.20: Xyce 7.10 has diode levels 1, 2, 200 and 2002.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", "t\n.model dd d level=3.0 is=1e-15 mj=0.3\nD1 a 0 dd area=1 pj=4\nV1 a 0 0.7\n.op\n.end\n", &r1);
+    try has(xy, ".model dd d is=1f mj=0.3\n");
+    try reported(&r1, .@"error", "model 'dd': level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002");
+    try testing.expectEqual(1, r1.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\n.model dd d level=1 is=1e-15\nD1 a 0 dd\nV1 a 0 0.7\n.op\n.end\n", &r2);
+    try clean(&r2);
+}
+
 test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

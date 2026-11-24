@@ -367,13 +367,16 @@ def test_pdk_sky130():
     raises(AttributeError, lambda: c.nfet_1v8, "Did you mean: nfet_01v8")
     # Another dialect: the library itself is translated, once, and referenced.
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
-    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 15, str(e)
+    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 27, str(e)
     xy = c.netlist("xyce", strict=False)
-    # Two lines that are not ngspice syntax, and the twelve resistor cards with dw (ngspice's NARROW,
-    # with no SHORT), which no Xyce card computes. (A parameter named vt, which Xyce refuses, is renamed.)
+    # Two lines that are not ngspice syntax, the twelve resistor cards with dw (ngspice's NARROW,
+    # with no SHORT), which no Xyce card computes, and the twelve diode cards of ngspice's level 3,
+    # which Xyce's diode has not. (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    assert codes == ["loss"] * 12 + ["untranslated", "untranslated"], codes
-    assert all("__res_generic_" in x.message and "dw=" in x.message for x in xy.report.errors if x.code == "loss")
+    assert codes == ["loss"] * 24 + ["untranslated", "untranslated"], codes
+    losses = [x.message for x in xy.report.errors if x.code == "loss"]
+    assert sum("__res_generic_" in m and "dw=" in m for m in losses) == 12
+    assert sum("level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002" in m for m in losses) == 12
     assert any("pm3.spice" in x.file for x in xy.report.errors if x.code == "untranslated")
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
@@ -481,9 +484,13 @@ def test_pdk_gf180mcu():
     assert ng.count(".lib ") == 7 and "Mn out in 0 0 nfet_03v3 w=1u l=0.28u\n" in ng
     assert p.entries("sf")[1:3] == [(f"{m}/sm141064.spice", "sf"), (f"{m}/sm141064.spice", "bjt_typical")]
     assert abs(ngspice_op(ng) - 0.468) < 0.005   # Xyce, on the translated library: 0.46826
-    # Xyce has agauss(); into Spectre it becomes statistics variations.
-    xy = unwrap(c.netlist("xyce"))
-    assert f'.lib "{p.translate("xyce")}/sm141064.spice" typical\n' in xy
+    # Xyce has agauss(); into Spectre it becomes statistics variations. The library's diode
+    # cards are ngspice's level 3, which Xyce's diode has not: an error each, though the
+    # inverter uses none of them (Xyce, on the translated library: 0.46826).
+    xyn = c.netlist("xyce", strict=False)
+    assert xyn.report.errors and all("level not written: Xyce 7.10's diode" in x.message for x in xyn.report.errors)
+    xy = unwrap(xyn)
+    assert f'.lib "{p.translate("xyce", strict=False)}/sm141064.spice" typical\n' in xy
     assert not p.library_errors("spectre")
     # The mismatch wrappers (subckt nfet_03v3 around model nfet_03v3.N):
     # Spectre would resolve the transistor's model to the subcircuit itself,
