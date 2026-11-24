@@ -1124,6 +1124,33 @@ test "card parameters into Xyce: every name its device declares, ngspice's other
     try clean(&r3);
 }
 
+test "Xyce's reserved names: renamed in sweeps, data columns and alters; temper and hertz are shadowed" {
+    // docs/verification.md 4.15.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.param vt=3.5m\nV1 a 0 1\nR1 a 0 {1k*(1+vt)}\n.dc vt 1m 5m 1m\n.end\n", &r1), ".dc vt__p 1m 5m 1m\n");
+    var r2: ir.Report = .init(a);
+    const xy = try tr(a, "hspice", "xyce", "t\n.param vt=3.5m\nV1 a 0 1\nR1 a 0 '1k*(1+vt)'\n.tran 1n 10n sweep vt 1m 5m 1m\n.data d1 vt\n+ 1m\n+ 2m\n.enddata\n.end\n", &r2);
+    try has(xy, ".step vt__p 1m 5m 1m\n");
+    try has(xy, ".data d1 vt__p 1m 2m\n");
+    // Spectre's temper and hertz are parameters, not its variables (temp).
+    const sp = "simulator lang=spectre\nparameters temper=4 hertz=3\nV1 (a 0) vsource dc=1\nR1 (a 0) resistor r=1k*temper+hertz+temp\nop1 dc\n";
+    var r3: ir.Report = .init(a);
+    const sx = try tr(a, "spectre", "xyce", sp, &r3);
+    try has(sx, ".param temper__p=4 hertz__p=3\n");
+    try has(sx, "R1 a 0 {1k*temper__p+hertz__p+temp}\n");
+    try reported(&r3, .info, "parameter 'temper' is written as 'temper__p'");
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", sp, &r4), "R1 (a 0) resistor r=1k*temper+hertz+temp\n");
+    // ngspice takes both words for its variables: an error each.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", sp, &r5), "R1 a 0 {1k*temper+hertz+temper}\n");
+    try reported(&r5, .@"error", "the parameter 'temper' is a variable of ngspice under that name");
+    try reported(&r5, .@"error", "the parameter 'hertz' is a variable of ngspice under that name");
+}
+
 test "an unknown level is an error across dialects, not a guess" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

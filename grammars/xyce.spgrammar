@@ -231,6 +231,9 @@ noparam psp103 nsubedgelexp error : Xyce's PSP103 has no such parameter and igno
 noparam psp103 thecso=2 warning : Xyce's PSP103 has no such parameter; at 2 it changes nothing
 noparam psp103 thecso error : Xyce's PSP103 has no such parameter and ignores it; the device is simulated without its effect
 reserved vt temp time freq gmin : Xyce keeps this name for a variable of its own and refuses a parameter called so
+# Taken as a parameter, but the word in an expression is Xyce's variable
+# (docs/verification.md 4.15): temper is the temperature, hertz the frequency.
+reserved shadowed temper hertz : Xyce takes a parameter of this name, but the word in an expression is its own variable
 
 # statistics
 # A parameter of the netlist varies through agauss(), gauss(), aunif() or unif() in its

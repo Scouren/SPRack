@@ -363,7 +363,10 @@ pub const Absent = struct { kind: Kind, slot: u8 = no_slot, reason: []const u8 }
 pub const Switch = struct { words: []const u8, dialect: []const u8 };
 pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `reserved name ... : reason`: parameter names the simulator refuses.
-pub const Reserved = struct { names: []const []const u8, reason: []const u8 };
+/// `reserved [shadowed] name ... : reason`. `shadowed`: the simulator
+/// takes a parameter of the name, but the word in an expression is its
+/// variable, so the parameter is renamed all the same.
+pub const Reserved = struct { names: []const []const u8, reason: []const u8, shadowed: bool = false };
 /// A circuit topology the simulator cannot solve (`src/topology.zig`):
 /// nodes with no DC path to ground, or a loop of voltage sources only, of
 /// voltage sources and inductors, or of inductors only. `cutset` is such an
@@ -1788,7 +1791,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             requires = try c.add(Require, requires, .{ .what = what, .err = sev[0] == 'e', .analyses = analyses, .reason = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "reserved")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
-            reserved = try c.add(Reserved, reserved, .{ .names = try args(c, no, rest[0..colon]), .reason = rest[colon + 3 ..] });
+            const names = try args(c, no, rest[0..colon]);
+            const shadowed = names.len > 1 and std.mem.eql(u8, names[0], "shadowed");
+            reserved = try c.add(Reserved, reserved, .{ .names = if (shadowed) names[1..] else names, .reason = rest[colon + 3 ..], .shadowed = shadowed });
         } else if (std.mem.eql(u8, head, "spread")) {
             const a = try args(c, no, rest);
             if (a.len < 1 or a.len > 2) return c.fail(no, "spread is `spread kind [\"word\"]`", .{});

@@ -1063,6 +1063,24 @@ The translation with the old name put back stops with the two messages
 above. `time` is not renamed: in an expression the word is the variable in
 every dialect, so a parameter of that name stays an error.
 
+The other names, Xyce 7.10 with `.param NAME=2`, `R1 a 0 {1k*NAME}` and 1 V
+across it (#34):
+
+| NAME | Xyce 7.10 | grammar |
+|---|---|---|
+| `temp`, `freq`, `gmin` | `Parameter name ... is a reserved variable name and is not permitted` | `reserved vt temp time freq gmin`: renamed `temp__p` and so on |
+| `temper` | loads; I(V1) = -3.70370370e-05, the temperature's, not 2's | `reserved shadowed temper hertz`: renamed |
+| `hertz` | loads; I(V1) = 0, not the parameter's 0.5 mA | the same |
+
+A renamed parameter is renamed where a sweep names it too: Xyce 7.10 with
+`.param vt__p=3.5m`, `R1 a 0 {1k*(1+vt__p)}` and `.dc vt 1m 5m 2m` runs
+three points of -9.96512207e-04 each, the sweep having no effect. The
+swept parameter of `.dc` and `.step` (HSPICE's `sweep vt ...`), the
+columns of a `.data` table and the parameters an alter sets are renamed
+with the rest. In Spectre and LTspice, `temper` and `hertz` are no
+variables: such a word is the parameter (its own spelling, not Xyce's
+`temp` or `freq`), and into Xyce it is renamed.
+
 ### 4.16 Instance parameters a PDK gives (r1)
 
 What the instance parameters behind the PDK errors do in ngspice 45, and

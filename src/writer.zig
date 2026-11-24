@@ -233,6 +233,10 @@ const Emit = struct {
                 });
                 continue;
             }
+            if (pb.kind == .shadowed) {
+                e.report.add(.@"error", .invalid, e.st.line, "expression '{s}': the parameter '{s}' is a variable of {s} under that name, which takes the word for the variable; give the parameter another name", .{ canon, pb.text, e.g.name });
+                continue;
+            }
             const who = if (e.caps) |c| c.word(pb.text) else "";
             e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
                 canon,                                                @tagName(pb.kind), pb.text, e.g.name,
@@ -2427,7 +2431,9 @@ pub fn collectReserved(arena: Allocator, g: *const Grammar, stmts: []const ir.St
 fn reservedRenames(arena: Allocator, g: *const Grammar, defined: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap {
     var out: CaselessMap = .empty;
     for (g.reserved) |r| for (r.names) |n| {
-        if (schema.isVariable(n)) continue;
+        // `time` is the variable in every expression; a variable this
+        // dialect takes before a parameter of its name (`shadowed`) is not.
+        if (schema.isVariable(n) and !r.shadowed) continue;
         if (!defined.contains(n) and !(if (env) |e| e.params.contains(n) else false)) continue;
         var name = try std.fmt.allocPrint(arena, "{s}__p", .{n});
         var i: usize = 2;
@@ -2457,7 +2463,12 @@ fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told:
         var hit: std.ArrayList([]const u8) = .empty;
         const keys = st.kind == .param or st.kind == .subckt or st.kind == .instance;
         for (schema.info(st.kind).slots, 0..) |sl, si| {
-            const words = st.kind == .func and std.mem.eql(u8, sl.name, "args");
+            // Slots that name a parameter: a function's arguments, what a
+            // sweep sweeps, a data table's columns, what an alter sets.
+            const words = (st.kind == .func and std.mem.eql(u8, sl.name, "args")) or
+                ((st.kind == .dc or st.kind == .step) and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "param2"))) or
+                (st.kind == .data and std.mem.eql(u8, sl.name, "cols")) or
+                (st.kind == .alter and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "keys")));
             const v = try renamedValue(w.arena, st.at(@intCast(si)), renames, keys, words, &hit) orelse continue;
             if (!changed or cur.body.ptr != st.body.ptr) try cur.own(w.arena);
             try cur.set(w.arena, @intCast(si), v);

@@ -22,7 +22,8 @@ const Grammar = grammar.Grammar;
 pub const Problem = struct {
     /// `form`: not a problem but a note, the expression was restructured
     /// for the target (`?:` as `if()`), so it reads back in another shape.
-    kind: enum { function, variable, operator, form },
+    /// `shadowed`: a parameter whose name the target takes for a variable.
+    kind: enum { function, variable, operator, form, shadowed },
     text: []const u8,
 };
 
@@ -52,6 +53,12 @@ pub fn argSpace(word: []const u8) schema.Space {
 pub const canon_pow = "**";
 pub const canon_xor = "^^";
 pub const canon_ne = "!=";
+
+/// Before a parameter whose name is a simulator variable's canonical name
+/// in a dialect where that word is no variable (Spectre's `temper`,
+/// LTspice's `hertz`): in canonical text it is the parameter, and the
+/// plain word the variable.
+pub const param_mark = '`';
 
 fn isWordChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '$' or c == '#' or c == '!';
@@ -155,7 +162,10 @@ pub fn read(
             const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
             const is_call = nextIsCall(src, j);
             const known = if (is_call) canonOf(g.functions, folded) else canonOf(g.variables, folded);
-            try out.appendSlice(arena, known orelse try names.resolve(arena, word, if (is_call) null else space));
+            const name = known orelse try names.resolve(arena, word, if (is_call) null else space);
+            // A parameter that a variable's canonical name would take for the variable.
+            if (known == null and !is_call and space == .param and schema.isVariable(name)) try out.append(arena, param_mark);
+            try out.appendSlice(arena, name);
             if (is_call) space = argSpace(word);
             i = j;
             continue;
@@ -273,6 +283,18 @@ pub fn write(
                 break :blk false;
             } else false;
             if (!exact) w.writeAll(text[i..j]) catch return error.OutOfMemory;
+            i = j;
+            continue;
+        }
+        if (c == param_mark and i + 1 < text.len) {
+            // The parameter, under its own name; where the target spells a
+            // variable so, the word is the variable there.
+            const j = wordEnd(text, i + 1);
+            const word = text[i + 1 .. j];
+            for (g.variables) |v| for (v.spellings) |sp| {
+                if (if (cfg.case_sensitive) std.mem.eql(u8, sp, word) else std.ascii.eqlIgnoreCase(sp, word)) try problems.append(arena, .{ .kind = .shadowed, .text = word });
+            };
+            w.writeAll(word) catch return error.OutOfMemory;
             i = j;
             continue;
         }
@@ -668,6 +690,21 @@ pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.Ar
             i = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
             continue;
         }
+        // A marked parameter (`param_mark`): renamed as itself, the mark
+        // dropped, since the new name is no variable's.
+        const marked = c == param_mark;
+        if (marked) {
+            const j = wordEnd(text, i + 1);
+            const word = text[i + 1 .. j];
+            const at = i;
+            i = j;
+            const to = renames.get(word) orelse continue;
+            try out.appendSlice(arena, text[copied..at]);
+            try out.appendSlice(arena, to);
+            try hit.append(arena, word);
+            copied = j;
+            continue;
+        }
         if (!(std.ascii.isAlphabetic(c) or c == '_' or c == '$') or (i > 0 and isWordChar(text[i - 1]))) {
             i += 1;
             continue;
@@ -675,6 +712,8 @@ pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.Ar
         const j = wordEnd(text, i);
         const word = text[i..j];
         i = j;
+        // A variable's own word is the variable, never a parameter.
+        if (schema.isVariable(word)) continue;
         if (nextIsCall(text, j)) {
             if (std.ascii.eqlIgnoreCase(word, "v") or std.ascii.eqlIgnoreCase(word, "i")) {
                 const open = std.mem.indexOfScalarPos(u8, text, j, '(').?;
