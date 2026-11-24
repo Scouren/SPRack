@@ -186,6 +186,8 @@ const Survey = struct {
     /// one could take it.
     move_from: []bool,
     move_to: []bool,
+    /// A statement of the kind a move's value goes to.
+    move_seen: []bool,
     sweep: bool = false,
     stats: bool = false,
     /// Names of models whose type no table lists, and the models lettered
@@ -216,6 +218,8 @@ const Survey = struct {
         const arena = keep.perm;
         const from = try arena.alloc(bool, gt.moves.len);
         const to = try arena.alloc(bool, gt.moves.len);
+        const seen = try arena.alloc(bool, gt.moves.len);
+        @memset(seen, false);
         @memset(from, false);
         @memset(to, false);
         return .{
@@ -228,6 +232,7 @@ const Survey = struct {
             .topo = gt.requires.len > 0 and !std.mem.eql(u8, gf.name, gt.name),
             .move_from = from,
             .move_to = to,
+            .move_seen = seen,
         };
     }
 
@@ -320,6 +325,7 @@ const Survey = struct {
             if (st.kind == mv.from and st.at(mv.from_slot) != .none) sv.move_from[i] = true;
             // An options statement is made where there is none (`moveToOptions`).
             if (mv.to == .options or (st.kind == mv.to and st.at(mv.to_slot) == .none)) sv.move_to[i] = true;
+            if (st.kind == mv.to) sv.move_seen[i] = true;
         }
     }
 
@@ -450,7 +456,9 @@ const Survey = struct {
         // `Writer.applyMoves`, with the options the target adds.
         var opts: ir.Netlist = .{ .dialect = sv.gf.name, .library = sv.w.library, .stmts = sv.w.options };
         if (try writer.defaultOptions(arena, gt, &opts)) |d| sv.noteMoves(&d);
-        for (sv.move_from, sv.move_to) |f, to| if (f and to) sv.reason("a value written on another statement");
+        // A value for an analysis the netlist has not is said not written
+        // (`Writer.applyMoves`), from the whole netlist too.
+        for (sv.move_from, sv.move_to, sv.move_seen, sv.gt.moves) |f, to, seen, mv| if (f and (to or (!seen and mv.from == .options and schema.info(mv.to).class == .analysis))) sv.reason("a value written on another statement");
         return sv.why != null;
     }
 };

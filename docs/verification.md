@@ -1637,6 +1637,20 @@ function gets the meaning: `pow(abs(x),y)`, `sign2(pow(abs(x),y),x)`
 Not measured here: `pow(abs(-2), 3)` setting a resistor in VACASK (expected
 8; no VACASK in this environment). ngspice 42 gives 8 for it in `.param`.
 
+### 4.27 Options that change no result (#39)
+
+`noacct` (no accounting printout) and `klu` (the sparse solver) were loss
+errors into every other dialect, 148 corpus lines. ngspice 45, an RC and a
+diode with `.tran 10u 2m`, run plain, with `noacct` and with `klu`: all
+three give `vmax` 6.695435e-01 and `vavg` 4.137450e-01. ngspice's grammar
+says both are `inert`: not written, with an info.
+
+`options.method = gear` was a loss into Spectre in 29 decks (58 lines),
+all without a `.tran`: Spectre says the method on the tran statement
+(`move options.method -> tran.method`), and with none the method acts on
+nothing. A value moved onto an analysis the netlist does not have is now
+not written, with an info `loss` saying so.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

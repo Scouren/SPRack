@@ -1691,11 +1691,18 @@ test "options: one vocabulary, five ways of filing it" {
     try has(hs, ".option reltol=1e-4 reli=1e-4 abstol=1p vntol=1u gmin=1p gmindc=1p tnom=25 scale=1u method=gear\n.temp 85\n");
     try clean(&r4);
 
-    // An option only its own simulator knows is never copied across.
+    // An option only its own simulator knows is never copied across; one
+    // that changes no result is not an error (docs/verification.md 4.27).
     var r5: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\n.options klu noacct\n.end\n", &r5);
-    try reported(&r5, .@"error", "options: 'klu' has no spelling in spectre");
-    try reported(&r5, .@"error", "options: 'noacct' has no spelling in spectre");
+    try reported(&r5, .info, "options: 'klu' is not written: ngspice's KLU only picks the sparse solver");
+    try reported(&r5, .info, "options: 'noacct' is not written: ngspice's NOACCT only leaves out the accounting printout");
+    try testing.expectEqual(0, r5.count(.@"error"));
+    // A method with no transient for it to act on.
+    var r8: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.options method=gear\n.op\n.end\n", &r8);
+    try reported(&r8, .info, "options.method = gear is not written: spectre says it on tran.method, and this netlist has no tran for it to act on");
+    try testing.expectEqual(0, r8.count(.@"error"));
     var r6: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "ngspice", "t\n.options klu noacct\n.end\n", &r6), ".options klu noacct\n");
     try testing.expectEqual(0, r6.items.items.len);

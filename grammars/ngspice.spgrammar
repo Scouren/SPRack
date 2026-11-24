@@ -41,6 +41,12 @@ end
 # file (docs/verification.md 4.24); Xyce 7.10 opens only the one asked for.
 libsections opened : ngspice 45 opens them all and stops at a missing file
 
+# Options that change no result, measured: an RC and a diode with .tran 10u 2m,
+# plain, with noacct and with klu, all give vmax 6.695435e-01 and vavg
+# 4.137450e-01 (docs/verification.md 4.27).
+inert options noacct : ngspice's NOACCT only leaves out the accounting printout; no result depends on it
+inert options klu : ngspice's KLU only picks the sparse solver; no result depends on it
+
 block libsection
   open   ".lib" name
   close  ".endl" [name]

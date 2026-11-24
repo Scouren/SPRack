@@ -856,7 +856,7 @@ const Emit = struct {
                 // One entry per parameter: each is a separate thing the target cannot say.
                 for (v.params) |p| {
                     if (e.inert(p.key)) |why| {
-                        e.report.add(.info, .cosmetic, e.st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why });
+                        e.report.add(.info, .loss, e.st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why });
                         continue;
                     }
                     e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in {s}", .{
@@ -2204,11 +2204,21 @@ const Writer = struct {
     }
 
     /// Would `applyMoves` change anything? The list it copies can be large.
+    /// An option this dialect says on one analysis only (`move
+    /// options.method -> tran.method`), in a netlist with none of that
+    /// analysis: it acts on nothing.
+    fn actsOnNothing(w: *const Writer, mv: grammar.Move, stmts: []const ir.Stmt) bool {
+        if (mv.from != .options or schema.info(mv.to).class != .analysis) return false;
+        for (w.g.moves) |o| if (o.from == mv.from and o.from_slot == mv.from_slot and ir.countStmts(stmts, o.to) > 0) return false;
+        return true;
+    }
+
     fn anyMove(w: *const Writer, stmts: []const ir.Stmt) bool {
         for (w.g.moves) |mv| {
             var from = false;
-            // An options statement is made where there is none.
-            var to = mv.to == .options;
+            // An options statement is made where there is none; an
+            // analysis that is not there takes nothing, which is said.
+            var to = mv.to == .options or w.actsOnNothing(mv, stmts);
             for (stmts) |*s| {
                 from = from or (s.kind == mv.from and s.at(mv.from_slot) != .none);
                 to = to or (s.kind == mv.to and s.at(mv.to_slot) == .none);
@@ -2408,8 +2418,18 @@ const Writer = struct {
                 list = try w.moveToOptions(list, mv);
                 continue;
             }
+            // A value that acts on one analysis only, in a netlist without
+            // it: nothing to act on, so not written, and nothing lost.
+            const absent = w.actsOnNothing(mv, list);
             for (list) |*src| {
                 if (src.kind != mv.from or src.at(mv.from_slot) == .none) continue;
+                if (absent) {
+                    w.report.add(.info, .loss, src.line, "{s}.{s} = {s} is not written: {s} says it on {s}.{s}, and this netlist has no {s} for it to act on", .{
+                        @tagName(mv.from), schema.info(mv.from).slots[mv.from_slot].name, try describeValue(w.arena, src.at(mv.from_slot)), w.g.name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name, @tagName(mv.to),
+                    });
+                    try emptied.append(w.arena, .{ src, mv.from_slot });
+                    continue;
+                }
                 var moved = false;
                 for (list) |*dst| {
                     if (dst.kind != mv.to or dst.at(mv.to_slot) != .none) continue;
@@ -2476,6 +2496,15 @@ const Writer = struct {
 
 /// The canonical name a dialect's `params` table gives a spelling.
 /// The entry of a spellings table for a canonical name.
+/// A value as a message shows it.
+fn describeValue(a: Allocator, v: Value) Allocator.Error![]const u8 {
+    return switch (v) {
+        .atom, .expr, .str => |x| x,
+        .num => try expr.canonText(a, v),
+        else => "...",
+    };
+}
+
 fn spellingsOf(table: []const grammar.Spellings, canon: []const u8) ?*const grammar.Spellings {
     for (table) |*e| if (std.ascii.eqlIgnoreCase(e.canon, canon)) return e;
     return null;
