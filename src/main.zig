@@ -297,13 +297,14 @@ pub fn main(init: std.process.Init) !void {
         var report_back: ir.Report = .init(arena);
         const back = try sprack.read(arena, gt, aw.written(), &report_back);
 
+        const same = try sprack.sameTranslation(arena, gt, &nl, &back);
         var keys: std.StringArrayHashMapUnmanaged(usize) = .empty;
         try opaqueKeys(arena, nl.stmts, &keys);
         try out.print("{s}\t{d}\t{d}\t{d}\t{d}", .{
             if (a.files.items.len > 0) a.files.items[0] else "-",
             ir.countStmts(nl.stmts, null),
             ir.countStmts(nl.stmts, .@"opaque"),
-            @intFromBool(try sprack.sameTranslation(arena, gt, &nl, &back)),
+            @intFromBool(same),
             report.count(.@"error"),
         });
         inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .caveat, .rename, .cosmetic, .invalid, .ambiguous, .oneway }) |code| {
@@ -314,7 +315,19 @@ pub fn main(init: std.process.Init) !void {
             try out.print("{s}{s}:{d}", .{ if (n > 0) "," else "", k, v });
         }
         try out.writeByte('\n');
-        return out.flush();
+        try out.flush();
+        // A circuit that reads back otherwise with nothing in the report
+        // to say why: status 1, so a script can tell (#54).
+        if (!same) {
+            var excused: usize = 0;
+            inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .invalid, .ambiguous, .oneway, .rename }) |code| excused += report.countCode(code);
+            if (excused == 0) {
+                try err.print("{s}: the circuit read back from {s} is not the one read, and the report does not say why\n", .{ if (a.files.items.len > 0) a.files.items[0] else "-", gt.name });
+                try err.flush();
+                std.process.exit(1);
+            }
+        }
+        return;
     }
 
     // JSON that is not a document at all: nothing was read, so nothing is

@@ -98,8 +98,12 @@ rc.sp	4	0	0	2	0	2	0	0	0	0	0	0	0	0	0
 | 17 `keys` | the first words of the lines counted in column 3, with counts (`.bogus:1`) |
 
 `same` may be 0 only when the report explains it, as in the second run (two
-`unsupported` errors). The status of `audit` is 0 either way; the verdict is
-in the columns. `tools/corpus_audit.py` runs it over a directory of decks.
+`unsupported` errors). The status of `audit` says which: 0 when the circuit
+reads back the same or the report has an entry that explains why not
+(`untranslated`, `unsupported`, `loss`, `synthesized`, `invalid`,
+`ambiguous`, `oneway` or `rename`), 1 when it reads back otherwise and
+nothing says why (standard error names the file), 2 for a wrong command
+line. `tools/corpus_audit.py` runs it over a directory of decks.
 
 ## read and write
 
@@ -136,7 +140,7 @@ Given [`tree/top.sp`](examples/tree/top.sp), which includes `inc/sub.sp` and
 the section `tt` of `$PDK/corners.lib`:
 
 ```console
-$ sprack project --from ngspice --to spectre --section tt -D PDK=pdk --out out-spectre tree/top.sp
+$ sprack project --from ngspice --to spectre --section tt -D PDK=tree/pdk --out out-spectre tree/top.sp
 tree/pdk/corners.lib: info[cosmetic]: section 'ff' not followed: it is not among the sections asked for, so the files it includes are not translated
 3 files, 0 errors, 0 warnings
 $ cat out-spectre/top.sp
@@ -154,7 +158,7 @@ op1 dc
 | `--out <dir>` | where the translated tree is written |
 | `--lib` | the files named are libraries themselves, with no title line, as in a PDK |
 | `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. The log lists each section not followed; a name no file read defines is an error |
-| `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used |
+| `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used. An include path that starts with the variable (`$PDK/corners.lib`) is the value's own path: a relative value is relative to the directory sprack runs in, whichever file names it. A variable inside a path (`lib/$CORNER.lib`) is text put into it, and the path stays relative to the including file |
 
 Every log line names a file, and a line where there is one. The last line
 counts files, errors and warnings. An include that cannot be opened is an

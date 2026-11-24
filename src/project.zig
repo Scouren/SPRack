@@ -299,8 +299,11 @@ const Run = struct {
 
     /// The file an include names: beside the including file, else in the
     /// first search directory that has it.
-    fn locate(r: *Run, scratch: Allocator, dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+    fn locate(r: *Run, scratch: Allocator, dir_in: []const u8, path: []const u8) Allocator.Error![]const u8 {
         const p = try r.expand(scratch, path);
+        // `$PDK/corners.lib` with `-D PDK=pdk`: the variable's value is a
+        // path of its own, from where SPRack runs, whichever file names it.
+        const dir = if (r.leadsWithDefined(path)) r.cwd else dir_in;
         const here = try resolve(scratch, dir, p);
         if (r.search.items.len == 0 or std.fs.path.isAbsolute(p) or exists(r, here)) return here;
         for (r.search.items) |sd| {
@@ -308,6 +311,18 @@ const Run = struct {
             if (exists(r, there)) return there;
         }
         return here;
+    }
+
+    /// Does the path begin with a variable that has a value?
+    fn leadsWithDefined(r: *const Run, path: []const u8) bool {
+        if (path.len < 2 or path[0] != '$') return false;
+        const braced = path[1] == '{';
+        const start: usize = 1 + @intFromBool(braced);
+        var j = start;
+        while (j < path.len and (std.ascii.isAlphanumeric(path[j]) or path[j] == '_')) j += 1;
+        const name = path[start..j];
+        for (r.opts.vars) |kv| if (std.mem.eql(u8, kv[0], name)) return true;
+        return false;
     }
 
     fn writeExpanded(r: *const Run, w: *Writer) Writer.Error!void {
@@ -325,7 +340,7 @@ const Run = struct {
 
     fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void {
         if (st.kind != .options or st.get("search") != .str) return;
-        const sd = try resolve(r.arena, dir, try r.expand(r.arena, st.get("search").str));
+        const sd = try resolve(r.arena, if (r.leadsWithDefined(st.get("search").str)) r.cwd else dir, try r.expand(r.arena, st.get("search").str));
         for (r.search.items) |x| if (std.mem.eql(u8, x, sd)) return;
         try r.search.append(r.arena, sd);
     }
@@ -938,19 +953,22 @@ test "a small project: includes followed, declarations shared, tree copied" {
 
     var log: Writer.Allocating = .init(a);
     var expanded: Writer.Allocating = .init(a);
+    const models = try std.fmt.allocPrint(a, "{s}/in/models", .{base});
     const sum = try run(io, std.testing.allocator, .{
         .from = &hspice,
         .to = &spectre,
         .tops = &.{try std.fmt.allocPrint(a, "{s}/in/top.sp", .{base})},
         .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
-        .vars = &.{.{ "MODELS", "models" }},
+        // A path the include starts with is from where sprack runs (#54):
+        // given whole here.
+        .vars = &.{.{ "MODELS", models }},
         .log = &log.writer,
         .expanded = &expanded.writer,
         // Only the corner asked for: ff.mod (which does not exist) is not reached.
         .sections = &.{"tt"},
     });
     try std.testing.expectEqual(3, sum.files);
-    try std.testing.expectEqualStrings("{\"MODELS\":\"models\"}", expanded.written());
+    try std.testing.expectEqualStrings(try std.fmt.allocPrint(a, "{{\"MODELS\":\"{s}\"}}", .{models}), expanded.written());
     try std.testing.expectEqual(1, sum.missing);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "missing.mod: error[invalid]: cannot open this file") != null);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed") != null);

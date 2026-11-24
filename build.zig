@@ -225,8 +225,10 @@ fn cliTests(c: Cli) void {
     const top = wf.add("tree/top.sp", "top\n.include \"inc/sub.sp\"\n.lib \"$PDK/corners.lib\" tt\nX1 a 0 rdiv\n.op\n.end\n");
     const sub = wf.add("tree/inc/sub.sp", ".subckt rdiv a b\nR1 a b 1k\n.ends rdiv\n");
     _ = wf.add("tree/pdk/corners.lib", ".lib tt\n.param rsh=10\n.endl tt\n.lib ff\n.param rsh=8\n.endl ff\n");
-    // ($PDK is put into the path as text: a relative one is relative to the including file.)
+    // (A path that starts with $PDK is the value's own path, from the
+    // directory sprack runs in: here the tree's.)
     const tree = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "--section", "tt", "-D", "PDK=pdk", "--out" }, "", 0);
+    tree.setCwd(wf.getDirectory().path(b, "tree"));
     const out = tree.addOutputDirectoryArg("spectre-tree");
     tree.addFileArg(top);
     tree.expectStdErrMatch("pdk/corners.lib: info[cosmetic]: section 'ff' not followed");
@@ -241,10 +243,29 @@ fn cliTests(c: Cli) void {
     missing.expectStdErrMatch("$PDK/corners.lib: error[invalid]: cannot open this file; it is included by the project\n2 files, 1 error, 0 warnings, 1 included file not found\n");
     // A section asked for that no file defines: an error too.
     const nosec = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "--section", "typ", "-D", "PDK=pdk", "--out" }, "", 1);
+    nosec.setCwd(wf.getDirectory().path(b, "tree"));
     _ = nosec.addOutputDirectoryArg("nosec-tree");
     nosec.addFileArg(top);
-    nosec.expectStdErrMatch("tree/top.sp: error[invalid]: section 'typ' is asked for, but no file read defines it\n");
+    nosec.expectStdErrMatch("top.sp: error[invalid]: section 'typ' is asked for, but no file read defines it\n");
     nosec.expectStdErrMatch("3 files, 1 error, 0 warnings\n");
+    // -D NAME=relative/path: one place, whichever file names it (#54).
+    const dtop = wf.add("dtree/top.sp", "top\n.include \"$INC/sub.sp\"\n.include \"a/b/mid.sp\"\nX1 a 0 rdiv\n.op\n.end\n");
+    _ = wf.add("dtree/a/b/mid.sp", ".include \"$INC/sub.sp\"\n");
+    _ = wf.add("dtree/common/sub.sp", ".subckt rdiv a b\nR1 a b 1k\n.ends rdiv\n");
+    const dproj = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "-D", "INC=common", "--out" }, "", 0);
+    dproj.setCwd(wf.getDirectory().path(b, "dtree"));
+    _ = dproj.addOutputDirectoryArg("dtree-out");
+    dproj.addFileArg(dtop);
+    dproj.expectStdErrMatch("3 files, 0 errors, 0 warnings\n");
+    // audit: status 1 for a circuit that reads back otherwise in silence
+    // (a grammar that writes a resistor's nodes one way and reads them the
+    // other), 0 where the report says why, 2 for a wrong flag.
+    const swap = wf.add("swap.spgrammar", "dialect swap\nlexer\n  case insensitive\n  title yes\n  comment line \"*\"\nend\n" ++
+        "write resistor = name~\"R\" pos neg r\nread resistor = name~\"R\" neg pos r\nrule op = \".op\"\n");
+    const silent = c.run(&.{ "audit", "--from", "ngspice", "--to" }, "t\nR1 a 0 1k\n.op\n.end\n", 1);
+    silent.addFileArg(swap);
+    silent.expectStdErrMatch("the circuit read back from swap is not the one read, and the report does not say why\n");
+    c.run(&.{ "audit", "--from", "ngspice", "--to", "xyce", "--frm" }, "", 2).expectStdErrMatch("unknown option '--frm'");
     // catalog: what the files define, as JSON; the files named are libraries.
     const cat = c.run(&.{ "catalog", "--from", "ngspice" }, "", 0);
     cat.addFileArg(sub);
