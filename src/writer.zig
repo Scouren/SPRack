@@ -1712,6 +1712,34 @@ const Writer = struct {
         try w.bodyComments(a, st.body);
     }
 
+    /// A statement only one dialect has: as its words there, an
+    /// `unsupported` with that grammar's reason anywhere else.
+    fn native(w: *Writer, st: *const ir.Stmt) Error!void {
+        const dialect = if (st.get("of") == .atom) st.get("of").atom else "";
+        const word = if (st.get("word") == .atom) st.get("word").atom else "";
+        var said: std.ArrayList(u8) = .empty;
+        try said.appendSlice(w.arena, word);
+        if (st.get("args") == .list) for (st.get("args").list) |v| switch (v) {
+            .atom, .str, .expr => |x| try said.print(w.arena, " {s}", .{x}),
+            else => {},
+        };
+        if (st.get("params") == .params) for (st.get("params").params) |p| switch (p.val) {
+            .atom, .str, .expr => |x| try said.print(w.arena, " {s}={s}", .{ p.key, x }),
+            .none => try said.print(w.arena, " {s}", .{p.key}),
+            else => {
+                var e = w.emitter(w.arena, st);
+                try said.print(w.arena, " {s}={s}", .{ p.key, try e.describe(p.val) });
+            },
+        };
+        if (std.mem.eql(u8, dialect, w.g.name)) return w.lineTail(said.items, st.tail);
+        const sg: ?*const Grammar = if (w.caps) |c| for (c.grammars) |*g| {
+            if (std.mem.eql(u8, g.name, dialect)) break g;
+        } else null else null;
+        const why = (if (sg) |g| g.ownReason(said.items) else null) orelse w.g.absentReason(.native) orelse "no other dialect has it";
+        w.report.add(.@"error", .unsupported, st.line, "'{s}' is a {s} statement and cannot be written for {s}: {s}", .{ said.items, dialect, w.g.name, why });
+        try w.comment(try w.arena.print("[sprack] not written: {s}", .{said.items}));
+    }
+
     fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
         if (st.kind == .model and st.body.len > 0) return w.binnedModel(st);
         // A control script where there is none: its analyses and outputs
@@ -1723,6 +1751,39 @@ const Writer = struct {
             for (st.body) |*child| try w.stmt(child);
             return;
         }
+        if (st.kind == .native) return w.native(st);
+        if (st.kind == .embed) if (w.g.rawOf(.embed)) |rb| {
+            // `embed "name" <<<FILE`, the text, `>>>FILE`.
+            const path: []const u8 = switch (st.get("path")) {
+                .str, .atom => |x| x,
+                else => "",
+            };
+            const marker = if (std.mem.startsWith(u8, rb.close, ">>>")) rb.close[3..] else rb.close;
+            try w.out.print("{s} \"{s}\" <<<{s}\n", .{ rb.open, path, marker });
+            const text: []const u8 = switch (st.get("text")) {
+                .atom, .str => |x| x,
+                else => "",
+            };
+            try w.out.writeAll(text);
+            if (text.len > 0 and text[text.len - 1] != '\n') try w.out.writeByte('\n');
+            try w.out.print("{s}\n", .{rb.close});
+            w.last_blank = false;
+            return;
+        } else {
+            // Elsewhere: this grammar's reason, or the embedding dialect's.
+            var why: ?[]const u8 = w.g.absentReason(.embed);
+            if (why == null) if (w.caps) |c| for (c.grammars) |*sg| if (sg.rawOf(.embed)) |rb| if (rb.reason.len > 0) {
+                why = rb.reason;
+            };
+            if (why) |reason| {
+                const path: []const u8 = switch (st.get("path")) {
+                    .str, .atom => |x| x,
+                    else => "",
+                };
+                w.report.add(.@"error", .unsupported, st.line, "embed: the file '{s}' cannot be written for {s}: {s}", .{ path, w.g.name, reason });
+                return w.comment(try w.arena.print("[sprack] not written: the embedded file {s}", .{path}));
+            }
+        };
         // A command of one simulator's control language is no command of
         // another's: one with nothing to say there (run, quit) is left out,
         // any other is unsupported.

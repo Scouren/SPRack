@@ -147,3 +147,5 @@ no fft : CDL is a netlist, not a simulation deck; it has no analyses or outputs
 no optimize : CDL is a netlist, not a simulation deck; it has no analyses
 no script : CDL is a netlist, not a simulation deck
 no csparam : only a control script reads a .csparam vector, and cdl has none
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it
+no embed : VACASK embeds a file (a post-processing script) in the netlist; this dialect has no such statement, so save the file next to the netlist

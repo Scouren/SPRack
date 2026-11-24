@@ -458,3 +458,5 @@ no model b3soipd : a Spectre model of B3SOIPD 2.2.3 is not established without a
 no model mesa : a Spectre model of the MESA MESFET is not established without a Spectre run
 no script : Spectre's netlist has no control script of this kind; its analyses are statements in order
 no csparam : only a control script reads a .csparam vector, and spectre has none
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it
+no embed : VACASK embeds a file (a post-processing script) in the netlist; this dialect has no such statement, so save the file next to the netlist

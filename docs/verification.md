@@ -1799,6 +1799,26 @@ and the pair named in `ports=` in port order. Synthesizing the port (a
 `synthesized` warning naming the resistor and node) is the next step once
 that measurement exists.
 
+### 4.35 Decks that still needed a code block in Python (#51)
+
+Decision: one kind for a statement only its dialect has, `native` (option
+2 of the issue): the dialect, its first word, its other words in order and
+its `key=value` pairs, as written. A line becomes one when its grammar
+names it with an `own` line (#47); only that dialect writes it, and any
+other target reports `unsupported` with that grammar's reason. Python:
+`c.native("hspice", ".acmatch", "v(d)")`. VACASK's `embed` is the kind
+`embed`, a file name and its text: `c.embed("runme.py", text)`.
+
+`measure.spec`: HSPICE's `thd`, `snr`, `sndr`, `enob` and `sfdr` of a
+signal are typed (op and out; Xyce writes them in its FFT mode, which its
+source allows: N_IO_MeasureManager.C), and `goal=` and the other keys of
+the find, when, average and trig forms are its parameters. What still
+falls to `spec`: an analysis output keyword in place of a signal (`find
+phnoise at=10k`), and forms of a dialect's measure no rule lists.
+
+Not measured here: the corpus count of `code` calls (the corpus is not in
+this tree).
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

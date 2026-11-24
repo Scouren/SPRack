@@ -168,6 +168,12 @@ pub const Kind = enum(u8) {
     script,
     // A netlist parameter handed to the control language (ngspice .csparam).
     csparam,
+    // A statement only one dialect has and no kind holds (an `own` line of
+    // its grammar), as words: written back in that dialect, unsupported in
+    // any other with the grammar's reason.
+    native,
+    // A file embedded in the netlist by name (VACASK `embed`).
+    embed,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -398,6 +404,10 @@ const defs = [_]Def{
     .{ .optimize, .analysis, "name param:ident results:ident* model:ident params:params" },
     .{ .script, .structure, "" },
     .{ .csparam, .control, "params:params" },
+    // `word` is its first word (`.acmatch`), `args` the words after it in
+    // order and `params` its `key=value` pairs, all as written.
+    .{ .native, .structure, "of:atom word:atom args:atom* params:params" },
+    .{ .embed, .structure, "path:path text:text" },
 };
 
 pub const kind_count = defs.len;

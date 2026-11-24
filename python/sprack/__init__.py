@@ -624,9 +624,15 @@ class Circuit(_Scope):
 
         Netlists written from the script are those written from this
         circuit, comments included; only blank lines are not rebuilt (they
-        are blank lines of the script). The one thing the builder has no
-        call for is a line no rule of its dialect understood: that is a
-        `code` block of that dialect's text.
+        are blank lines of the script). A statement only one dialect has
+        and no kind holds (an `own` line of its grammar: HSPICE's
+        `.acmatch`, its S element) is `native(dialect, word, *words,
+        params=...)`, its words as written; a file VACASK embeds is
+        `embed(name, text)`. What stays text: a line no rule of its dialect
+        understood (a `code` block of that dialect's text), a measurement
+        none of the measure forms reads (`spec`: an analysis output keyword
+        such as HSPICE's `find phnoise`, or a form of another dialect), and
+        the arguments of a simulator's own control command (`simctl`).
         """
         d = self._source_dialect
         out = ["import sprack", "", f"{name} = sprack.Circuit({_show(self.title)}" + (f", dialect={_show(d)}" if d else "") + ")"]

@@ -552,4 +552,5 @@ rule  simctl@script    = cmd [ args... ]
 # `.csparam freq = {freq}`: the parameter's value, as a vector of the same
 # name in the control script.
 rule  csparam   = ".csparam" {...params}
-
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it
+no embed : VACASK embeds a file (a post-processing script) in the netlist; this dialect has no such statement, so save the file next to the netlist

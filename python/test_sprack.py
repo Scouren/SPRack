@@ -1101,6 +1101,19 @@ def test_to_python():
     assert ".control\nrun\n.endc\n" in _run(out).netlist("ngspice")
 
 
+def test_no_code_for_dialect_only_statements():
+    # #51: a statement only its dialect has is a call of its words, not text.
+    hs = "t\nr1 d 0 1k\n.acmatch v(d)\n.check edge (a b) 1n 2n\ns1 p1 p2 mname=smod\n.meas tran g1 find v(d) at=1m goal=2\n.end\n"
+    out = sprack.to_python(hs, "hspice")
+    assert ".code(" not in out and 'c.native("hspice", ".acmatch", "v(d)")' in out, out
+    assert _same(_run(out).netlist("hspice"), sprack.translate(hs, frm="hspice", to="hspice"))
+    raises(sprack.Unsupported, lambda: _run(out).netlist("xyce"), "is a hspice statement and cannot be written for xyce")
+    v = 't\ncontrol\n  print stats\nendc\nembed "runme.py" <<<FILE\nprint(1)\n>>>FILE\n'
+    out = sprack.to_python(v, "vacask")
+    assert ".code(" not in out and 'c.embed("runme.py", "print(1)\\n")' in out, out
+    assert 'embed "runme.py" <<<FILE\nprint(1)\n>>>FILE\n' in _run(out).netlist("vacask")
+
+
 def _sample(slot, n=0):
     """A value of the JSON form for a slot of the vocabulary."""
     one = {"name": "x1", "node": f"n{n}", "ident": "m1", "ref": "V1", "value": "1.5e-9", "atom": "a1", "text": "some text",

@@ -412,11 +412,17 @@ rule  ctlsrc    = name~"G" pos neg form:"vccap" cpos#1 cneg#1 gain
 # them are translated; anything else is carried as text. A measurement that
 # names no analysis is of the last analysis in the netlist.
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
-rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
-rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"find"=find | op:"deriv"=deriv | op:"derivative"=deriv ) out { at=at! }
+rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross ...params }
+rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"find"=find | op:"deriv"=deriv | op:"derivative"=deriv ) out { at=at! ...params }
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"when"=when | op:"deriv"=deriv out "when" | op:"derivative"=deriv out "when" ) when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
-rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ | op:"integral"=integ ) out { from=from to=to }
+rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ | op:"integral"=integ ) out { from=from to=to ...params }
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"param"=param ~"=" expr
+# The spectrum measurements (on an .FFT or a transient), each of a signal:
+# `.meas tran thd1 thd v(out)`, `.meas fft s1 snr v(out) binsiz=1`.
+rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"thd"=thd | op:"snr"=snr | op:"sndr"=sndr | op:"enob"=enob | op:"sfdr"=sfdr ) out {...params}
+# `goal=` (an optimization's target) and the rest of a form's keys are
+# its parameters. What none of the forms above reads, such as an analysis
+# output keyword (`find phnoise at=10k`), is carried as text.
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 # HSPICE's AM is sa*(oc + sin(2 pi fm t)) sin(2 pi fc t): no offset, and
@@ -518,3 +524,5 @@ no model b3soipd : HSPICE's level 57 (BSIM3SOI) is read here as bsimsoi; that it
 no model mesa : HSPICE's MESFETs are J elements (level 3); none is the MESA model
 no script : HSPICE has no control script; its analyses and outputs are netlist lines
 no csparam : only a control script reads a .csparam vector, and hspice has none
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it
+no embed : VACASK embeds a file (a post-processing script) in the netlist; this dialect has no such statement, so save the file next to the netlist

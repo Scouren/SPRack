@@ -195,7 +195,9 @@ pub const Block = struct {
 pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Kind };
 /// A region in a different language, kept verbatim (ngspice `.control`).
 /// `reason`: why no other dialect can take it (`raw "embed" ">>>FILE" : ...`).
-pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []const u8 = "" };
+/// `as embed`: the region is a statement of that kind (a named file and
+/// its text), not text.
+pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []const u8 = "", kind: ?Kind = null };
 /// `own ".check" ".dout" : reason`: statements of this dialect that no kind
 /// of the schema holds, and why no other dialect gets them. Read as text,
 /// as any line no rule reads; written elsewhere they are `unsupported` with
@@ -512,6 +514,12 @@ pub const Grammar = struct {
         return false;
     }
 
+    /// The region a statement of this kind is written as (`raw ... as kind`).
+    pub fn rawOf(g: *const Grammar, kind: Kind) ?*const RawBlock {
+        for (g.raws) |*r| if (r.kind != null and r.kind.? == kind) return r;
+        return null;
+    }
+
     /// Why a line of this dialect no kind holds has no form elsewhere
     /// (`own`), by its first word.
     pub fn ownReason(g: *const Grammar, line: []const u8) ?[]const u8 {
@@ -618,6 +626,7 @@ pub const Grammar = struct {
 
     pub fn canWrite(g: *const Grammar, kind: Kind) bool {
         for (g.rules) |r| if (r.kind == kind and r.dir != .read and r.within == null) return true;
+        for (g.raws) |r| if (r.kind != null and r.kind.? == kind) return true;
         for (g.blocks) |b| if (b.kind == kind) return true;
         return false;
     }
@@ -1556,12 +1565,18 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             for (words) |wd| owns = try c.add(Own, owns, .{ .word = try c.foldIf(fold, wd), .reason = rest[colon + 3 ..], .model = model });
         } else if (std.mem.eql(u8, head, "raw")) {
             const colon = std.mem.indexOf(u8, rest, " : ");
-            const lits = try args(c, no, if (colon) |k| rest[0..k] else rest);
-            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\" [: reason]`", .{});
+            var lits = try args(c, no, if (colon) |k| rest[0..k] else rest);
+            var as_kind: ?Kind = null;
+            if (lits.len == 4 and std.mem.eql(u8, lits[2], "as")) {
+                as_kind = try kindOf(c, no, lits[3]);
+                lits = lits[0..2];
+            }
+            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\" [as kind] [: reason]`", .{});
             raws = try c.add(RawBlock, raws, .{
                 .open = try c.foldIf(fold, lits[0]),
                 .close = try c.foldIf(fold, lits[1]),
                 .reason = if (colon) |k| rest[k + 3 ..] else "",
+                .kind = as_kind,
             });
         } else if (std.mem.eql(u8, head, "block")) {
             const kind = try kindOf(c, no, rest);

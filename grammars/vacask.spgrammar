@@ -124,7 +124,7 @@ end
 wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb pac pnoise xf simctl alter
 
 # A file carried inside the netlist (a Python post-processing script, say).
-raw "embed" ">>>FILE" : VACASK embeds a file (a post-processing script) in the netlist; SPICE dialects have no such statement, so save the file next to the netlist
+raw "embed" ">>>FILE" as embed : VACASK embeds a file (a post-processing script) in the netlist; SPICE dialects have no such statement, so save the file next to the netlist
 
 # The terminal list is in parentheses, always (lib/dflparser.y:324,334).
 block subckt
@@ -550,3 +550,4 @@ no model b3soipd : VACASK has no built-in B3SOIPD; it loads compiled Verilog-A (
 no model mesa : VACASK has no built-in MESA MESFET; it loads compiled Verilog-A (OSDI), and SPRack knows no module for it
 no script : VACASK's control block is where its analyses live (written around them); a script's other commands are its own simctl lines, not another simulator's
 no csparam : only an ngspice control script reads a .csparam vector
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it

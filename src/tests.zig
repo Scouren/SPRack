@@ -946,7 +946,7 @@ test "the report says what crosses: a dropped block's statements, text in anothe
     try reported(&r1, .@"error", ". The 3 statements it holds are not written either, and are in the output as comments");
     // A measure carried as text is the source's syntax: an error between dialects.
     var r2: ir.Report = .init(a);
-    _ = try tr(a, "hspice", "ngspice", "t\nV1 out 0 sin(0 1 1k)\nR1 out 0 1k\n.tran 1u 2m\n.meas tran thd1 thd v(out)\n.end\n", &r2);
+    _ = try tr(a, "hspice", "ngspice", "t\nV1 out 0 sin(0 1 1k)\nR1 out 0 1k\n.tran 1u 2m\n.meas tran pn1 find phnoise at=1m\n.end\n", &r2);
     try reported(&r2, .@"error", "measure.spec: carried as text: the probes, expressions and numbers in it were not translated; it is hspice text, written as it was");
     // A raw block of three lines: the message says the rest.
     var r3: ir.Report = .init(a);
@@ -6715,4 +6715,33 @@ test "#50: an ngspice .control block is a script of statements" {
     const ng = try tr(a, "hspice", "ngspice", "t\n.param r=1k\nR1 a 0 r\nV1 a 0 1\n.op\n.alter\n.param r=2k\n.end\n", &r3);
     var r4: ir.Report = .init(a);
     try testing.expectEqual(0, countKind(try readAs(a, "ngspice", ng, &r4), .@"opaque"));
+}
+
+test "#51: a statement only its dialect has is its words; HSPICE measure forms; VACASK embed" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const hs = "t\nr1 d 0 1k\n.acmatch v(d)\ns1 p1 p2 mname=smod\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", hs, &r);
+    try testing.expectEqual(2, countKind(nl, .native));
+    try testing.expectEqual(0, countKind(nl, .@"opaque"));
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", hs, &r1), ".acmatch v(d)\ns1 p1 p2 mname=smod\n");
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", hs, &r2);
+    try reported(&r2, .@"error", "'.acmatch v(d)' is a hspice statement and cannot be written for spectre: HSPICE's .ACMATCH");
+    // Spectrum measurements and goal= are typed, not text.
+    var r3: ir.Report = .init(a);
+    const m = try readAs(a, "hspice", "t\n.meas tran thd1 thd v(out)\n.meas fft s1 snr v(out) binsiz=1\n.meas tran a1 avg v(out) from=0 to=1m goal=0.5\n.end\n", &r3);
+    try testing.expect(std.mem.indexOf(u8, try jsonOf(a, &m), "\"spec\"") == null);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\nv1 o 0 sin(0 1 1k)\n.tran 1u 2m\n.fft v(o)\n.meas fft s1 snr v(o)\n.end\n", &r4), ".measure fft s1 snr v(o)\n");
+    // An embedded file is a name and a text.
+    const v = "t\nembed \"runme.py\" <<<FILE\nprint(1)\n>>>FILE\n";
+    var r5: ir.Report = .init(a);
+    const vn = try readAs(a, "vacask", v, &r5);
+    try testing.expectEqual(1, countKind(vn, .embed));
+    var r6: ir.Report = .init(a);
+    try has(try sameBack(a, "vacask", "vacask", v, &r6), "embed \"runme.py\" <<<FILE\nprint(1)\n>>>FILE\n");
 }
