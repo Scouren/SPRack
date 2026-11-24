@@ -156,6 +156,8 @@ pub const Kind = enum(u8) {
     library,
     // c2: alter
     alter,
+    // A named bit pattern a pattern source refers to (HSPICE .PAT).
+    pattern,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -173,7 +175,10 @@ const source_spec = "name pos:node neg:node dc:value acmag:value acphase:value w
     // modulation phase of AM (the carrier's is sphase).
     // Spectre: the periodic AC magnitude (pac) and the fundamental a source
     // belongs to (pss, hb).
-    "count:value wargs:value* bits:atom* mphase:value pacmag:value fundname:atom params:params";
+    "count:value wargs:value* bits:atom* mphase:value pacmag:value fundname:atom params:params " ++
+    // A balanced (mixed-mode) RF port: pos and neg are its two legs and
+    // `portref` the reference they are measured against (HSPICE `P1 a b 0`).
+    "portref:node";
 
 const sweep_spec = "sweep:atom points:value fstart:value fstop:value";
 
@@ -338,7 +343,10 @@ const defs = [_]Def{
         "points:value values:value* data:ident params:params" },
     // A table of values, one column per name in `cols`, rows one after the
     // other in `values`; swept by `data=` on an analysis or a step.
-    .{ .data, .structure, "name cols:ident* values:value*" },
+    // Or the rows come from files (`files`, as written: each FILE= and the
+    // column each parameter is in), laminated one after another (`join` =
+    // lam) or merged side by side (mer); HSPICE's external data.
+    .{ .data, .structure, "name cols:ident* values:value* join:atom files:text" },
     // b2: statistics and structure
     // Statistical variation: a block whose body holds `statgroup` blocks
     // (and `correlate` statements); each group holds `vary` statements.
@@ -366,6 +374,9 @@ const defs = [_]Def{
     // that says parameters and the temperature only writes them flat, from
     // `keys`, `vals` and `temp`.
     .{ .alter, .analysis, "name dev:ref mod:ident param:ident value:value keys:ident* vals:value* temp:value" },
+    // `data`: the bits and the repeats after the name's `=`, as written
+    // (`[b10 b01] r=1`); only HSPICE has pattern sources to use it.
+    .{ .pattern, .structure, "name data:text" },
 };
 
 pub const kind_count = defs.len;

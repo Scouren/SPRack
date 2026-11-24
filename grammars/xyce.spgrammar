@@ -732,3 +732,4 @@ end
 # type L, parameter ignored", and the line's own value is read.
 noparam inductor ind warning : Xyce's inductor model has no IND, the inductance of a line that gives none; a line gives its own here, and one that gives none is refused whatever the card says
 computes resistor narrow short : R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored)
+no pattern : Xyce has no named bit patterns; a bit pattern is a PWL

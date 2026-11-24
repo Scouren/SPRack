@@ -530,3 +530,4 @@ modelparams inductor
   same ind tc1
 end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
+no pattern : VACASK has no pattern sources; a bit pattern is a PWL

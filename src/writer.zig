@@ -200,7 +200,11 @@ const Emit = struct {
             .num => |n| lexer.renderNumber(w, cfg, n) catch return error.OutOfMemory,
             .expr => |canon| {
                 const s = try e.exprText(canon);
-                if (cfg.bare_expr) {
+                // A bracketed vector a SPICE reader kept as text
+                // (`hblin=[1, -1]`) is written as it was, not as arithmetic.
+                if (s.len >= 2 and s[0] == '[' and s[s.len - 1] == ']') {
+                    w.writeAll(s) catch return error.OutOfMemory;
+                } else if (cfg.bare_expr) {
                     const needs_parens = std.mem.indexOfAny(u8, s, " \t") != null;
                     (if (needs_parens) w.print("({s})", .{s}) else w.writeAll(s)) catch return error.OutOfMemory;
                 } else if (cfg.expr_delims.len > 0) {
@@ -1729,7 +1733,9 @@ const Writer = struct {
         // analyses), or the rule is added to each statement of the body
         // (`spread`, HSPICE `monte=`).
         if (st.body.len > 0 and w.g.blockOf(st.kind) == null and w.g.canWrite(st.kind)) {
-            if (w.g.isSpread(st.kind) and !(st == w.sole and try w.fits(st))) return w.spread(st);
+            // Only a kind with lines of its own (a word starts its endings:
+            // `.temp`) may be such a line; HSPICE's Monte Carlo has none.
+            if (w.g.isSpread(st.kind) and !(st == w.sole and w.g.spreadWord(st.kind) != null and try w.fits(st))) return w.spread(st);
             var head = st.*;
             head.body = &.{};
             try w.stmt(&head);
@@ -1744,6 +1750,24 @@ const Writer = struct {
             w.ordinals[@backingInt(st.kind)] += 1;
             var e = w.emitter(w.arena, st);
             if (!try e.seq(b.open)) {
+                // A word its open line has no spelling for (an HSPICE
+                // element variation in Spectre): the block and what it
+                // holds are not written, said once, with the target's
+                // caveat on that value as the reason where it has one.
+                for (schema.info(st.kind).slots, 0..) |sl, k| {
+                    const v = st.at(k);
+                    if (sl.ty != .atom or v != .atom) continue;
+                    const why = for (w.g.caveats) |c| {
+                        if (c.kind == st.kind and c.slot == k and c.suffix.len > 0 and std.ascii.endsWithIgnoreCase(v.atom, c.suffix)) break c.text;
+                    } else continue;
+                    const held = bodyCount(st.body);
+                    w.report.add(.@"error", .unsupported, st.line, "{s} {s}={s} cannot be written for {s}: {s}. The {d} statement{s} it holds {s} not written either, and {s} in the output as comments", .{
+                        @tagName(st.kind), sl.name, v.atom, w.g.name, why, held, if (held == 1) "" else "s", if (held == 1) "is" else "are", if (held == 1) "is" else "are",
+                    });
+                    try w.comment(try w.arena.print("[sprack] not written: {s} {s}={s}", .{ @tagName(st.kind), sl.name, v.atom }));
+                    try w.bodyComments(w.arena, st.body);
+                    return;
+                }
                 w.report.add(.@"error", .invalid, st.line, "{s}: required values missing for the {s} form", .{ @tagName(st.kind), w.g.name });
                 return;
             }

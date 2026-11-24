@@ -514,12 +514,20 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
                 i = @min(end + 1, text.len);
                 continue;
             }
-            // A bare expression runs to the next blank outside parentheses.
+            // A bare expression runs to the next blank outside parentheses
+            // and brackets: `hblin=[1, -1]` is one value.
             var depth: usize = 0;
+            var square: usize = 0;
             var j = i;
             while (j < text.len) : (j += 1) {
                 const ch = text[j];
-                if (ch == '(') {
+                if (ch == '[') {
+                    square += 1;
+                } else if (ch == ']') {
+                    square -|= 1;
+                } else if (square > 0) {
+                    continue;
+                } else if (ch == '(') {
                     depth += 1;
                 } else if (ch == ')') {
                     if (depth == 0) break;

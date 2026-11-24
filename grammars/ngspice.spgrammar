@@ -506,3 +506,4 @@ modelparams bsim4
   pvth0 = pvth0 pvtho
 end
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
+no pattern : ngspice has no pattern sources; a bit pattern is a PWL

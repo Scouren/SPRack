@@ -93,6 +93,8 @@ read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphas
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
 # b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
 read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
+# A named pattern; a PAT source gives its name where the bits go.
+rule  pattern   = ".pat" name ~"=" data...
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
@@ -197,11 +199,15 @@ block statistics
   open   ".variation"
   close  ".end_variation"
 end
+# `.element_variation` varies every element of a type: `r r=10%` is each
+# resistor's r with a sigma of 10 percent of its value.
 block statgroup
-  open   ( scope:".global_variation"=process | scope:".local_variation"=mismatch )
-  close  ( scope:".end_global_variation"=process | scope:".end_local_variation"=mismatch )
+  open   ( scope:".global_variation"=process | scope:".local_variation"=mismatch | scope:".element_variation"=element )
+  close  ( scope:".end_global_variation"=process | scope:".end_local_variation"=mismatch | scope:".end_element_variation"=element )
 end
 rule  vary      = mtype model param ~"=" std [ rel:"%"=yes ]
+# An element type and its parameter (in an .element_variation).
+rule  vary      = mtype param ~"=" std [ rel:"%"=yes ]
 no correlate : HSPICE has no statement that sets a correlation coefficient between two varied parameters; correlated variation comes from sharing one random variable
 # A library file has no wrapper around its .LIB sections; the name is
 # carried as a comment.
@@ -372,7 +378,8 @@ end
 # no O (LTRA), Y (TXL) or P (CPL) line.
 rule  lossyline[rlgc] = name~"W" nodes+ { rlgcmodel=master! ...params }
 # A port for .LIN: a source in series with z0.
-rule  vsource   = name~"P" pos neg { port=portnum! z0=z0 dc=dc ac=acmag ...params } [ <wave> ]
+# A third node: a balanced port, its legs against that reference.
+rule  vsource   = name~"P" pos neg [ portref ] { port=portnum! z0=z0 dc=dc ac=acmag ...params } [ <wave> ]
 rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
 rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
 rule  ctlsrc    = name~"F" pos neg form:"poly" ~"(" dim?1 ~")" vsrcs#dim coeffs+
@@ -410,6 +417,8 @@ spread step "sweep"
 rule  step      = "sweep" <what> <range>
 rule  step      = "sweep" { data=data! }
 rule  data      = ".data" name ( cols )+ ( values )* / ".enddata"
+# Rows from files: `.data rows LAM FILE='l1.dat' rl=1 ... .enddata`.
+rule  data      = ".data" name ( join:"lam" | join:"mer" ) files... / ".enddata"
 # Instance parameters each device takes, by canonical (ngspice) name; the
 # first spelling is written. Observed: a deck per name, a warning or an
 # error for one HSPICE does not take (mosfet: levels 54 and 72 together).

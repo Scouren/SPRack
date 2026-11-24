@@ -1712,6 +1712,23 @@ an `.lstb`) now stays an analysis of its own instead of being folded away.
 Not run: whether HSPICE loads `.op sweep monte=` as written for an operating
 point Monte Carlo, and which input band Spectre's `refsideband` is.
 
+### 4.31 HSPICE element variation, port, pattern and data forms (#46)
+
+Lines the HSPICE reader kept as text (21 lines in 9 decks). HSPICE is not
+run here (#56); each form is as the issue's decks give it.
+
+| form | now |
+|---|---|
+| `hblin=[1, -1]`, `foo=[1, -1]` | a bracketed value is one value, blanks and all, in every SPICE reader, and written back as it was |
+| `P1 a b 0 port=1 z0=50` | a port whose legs a and b stand against the third node (`portref`, new); a target with two-node ports reports the reference as a loss |
+| `pat (... b1011 r=1 rb=2 b0m1)` | the repeats stay among the bit groups, in order |
+| `.pat a2=[b10 b01] r=1` | a `pattern` statement (new kind), the source naming it written beside it; no other dialect has one, each says why |
+| `.data rows LAM FILE='l1.dat' rl=1 ... .enddata` | a `data` table whose rows come from files (`join`, `files`, new); a target without file tables cannot write it (unsupported) |
+| `.element_variation`, `r r=10%`, `c c=5 %` | a `statgroup` of scope `element` and `vary` lines of a type and a parameter; `10%` is `10 %`. Spectre has no form for varying every element of a type (#57): one `unsupported` names the group, its lines become comments |
+
+A lone `.tran ... sweep monte=10` was written as the line `sweep monte=10`
+before its `.tran`; it is now the ending of the analysis, as read.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

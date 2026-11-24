@@ -925,9 +925,9 @@ test "the report says what crosses: a dropped block's statements, text in anothe
     // A block the target has not: its statements are counted and kept as comments.
     var r1: ir.Report = .init(a);
     const ng = try tr(a, "hspice", "ngspice", "* t\n.variation\n.element_variation\nr r=10%\nc c=5%\n.end_element_variation\n.end_variation\nR1 a 0 1k\n.end\n", &r1);
-    try has(ng, "* [sprack] not written: r r=10%\n* [sprack] not written: c c=5%\n");
+    try has(ng, "* [sprack] not written: statgroup\n* [sprack] not written: vary\n* [sprack] not written: vary\n");
     try reported(&r1, .@"error", "statement 'statistics' cannot be written for ngspice: ngspice has no statistics block");
-    try reported(&r1, .@"error", ". The 4 statements it holds are not written either, and are in the output as comments");
+    try reported(&r1, .@"error", ". The 3 statements it holds are not written either, and are in the output as comments");
     // A measure carried as text is the source's syntax: an error between dialects.
     var r2: ir.Report = .init(a);
     _ = try tr(a, "hspice", "ngspice", "t\nV1 out 0 sin(0 1 1k)\nR1 out 0 1k\n.tran 1u 2m\n.meas tran thd1 thd v(out)\n.end\n", &r2);
@@ -6456,4 +6456,100 @@ test "#45: HSPICE .op times, .dc monte= and a Monte Carlo trial list" {
     try has(sc, "montecarlo numruns=30 {\nop");
     try reported(&r2, .@"error", "op.times = 1n 5n has no spelling in spectre");
     try reported(&r2, .@"error", "montecarlo.trials = 3 has no spelling in spectre");
+}
+
+// #46: HSPICE element variation, port, pattern and data forms.
+
+test "#46: a bracketed parameter value with blanks in it is one value, in HSPICE and ngspice" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    for ([_][]const u8{ "hspice", "ngspice" }) |d| {
+        var r: ir.Report = .init(a);
+        const nl = try readAs(a, d, "t\nr1 a b 1k foo=[1, -1]\n.end\n", &r);
+        try testing.expectEqual(1, countKind(nl, .resistor));
+        try has(try jsonOf(a, &nl), "\"foo\":\"[1, -1]\"");
+        var r1: ir.Report = .init(a);
+        try has(try tr(a, d, d, "t\nr1 a b 1k foo=[1, -1]\n.end\n", &r1), "r1 a b 1k foo=[1, -1]\n");
+    }
+    var r2: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", "t\nP2 if 0 port=2 z0=50 dc=5 hblin=[1, -1]\n.end\n", &r2);
+    try testing.expectEqual(1, countKind(nl, .vsource));
+}
+
+test "#46: a balanced HSPICE port, its legs against a third node" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nP1 a b 0 port=1 z0=50\nP2 c 0 port=2 z0=50\nr1 a b 100\nr2 b c 1k\n.ac dec 10 1 1g\n.lin\n.end\n";
+    var r: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", src, &r), "P1 a b 0 port=1 z0=50\nP2 c 0 port=2 z0=50\n");
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "spectre", src, &r1), "P1 (a b) port num=1 r=50\n");
+    try reported(&r1, .@"error", "vsource.portref = 0 has no spelling in spectre");
+}
+
+test "#46: HSPICE PAT sources: repeats between bit groups, and a named .pat" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.pat a2=[b10 b01] r=1\nv1 a 0 pat (1 0 1n 0.2n 0.4n 2n b1011 r=1 rb=2 b0m1)\nv2 b 0 pat 2 0 0 0.1n 0.1n 1n a2\nr1 a b 1k\n.tran 1n 10n\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try clean(&r);
+    try testing.expectEqual(1, countKind(nl, .pattern));
+    try testing.expectEqual(2, countKind(nl, .vsource));
+    var r1: ir.Report = .init(a);
+    const hs = try sameBack(a, "hspice", "hspice", src, &r1);
+    try has(hs, ".pat a2=[b10 b01] r=1\n");
+    try has(hs, "v1 a 0 pat(1 0 1n 0.2n 0.4n 2n b1011 r=1 rb=2 b0m1)\n");
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "spectre", src, &r2);
+    try reported(&r2, .@"error", "statement 'pattern' cannot be written for spectre");
+    // A function's arguments are not taken for such repeats.
+    var r3: ir.Report = .init(a);
+    const f = try readAs(a, "hspice", "t\n.param f(x)='x*2'\n.end\n", &r3);
+    try testing.expectEqual(1, countKind(f, .func));
+}
+
+test "#46: HSPICE .data read from files" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.param rl=1k\nr1 a 0 rl\nv1 a 0 1\n.data rows LAM FILE='l1.dat' rl=1\n.enddata\n.dc data=rows\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try clean(&r);
+    try testing.expectEqual(1, countKind(nl, .data));
+    try has(try jsonOf(a, &nl), "\"join\":\"lam\",\"files\":\"FILE='l1.dat' rl=1\"");
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", src, &r1), ".data rows lam FILE='l1.dat' rl=1\n.enddata\n");
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "xyce", src, &r2);
+    try testing.expect(r2.countCode(.unsupported) >= 1);
+}
+
+test "#46: an HSPICE element variation is read, and Spectre says it has no form for it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* ev\nv1 a 0 1\nr1 a b 1k\nc1 b 0 1p\nd1 b 0 dm\n.model dm d is=1e-14\n.variation\n.element_variation\nr r=10%\nc c=5 %\n" ++
+        ".end_element_variation\n.local_variation\nd dm is=10%\n.end_local_variation\n.end_variation\n.tran 1n 10n sweep monte=10\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try clean(&r);
+    const j = try jsonOf(a, &nl);
+    try testing.expectEqual(3, std.mem.count(u8, j, "\"kind\":\"vary\""));
+    try has(j, "\"scope\":\"element\"");
+    try has(j, "{\"kind\":\"vary\",\"line\":9,\"param\":\"r\",\"mtype\":\"r\",\"std\":\"10\",\"rel\":\"yes\"}");
+    var r1: ir.Report = .init(a);
+    const hs = try sameBack(a, "hspice", "hspice", src, &r1);
+    try has(hs, ".element_variation\nr r=10 %\nc c=5 %\n.end_element_variation\n");
+    // A lone Monte Carlo is the ending of its analysis, not a line of its own.
+    try has(hs, ".tran 1n 10n sweep monte=10\n");
+    var r2: ir.Report = .init(a);
+    const sc = try tr(a, "hspice", "spectre", src, &r2);
+    try has(sc, "// [sprack] not written: statgroup scope=element\n// [sprack] not written: vary\n// [sprack] not written: vary\n");
+    try reported(&r2, .@"error", "statgroup scope=element cannot be written for spectre: Spectre varies netlist parameters");
+    try testing.expectEqual(1, r2.countCode(.unsupported));
 }

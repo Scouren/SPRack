@@ -142,3 +142,4 @@ no step : CDL is a netlist, not a simulation deck; it has no analyses
 no data : CDL is a netlist, not a simulation deck; it has no data tables
 # alter (c2)
 no alter : CDL is a netlist, not a simulation deck; it has no analyses to rerun
+no pattern : CDL is a netlist, not a simulation deck; it has no sources of patterns

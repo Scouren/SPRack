@@ -931,7 +931,8 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
         for (slots) |sl| want += @intFromBool(sl.ty == .node and !sl.list);
         // A BJT may leave its substrate node off.
         // The substrate, bulk and thermal terminals are optional.
-        const least: usize = if (target == .bjt or target == .mosfet) 3 else want;
+        // A source's port reference is only a balanced port's.
+        const least: usize = if (target == .bjt or target == .mosfet) 3 else if (target == .vsource or target == .isource) 2 else want;
         const ok = nodes.list.len >= least and nodes.list.len <= want;
         if (!ok) continue;
         var out = try newStmt(arena, target, s.line);

@@ -197,6 +197,7 @@ block statgroup
   open   ( scope:"process" | scope:"mismatch" ) "{"
   close  "}"
 end
+caveat statgroup scope=*element : Spectre varies netlist parameters (vary), not every element of a type; an HSPICE element variation has no form here (#57)
 # A uniform distribution's N is its half width; an std given instead is
 # turned into N with a factor of sqrt(3).
 rule  vary      = "vary" param { dist=dist std=std N=range ...params }
@@ -444,3 +445,4 @@ modelparams inductor
   ind = l
 end
 computes resistor narrow short : R = RSH (L - 2 ETCHL) / (W - 2 ETCH)
+no pattern : Spectre names a bit pattern on the source itself (type=bit data=); HSPICE's .PAT has no form here

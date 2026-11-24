@@ -418,19 +418,36 @@ const Matcher = struct {
                     return false;
                 }
                 if (node.star or node.plus) {
-                    // Greedy, then give tokens back one at a time.
-                    var n: usize = 0;
+                    // Greedy, then give items back one at a time. An item
+                    // of a list of words may be a `key=value` among them
+                    // (a PAT source's `r=1 rb=2` between its bit groups):
+                    // one item of three tokens, so the ends are kept.
+                    var ends: std.ArrayList(usize) = .empty;
+                    var at = ti;
                     const wild = node.slot == grammar.wild_slot;
-                    while (try self.capOne(node, self.toks()[ti + n])) |v| : (n += 1) {
-                        if (followLit(rest, self.toks()[ti + n])) break;
+                    // Not where an `=` follows the list (`.param f(x)='x'`).
+                    const words = !wild and self.slot(node.slot).ty == .atom and !self.allow_key;
+                    while (true) {
+                        const t0 = self.toks()[at];
+                        if (words and ends.items.len > 0 and t0.f.key and self.toks()[at + 1].tag == .eq and (self.toks()[at + 2].tag == .word or self.toks()[at + 2].tag == .expr)) {
+                            try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = try self.joinTokens(at, at + 3) } });
+                            at += 3;
+                            try ends.append(self.arena, at);
+                            continue;
+                        }
+                        const v = (try self.capOne(node, t0)) orelse break;
+                        if (followLit(rest, t0)) break;
                         if (!wild) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
+                        at += 1;
+                        try ends.append(self.arena, at);
                     }
                     const least: usize = if (node.plus) 1 else 0;
                     while (true) {
-                        if (n >= least and try self.m(rest, ti + n, k)) return true;
+                        const n = ends.items.len;
+                        if (n >= least and try self.m(rest, if (n == 0) ti else ends.items[n - 1], k)) return true;
                         if (n <= least) break;
-                        n -= 1;
-                        if (!wild) self.log.shrinkRetainingCapacity(mark + n);
+                        _ = ends.pop();
+                        if (!wild) self.log.shrinkRetainingCapacity(mark + n - 1);
                     }
                     self.log.shrinkRetainingCapacity(mark);
                     return false;
@@ -2183,6 +2200,7 @@ fn foldForms(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Er
         switch (st.kind) {
             .pss => try foldPeriod(arena, st),
             .montecarlo => try foldTrials(arena, st, report),
+            .vary => try foldPercent(arena, st),
             else => {},
         }
     }
@@ -2217,6 +2235,21 @@ fn foldPeriod(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
     if (period == .num and tres == .num) {
         try st.set(arena, hi, try floatNum(arena, @round(period.num.toFloat() / tres.num.toFloat())));
     } else try st.set(arena, hi, .{ .expr = try std.fmt.allocPrint(arena, "nint(({s})/({s}))", .{ try numText(arena, period), try numText(arena, tres) }) });
+}
+
+/// HSPICE `is=10%`, the percent glued to the number: as `is=10 %`.
+fn foldPercent(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
+    const si = schema.slotIndex(.vary, "std").?;
+    const v = st.at(si);
+    const t: []const u8 = switch (v) {
+        .expr, .atom => |x| std.mem.trim(u8, x, " "),
+        else => return,
+    };
+    if (t.len < 2 or t[t.len - 1] != '%') return;
+    const digits = std.mem.trim(u8, t[0 .. t.len - 1], " ");
+    _ = std.fmt.parseFloat(f64, digits) catch return;
+    try st.set(arena, si, .{ .num = ir.Number.init(digits, 0) });
+    try st.set(arena, schema.slotIndex(.vary, "rel").?, .{ .atom = "yes" });
 }
 
 fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
