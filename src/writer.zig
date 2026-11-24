@@ -2138,7 +2138,7 @@ const Writer = struct {
         try w.lineTail(std.mem.trimEnd(u8, e.buf.items, "\n"), st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
-        } else if (e.dropped != 0) {
+        } else if (e.dropped != 0 and (rule.dir != .write or w.g.canRead(st.kind))) {
             // Left out on purpose (`-slot`, its caveat says why): it reads
             // back without it.
             for (0..@min(schema.info(st.kind).slots.len, 64)) |i| if (e.dropped & (@as(u64, 1) << @intCast(i)) != 0) {
@@ -3279,6 +3279,34 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
     return list orelse stmts;
 }
 
+/// A maximum order of integration where the target has no option for it
+/// (Spectre): 1 is backward Euler, the method `euler`; 2 or more changes
+/// nothing beside the methods the target has (gear is order 2 there, and
+/// ngspice's gear of order 3 to 6 is measured to change nothing,
+/// docs/verification.md). Said as an info either way.
+fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+    const mo = schema.slotIndex(.options, "maxord").?;
+    const me = schema.slotIndex(.options, "method").?;
+    for (g.rules) |r| if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
+    var list: ?[]ir.Stmt = null;
+    for (stmts, 0..) |*st, k| {
+        if (st.kind != .options or st.at(mo) != .num) continue;
+        const n = st.at(mo).num.toFloat();
+        if (n != @floor(n) or n < 1) continue;
+        const l = list orelse blk: {
+            list = try arena.dupe(ir.Stmt, stmts);
+            break :blk list.?;
+        };
+        try l[k].own(arena);
+        try l[k].set(arena, mo, .none);
+        if (n == 1) {
+            try l[k].set(arena, me, .{ .atom = "euler" });
+            report.add(.info, .oneway, st.line, "options.maxord = 1 is backward Euler: {s} has no maximum order, so it is written as the method euler", .{g.name});
+        } else report.add(.info, .loss, st.line, "options.maxord = {d} is not written: {s} has no maximum order, and its methods are of order 2 at most, which a maximum of 2 or more leaves as they are", .{ @as(u32, @intFromFloat(n)), g.name });
+    }
+    return list orelse stmts;
+}
+
 /// `v` in `slot` of `st` is a `.tran` step ceiling at or above the stop
 /// time, which limits nothing.
 fn idleCeiling(st: *const ir.Stmt, slot: usize, v: Value) bool {
@@ -3490,7 +3518,7 @@ pub fn write(
         @memcpy(list[1..], gathered);
         gathered = list;
     }
-    var stmts = try w.applyMoves(try alter.prepare(arena, g, gathered, report));
+    var stmts = try w.applyMoves(try foldMaxord(arena, g, try alter.prepare(arena, g, gathered, report), report));
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
         try expr.convert(arena, g, list, true);

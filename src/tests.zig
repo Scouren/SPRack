@@ -975,6 +975,29 @@ test "ngspice forms ngspice 45 takes: .opt, .opts, .width, .parameters, % and \\
     try has(try tr(a, "ngspice", "ngspice", "t\n.param p2=10 \\ 3\n.end\n", &r3), ".param p2={10 \\ 3}\n");
 }
 
+test "small forms a target has: print all and .plot into Xyce, HB harmonics, maxord into Spectre" {
+    // Issue 44.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 in 0 1\nR1 in out 1k\nR2 out 0 1k\n.tran 1u 2u\n.print tran all\n.plot tran v(out)\n.options method=gear maxord=1\n.end\n";
+    var r1: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r1);
+    try has(xy, ".print tran v(*)\n.print tran v(out)\n");
+    try reported(&r1, .warning, "print.style: Xyce has no .plot; the signals are printed instead");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "spectre", src, &r2), "tran1 tran step=1u stop=2u method=euler\n");
+    try reported(&r2, .info, "options.maxord = 1 is backward Euler: spectre has no maximum order, so it is written as the method euler");
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.options method=gear maxord=4\n.tran 1u 2u\n.end\n", &r3);
+    try reported(&r3, .info, "options.maxord = 4 is not written: spectre has no maximum order");
+    try testing.expectEqual(0, r3.count(.@"error"));
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "xyce", "t\nV1 a 0 1\nR1 a 0 1k\n.hb tones=1k nharms=2\n.end\n", &r4), ".hb 1k\n.options hbint numfreq=2\n");
+    try clean(&r4);
+}
+
 test "comments, blank lines and trailing comments are carried over" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

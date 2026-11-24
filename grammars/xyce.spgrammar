@@ -64,6 +64,9 @@ rule  options   = ".options" package:"device"? { gmin=gmin gmin=gmindc temp=temp
 rule  options   = ".options" package:"parser"? { scale=scale ...params }
 rule  options   = ".options" package {...params}
 rule  print     = style:".print"=print analysis {...params} signals+
+# Xyce has no .plot: a plot's signals are printed; it reads back as a print.
+write print     = ".print" -style analysis {...params} signals+
+caveat print style=*plot : Xyce has no .plot; the signals are printed instead
 rule  ic        = ".ic" { v(*)=values }
 rule  nodeset   = ".nodeset" { v(*)=values }
 
@@ -137,7 +140,9 @@ rule  tran      = ".tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc
 # PTS_PER_SUMMARY") or crashes, even for V(out,0); only V(out) works.
 rule  noise     = ".noise" "v" ~"(" out ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
 rule  four      = ".four" freq signals+
-rule  hb        = ".hb" freqs+
+# The harmonics of a tone are NUMFREQ of the HB options (N_ANP_HB.C:826, a
+# vector; a single tone's count is written).
+rule  hb        = ".hb" freqs+ [ / ".options" "hbint" "numfreq" ~"=" harms#1 ]
 
 implied noise ref = 0
 # What an EXP source leaves out, measured with `.tran 2n 50n` (Xyce 7.10):
@@ -271,6 +276,8 @@ signals
   ir    = "ir(%)"
   ii    = "ii(%)"
   ix    = "i%2(%1)"
+  # Every node voltage (run in Xyce 7.10: .print tran v(*) prints V(OUT) and V(IN)).
+  all   = "v(*)"
 end
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh

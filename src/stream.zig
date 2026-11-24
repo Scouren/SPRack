@@ -251,6 +251,8 @@ const Survey = struct {
                 .alter => sv.reason("an alter"),
                 .montecarlo => if (st.body.len == 0) sv.reason("a Monte Carlo analysis of the whole netlist"),
                 .pz => sv.reason("a pole-zero analysis"),
+                // `writer.foldMaxord`: where the target has no maximum order.
+                .options => if (st.get("maxord") != .none) sv.reason("a maximum order of integration"),
                 .model => if (gt.blockOf(.model) != null and st.get("name") == .atom and ir.binBase(st.get("name").atom) != null)
                     sv.reason("a binned model"),
                 else => {},
