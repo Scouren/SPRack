@@ -375,7 +375,10 @@ test "caps: every kind has a rule, a place or a reason in every dialect" {
     // `sprack caps` shows no `-`.
     for (&sprack.grammars) |*g| for (schema.table) |info| {
         if (info.kind == .@"opaque" or info.kind == .comment) continue;
-        const said = g.canWrite(info.kind) or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
+        const scoped = for (g.rules) |r| {
+            if (r.kind == info.kind and r.dir != .read and r.within != null) break true;
+        } else false;
+        const said = g.canWrite(info.kind) or scoped or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
             (info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null);
         if (!said) {
             std.debug.print("{s} has no rule for '{s}' and no `no {s} : reason` line\n", .{ g.name, @tagName(info.kind), @tagName(info.kind) });
@@ -914,8 +917,10 @@ test "lines no rule understands are errors across dialects and untouched within 
     var report: ir.Report = .init(a);
     const sp = try tr(a, "ngspice", "spectre", src, &report);
     try has(sp, "// [sprack] untranslated ngspice: .alter second run\n");
-    try has(sp, "// plot v(a) $ nutmeg\n");
-    try testing.expectEqual(2, report.countCode(.untranslated));
+    // The control script is read (#50); Spectre has none to write it as.
+    try has(sp, "// [sprack] not written: run\n// [sprack] not written: plot v(a)\n");
+    try testing.expectEqual(1, report.countCode(.untranslated));
+    try testing.expectEqual(1, report.countCode(.unsupported));
     try testing.expectEqual(2, report.count(.@"error"));
 
     // Same dialect: untouched, case and all.
@@ -924,7 +929,7 @@ test "lines no rule understands are errors across dialects and untouched within 
     try has(ng, ".alter second run\n.control\nrun\nplot v(a) $ nutmeg\n.endc\n");
     // One note says so: ngspice itself may refuse such a line.
     try testing.expectEqual(1, r2.items.items.len);
-    try reported(&r2, .info, "2 statements no ngspice rule understood are written back as they were");
+    try reported(&r2, .info, "1 statement no ngspice rule understood is written back as it was");
     try testing.expectEqual(0, r2.count(.@"error"));
 }
 
@@ -946,7 +951,8 @@ test "the report says what crosses: a dropped block's statements, text in anothe
     // A raw block of three lines: the message says the rest.
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "hspice", "t\nR1 a 0 1k\n.control\nsave all\nop\n.endc\n.end\n", &r3);
-    try reported(&r3, .@"error", "it is in the output only as a comment: .control (and 3 more lines of it)");
+    // A control script (#50): its analyses are the deck's in a dialect without one.
+    try reported(&r3, .info, "script: hspice has no control script; the ngspice script's analyses and outputs are written as the netlist's own");
     // A word ending in a colon is no port: HSPICE reads ngspice's params: as no rule's.
     var r4: ir.Report = .init(a);
     const xy = try tr(a, "hspice", "xyce", "t\n.subckt div a b params: rt=1k\nR1 a b rt\n.ends\nx1 in mid div params: rt=2k\n.end\n", &r4);
@@ -1999,7 +2005,7 @@ test "VACASK control block and sweep" {
     try has(xy, "v1 1 0 pulse(0 5 1m 1u)\n");
     try has(xy, ".dc v1 0.5 0.9 0.05\n");
     try has(xy, ".tran 1u 10m\n");
-    try has(xy, "* [sprack] not written: statement 'simctl' has no xyce form\n");
+    try has(xy, "* [sprack] not written: postprocess (PYTHON, \"runme.py\")\n");
     // A VACASK pulse without fall or width is not the SPICE pulse of the same words.
     try testing.expectEqual(3, report.count(.@"error"));
     try reported(&report, .@"error", "vsource.fall is not given: a VACASK pulse without a fall time never falls");
@@ -4090,7 +4096,7 @@ test "b4: Spectre relay and port, VACASK control commands" {
     try clean(&r4);
     var r5: ir.Report = .init(a);
     _ = try tr(a, "vacask", "ngspice", v, &r5);
-    try reported(&r5, .@"error", "statement 'simctl' cannot be written for ngspice");
+    try reported(&r5, .@"error", "simctl: 'print stats' is a command of vacask's control language");
     try reported(&r5, .@"error", "VACASK embeds a file");
 }
 
@@ -6675,4 +6681,38 @@ test "#49: an S-parameter port into VACASK says how to rebuild it" {
     try reported(&r, .@"error", "vsource.portnum = 1 has no spelling in vacask: a VACASK acsp port is a voltage source and a series resistor");
     try reported(&r, .@"error", "vsource.z0 = 50 has no spelling in vacask: the port impedance is a series resistor");
     try testing.expectEqual(4, r.countCode(.loss));
+}
+
+test "#50: an ngspice .control block is a script of statements" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* control\n.param freq=1k\n.csparam freq = {freq}\nv1 a 0 dc 1\nr1 a 0 1k\n.control\nop\ndc v1 0 1 0.1\n" ++
+        "print v(a)\nlet vth = v(a)*2\nmeas dc vmax max v(a)\nrun\nquit\n.endc\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r);
+    try clean(&r);
+    try testing.expectEqual(0, countKind(nl, .@"opaque"));
+    try testing.expectEqual(1, countKind(nl, .script));
+    try testing.expectEqual(1, countKind(nl, .csparam));
+    const j = try jsonOf(a, &nl);
+    try has(j, "{\"kind\":\"op\",\"line\":7}");
+    try has(j, "{\"kind\":\"simctl\",\"line\":10,\"cmd\":\"let\",\"args\":\"vth = v(a)*2\"}");
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "ngspice", "ngspice", src, &r1), ".control\nop\ndc v1 0 1 0.1\nprint v(a)\nlet vth = v(a)*2\nmeas dc vmax max v(a)\nrun\nquit\n.endc\n");
+    try testing.expectEqual(0, r1.countCode(.oneway));
+    // Into Xyce: the analyses and the measure are the deck's; run and quit
+    // have nothing to say; print and let are ngspice's.
+    var r2: ir.Report = .init(a);
+    const xy = try tr(a, "ngspice", "xyce", src, &r2);
+    try has(xy, ".op\n.dc v1 0 1 0.1\n");
+    try has(xy, ".measure dc vmax max v(a)\n");
+    try reported(&r2, .@"error", "simctl: 'let vth = v(a)*2' is a command of ngspice's control language");
+    try reported(&r2, .info, "simctl: 'run' is not written");
+    try reported(&r2, .@"error", "statement 'csparam' cannot be written for xyce");
+    // What SPRack writes for an .alter reads back as a script, not as text.
+    var r3: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", "t\n.param r=1k\nR1 a 0 r\nV1 a 0 1\n.op\n.alter\n.param r=2k\n.end\n", &r3);
+    var r4: ir.Report = .init(a);
+    try testing.expectEqual(0, countKind(try readAs(a, "ngspice", ng, &r4), .@"opaque"));
 }

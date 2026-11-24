@@ -548,7 +548,7 @@ const Matcher = struct {
                             if (whole) text = std.mem.trim(u8, text[1 .. text.len - 1], " \t");
                         }
                         try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = text } });
-                    } else try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = text } });
+                    } else if (text.len > 0) try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = text } });
                 }
                 if (try self.m(rest, j, k)) return true;
                 self.log.shrinkRetainingCapacity(mark);
@@ -1467,6 +1467,7 @@ const Reader = struct {
             }
             for (self.g.rules) |*rule| {
                 if (rule.dir == .write or self.g.isEnding(rule)) continue;
+                if (!self.g.ruleHere(rule, if (block) |b| b.kind else null)) continue;
                 if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
                 // A rule for `opaque` names a statement this grammar recognises
                 // but does not translate; it stops later rules from misreading it.
@@ -1529,7 +1530,7 @@ const Reader = struct {
         if (head.tag != .word) return false;
         var first_kind: ?Kind = null;
         const shared = for (self.g.rules) |*rule| {
-            if (rule.dir == .write or rule.pat.len == 0 or rule.pat[0].tag != .lit) continue;
+            if (rule.dir == .write or rule.within != null or rule.pat.len == 0 or rule.pat[0].tag != .lit) continue;
             if (!std.mem.eql(u8, rule.pat[0].text, head.text)) continue;
             if (first_kind) |k| {
                 if (k != rule.kind) break true;
@@ -1575,7 +1576,7 @@ const Reader = struct {
     /// The statement a rule reads from `ti` to the end of its line.
     fn ruleAt(self: *Reader, ti: usize, line_no: u32) Allocator.Error!?ir.Stmt {
         for (self.g.rules) |*rule| {
-            if (rule.dir == .write) continue;
+            if (rule.dir == .write or rule.within != null) continue;
             if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
             if (rule.kind == .@"opaque") return null;
             var st = try self.m.build(line_no);
@@ -1608,7 +1609,7 @@ const Reader = struct {
                 items[j].text = "";
                 defer items[j] = cut;
                 for (self.g.rules) |*rule| {
-                    if (rule.dir == .write or schema.info(rule.kind).class != .analysis) continue;
+                    if (rule.dir == .write or rule.within != null or schema.info(rule.kind).class != .analysis) continue;
                     if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
                     var st = try self.m.build(line_no);
                     try self.canonStmt(&st);
@@ -1763,7 +1764,7 @@ const Reader = struct {
             }
             var found: ?ir.Stmt = null;
             for (self.g.rules) |*rule| {
-                if (rule.dir == .write) continue;
+                if (rule.dir == .write or rule.within != null) continue;
                 if (!caps and rule.kind != .model and rule.kind != .param) continue;
                 if (try self.m.run(rule.kind, rule.pat, ti)) {
                     found = try self.m.build(0);

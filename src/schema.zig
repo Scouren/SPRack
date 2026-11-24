@@ -162,6 +162,12 @@ pub const Kind = enum(u8) {
     fft,
     // An optimization of the analyses in its body (HSPICE `sweep optimize=`).
     optimize,
+    // A script of a simulator's own control language run after the netlist
+    // is read (ngspice .control ... .endc): analyses, outputs and `simctl`
+    // commands, in order.
+    script,
+    // A netlist parameter handed to the control language (ngspice .csparam).
+    csparam,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -390,6 +396,8 @@ const defs = [_]Def{
     // `.param rx=opt1(1k, 100, 10k)`), `results` the measurements whose
     // goals are met, `model` the optimizer's .MODEL (type OPT).
     .{ .optimize, .analysis, "name param:ident results:ident* model:ident params:params" },
+    .{ .script, .structure, "" },
+    .{ .csparam, .control, "params:params" },
 };
 
 pub const kind_count = defs.len;

@@ -312,3 +312,5 @@ no model b3soifd : an LTspice level for B3SOIFD 2.1 is not established without a
 no model b3soidd : an LTspice level for B3SOIDD 2.1 is not established without an LTspice run
 no model b3soipd : an LTspice level for B3SOIPD 2.2.3 is not established without an LTspice run
 no model mesa : an LTspice level for the MESA MESFET is not established without an LTspice run
+no script : LTspice has no control script; its analyses and outputs are netlist lines
+no csparam : only a control script reads a .csparam vector, and ltspice has none

@@ -516,3 +516,5 @@ no model b3soifd : that an HSPICE level takes ngspice's B3SOIFD 2.1 cards is not
 no model b3soidd : that an HSPICE level takes ngspice's B3SOIDD 2.1 cards is not established without an HSPICE run (#56)
 no model b3soipd : HSPICE's level 57 (BSIM3SOI) is read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards is not established without an HSPICE run (#56)
 no model mesa : HSPICE's MESFETs are J elements (level 3); none is the MESA model
+no script : HSPICE has no control script; its analyses and outputs are netlist lines
+no csparam : only a control script reads a .csparam vector, and hspice has none

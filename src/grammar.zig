@@ -177,7 +177,10 @@ pub const Node = struct {
 pub const Dir = enum { both, read, write };
 /// `rule bjt[hicum2] = ...`: `family` set, the form is written only for an
 /// instance whose model card is of that family. Reading ignores it.
-pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, line: u32, family: []const u8 = "" };
+/// `within`: `rule tran@script = ...`, a rule only for lines inside that
+/// block (ngspice's control language inside .control); rules without it are
+/// not used there.
+pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, line: u32, family: []const u8 = "", within: ?Kind = null };
 pub const Block = struct {
     kind: Kind,
     open: []const Node,
@@ -604,14 +607,23 @@ pub const Grammar = struct {
         return null;
     }
 
+    /// Is the rule one for a line where the writer or reader is (inside a
+    /// block of kind `in`, or at none)? Inside a block with rules of its
+    /// own, only those.
+    pub fn ruleHere(g: *const Grammar, r: *const Rule, in: ?Kind) bool {
+        if (r.within) |k| return in != null and in.? == k;
+        if (in) |k| for (g.rules) |o| if (o.within != null and o.within.? == k) return false;
+        return true;
+    }
+
     pub fn canWrite(g: *const Grammar, kind: Kind) bool {
-        for (g.rules) |r| if (r.kind == kind and r.dir != .read) return true;
+        for (g.rules) |r| if (r.kind == kind and r.dir != .read and r.within == null) return true;
         for (g.blocks) |b| if (b.kind == kind) return true;
         return false;
     }
 
     pub fn canWriteRule(g: *const Grammar, kind: Kind) bool {
-        for (g.rules) |r| if (r.kind == kind and r.dir != .read) return true;
+        for (g.rules) |r| if (r.kind == kind and r.dir != .read and r.within == null) return true;
         return false;
     }
 
@@ -1580,6 +1592,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or std.mem.eql(u8, head, "write")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `{s} kind = pattern`", .{head});
             var kname = std.mem.trim(u8, rest[0..eq], " \t");
+            var within: ?Kind = null;
+            if (std.mem.indexOfScalar(u8, kname, '@')) |at| {
+                within = try kindOf(c, no, kname[at + 1 ..]);
+                kname = kname[0..at];
+            }
             var family: []const u8 = "";
             if (std.mem.indexOfScalar(u8, kname, '[')) |b| {
                 if (kname[kname.len - 1] != ']') return c.fail(no, "expected `kind[family]`", .{});
@@ -1598,6 +1615,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .pat = try pattern(c, no, kind, fold, rest[eq + 3 ..], defs),
                 .line = no,
                 .family = family,
+                .within = within,
             });
         } else if (std.mem.eql(u8, head, "define")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `define name = pattern`", .{});

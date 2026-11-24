@@ -179,8 +179,17 @@ Python a `ValueError`). Two things know only the built-in dialects:
 * SPRack translates the netlist, not the models. The parameters of a model
   card are copied by name, with one warning per file, because simulators
   ship different versions of the same model.
-* A `.control` block of ngspice is a script, not a netlist. It is kept
-  verbatim for ngspice and is an error for any other target.
+* A `.control` block of ngspice is read as a script (steps 1 to 3 of #50):
+  each command is a statement of its own. `op`, `dc`, `ac`, `tran`,
+  `noise`, `save`, `meas` and `pre_osdi` are typed as the netlist's
+  analyses, outputs and loads; every other command (`let`, `print`,
+  `wrdata`, `set`, `run`, ...) is a `simctl` line, written back as it was
+  for ngspice. Into a dialect without a control script, a script with an
+  analysis or output in it becomes the deck's own lines in order; `run`,
+  `quit` and `reset` are left out with a note, and every other command is
+  `unsupported`, because post-processing in ngspice's vector language has
+  no counterpart. A script of commands only is `unsupported` whole.
+  `.csparam` is a statement of its own, which only ngspice has.
 * The topology check (`invalid` entries about DC paths and source loops)
   runs when translating between two dialects, and only for a netlist that
   has an analysis.

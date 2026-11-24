@@ -548,3 +548,5 @@ no model b3soifd : VACASK has no built-in B3SOIFD; it loads compiled Verilog-A (
 no model b3soidd : VACASK has no built-in B3SOIDD; it loads compiled Verilog-A (OSDI), and SPRack knows no module for it
 no model b3soipd : VACASK has no built-in B3SOIPD; it loads compiled Verilog-A (OSDI), and SPRack knows no module for it
 no model mesa : VACASK has no built-in MESA MESFET; it loads compiled Verilog-A (OSDI), and SPRack knows no module for it
+no script : VACASK's control block is where its analyses live (written around them); a script's other commands are its own simctl lines, not another simulator's
+no csparam : only an ngspice control script reads a .csparam vector

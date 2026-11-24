@@ -203,12 +203,13 @@ def test_code():
     raises(sprack.Unsupported, lambda: c.netlist("spectre"), "no ngspice rule understood this line", ".bogus 1 2")
     assert any(e.code == "untranslated" for e in c.netlist("xyce", strict=False).report.errors)
     raises(ValueError, lambda: c.code(".op\n", "pspice"), "unknown dialect")
-    # An ngspice .control block in a code block is kept for ngspice only.
+    # An ngspice .control block in a code block is a script (#50): written
+    # back for ngspice; a script of commands only has no Xyce form.
     ctl = sprack.Circuit("ctl")
     ctl.R("1", "a", 0, "1k")
     ctl.code(".control\nrun\n.endc\n")
     assert ".control\nrun\n.endc\n" in ctl.netlist("ngspice")
-    raises(sprack.Unsupported, lambda: ctl.netlist("xyce"), "no ngspice rule understood this line")
+    raises(sprack.Unsupported, lambda: ctl.netlist("xyce"), "statement 'script' cannot be written for xyce")
     # A parameter defined outside the block keeps its spelling inside it
     # (Spectre is case-sensitive): the deck Schemify writes for Simulate.
     pc = sprack.Circuit("cm")
@@ -1092,10 +1093,12 @@ def test_to_python():
     assert 'with c.libsection(name="tt") as s:' in code and "        s2.cond_else()\n" in code and ".code(" not in code, code
     assert _same(_run(code).netlist("ngspice", strict=False), sprack.translate(ng, frm="ngspice", to="ngspice", strict=False))
     # The one thing with no call: a line no rule of the dialect understood.
+    # A control script is a block of its own (#50).
     out = sprack.to_python("t\nR1 a 0 1k\n.bogus 1 2\n.control\nrun\n.endc\n.end\n", "ngspice")
-    assert 'c.code(".bogus 1 2\\n")\n' in out and 'c.code(".control\\nrun\\n.endc\\n")\n' in out, out
+    assert 'c.code(".bogus 1 2\\n")\n' in out and 'with c.script() as s:\n    s.simctl("run")\n' in out, out
     assert out.report == []  # kept as they are: nothing to report until another dialect is asked for
     assert ".bogus 1 2\n" in _run(out).netlist("ngspice")
+    assert ".control\nrun\n.endc\n" in _run(out).netlist("ngspice")
 
 
 def _sample(slot, n=0):

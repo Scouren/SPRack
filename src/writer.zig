@@ -899,6 +899,9 @@ const Writer = struct {
     /// Writing the ending a `spread` kind adds to each analysis (`sweep
     /// ...`): only its ending rules are tried, and elsewhere only the others.
     ending: bool = false,
+    /// The block whose body is being written, where the grammar has rules
+    /// for lines inside it (`rule tran@script`).
+    within: ?Kind = null,
     /// The one analysis of the netlist, when it has one: a spread step
     /// around it may be the kind's own line (HSPICE `.temp 0 27`).
     sole: ?*const ir.Stmt = null,
@@ -1670,6 +1673,14 @@ const Writer = struct {
                 var it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, s.raw, "\n"), '\n');
                 while (it.next()) |l| try w.comment(try a.print("[sprack] not written: {s}", .{l}));
             } else {
+                if (s.kind == .simctl) {
+                    const args: []const u8 = switch (s.get("args")) {
+                        .atom, .str, .expr => |x| x,
+                        else => "",
+                    };
+                    try w.comment(try a.print("[sprack] not written: {s}{s}{s}", .{ if (s.get("cmd") == .atom) s.get("cmd").atom else "", if (args.len > 0) " " else "", args }));
+                    continue;
+                }
                 const name = s.get("name");
                 try w.comment(try a.print("[sprack] not written: {s}{s}{s}", .{ @tagName(s.kind), if (name == .atom) " " else "", if (name == .atom) name.atom else "" }));
             }
@@ -1703,6 +1714,34 @@ const Writer = struct {
 
     fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
         if (st.kind == .model and st.body.len > 0) return w.binnedModel(st);
+        // A control script where there is none: its analyses and outputs
+        // are the deck's own; its other commands are said one by one.
+        if (st.kind == .script and !w.g.canWrite(.script) and for (st.body) |c| {
+            if (c.kind != .simctl and c.kind != .comment) break true;
+        } else false) {
+            w.report.add(.info, .oneway, st.line, "script: {s} has no control script; the {s} script's analyses and outputs are written as the netlist's own, in order", .{ w.g.name, w.sourceOf(st) });
+            for (st.body) |*child| try w.stmt(child);
+            return;
+        }
+        // A command of one simulator's control language is no command of
+        // another's: one with nothing to say there (run, quit) is left out,
+        // any other is unsupported.
+        if (st.kind == .simctl and !std.mem.eql(u8, w.sourceOf(st), w.g.name)) {
+            const cmd = if (st.get("cmd") == .atom) st.get("cmd").atom else "";
+            const args: []const u8 = switch (st.get("args")) {
+                .atom, .str, .expr => |x| x,
+                else => "",
+            };
+            const said = try w.arena.print("{s}{s}{s}", .{ cmd, if (args.len > 0) " " else "", args });
+            for ([_][]const u8{ "run", "quit", "exit", "reset", "destroy", "remcirc" }) |q| if (std.ascii.eqlIgnoreCase(cmd, q)) {
+                w.report.add(.info, .loss, st.line, "simctl: '{s}' is not written: a netlist for {s} runs its analyses without it", .{ said, w.g.name });
+                return;
+            };
+            if (w.g.absentReason(.simctl)) |why| {
+                w.report.add(.@"error", .unsupported, st.line, "simctl: '{s}' is a command of {s}'s control language and cannot be written for {s}: {s}", .{ said, w.sourceOf(st), w.g.name, why });
+            } else w.report.add(.@"error", .unsupported, st.line, "simctl: '{s}' is a command of {s}'s control language; {s} has no form for it (post-processing stays with {s})", .{ said, w.sourceOf(st), w.g.name, w.sourceOf(st) });
+            return w.comment(try w.arena.print("[sprack] not written: {s}", .{said}));
+        }
         if (try w.hoistParams(st)) |h| return w.stmt(&h);
         // A conditional block where there are none, but a choice inside an
         // expression: the same statements in every branch are written once,
@@ -1788,7 +1827,12 @@ const Writer = struct {
                 e.buf.clearRetainingCapacity();
                 if (try e.seq(pat)) try w.line(e.buf.items);
             }
-            for (st.body) |*child| try w.stmt(child);
+            {
+                const was = w.within;
+                w.within = st.kind;
+                defer w.within = was;
+                for (st.body) |*child| try w.stmt(child);
+            }
             e.buf.clearRetainingCapacity();
             if (try e.seq(b.close)) try w.line(e.buf.items);
             try e.reportLosses();
@@ -1967,12 +2011,20 @@ const Writer = struct {
         }
     }
 
+    /// A rule for the kind where the writer is (inside a block whose lines
+    /// have rules of their own, those).
+    fn canWriteHere(w: *const Writer, kind: Kind) bool {
+        for (w.g.rules) |*r| if (r.kind == kind and r.dir != .read and w.g.ruleHere(r, w.within)) return true;
+        return w.g.blockOf(kind) != null;
+    }
+
     /// Does one of the kind's own rules (not an ending) say `st` whole?
     fn fits(w: *Writer, st: *const ir.Stmt) Error!bool {
         var head = st.*;
         head.body = &.{};
         for (w.g.rules) |*rule| {
             if (rule.kind != st.kind or rule.dir == .read or w.g.isEnding(rule)) continue;
+            if (!w.g.ruleHere(rule, w.within)) continue;
             var e = w.emitter(w.arena, &head);
             e.quiet = true;
             if (try e.seq(rule.pat) and try e.lossCount() == 0) return true;
@@ -2109,7 +2161,7 @@ const Writer = struct {
             st = &checked;
         }
 
-        if (!w.g.canWrite(st.kind)) {
+        if (!w.canWriteHere(st.kind)) {
             if (w.g.absentReason(st.kind) == null) {
                 if (try ir.demoteToInstance(a, st)) |inst| {
                     if (w.g.canWrite(.instance)) {
@@ -2141,6 +2193,7 @@ const Writer = struct {
             if (best != null or (loose and fam.len > 0)) break;
             for (w.g.rules) |*rule| {
                 if (rule.kind != st.kind or rule.dir == .read) continue;
+                if (!w.g.ruleHere(rule, w.within)) continue;
                 if (w.g.spreadWord(st.kind) != null and w.g.isEnding(rule) != w.ending) continue;
                 if (rule.family.len > 0 and !std.mem.eql(u8, rule.family, fam) and !loose) {
                     if (why.len == 0 and fam.len > 0) why = try a.print("a model of family '{s}'", .{fam});

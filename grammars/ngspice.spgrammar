@@ -5,8 +5,9 @@
 # factor table (M is milli, Meg is mega), and letters after a number ignored.
 #
 # N devices are instances of Verilog-A models compiled to OSDI, loaded with
-# `pre_osdi` inside a .control block. Everything else in .control is the
-# Nutmeg scripting language, which is not a netlist and is kept verbatim.
+# `pre_osdi` inside a .control block. The block is a script of ngspice's
+# control language: its analyses and outputs are read as such, every other
+# command as a `simctl` line, kept as written (docs/src/simulators.md).
 
 dialect ngspice
 
@@ -29,7 +30,12 @@ lexer
   end       ".end"
 end
 
-raw ".control" ".endc"
+# The control script. Inside it only the rules marked @script read a line;
+# the last of them takes any command.
+block script
+  open   ".control"
+  close  ".endc"
+end
 
 block subckt
   open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
@@ -76,7 +82,8 @@ rule  lib       = ".lib" path section
 # Model cards may carry bare flags (vdmos pchan, ltra steplimit).
 rule  model     = ".model" name type {...params?}
 # pre_osdi is a .control command, written as ngspice's manual writes it: unquoted.
-rule  hdl       = ".control" / "pre_osdi" path! / ".endc"
+write hdl       = ".control" / "pre_osdi" path! / ".endc"
+rule  hdl@script = "pre_osdi" path!
 
 # .opt and .opts are .options too (ngspice 45 applied `.opt temp=127` and
 # `.opts tnom=77`: i(v1) = -6.66667e-04 through a 1k of tc1=0.01).
@@ -393,7 +400,6 @@ rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" e
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 no relay  : ngspice has no relay element; a voltage-controlled switch (S) with a sw model is the closest form
-no simctl : ngspice's own commands live in its .control block, which is kept as it is; there is no netlist statement for them
 # sweeps
 no step : ngspice has no .step; parameters are stepped from a .control script (alter, foreach) around the analysis
 no data : ngspice has no .data tables
@@ -527,3 +533,23 @@ computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 no pattern : ngspice has no pattern sources; a bit pattern is a PWL
 no fft : ngspice's spectrum is the fft command of its control language, run on a vector after the analysis; it is no netlist statement
 no optimize : ngspice has no optimizer statement; an optimization is a loop in its control language
+# The control language (#50): the commands that are analyses and outputs,
+# as the netlist's dot lines without the dot, then any other command.
+rule  op@script        = "op"
+rule  dc@script        = "dc" ( var:"temp" | src ) start stop step [ ( var2:"temp" | src2 ) start2 stop2 step2 ]
+rule  ac@script        = "ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
+rule  tran@script      = "tran" step?'$stop/1000' stop [ start?0 [maxstep] ] [ skip_dc:"uic"=yes ]
+rule  noise@script     = "noise" "v" ~"(" out [ ~"," ref ] ~")" src ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop [interval]
+rule  save@script      = "save" signals+
+rule  measure@script = ( "meas" | "measure" ) analysis name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
+rule  measure@script = ( "meas" | "measure" ) analysis name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure@script = ( "meas" | "measure" ) analysis name op:"find"=find out { at=at! }
+rule  measure@script = ( "meas" | "measure" ) analysis name op:"when"=when when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross }
+rule  measure@script = ( "meas" | "measure" ) analysis name ( op:"avg"=avg | op:"rms"=rms | op:"max"=max | op:"min"=min | op:"pp"=pp | op:"integ"=integ ) out { from=from to=to }
+rule  measure@script = ( "meas" | "measure" ) analysis name op:"param"=param ~"=" expr
+rule  measure@script = ( "meas" | "measure" ) analysis name spec...
+rule  simctl@script    = cmd [ args... ]
+# `.csparam freq = {freq}`: the parameter's value, as a vector of the same
+# name in the control script.
+rule  csparam   = ".csparam" {...params}
+
