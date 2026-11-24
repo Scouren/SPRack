@@ -1857,6 +1857,15 @@ nmos_rvt 113.55035 uA, pmos_rvt 98.631343 uA. Until a run matches it,
 ASAP7 into ngspice and VACASK keeps its 24 errors, and the version check
 and the manifest's per-target `load` keys wait with the grammar line.
 
+### 4.38 HSPICE checks waiting for a run (#56)
+
+Issue 56 lists 29 checks that need HSPICE Y-2026.03-SP2-1. None is run
+here (no HSPICE in this environment). The decks for those that need a deck
+of their own are in `tools/measure/hspice/`, each with what to read and what
+the grammar expects, so a licensed host runs them as they are; their rows
+go here when it has. Until then, the grammar lines they bear on keep their
+present marks (none says "measured" for these).
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
