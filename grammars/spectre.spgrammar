@@ -202,8 +202,12 @@ caveat statgroup scope=*element : Spectre varies netlist parameters (vary), not 
 # turned into N with a factor of sqrt(3).
 rule  vary      = "vary" param { dist=dist std=std N=range ...params }
 rule  correlate = "correlate" { param=[names]! cc=cc ...params }
+# Without variations=, Spectre varies the process block alone: a mismatch
+# block's parameters keep their nominal values (Spectre 25.10, 200 runs,
+# docs/verification.md 4.42). A run from another dialect, which varies both,
+# is written with variations=all.
 block montecarlo
-  open   name?mc$# "montecarlo" { numruns=runs seed=seed ...params } "{"
+  open   name?mc$# "montecarlo" { numruns=runs seed=seed variations=variations?all ...params } "{"
   close  "}"
 end
 block library

@@ -1645,6 +1645,7 @@ const Reader = struct {
                     var st = try self.m.build(line_no);
                     try self.canonStmt(&st);
                     wrap.body = try self.arena.dupe(ir.Stmt, &.{st});
+                    try self.canonStmt(&wrap);
                     self.ti = end + 1;
                     return wrap;
                 }

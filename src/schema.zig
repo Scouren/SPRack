@@ -381,7 +381,7 @@ const defs = [_]Def{
     // A Monte Carlo run of the analyses in its body.
     // `trials`: the runs of the sequence to do, by number, instead of the
     // first `runs` of it (HSPICE `monte=list(3 7)`).
-    .{ .montecarlo, .analysis, "name runs:value seed:value params:params trials:value*" },
+    .{ .montecarlo, .analysis, "name runs:value seed:value variations:atom params:params trials:value*" },
     // A named group of library sections; nothing refers to the name.
     .{ .library, .structure, "name" },
     // c2: alter

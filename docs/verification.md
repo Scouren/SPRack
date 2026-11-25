@@ -1933,6 +1933,30 @@ through a controlled source and a node of its own is neither written nor
 measured. The deck is for the report upstream; when a Xyce release takes the
 pair, the rule gets `ref` and this row names the version.
 
+### 4.42 A Spectre Monte Carlo run and its mismatch block (#70)
+
+The deck: a subcircuit whose resistor is `1k+m1`, `m1` varied in a
+`mismatch` block (std 1), two instances in series from 1 V to ground with
+node `b` between them; a parameter `p1` varied in the `process` block
+(std 30/3) sets a resistor fed 1 mA at node `a`. 200 runs, Spectre 25.10:
+
+| `montecarlo` line | node a (process) | node b (mismatch) |
+|---|---|---|
+| no `variations=` | std about 0.0105 | 0.5 in every run, std 0 |
+| `variations=all` | std about 0.0108 | std about 0.000365, 0.499 to 0.501 |
+| `variations=all`, the mismatch block alone | | std about 0.000366 |
+
+So without `variations=` Spectre varies the process block alone. HSPICE's
+Monte Carlo and Xyce's sampling vary every random parameter, so a run from
+either is written into Spectre with `variations=all` (the slot
+`montecarlo.variations`, `implied ... = all` in those two grammars). A
+Spectre run that says `variations=process` or `mismatch` has no form in
+them and is a loss with the reason. A Spectre run that says nothing is
+written into them as it was read, without a report: whether its deck has
+a mismatch block is not checked.
+
+From issue 70 (not rerun here: no Spectre in this environment).
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |

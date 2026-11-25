@@ -3883,13 +3883,13 @@ test "Monte Carlo: Spectre montecarlo, HSPICE monte=, Xyce .sampling" {
     var r3: ir.Report = .init(a);
     const sp = try tr(a, "hspice", "spectre", "t\nr1 a 0 1k\n.tran 1n 1u sweep monte=30\n.end\n", &r3);
     try clean(&r3);
-    try has(sp, "montecarlo numruns=30 {\ntran1 tran step=1n stop=1u\n}\n");
+    try has(sp, "montecarlo numruns=30 variations=all {\ntran1 tran step=1n stop=1u\n}\n");
     var r4: ir.Report = .init(a);
     const xy = try tr(a, "spectre", "xyce", scs, &r4);
     try clean(&r4);
     try has(xy, ".sampling useexpr=true\n.options samples numsamples=30 seed=1\n.tran {1u/1000} 1u\n");
     var r5: ir.Report = .init(a);
-    try has(try tr(a, "xyce", "spectre", xy, &r5), "montecarlo numruns=30 seed=1 {\n");
+    try has(try tr(a, "xyce", "spectre", xy, &r5), "montecarlo numruns=30 seed=1 variations=all {\n");
     var r6: ir.Report = .init(a);
     _ = try tr(a, "spectre", "ngspice", scs, &r6);
     try reported(&r6, .@"error", "ngspice has no Monte Carlo statement");
@@ -6580,7 +6580,7 @@ test "#45: HSPICE .op times, .dc monte= and a Monte Carlo trial list" {
     try has(hs, ".op 1n 5n\n.op sweep monte=30\n.op sweep monte=list(3)\n.tran 1n 1u sweep monte=list(2 5)\n");
     var r2: ir.Report = .init(a);
     const sc = try tr(a, "hspice", "spectre", src, &r2);
-    try has(sc, "montecarlo numruns=30 {\nop");
+    try has(sc, "montecarlo numruns=30 variations=all {\nop");
     try reported(&r2, .@"error", "op.times = 1n 5n has no spelling in spectre");
     try reported(&r2, .@"error", "montecarlo.trials = 3 has no spelling in spectre");
 }
@@ -6800,6 +6800,30 @@ test "#68: noise between two nodes into Xyce is a loss that says why; one node i
     var r1: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\nV1 in 0 dc 0 ac 1\nR1 in a 1k\nR2 a 0 1k\n.noise v(a) V1 dec 1 1k 10k\n.end\n", &r1);
     try testing.expectEqual(0, r1.countCode(.loss));
+}
+
+test "#70: a Monte Carlo run into Spectre varies the mismatch block too" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const deck = "t\n.param p1=agauss(1k,30,3)\nI1 0 a 1m\nR1 a 0 p1\n.tran 1n 10n sweep monte=20\n.end\n";
+    for ([_][]const u8{ "hspice", "xyce" }) |from| {
+        var r0: ir.Report = .init(a);
+        const src = if (std.mem.eql(u8, from, "hspice")) deck else try tr(a, "hspice", "xyce", deck, &r0);
+        var r: ir.Report = .init(a);
+        try has(try tr(a, from, "spectre", src, &r), "mc1 montecarlo numruns=20 variations=all {\n");
+    }
+    // Spectre to Spectre keeps what was said, or nothing.
+    const scs = "// t\nsimulator lang=spectre\nmc1 montecarlo numruns=5 {\ntran1 tran stop=1n\n}\n";
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "spectre", scs, &r1), "mc1 montecarlo numruns=5 {\n");
+    // Back into HSPICE: all is what it does; process alone is a loss.
+    var r2: ir.Report = .init(a);
+    var r3: ir.Report = .init(a);
+    _ = try tr(a, "spectre", "hspice", "// t\nsimulator lang=spectre\nmc1 montecarlo numruns=5 variations=all {\ntran1 tran stop=1n\n}\n", &r2);
+    try testing.expectEqual(0, r2.countCode(.loss));
+    _ = try tr(a, "spectre", "hspice", "// t\nsimulator lang=spectre\nmc1 montecarlo numruns=5 variations=process {\ntran1 tran stop=1n\n}\n", &r3);
+    try reported(&r3, .@"error", "montecarlo.variations = process has no spelling in hspice");
 }
 
 test "#50: an ngspice .control block is a script of statements" {

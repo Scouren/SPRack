@@ -256,6 +256,8 @@ no vary : Xyce has no statistics block; a parameter varies through agauss(), gau
 no correlate : Xyce has no statement that correlates two random parameters
 # Monte Carlo over the expressions that call agauss() and its kin: every
 # analysis of the netlist is run once per sample.
+implied montecarlo variations = all
+no montecarlo variations : a Xyce sampling run draws every random expression; it cannot vary the process or the mismatch ones alone
 rule  montecarlo = ".sampling" "useexpr" ~"=" "true" / ".options" "samples" { numsamples=runs! seed=seed ...params }
 # A library file has no wrapper around its sections; the name is carried
 # as a comment.

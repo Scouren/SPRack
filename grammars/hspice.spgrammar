@@ -237,6 +237,8 @@ read  montecarlo = "monte" ~"=" runs
 spread optimize
 rule  optimize   = "sweep" "optimize" ~"=" param "results" ~"=" ( results )+~"," "model" ~"=" model
 own model "opt" : HSPICE's optimizer is set by a .MODEL of type OPT; no other dialect has an optimizer statement for it to drive
+implied montecarlo variations = all
+no montecarlo variations : an HSPICE Monte Carlo run varies every random parameter, global and local alike; it cannot vary one kind alone
 caveat montecarlo seed : HSPICE takes the Monte Carlo seed from .OPTION SEED, which is not written
 
 implied tf ref = 0
