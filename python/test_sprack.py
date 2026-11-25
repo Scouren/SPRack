@@ -1126,6 +1126,31 @@ def test_xyce_plugins():
     assert pdk.run_options("xyce") == ["-plugin", os.path.join(d, "r3.so")]
 
 
+def test_pdk_env_reserved_params():
+    # #71: a library parameter named like a Xyce variable (vt) is renamed in
+    # the library's copy; a circuit on the PDK renames its uses the same
+    # way, as `sprack project` does on the same files.
+    d = run_dir("envjson")
+    os.makedirs(os.path.join(d, "lib"))
+    open(os.path.join(d, "lib", "models.lib"), "w").write("* toy\n.lib tt\n.param vt=0.4\n.model nch nmos level=54 vth0={vt}\n.endl tt\n")
+    m = {"name": "toy", "dialect": "ngspice", "layouts": [{"probe": "models.lib"}], "corners": {"tt": [["models.lib", "tt"]]}}
+    pdk = sprack.PDK("toy", root=os.path.join(d, "lib"), manifest=m, cache_dir=os.path.join(d, "cache"))
+    assert "vt" in pdk._env["params"] and pdk._env["family_of"]["nch"] == "bsim4", pdk._env
+    c = sprack.Circuit("toy", pdk=pdk)
+    c.param(x="2*vt")
+    c.V("dd", "d", 0, 1)
+    c.nch("M1", "d", "d", 0, 0, w="1u", l="1u")
+    c.R("1", "d", 0, "x")
+    c.op()
+    py = str(c.netlist("xyce", strict=False))
+    top = os.path.join(d, "top.sp")
+    open(top, "w").write('toy\n.lib "lib/models.lib" tt\n.param x={2*vt}\nVdd d 0 dc 1\nM1 d d 0 0 nch w=1u l=1u\nR1 d 0 {x}\n.op\n.end\n')
+    sprack._core.project("ngspice", "xyce", top, os.path.join(d, "out"), "", False, "", "[]")
+    proj = open(os.path.join(d, "out", "top.sp")).read()
+    body = lambda t: [l for l in t.splitlines() if not l.startswith(".lib")]
+    assert ".param x={2*vt__p}" in py and body(py) == body(proj), (py, proj)
+
+
 def test_no_code_for_dialect_only_statements():
     # #51: a statement only its dialect has is a call of its words, not text.
     hs = "t\nr1 d 0 1k\n.acmatch v(d)\n.check edge (a b) 1n 2n\ns1 p1 p2 mname=smod\n.meas tran g1 find v(d) at=1m goal=2\n.end\n"

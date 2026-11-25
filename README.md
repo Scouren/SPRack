@@ -279,9 +279,9 @@ Every error names a file and a line. What is left, and whose it is:
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 232 tests |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 233 tests |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 35 runs |
-| The Python package | `python/test_sprack.py` | 39 tests, 11 of them on real PDK libraries |
+| The Python package | `python/test_sprack.py` | 40 tests, 11 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |
 | Load and result checks in the simulators | `tools/parse_check.py`, `tools/sim_check.py`, `tools/licensed_check.py`, `tools/vacask-loadcheck/` | by hand, where the tools are |
 

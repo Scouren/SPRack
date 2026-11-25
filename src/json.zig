@@ -252,6 +252,27 @@ pub fn writeEnv(w: *Writer, env: *const ir.Env) Writer.Error!void {
     }
     try w.writeAll("],\"conditional\":");
     try stmts(w, env.conditional.items);
+    try w.writeAll(",\"params\":");
+    try keys(w, &env.params);
+    try w.writeAll(",\"family_of\":");
+    try names(w, &env.family_of);
+    try w.writeAll(",\"modules\":");
+    try names(w, &env.modules);
+    try w.writeByte('}');
+}
+
+/// A map of names to names, as a JSON object.
+fn names(w: *Writer, map: *const std.StringHashMapUnmanaged([]const u8)) Writer.Error!void {
+    try w.writeByte('{');
+    var it = map.iterator();
+    var first = true;
+    while (it.next()) |kv| {
+        if (!first) try w.writeByte(',');
+        first = false;
+        try str(w, kv.key_ptr.*);
+        try w.writeByte(':');
+        try str(w, kv.value_ptr.*);
+    }
     try w.writeByte('}');
 }
 
@@ -573,6 +594,11 @@ fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
             if (std.mem.eql(u8, f.name, s)) used.* = true;
         }
     }
+    for (try strings(arena, j, "params")) |s| try env.params.put(arena, s, {});
+    inline for (.{ "family_of", "modules" }) |field| if (j.object.get(field)) |m| if (m == .object) {
+        var it = m.object.iterator();
+        while (it.next()) |kv| if (kv.value_ptr.* == .string) try @field(env, field).put(arena, kv.key_ptr.*, kv.value_ptr.string);
+    };
     return env;
 }
 
@@ -685,4 +711,36 @@ test "a netlist says what the files it names declare" {
         try std.testing.expectEqual(e.len == 0, r.contains(.warning, "'rmod' on R1"));
         try std.testing.expectEqual(e.len == 0, r.contains(.@"error", "function 'twice' has no spelling in hspice"));
     }
+}
+
+test "every field of Env is in its JSON form, and back (#71)" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const lib = try parseNetlist(a,
+        \\{"stmts":[{"kind":"param","params":{"vt":"0.4"}},{"kind":"model","name":"nch","family":"bsim4","params":{"vth0":{"expr":"vt"}}},
+        \\ {"kind":"model","name":"rpoly","type":"r3_cmc"}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    for (&sprack.grammars) |*g| try sprack.writer.collectReserved(a, g, lib.stmts, &env.params, null);
+    try std.testing.expect(env.params.contains("vt"));
+    try std.testing.expectEqualStrings("bsim4", env.family_of.get("nch").?);
+    try std.testing.expectEqualStrings("r3_cmc", env.modules.get("rpoly").?);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try writeEnv(&listed.writer, &env);
+    // `provided` is what the command line gives, not what a file declares.
+    inline for (@typeInfo(ir.Env).@"struct".field_names) |name| {
+        if (comptime std.mem.eql(u8, name, "provided")) continue;
+        if (std.mem.indexOf(u8, listed.written(), "\"" ++ name ++ "\":") == null) {
+            std.debug.print("Env.{s} is not in its JSON form\n", .{name});
+            return error.TestUnexpectedResult;
+        }
+    }
+    var r: ir.Report = .init(a);
+    const nl = try parseNetlist(a, try std.fmt.allocPrint(a, "{{\"stmts\":[],\"env\":{s}}}", .{listed.written()}), &r);
+    var again: std.Io.Writer.Allocating = .init(a);
+    try writeEnv(&again.writer, nl.env.?);
+    try std.testing.expectEqualStrings(listed.written(), again.written());
 }

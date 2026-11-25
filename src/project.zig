@@ -708,7 +708,13 @@ const Run = struct {
             const nl = try reader.read(r.opts.from, scratch, text, &report, .{ .library = r.opts.library or i >= r.opts.tops.len });
             try r.env.absorb(r.arena, nl.stmts);
             // "": every name is copied, as `text` goes away with the statements.
-            if (r.opts.to) |gt| try writer.collectReserved(r.arena, gt, nl.stmts, &r.env.params, "");
+            // With no target (a catalogue, kept for any): the names any
+            // built-in dialect keeps for itself (#71).
+            if (r.opts.to) |gt| {
+                try writer.collectReserved(r.arena, gt, nl.stmts, &r.env.params, "");
+            } else for (&@import("root.zig").grammars) |*g| {
+                try writer.collectReserved(r.arena, g, nl.stmts, &r.env.params, "");
+            }
             try r.findIncludes(path, nl.stmts, scratch, i < r.opts.tops.len);
         }
         // A section asked for by name that no file defines: nothing of it
