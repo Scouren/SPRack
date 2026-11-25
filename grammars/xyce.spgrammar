@@ -145,6 +145,7 @@ rule  four      = ".four" freq signals+
 rule  hb        = ".hb" freqs+ [ / ".options" "hbint" "numfreq" ~"=" harms#1 ]
 
 implied noise ref = 0
+no noise ref : Xyce 7.10 takes one output node; .noise V(out,ref) ends it with a segmentation fault while the netlist is read, even for V(out,0) (docs/verification.md 4.41), so the noise between two nodes has no form there
 # What an EXP source leaves out, measured with `.tran 2n 50n` (Xyce 7.10):
 # TD1 is 0, TAU1 and TAU2 the step, TD2 TD1 plus the step. ngspice 45 is the
 # same but for TD1, the step there (docs/verification.md 4.12).

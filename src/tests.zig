@@ -545,12 +545,15 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
     // Every such line of a grammar ends the error of its slot.
     for (&sprack.grammars) |*g| for (g.absent) |no| {
         if (no.slot == sprack.grammar.no_slot) continue;
-        if (std.mem.eql(u8, g.name, "xyce")) {
+        if (std.mem.eql(u8, g.name, "xyce") and no.kind == .options) {
             try testing.expect(r4.contains(.@"error", no.reason));
         } else {
-            // Elsewhere (VACASK's ports, #49): a statement giving the slot.
+            // Elsewhere (VACASK's ports, #49; Xyce's noise node pair, #68):
+            // a statement giving the slot.
             var st = try sampleStmt(a, no.kind, null);
             try st.set(a, no.slot, .{ .num = .init("1", 0) });
+            // A sweep's kind as a dialect spells it, not the sample's atom.
+            if (schema.slotIndex(no.kind, "sweep")) |i| try st.set(a, i, .{ .atom = "dec" });
             var stmts = [_]ir.Stmt{st};
             const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
             var rr: ir.Report = .init(a);
@@ -6784,6 +6787,19 @@ test "#49: an S-parameter port into VACASK says how to rebuild it" {
     try reported(&r, .@"error", "vsource.portnum = 1 has no spelling in vacask: a VACASK acsp port is a voltage source and a series resistor");
     try reported(&r, .@"error", "vsource.z0 = 50 has no spelling in vacask: the port impedance is a series resistor");
     try testing.expectEqual(4, r.countCode(.loss));
+}
+
+test "#68: noise between two nodes into Xyce is a loss that says why; one node is not" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "xyce", "t\nV1 in 0 dc 0 ac 1\nR1 in a 1k\nR2 a b 1k\nR3 b 0 1k\n.noise v(a,b) V1 dec 1 1k 10k\n.end\n", &r);
+    try has(out, ".noise v(a) V1 dec 1 1k 10k\n");
+    try reported(&r, .@"error", "noise.ref = b has no spelling in xyce: Xyce 7.10 takes one output node");
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nV1 in 0 dc 0 ac 1\nR1 in a 1k\nR2 a 0 1k\n.noise v(a) V1 dec 1 1k 10k\n.end\n", &r1);
+    try testing.expectEqual(0, r1.countCode(.loss));
 }
 
 test "#50: an ngspice .control block is a script of statements" {

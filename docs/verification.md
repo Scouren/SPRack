@@ -1917,6 +1917,22 @@ current drives an island to differs, as an arbitrary value may, and the
 operating point. A VACASK transient with `icmode="uic"` needs no DC path
 and integrates through inductors; a loop of voltage sources fails it too.
 
+### 4.41 Noise between two nodes into Xyce (#68)
+
+| deck | Xyce 7.10 |
+|---|---|
+| `V1 in 0 dc 0 ac 1`, `R1 in a 1k`, `R2 a b 1k`, `R3 b 0 1k`, `.noise v(a,b) V1 dec 1 1k 10k`, `.print noise onoise inoise` | segmentation fault while the netlist is read |
+| the same with `.noise v(a)` | runs |
+
+From issue 68 (not rerun here: no Xyce in this environment). Xyce's
+Reference Guide documents `V(out,ref)`; the grammar's comment records the
+parser also failing on `V(out,0)`. The `noise` rule takes one node, and
+`no noise ref` gives the reason with the loss: an ngspice, HSPICE or
+LTspice `.noise v(a,b)` into Xyce is an error naming this row. A workaround
+through a controlled source and a node of its own is neither written nor
+measured. The deck is for the report upstream; when a Xyce release takes the
+pair, the rule gets `ref` and this row names the version.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
