@@ -7,7 +7,7 @@ SPRACK_TEST_PDKS_INSTALLED at installed sky130 and ihp trees
 (nix build .#test-pdks-installed; those tests also run ngspice). Without
 them those tests are skipped and say so.
 """
-import copy, json, os, shutil, sys, tempfile, time, traceback
+import atexit, copy, json, os, shutil, sys, tempfile, time, traceback
 
 import sprack
 
@@ -342,9 +342,20 @@ def unwrap(text):
     return text.replace("\n+ ", " ")
 
 
+# One directory for the run, removed at its end (issue 67); the PDK tests
+# share one cache in it, so a library is translated once per run, not once
+# per test. A test of the cache itself makes its own.
+RUN_DIR = tempfile.mkdtemp(prefix="sprack-test-")
+atexit.register(shutil.rmtree, RUN_DIR, True)
+
+
+def run_dir(name):
+    """A directory of its own under the run's, for a test that needs one."""
+    return tempfile.mkdtemp(prefix=name + "-", dir=RUN_DIR)
+
+
 def pdk(name, sub, **kw):
-    cache = tempfile.mkdtemp(prefix="sprack-test-")
-    return sprack.PDK(name, root=os.path.join(PDKS, sub), cache_dir=cache, **kw)
+    return sprack.PDK(name, root=os.path.join(PDKS, sub), cache_dir=os.path.join(RUN_DIR, "cache"), **kw)
 
 
 def test_pdk_sky130():
@@ -477,7 +488,7 @@ def test_pdk_sky130_library_on_the_fly():
 def test_pdk_gf180mcu():
     p = pdk("gf180mcu", "gf180mcu")
     assert p.name == "gf180mcuD" and p.dialect == "ngspice" and p.corners == ("tt", "ss", "ff", "sf", "fs")
-    assert {"nfet_03v3", "pfet_03v3", "nfet_06v0", "nfet_10v0_asym", "ppolyf_u", "cap_mim_2f0ff", "npn_10p00x10p00"} <= set(p.devices)
+    assert {"nfet_03v3", "pfet_03v3", "nfet_06v0", "nfet_10v0_asym", "ppolyf_u", "cap_mim_2f0_m4m5_noshield", "npn_10p00x10p00"} <= set(p.devices) and "cap_mim_2f0ff" not in p.devices
     assert p.device("nfet_03v3")["family"] == "bsim4" and p.device("npn_10p00x10p00")["ports"] == ["c", "b", "e", "s"]
     c = sprack.Circuit("gf180 inverter", pdk=p)
     c.V("dd", "vdd", 0, 3.3)
@@ -592,7 +603,7 @@ def ngspice_op(netlist):
 
 
 def test_pdk_installed_sky130():
-    p = sprack.PDK("sky130A", root=os.path.join(INSTALLED, "sky130"), cache_dir=tempfile.mkdtemp(prefix="sprack-test-"))
+    p = sprack.PDK("sky130A", root=os.path.join(INSTALLED, "sky130"), cache_dir=run_dir("installed"))
     assert p.entries() == [(f"{p.root}/sky130A/libs.tech/ngspice/sky130.lib.spice", "tt")]
     nfet = p.device("nfet_01v8")
     assert nfet["ports"] == ["d", "g", "s", "b"] and "/sky130A/libs.ref/sky130_fd_pr/spice/" in nfet["file"]
@@ -634,7 +645,7 @@ def test_pdk_installed_sky130_combined():
 
 def test_pdk_installed_ihp():
     def vout(corner):
-        p = sprack.PDK("ihp", root=os.path.join(INSTALLED, "ihp"), corner=corner, cache_dir=tempfile.mkdtemp(prefix="sprack-test-"))
+        p = sprack.PDK("ihp", root=os.path.join(INSTALLED, "ihp"), corner=corner, cache_dir=run_dir("installed"))
         c = sprack.Circuit("ihp inverter", pdk=p)
         c.V("dd", "vdd", 0, 1.2)
         c.V("in", "in", 0, 0.6)
@@ -1105,7 +1116,7 @@ def test_xyce_plugins():
     # #52: a Verilog-A instance into Xyce is a Y line only with a plugin.
     cir = "t\n.model rmod r3_cmc rsh=100\nN1 a b c rmod w=1u\nv1 a 0 1\n.op\n.end\n"
     raises(sprack.Unsupported, lambda: sprack.translate(cir, frm="ngspice", to="xyce"), "only through a plugin of it")
-    d = tempfile.mkdtemp()
+    d = run_dir("plugins")
     open(os.path.join(d, "m.lib"), "w").write("* m\n")
     open(os.path.join(d, "r3.so"), "w").write("")
     m = {"name": "x", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["{root}/m.lib", ""]]},
@@ -1223,7 +1234,7 @@ def test_memory():
         assert grew < 4, f"1000 translations grew resident memory by {grew:.1f} MiB"
     # A PDK's catalogue and one netlist per target: peak under 150 MiB.
     if PDKS:
-        pdk = sprack.PDK("ihp-sg13g2", root=os.path.join(PDKS, "ihp"), cache_dir=tempfile.mkdtemp())
+        pdk = sprack.PDK("ihp-sg13g2", root=os.path.join(PDKS, "ihp"), cache_dir=run_dir("memory"))
         n = sprack.Circuit("one", pdk=pdk)
         n.sg13_lv_nmos("M1", "d", "g", 0, 0)
         n.V("d", "d", 0, 1.2)

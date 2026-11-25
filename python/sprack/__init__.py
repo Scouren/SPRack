@@ -1371,11 +1371,15 @@ class PDK:
         entry has `device` (mosfet, bjt, diode, ...), `family` and `polarity`.
         """
         if self._devices is None:
-            base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}.json"
+            # Per corner: the library sections it follows decide which of
+            # the devices a file defines it loads (issue 67).
+            sections = sorted({sec for _path, sec in self.entries() if sec})
+            base, cache = os.path.join(self.cache_dir, self.name), f"catalog-{self._stamp()}-{self.corner}.json"
             data = _cached(base, cache, self._defines())
             if data is None:
-                text, _log = _core.project(self.dialect, "", "\n".join(self._tops()), "", _lines(self._defines()), True, "", self._errata())
+                text, log = _core.project(self.dialect, "", "\n".join(self._tops()), "", _lines(self._defines()), True, "\n".join(sections), self._errata())
                 data = json.loads(text)
+                data["not_followed"] = [[os.path.normpath(m[1]), m[2]] for m in re.finditer(r"^(.*?): info\[cosmetic\]: section '([^']*)' not followed", log, re.M)]
                 # Kept while every file read, through includes too, is unchanged.
                 data["files"] = _stats(data["files"])
                 os.makedirs(base, exist_ok=True)
@@ -1387,7 +1391,12 @@ class PDK:
                     raise SprackError(f"{self.name}: corner {self.corner!r} names section {section!r} of {path}, which defines: {', '.join(has) or 'no sections'}")
             self._declared: dict = data["env"]
             devs: dict[str, dict] = {}
+            skipped = {(f, sec.lower()) for f, sec in data.get("not_followed", [])}
             for d in data["devices"]:
+                # A device of a section this corner does not follow is not
+                # loaded by it (GF180's cap_mim section).
+                if d.get("section") and (os.path.normpath(d["file"]), d["section"].lower()) in skipped:
+                    continue
                 # Binned model cards (nch.1, nch.2, ...) are one device.
                 base, dot, tail = d["name"].rpartition(".")
                 name = base if dot and tail.isdigit() else d["name"]

@@ -1,9 +1,11 @@
 # Grammar verification
 
-Research only: no grammar was edited. Each claim gets a verdict
-(**correct**, **wrong**, **unclear**), the correct value when wrong, and a
-source. "Proposed rule" lines use the `.spgrammar` syntax of README.md and are
-meant to be pasted in later; they have not been compiled.
+Each claim of a grammar gets a verdict (**correct**, **wrong**,
+**unclear**), the correct value when wrong, and a source. Sections 1 to 6
+began as research before any grammar was edited; the grammars have since
+been changed to follow them, so a "proposed rule" there is either in the
+grammar now or the row says why not. Sections 4.4 onward and 7 to 9 record
+what was measured while a grammar was changed.
 
 ## Sources and versions
 
@@ -18,11 +20,9 @@ meant to be pasted in later; they have not been compiled.
 Paths below are relative to each repository root. Line numbers are for the
 revision above.
 
-Not available while this was written: the conformance-suite checkout under the
-session scratchpad (`suite/tests/netlist/stress/vacask_*`) was deleted when
-`/tmp` filled up during the session, so the four upstream VACASK decks were not
-re-read; the VACASK repository's own `demo/`, `test/` and `benchmark/` decks were
-used instead.
+Section 1 was checked against the VACASK repository's own `demo/`, `test/`
+and `benchmark/` decks; the four VACASK decks of the conformance suite
+(`suite/tests/netlist/stress/vacask_*`) were not re-read for it.
 
 ### 0. ngspice and Xyce revisions
 
@@ -294,7 +294,7 @@ Reference Guide has one `*_Command.tex` per command, and the two lists match.
 | X6 | `no sens` (objective function plus parameter list) | correct | `doc/Reference_Guide/SENS_Command.tex`: `.SENS objfunc=<expr> param=<params>`; "Unlike the SPICE version, this capability will not automatically use every parameter in the circuit." |
 | X7 | `no save` | correct | `doc/Reference_Guide/SAVE_Command.tex`: Xyce's `.SAVE` writes the operating point as `.IC`/`.NODESET` lines and selects no signals. |
 | X8 | `no hdl` | correct | plugins are named on the command line, `-plugin <list>` (`src/IOInterfacePKG/N_IO_CmdParse.C:218,494`); no `.hdl` literal in `src/IOInterfacePKG`; no OSDI support in `src/` |
-| X9 | `no device` | **unclear** | `user_plugin/rlc_adms.cir` instantiates the attribute-less module `rlc` (`user_plugin/rlc.va:45`) as `Yrlc rlc1 1 0 R=1kohm ...`, so a generic `Y<module> <name> <nodes> <params>` form exists for a compiled plugin. But the ADMS template (`utils/ADMS/xyceBasicTemplates_nosac.xml:483-495`) emits "FIXME" for the device letter and level when the module lacks `xyceSpiceDeviceName`/`xyceLevelNumber`. Whether that form works for any module is not established. At minimum, reword: "a plugin must be compiled with buildxyceplugin and loaded with -plugin". |
+| X9 | `no device` | **correct**, settled by 4.36 | `user_plugin/rlc_adms.cir` instantiates the attribute-less module `rlc` (`user_plugin/rlc.va:45`) as `Yrlc rlc1 1 0 R=1kohm ...`, so a generic `Y<module> <name> <nodes> <params>` form exists for a compiled plugin. But the ADMS template (`utils/ADMS/xyceBasicTemplates_nosac.xml:483-495`) emits "FIXME" for the device letter and level when the module lacks `xyceSpiceDeviceName`/`xyceLevelNumber`. The line now says a plugin must be compiled with buildxyceplugin and loaded with `-plugin`, and a module named with `--provide` (4.36) is written as that Y form; whether a given module builds is a run of buildxyceplugin, not a grammar question. |
 
 ### VACASK (10)
 
@@ -990,6 +990,20 @@ header parameters: its `parameters` lines inside the subcircuit are the
 declaration, and the translations of the first and third deck (`parameters
 r0=1k`; `parameters a=1k` and `parameters r0=2*a`) give 1 mA, 250 uA, 500
 uA, 1 mA and 500 uA, 250 uA, 1 mA, 500 uA.
+
+A parameter derived inside and set from an instance: `.subckt rr a b`,
+`.param a0=1k`, `.param r0={2*a0}`, `R1 a b {r0}`; instances `X1 r0=5k`,
+`X2`, `X3 a0=4k`, `X4`, each across 1 V. The source currents, in that order:
+
+| deck | ngspice 42 | ngspice 45 | Xyce 7.10 |
+|---|---|---|---|
+| as above | -2.00000e-04, -5.00000e-04, -1.25000e-04, -5.00000e-04 | the same | its translation (`params: a0=1k r0={2*a0}`): -2.00000000e-04, -5.00000000e-04, -1.25000000e-04, -5.00000000e-04 |
+
+So an instance's value for a derived parameter replaces the expression for
+that instance, a value for the parameter it is derived from is seen through
+it, and X4 is not given X3's value: where every parameter is on the header,
+Xyce agrees. ngspice 42 was run for this page; the ngspice 45 and Xyce
+columns are from issue 67.
 
 What a Xyce 7.10 header default may be, each with the currents right for all
 four instances: an expression of a header parameter that comes after it
@@ -1877,6 +1891,32 @@ the lines that use it is one of its questions). Until the runs are here:
 the `measure` reason, the capacitor's `q` and the statistics lowering stay
 as they are.
 
+### 4.40 DC paths and source loops (the `requires` lines)
+
+The `requires` lines of the ngspice, Xyce and VACASK grammars rest on the
+comment above each ("Observed on decks written for it"); this is that
+record, with ngspice rerun for this page. The decks: an equal capacitive
+divider from 1 V (`C1 a b 1u`, `C2 b 0 1u`); 1 mA into a 1 uF capacitor
+to ground; two voltage sources in parallel (1 V, 2 V); a 1 V source across
+a 1 uH inductor; two 1 uH inductors in parallel fed through 1k from 1 V.
+Each is an `.op`.
+
+| deck | ngspice 42 (run here) | ngspice 45 | Xyce 7.10 | VACASK b2c1551 |
+|---|---|---|---|---|
+| capacitive island | gmin and source stepping fail; the transient operating point gives v(b) = 0.5 V | the same | solved with a warning, 0.5 V | operating point fails |
+| current into an island | transient operating point, v(b) = 0.01 V (arbitrary) | transient operating point, about 1e4 V | operating point fails | operating point fails |
+| loop of voltage sources | fails ("Transient op failed, timestep too small") | fails | fails | fails |
+| voltage source and inductor | transient operating point, i(V1) = -10 A (arbitrary) | the same, arbitrary current | fails | fails |
+| inductors only | transient operating point, v(a) = 4e-7 V, i(V1) = -1 mA | transient operating point, an arbitrary current around the loop | solved | fails |
+
+The ngspice 45, Xyce and VACASK columns are those comments' observations,
+not rerun here (no Xyce or VACASK in this environment). ngspice 42 agrees
+with ngspice 45 on what is solved and what fails; the value an unbalanced
+current drives an island to differs, as an arbitrary value may, and the
+`requires` lines say only that it is solved through the transient
+operating point. A VACASK transient with `icmode="uic"` needs no DC path
+and integrates through inductors; a loop of voltage sources fails it too.
+
 ## 5. Enum spellings (6.5): integration method
 
 | dialect | grammar | verdict | source |
@@ -1925,16 +1965,17 @@ and the "has it?" findings) are not counted.
 | section | correct | wrong | unclear |
 |---|---|---|---|
 | 1. VACASK: lexer (8), assumed lines (9 claims in 8 items; the ninth `assumed` is the header), other rules (12 claims) | 26 | 2 | 0 |
-| 2. `no` lines (31) | 24 | 6 | 1 |
+| 2. `no` lines (31) | 25 | 6 | 0 |
 | 3. model levels (ngspice 11, Xyce 10, Spectre `bsimbulk` 1) | 19 | 3 | 0 |
 | 4. functions, operators, variables (16) | 12 | 4 | 0 |
 | 5. enums (5) | 5 | 0 | 0 |
-| **total** | **86** | **15** | **1** |
+| **total** | **87** | **15** | **0** |
 
 The 18 HSPICE and Spectre rows were settled by running the tools (counts
 above include them; the HSPICE `pow` row counts as correct, with its
-caveat). The one left unclear is Xyce `no device` (X9). The VACASK `mutual` coupling to `sp_inductor` (1.4) is also
-unclear and untested but is not counted.
+caveat). Xyce `no device` (X9), the one left unclear, is settled by 4.36.
+The VACASK `mutual` coupling to `sp_inductor` (1.4) is unclear and untested,
+and not counted.
 
 
 ---
@@ -2321,6 +2362,24 @@ LTspice's own sources take (`Rser`, `Cpar`, `load`, and `R=` on a current
 source, a load resistance) is copied into the other dialects as written;
 `R=` there is ngspice's repeat. The instance parameters of the other
 devices were not checked. The levels of 8.12 are not in the models table.
+
+### 8.14 Lines from LTspice's help, not run
+
+Three lines rest on LTspice's own documentation rather than on a deck run
+here. Its help ("General Structure and Conventions") lists the multipliers
+T, G, Meg, K, mil (25.4e-6), m, u, n, p, f, case-insensitive, and no a
+(atto); Analog Devices' LTspice quick reference lists the same, mil
+included. Its `.tran` modifier `uic` skips the initial operating point
+solution (the "Skip initial operating point solution" box of the
+simulation dialog writes it).
+
+| grammar line | verdict | source |
+|---|---|---|
+| `scale meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15` (no `a`) | correct, by the help | the help's table of multipliers has no atto, so `1a` is not 1e-18 |
+| `oddscale mil=25.4e-6` | correct, by the help | the same table |
+| `caveat tran skip_dc` | correct, by the help | `.tran ... uic`: the initial operating point is skipped and the run starts from `.ic` values |
+
+Not run in LTspice 26.0.2: what `1a` reads as (1, or refused).
 
 ## 9. An inductor's model (ngspice 45, Xyce 7.10, VACASK b2c1551, LTspice 26.0.2, HSPICE Y-2026.03-SP2-1, Spectre 25.10)
 

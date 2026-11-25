@@ -18,8 +18,10 @@ const usage =
     \\        from -D NAME=VALUE. With --lib the files named are model
     \\        libraries themselves (no title line), as in a PDK. Each
     \\        --section NAME (a corner: tt) limits the library sections
-    \\        followed to those named and the ones they name; the others
-    \\        are listed as not followed. --errata FILE reads the lines a
+    \\        followed to those named and the ones they name; without
+    \\        it, a section is followed when a followed .lib line names
+    \\        it or a file named defines it. The others are listed as
+    \\        not followed. --errata FILE reads the lines a
     \\        PDK's own simulator refuses as the JSON file says (a list of
     \\        {file, was, read, why}, or a manifest's "errata").
     \\        --provide NAME=FILE (translate and project, repeatable): a

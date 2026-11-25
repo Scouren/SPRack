@@ -226,7 +226,10 @@ The sdist ships what `zig build py` needs: `build.zig`, `build.zig.zon`,
 ## Status
 
 Version 0.1.0 (`build.zig.zon`, the one place it is written); not yet
-published to a package index. Built and tested with Zig 0.18.0-dev.349.
+published to a package index. CI builds and tests with Zig 0.18.0-dev.349
+(`flake.lock`, and setup-zig in the workflows); 0.17.1, the minimum
+`build.zig.zon` declares, builds it and passes the same tests, but no
+workflow runs it.
 A release is one run of the Publish workflow (`.github/workflows/publish.yaml`):
 it moves the version, tests, tags, and uploads the sdist and wheels to PyPI.
 
@@ -276,9 +279,9 @@ Every error names a file and a line. What is left, and whose it is:
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 177 tests |
-| The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 29 runs |
-| The Python package | `python/test_sprack.py` | 23 tests, 10 of them on real PDK libraries |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 230 tests |
+| The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 35 runs |
+| The Python package | `python/test_sprack.py` | 39 tests, 11 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |
 | Load and result checks in the simulators | `tools/parse_check.py`, `tools/sim_check.py`, `tools/licensed_check.py`, `tools/vacask-loadcheck/` | by hand, where the tools are |
 
@@ -412,7 +415,9 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   Spectre, whose report alone is a third of the input). A netlist with a
   sweep, an alter, a pole-zero analysis, a model of an unlisted type, a
   statistics block to fold or a change of language is still read whole, at
-  7 times its size or more; so are `read`, `write` and the Python package.
+  7 times its size or more; so are `read`, `write`, and the Python
+  package's `Circuit.read` and `to_python` (its `translate` streams as the
+  command does: 44 MiB at peak on a 4 MiB deck, the interpreter included).
 
 ## License
 

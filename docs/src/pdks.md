@@ -286,6 +286,14 @@ define. A subcircuit entry has `ports` and `params` (with defaults); a model
 card has `device`, `family` and `polarity`. `pdk.device(name)` finds one with
 or without the PDK's prefix (`sky130_fd_pr__`), in any case.
 
+The catalogue is what the corner's library reaches, not every directory of
+the checkout. In sky130_fd_pr, `sky130.lib.spice` section `tt` reaches files
+in 67 of the 125 `cells/` directories; the other 58 (the 20 V transistors,
+most `cap_vpp` capacitors, the inductors, the RF test coils and aura cells,
+the 5.5 V and 11 V NPNs) are in no file the corner includes, so they are not
+devices of `sky130A`. A cell outside the corner is still usable by including
+its file in the circuit.
+
 What the libraries define is known where the circuit is written and where a
 `code` block is read. A model card or a function of the PDK is a declared
 one, so a resistor that names a PDK model is not reported as naming a model
@@ -428,3 +436,17 @@ fails when a verdict changes, either way. The table of counts per verdict
 is generated from that file once the first nightly run has written it;
 VACASK's results have no reader in the harness yet (its rows say not
 run), and HSPICE and Spectre are measured by hand (issues 56 and 57).
+
+`tools/pdk_smoke.py` is the smaller check it grew from: one inverter per PDK,
+its switching point (the input where the output crosses VDD/2) found in the
+PDK's own simulator and in Xyce. A run with no points or no crossing fails.
+Measured:
+
+| PDK | ngspice 42 | Xyce |
+|---|---|---|
+| sky130A | 0.8551763 V | 0.85518 V |
+| FreePDK45 | 0.5216183 V | 0.5216184 V |
+| ASAP7 | (BSIM-CMG: OSDI only) | 0.34753 V |
+
+The Xyce column is from the run reported in issue 67 (version not recorded);
+the ngspice column was rerun for this page.

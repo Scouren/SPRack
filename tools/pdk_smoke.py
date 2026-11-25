@@ -33,10 +33,8 @@ def inverter(name, sub, vdd, n, p, **kw):
 # Known lines the simulators reject, edited in the cached copy so the inverter
 # can run; each one is printed. ponytail: delete an entry once sprack handles it.
 PATCHES = [
-    # HSPICE variation syntax that sky130 carries; Xyce rejects the key.
-    ("xyce", re.compile(r"\+?\s*dev/gauss=\{[^}]*\}"), "", "dev/gauss= on .param (TODO: sprack should report it)"),
-    # Xyce reserves VT (the thermal voltage) as a name.
-    ("xyce", re.compile(r"(?<![\w.])vt(?![\w(])"), "vt_", "a .param named vt (TODO: sprack should report it)"),
+    # (None left: SPRack now renames a parameter named vt and writes
+    # dev/gauss= as a random function itself, issue 67.)
 ]
 
 
@@ -67,8 +65,11 @@ def run(sim, text, tag):
     deck = os.path.join(work, f"{tag}.{sim}.cir")
     open(deck, "w").write(text)
     if sim == "ngspice":
-        out = subprocess.run(["ngspice", "-b", "-n", deck], capture_output=True, text=True, timeout=300, cwd=work).stdout
+        p = subprocess.run(["ngspice", "-b", "-n", deck], capture_output=True, text=True, timeout=300, cwd=work)
+        out = p.stdout
         rows = [(float(m[1]), float(m[2])) for m in re.finditer(r"^\d+\s+(\S+)\s+(\S+)\s*$", out, re.M)]
+        if not rows:
+            sys.stderr.write((p.stdout + p.stderr)[-2000:])
     else:
         p = subprocess.run(["Xyce", deck], capture_output=True, text=True, timeout=300, cwd=work)
         prn = deck + ".prn"
@@ -89,6 +90,7 @@ def main():
         ("FreePDK45", "freepdk45", 1.0, ("NMOS_VTL", dict(w="90n", l="50n")), ("PMOS_VTL", dict(w="180n", l="50n")), "ngspice"),
         ("ASAP7", "asap7", 0.7, ("nmos_rvt", dict(nfin=3)), ("pmos_rvt", dict(nfin=3)), None),
     ]
+    failed = []
     for name, sub, vdd, n, p, native in cases:
         c, pdk = inverter(name, sub, vdd, n, p)
         res = {}
@@ -104,9 +106,15 @@ def main():
                     print(f"{name:<10} {sim:<8} patched by hand: {what}")
             rows = run(sim, text, name)
             res[sim] = crossing(rows, vdd / 2)
+            # A run with no points, or no crossing, is a failure, not a pass
+            # with nothing to compare (issue 67).
+            if res[sim] is None:
+                failed.append(f"{name} {sim}")
             print(f"{name:<10} {sim:<8} {len(rows):>4} points  switching point {res[sim]}  ({len(errs)} report errors{': ' + errs[0][:120] if errs else ''})")
         if native and None not in res.values():
             print(f"{name:<10} ngspice vs xyce: {abs(res[native] - res['xyce']) * 1e3:.2f} mV apart")
+    if failed:
+        sys.exit("no switching point: " + ", ".join(failed))
 
 
 if __name__ == "__main__":

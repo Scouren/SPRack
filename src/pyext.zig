@@ -135,9 +135,10 @@ fn translateBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     const gf = try dialect(arena, try arg(args, 0));
     const gt = try dialect(arena, try arg(args, 1));
     var report: ir.Report = .init(arena);
-    const nl = try sprack.read(arena, gf, try arg(args, 2), &report);
+    // A statement at a time, as the command does (issue 67): the same
+    // output, without the whole netlist held at once.
     var aw: std.Io.Writer.Allocating = .init(arena);
-    sprack.write(arena, gt, &aw.writer, &nl, &report) catch return error.OutOfMemory;
+    _ = sprack.stream.translate(arena, gf, gt, try arg(args, 2), &aw.writer, &report, &sprack.caps, .{}) catch return error.OutOfMemory;
     return pair(aw.written(), try reportJson(arena, &report));
 }
 

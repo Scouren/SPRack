@@ -20,11 +20,13 @@ lexer
   # start with a `*` header, and LVS tools read nothing on that line).
   title     yes "* "
   comment   line "*"
-  comment   tail "$"
+  comment   tail "$"                               # assumed: `$` ends the line's netlist and starts its annotations
   continue  lead "+"
   parens    space
   expr      "'" "'"                              # assumed
   values    idents
+  # assumed: the SPICE letters, and units after them ignored, as in the
+  # SPICE the CDL is written from; an LVS tool may read fewer (no a, no t).
   scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   units     ignore
   end       ".end"
@@ -43,10 +45,12 @@ read  include   = ".inc" path
 rule  resistor  = name~"R" pos neg r {...params}
 rule  capacitor = name~"C" pos neg c {...params}
 rule  inductor  = name~"L" pos neg l {...params}
+# assumed: the area of a diode and a BJT as a bare value, as in SPICE.
 rule  diode     = name~"D" pos neg master [area] { area=area ...params? }
 rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
 rule  mosfet    = name~"M" d g s b master {...params}
 rule  jfet      = name~"J" d g s master [area] {...params}
+# assumed: `/` before the master is written, and read with or without it.
 rule  instance  = name~"X" nodes+ "/" master {...params}
 read  instance  = name~"X" nodes+ master {...params}
 
@@ -127,6 +131,8 @@ end
 caveat library name : CDL has no library wrapper around its sections; it is written as a comment
 caveat subckt inline : CDL has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
 
+# assumed: the functions a parameter expression may use are SPICE's; what
+# an LVS tool evaluates in a parameter is not settled.
 functions
   same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
   ln    = log

@@ -61,7 +61,8 @@ pub const Options = struct {
     vars: []const [2][]const u8 = &.{},
     /// Library sections to follow (`tt`): a section of a top file, or of a
     /// file reached by `.lib file name`, is followed only if it is named
-    /// here or by a `.lib` line in what is followed. Empty: every one.
+    /// here or by a `.lib` line in what is followed. Empty: every section
+    /// of a top file, and those a `.lib` line in what is followed names.
     sections: []const []const u8 = &.{},
     /// Written at the end: a JSON object of every `$NAME` an include path
     /// named and what it was replaced by (null: `vars` does not define it).
@@ -277,8 +278,11 @@ const Run = struct {
     sections: std.ArrayList(Ref) = .empty,
     /// Verilog-A sources named by `.hdl`, copied into the translated tree.
     hdls: std.ArrayList([]const u8) = .empty,
-    /// The sections to follow; null: all of them.
+    /// The sections to follow: those asked for, and those a followed
+    /// `.lib` line names. With none asked for, every section of a top file
+    /// too (`top_sections`).
     wanted: ?ir.CaselessSet = null,
+    top_sections: bool = false,
     skipped: std.ArrayList(Skipped) = .empty,
     /// Directories an include not found beside its file is looked up in
     /// (HSPICE `.option search='dir'`), absolute.
@@ -403,7 +407,7 @@ const Run = struct {
         return k;
     }
 
-    fn findIncludes(r: *Run, file: []const u8, stmts: []const ir.Stmt, scratch: Allocator) Allocator.Error!void {
+    fn findIncludes(r: *Run, file: []const u8, stmts: []const ir.Stmt, scratch: Allocator, top: bool) Allocator.Error!void {
         const dir = dirOf(file);
         for (stmts) |*st| {
             if (st.kind == .libsection and st.get("name") == .atom) {
@@ -414,7 +418,7 @@ const Run = struct {
                     try r.spellings.put(r.arena, key, own);
                     try r.sections.append(r.arena, .{ .path = file, .section = own });
                 }
-                if (r.wanted) |*w| if (!w.contains(name)) {
+                if (r.wanted) |*w| if (!w.contains(name) and !(top and r.top_sections)) {
                     var refs: std.ArrayList(Ref) = .empty;
                     try r.collectRefs(dir, st.body, scratch, &refs);
                     try r.skipped.append(r.arena, .{ .path = file, .name = try r.arena.dupe(u8, name), .refs = refs.items });
@@ -432,7 +436,7 @@ const Run = struct {
                     if (std.mem.eql(u8, h, target)) break;
                 } else try r.hdls.append(r.arena, try r.arena.dupe(u8, target));
             }
-            try r.findIncludes(file, st.body, scratch);
+            try r.findIncludes(file, st.body, scratch, top);
         }
     }
 
@@ -705,7 +709,7 @@ const Run = struct {
             try r.env.absorb(r.arena, nl.stmts);
             // "": every name is copied, as `text` goes away with the statements.
             if (r.opts.to) |gt| try writer.collectReserved(r.arena, gt, nl.stmts, &r.env.params, "");
-            try r.findIncludes(path, nl.stmts, scratch);
+            try r.findIncludes(path, nl.stmts, scratch, i < r.opts.tops.len);
         }
         // A section asked for by name that no file defines: nothing of it
         // is in the result, and what references it will not find it.
@@ -721,7 +725,8 @@ const Run = struct {
         for (r.skipped.items) |sk| {
             if (sk.released) continue;
             var buf: [200]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "section '{s}' not followed: it is not among the sections asked for, so the files it includes are not translated", .{sk.name[0..@min(sk.name.len, 60)]}) catch "a section not followed";
+            const why = if (r.top_sections) "no followed .lib line names it" else "it is not among the sections asked for";
+            const msg = std.fmt.bufPrint(&buf, "section '{s}' not followed: {s}, so the files it includes are not translated", .{ sk.name[0..@min(sk.name.len, 60)], why }) catch "a section not followed";
             r.logLine(sk.path, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
         }
     }
@@ -816,10 +821,11 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
     if (std.Io.Dir.cwd().realPath(io, &buf)) |n| {
         r.cwd = try resolve(r.arena, ".", buf[0..n]);
     } else |_| {}
-    if (opts.sections.len > 0) {
-        r.wanted = .empty;
-        for (opts.sections) |sec| try r.wanted.?.put(r.arena, sec, {});
-    }
+    // A deck's `.lib file tt` reaches `tt` alone, as the simulator does;
+    // a library given itself is followed whole unless sections are named.
+    r.wanted = .empty;
+    r.top_sections = opts.sections.len == 0;
+    for (opts.sections) |sec| try r.wanted.?.put(r.arena, sec, {});
     r.env.provided = opts.provided;
     r.errata_seen = try r.arena.alloc(bool, opts.errata.len);
     r.errata_found = try r.arena.alloc(bool, opts.errata.len);
@@ -1011,14 +1017,15 @@ test "a small project: includes followed, declarations shared, tree copied" {
         .vars = &.{.{ "MODELS", models }},
         .log = &log.writer,
         .expanded = &expanded.writer,
-        // Only the corner asked for: ff.mod (which does not exist) is not reached.
-        .sections = &.{"tt"},
+        // No section asked for: the deck's `.lib` reaches `tt` alone, as
+        // the simulator does, so ff.mod (which does not exist) is not
+        // reached (#67).
     });
     try std.testing.expectEqual(3, sum.files);
     try std.testing.expectEqualStrings(try std.fmt.allocPrint(a, "{{\"MODELS\":\"{s}\"}}", .{models}), expanded.written());
     try std.testing.expectEqual(1, sum.missing);
     try std.testing.expect(std.mem.indexOf(u8, log.written(), "missing.mod: error[invalid]: cannot open this file") != null);
-    try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed: no followed .lib line names it") != null);
 
     const top = try tmp.dir.readFileAlloc(io, "out/top.sp", a, .unlimited);
     try std.testing.expect(std.mem.indexOf(u8, top, "// Top netlist\nsimulator lang=spectre insensitive=yes\nglobal 0\n") != null);

@@ -2468,24 +2468,36 @@ const Writer = struct {
 
     /// A grammar's `invalid` lines, for a netlist crossing into or out of
     /// that dialect: a value it leaves out (or gives as zero) means
-    /// something else there.
-    fn check(w: *Writer, g: *const Grammar, stmts: []const ir.Stmt) Allocator.Error!void {
+    /// something else there. A slot `before`'s own line already says
+    /// something about (the source dialect's, checked after) is said once,
+    /// in the source's words.
+    fn check(w: *Writer, g: *const Grammar, stmts: []const ir.Stmt, before: ?*const Grammar) Allocator.Error!void {
         for (stmts) |*st| {
-            try w.check(g, st.body);
-            for (g.checks) |ck| {
-                if (ck.kind != st.kind) continue;
-                if (ck.when_slot != grammar.no_slot) {
-                    const v = st.at(ck.when_slot);
-                    if (v != .atom or !std.mem.eql(u8, v.atom, ck.when_atom)) continue;
-                }
+            try w.check(g, st.body, before);
+            next: for (g.checks) |ck| {
+                if (!fires(ck, st)) continue;
+                if (before) |o| for (o.checks) |oc| {
+                    if (oc.slot == ck.slot and fires(oc, st)) continue :next;
+                };
                 const v = st.at(ck.slot);
                 const zero = v == .num and v.num.toFloat() == 0;
-                if (v != .none and !(ck.zero and zero)) continue;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s}", .{
                     @tagName(st.kind), schema.info(st.kind).slots[ck.slot].name, if (zero) "is 0" else "is not given", ck.text,
                 });
             }
         }
+    }
+
+    /// Whether an `invalid` line holds for this statement.
+    fn fires(ck: grammar.Check, st: *const ir.Stmt) bool {
+        if (ck.kind != st.kind) return false;
+        if (ck.when_slot != grammar.no_slot) {
+            const v = st.at(ck.when_slot);
+            if (v != .atom or !std.mem.eql(u8, v.atom, ck.when_atom)) return false;
+        }
+        const v = st.at(ck.slot);
+        const zero = v == .num and v.num.toFloat() == 0;
+        return v == .none or (ck.zero and zero);
     }
 
     /// Apply the grammar's `default` lines and both dialects' `omitted`
@@ -3755,10 +3767,12 @@ pub fn write(
     if (!sameDialect(nl, g)) try topology.check(ir.big, arena, nl, g, report);
     const filled = try w.fill(nl.stmts, nl.stmts);
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
-        try w.check(g, filled);
+        var source: ?*const Grammar = null;
         if (caps) |c| for (c.grammars) |*sg| {
-            if (std.mem.eql(u8, sg.name, nl.dialect)) try w.check(sg, filled);
+            if (std.mem.eql(u8, sg.name, nl.dialect)) source = sg;
         };
+        try w.check(g, filled, source);
+        if (source) |sg| try w.check(sg, filled, null);
     }
     var gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
@@ -4132,9 +4146,9 @@ pub const Stream = struct {
         const filled = try w.fill(stmts, s.fill_from);
         if (s.foreign) {
             report.phase = ir.Phase.checks;
-            try w.check(g, filled);
+            try w.check(g, filled, s.source);
             report.phase = ir.Phase.checks_source;
-            if (s.source) |sg| try w.check(sg, filled);
+            if (s.source) |sg| try w.check(sg, filled, null);
         }
         try s.tail(filled);
     }

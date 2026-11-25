@@ -157,14 +157,19 @@ op1 dc
 |---|---|
 | `--out <dir>` | where the translated tree is written |
 | `--lib` | the files named are libraries themselves, with no title line, as in a PDK |
-| `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. The log lists each section not followed; a name no file read defines is an error |
+| `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. Without it, a section is followed when a followed `.lib` line names it, as the simulator reads it, and every section of a file named on the command line is followed (a library given itself is translated whole). The log lists each section not followed; a name no file read defines is an error |
 | `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used. An include path that starts with the variable (`$PDK/corners.lib`) is the value's own path: a relative value is relative to the directory sprack runs in, whichever file names it. A variable inside a path (`lib/$CORNER.lib`) is text put into it, and the path stays relative to the including file |
+
+The translated tree is copied under the directory the files have in common,
+so a deck whose library is outside its directory (`../pdk/models.lib`) is
+written at `<out>/deck/top.sp` beside `<out>/pdk/models.lib`, and its include
+lines stay relative.
 
 On Windows a path may use `\` or `/`, start with a drive (`C:/`) or a
 share (`//server/share`), and a `$NAME` from the environment matches it in
 any case (`$pdk_root` is `PDK_ROOT`), as Windows itself does; a name given
-with `-D` in the same case wins. The translated tree is copied under the
-directory the files have in common: files on two drives have none, so the
+with `-D` in the same case wins. Files on two drives have no directory in
+common, so the
 first file's drive is taken, and a file on another drive is reported as
 not written (one copy tree per drive is the remedy, if a PDK ever spans
 two).

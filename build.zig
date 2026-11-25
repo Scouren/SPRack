@@ -259,6 +259,13 @@ fn cliTests(c: Cli) void {
     nosec.addFileArg(top);
     nosec.expectStdErrMatch("top.sp: error[invalid]: section 'typ' is asked for, but no file read defines it\n");
     nosec.expectStdErrMatch("3 files, 1 error, 0 warnings\n");
+    // --lib: the file named is a library itself, no title line (#67).
+    const lib = c.run(&.{ "project", "--from", "ngspice", "--to", "spectre", "--lib", "--section", "tt", "--out" }, "", 0);
+    const lib_out = lib.addOutputDirectoryArg("lib-out");
+    lib.addFileArg(wf.add("libonly/corners.lib", ".lib tt\n.param rsh=10\n.endl tt\n.lib ff\n.param rsh=8\n.endl ff\n"));
+    lib.expectStdErrMatch("section 'ff' not followed");
+    lib.expectStdErrMatch("1 file, 0 errors, 0 warnings\n");
+    c.file(lib_out.path(b, "corners.lib"), &.{"section tt\nparameters rsh=10\nendsection tt\n"});
     // -D NAME=relative/path: one place, whichever file names it (#54).
     const dtop = wf.add("dtree/top.sp", "top\n.include \"$INC/sub.sp\"\n.include \"a/b/mid.sp\"\nX1 a 0 rdiv\n.op\n.end\n");
     _ = wf.add("dtree/a/b/mid.sp", ".include \"$INC/sub.sp\"\n");
