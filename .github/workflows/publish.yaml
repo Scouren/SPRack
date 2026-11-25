@@ -19,9 +19,17 @@ name: Publish
 # One-time setup:
 #   - PyPI: a trusted publisher for project "sprack": this repository,
 #     workflow publish.yaml, environment pypi.
-#   - GitHub: an environment named "pypi", and "Allow GitHub Actions to create
-#     and approve pull requests" in the repository's Actions settings (and
-#     the organization's, if it is in one).
+#   - GitHub: an environment named "pypi" whose branch policy admits main,
+#     and "Allow GitHub Actions to create and approve pull requests" in the
+#     repository's Actions settings (and the organization's, if it is in
+#     one); if main is protected, the workflow's token allowed to merge.
+#   - The tags v0.1.1, v0.1.2 and v0.2.0 belong to an earlier project: the
+#     bump refuses a version whose tag exists, so the first release is
+#     0.3.0 or above (enter it as the bump), or those tags are deleted.
+#   - The PyPI publisher must name owner Scouren, repository SPRack,
+#     workflow publish.yaml and environment pypi; one made for the earlier
+#     owner or name does not match. Wheels: Linux x86_64, macOS arm64,
+#     Windows x86_64; other platforms build from the sdist, with Zig.
 
 "on":
   workflow_dispatch:
@@ -55,7 +63,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Refuses a version that does not move forward.
+      # Refuses a version that does not move forward, and one whose tag
+      # exists already (an earlier project's v0.1.1, v0.1.2, v0.2.0).
       - name: Bump build.zig.zon
         id: bump
         env:
@@ -76,6 +85,11 @@ jobs:
           open("build.zig.zon", "w").write(line.sub(rf"\g<1>{new}\g<5>", text, count=1))
           print(f"version={new}")
           EOF
+          v=$(sed -n 's/^version=//p' "$GITHUB_OUTPUT" | tail -1)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+            echo "v$v is already a tag of this repository; give a version above every tag as the bump" >&2
+            exit 1
+          fi
 
       - name: Open the release pull request
         id: pr

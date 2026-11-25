@@ -34,7 +34,22 @@ def _version():
 
 
 def _metadata():
-    return f"Metadata-Version: 2.2\nName: sprack\nVersion: {_version()}\nRequires-Python: >=3.10\n"
+    """Core metadata 2.4: the summary, the licence, the links, and the
+    README as the description PyPI shows (issue 66)."""
+    readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+    head = (
+        "Metadata-Version: 2.4\n"
+        "Name: sprack\n"
+        f"Version: {_version()}\n"
+        "Summary: Translates SPICE netlists between ngspice, Xyce, HSPICE, Spectre, VACASK, LTspice and CDL, and builds them from Python\n"
+        "License-Expression: MIT\n"
+        "License-File: LICENSE\n"
+        "Project-URL: Homepage, https://github.com/Scouren/SPRack\n"
+        "Project-URL: Issues, https://github.com/Scouren/SPRack/issues\n"
+        "Requires-Python: >=3.10\n"
+        "Description-Content-Type: text/markdown\n"
+    )
+    return head + "\n" + readme
 
 
 def _target(cross=None):
@@ -77,6 +92,8 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
                 with open(p, "rb") as f:
                     files[os.path.relpath(p, os.path.dirname(PKG)).replace(os.sep, "/")] = f.read()
     files[f"{dist}/METADATA"] = _metadata().encode()
+    with open(os.path.join(ROOT, "LICENSE"), "rb") as f:
+        files[f"{dist}/licenses/LICENSE"] = f.read()
     files[f"{dist}/WHEEL"] = f"Wheel-Version: 1.0\nGenerator: sprack\nRoot-Is-Purelib: false\nTag: {tag}\n".encode()
     record = io.StringIO()
     for name, data in files.items():
