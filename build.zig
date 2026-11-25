@@ -122,6 +122,17 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = lib.root_module })).step);
+    // Line coverage of src/ by the Zig tests (issue 65): the test binary
+    // built with the LLVM backend (kcov reads its DWARF line table), run
+    // under kcov, the report in zig-out/coverage. Needs kcov on PATH (the
+    // flake's ci shell has it).
+    const cov_tests = b.addTest(.{ .root_module = sprack, .use_llvm = true });
+    const kcov = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
+    const report = kcov.addOutputDirectoryArg("coverage");
+    kcov.addArtifactArg(cov_tests);
+    kcov.has_side_effects = true;
+    const install_report = b.addInstallDirectory(.{ .source_dir = report, .install_dir = .prefix, .install_subdir = "coverage" });
+    b.step("coverage", "Run the Zig tests under kcov: line coverage of src/ into zig-out/coverage").dependOn(&install_report.step);
     const cli_step = b.step("test-cli", "Run the sprack command on small inputs: what it prints and how it exits");
     cliTests(.{ .b = b, .step = cli_step, .exe = exe });
     test_step.dependOn(cli_step);

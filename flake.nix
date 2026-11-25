@@ -188,7 +188,9 @@
             zig
             pkgs.python3
             pkgs.python3Packages.pip # pip wheel . (pyproject.toml)
-          ];
+          ]
+          # zig build coverage (issue 65); kcov is packaged for Linux only.
+          ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.kcov;
           shellHook = ''export ZIG_GLOBAL_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/zig-${builtins.baseNameOf zig}"'';
         };
       in

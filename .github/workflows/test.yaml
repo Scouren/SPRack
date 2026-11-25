@@ -49,6 +49,39 @@ jobs:
             python3 docs/check/checkpage.py &&
             python3 docs/check/checkconsole.py'
 
+  # Line coverage of src/ (kcov) and of the Python package (a settrace
+  # tracer), each file held to one point below its recorded floor (issue 65).
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@9383ce2bf08796b65508822f5982f49151badc4e # main
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@f69a2d3e148e90223fe63ab6e3f6331f2e7e33dc # main
+
+      - name: Coverage
+        run: |
+          export SPRACK_TEST_PDKS=$(nix build .#test-pdks --no-link --print-out-paths)
+          export PATH="$(nix build --inputs-from . nixpkgs#ngspice --no-link --print-out-paths)/bin:$PATH"
+          nix develop .#ci --command sh -c '
+            zig build coverage &&
+            python3 -I tools/coverage_floor.py zig zig-out/coverage tools/coverage-floor-zig.tsv &&
+            zig build py &&
+            python3 tools/py_coverage.py py-coverage.tsv &&
+            python3 -I tools/coverage_floor.py py py-coverage.tsv tools/coverage-floor-py.tsv'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage
+          path: |
+            zig-out/coverage
+            py-coverage.tsv
+
   # The corpus audit against the committed baseline, as the nightly job runs
   # it: a raised error count or a silent run fails the pull request.
   audit:

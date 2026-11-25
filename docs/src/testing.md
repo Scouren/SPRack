@@ -143,3 +143,23 @@ comparison, and ten minutes of fuzzing: four targets in `src/tests.zig`
 includes) under `zig build test --fuzz`, and the 20,000 damaged netlists
 from a seed of the night's own, printed when they fail
 (`SPRACK_FUZZ_SEED`; `zig build test` keeps a fixed one).
+
+## Coverage
+
+`zig build coverage` runs the Zig tests built with the LLVM backend under
+kcov (`--include-path=src`) and writes the report to `zig-out/coverage`;
+the flake's `ci` shell has kcov. `tools/py_coverage.py` measures the Python
+package's lines over `python/test_sprack.py` with a `sys.settrace` tracer
+(function bodies; lines run only in other processes are not seen). The
+`coverage` job of `test.yaml` runs both, and `tools/coverage_floor.py`
+fails it when a file's line coverage falls more than one point below its
+floor in `tools/coverage-floor-zig.tsv` or `tools/coverage-floor-py.tsv`.
+
+| file | lines covered | measured |
+|---|---|---|
+| `python/sprack/__init__.py` | 92.8 % (827 of 891) | 2026-11-24, with the five PDKs, the installed trees skipped |
+
+The per-file numbers of `src/` are written by the first run of the job
+that has kcov (none was available where the Python ones were taken), and
+the floor file is committed from it; until then the Zig side gates
+nothing.
