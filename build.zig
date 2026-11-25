@@ -146,6 +146,9 @@ const Cli = struct {
     step: *std.Build.Step,
     exe: *std.Build.Step.Compile,
 
+    /// `stdin` is "" for a case that exits before it reads its input (a
+    /// wrong flag, a grammar it cannot read): bytes written to a process
+    /// that is gone end the step in BrokenPipe now and then (#76).
     fn run(c: Cli, args: []const []const u8, stdin: []const u8, code: u8) *std.Build.Step.Run {
         const r = c.b.addRunArtifact(c.exe);
         r.addArgs(args);
@@ -195,7 +198,7 @@ fn cliTests(c: Cli) void {
     const by_path = c.run(&.{ "translate", "--to", "spectre", "--from" }, deck, 0);
     by_path.addFileArg(b.path("grammars/ngspice.spgrammar"));
     by_path.expectStdOutEqual(spectre);
-    const bad_grammar = c.run(&.{ "translate", "--to", "spectre", "--from" }, deck, 2);
+    const bad_grammar = c.run(&.{ "translate", "--to", "spectre", "--from" }, "", 2);
     bad_grammar.addFileArg(wf.add("bad.spgrammar", "dialect bad\nlexer\nend\nrule op = \".op\" zz\n"));
     bad_grammar.expectStdErrMatch("bad.spgrammar:4: unknown slot 'zz' for kind 'op'");
 
@@ -221,13 +224,13 @@ fn cliTests(c: Cli) void {
     c.run(&.{ "audit", "--from", "ngspice", "--to", "xyce" }, "t\n.bogus 1\n.end\n", 0).expectStdOutEqual("-\t1\t1\t0\t1\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t.bogus:1\n");
 
     // A wrong command line: status 2 and what is wrong, nothing translated.
-    c.run(&.{ "translate", "--from", "ngspice" }, deck, 2).expectStdErrMatch("--to is required\nusage:");
-    c.run(&.{ "translate", "--to", "xyce" }, deck, 2).expectStdErrMatch("--from is required\nusage:");
-    c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, deck, 2).expectStdErrEqual("unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file\n");
-    c.run(&.{ "translate", "--frm", "ngspice" }, deck, 2).expectStdErrMatch("unknown option '--frm'\nusage:");
+    c.run(&.{ "translate", "--from", "ngspice" }, "", 2).expectStdErrMatch("--to is required\nusage:");
+    c.run(&.{ "translate", "--to", "xyce" }, "", 2).expectStdErrMatch("--from is required\nusage:");
+    c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, "", 2).expectStdErrEqual("unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file\n");
+    c.run(&.{ "translate", "--frm", "ngspice" }, "", 2).expectStdErrMatch("unknown option '--frm'\nusage:");
     c.run(&.{"frobnicate"}, "", 2).expectStdErrMatch("unknown command 'frobnicate'\nusage:");
     c.run(&.{ "translate", "--from", "ngspice", "--to", "xyce", "/no/such.sp" }, "", 2).expectStdErrEqual("cannot read /no/such.sp: FileNotFound\n");
-    c.run(&.{ "translate", "--from", "/no/such.spgrammar", "--to", "xyce" }, deck, 2).expectStdErrEqual("cannot read /no/such.spgrammar: FileNotFound\n");
+    c.run(&.{ "translate", "--from", "/no/such.spgrammar", "--to", "xyce" }, "", 2).expectStdErrEqual("cannot read /no/such.spgrammar: FileNotFound\n");
     c.run(&.{ "catalog", "--from", "ngspice", "-D", "PDK", "x.sp" }, "", 2).expectStdErrEqual("--define takes NAME=VALUE\n");
     c.run(&.{ "project", "--from", "ngspice", "--to", "xyce", "x.sp" }, "", 2).expectStdErrMatch("project needs --out <dir>\nusage:");
     c.run(&.{ "project", "--from", "ngspice", "--to", "xyce", "--out", "x" }, "", 2).expectStdErrMatch("project needs at least one file\nusage:");

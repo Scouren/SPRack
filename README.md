@@ -96,7 +96,7 @@ The same from Python (`PYTHONPATH=python`):
 | `vacask` | VACASK | VACASK built from source: load and results; its manual and parser |
 | `spectre` | Spectre's own language | Spectre 25.10: every error-free translation of the corpus loaded (`tools/licensed_check.py`) |
 | `hspice` | HSPICE | HSPICE Y-2026.03: the same |
-| `ltspice` | LTspice | LTspice 26.0.2, run in batch mode on decks written for the check (`nix develop .#ltspice`): the tables, the `no` lines, source waveforms and topologies. Not checked: instance parameters, and MOS levels other than 1, 2, 3, 8/49 and 14/54. It runs one analysis a deck |
+| `ltspice` | LTspice | LTspice 26.0.2, run in batch mode on decks written for the check (`nix develop .#ltspice`): the tables, the `no` lines, source waveforms and topologies. Instance parameters are checked for sources only (`Rser`, `Cpar`, `load`); the MOS levels LTspice loads are measured (docs/verification.md 8.12), and the models table claims 1, 2, 3, 8/49 and 14/54, whose cards mean the same elsewhere. It runs one analysis a deck, with `.op` beside one other (8.7) |
 | `cdl` | CDL, the connectivity netlist of LVS: no sources, analyses or controls | no tool; a few lines marked `assumed` |
 
 `sprack caps` prints which dialect can write which statement. Each grammar
@@ -279,7 +279,7 @@ Every error names a file and a line. What is left, and whose it is:
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 236 tests |
+| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 237 tests |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 35 runs |
 | The Python package | `python/test_sprack.py` | 40 tests, 11 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |

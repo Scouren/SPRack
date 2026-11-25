@@ -918,8 +918,10 @@ out is 0) is written with `narrow` at twice that; any other card has no
 Xyce form: neither parameter is written, and a `loss` error states both
 formulas. A name the source's model was measured to ignore (HSPICE's and
 Spectre's `narrow` and `short`, Xyce's `short`) is not written, a `loss`
-warning. The floor resistance of HSPICE where W - 2 DW is 0 is not
-reported. Other dialects have no table: their cards are copied as written.
+warning. The floor resistance of HSPICE where W - 2 DW is 0 is a caveat
+on each card with a NARROW that crosses into or out of HSPICE (the
+grammar's `edge resistor narrow` line, #76): whether a W - 2 DW reaches 0
+depends on the instances, which the card does not know. Other dialects have no table: their cards are copied as written.
 
 The translations run. An ngspice deck of five cards, each with a resistor
 across its own 1 V source, translated to Xyce (`narrow=2u`, `narrow=2u`,
@@ -2609,9 +2611,11 @@ HSPICE it is the first of the two errors (9.6: no form names a model),
 and the card is written.
 
 Left open: a Xyce line with a model and no value is read, though Xyce
-refuses it. A Xyce card's `l`, a multiplier there, has no name in the
-other dialects: it is copied as written with the standing caveat, and
-means something else in ngspice and in Spectre.
+refuses it. A Xyce card's `l`, a multiplier there, is `lscale = l` in
+Xyce's table (#76); ngspice, VACASK and Spectre have `noparam inductor
+lscale error`, so out of Xyce it is not written and a `loss` error says the
+inductance is the line's alone (in Spectre `l` would be the card's own
+inductance).
 
 ### 9.6 HSPICE and Spectre
 

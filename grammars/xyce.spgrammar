@@ -741,6 +741,9 @@ noparam resistor r error : Xyce lists R among its resistor card's parameters, bu
 
 modelparams inductor
   same tc1
+  # A card's L multiplies the line's own value (3 and 1 mH are 3 mH,
+  # docs/verification.md 9.1): no other dialect's card has it.
+  lscale = l
 end
 # docs/verification.md 9.1: "No model parameter IND found for model LMOD of
 # type L, parameter ignored", and the line's own value is read.

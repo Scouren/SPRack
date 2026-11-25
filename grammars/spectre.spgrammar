@@ -448,6 +448,7 @@ modelparams inductor
   same tc1
   ind = l
 end
+noparam inductor lscale error : Xyce's inductor card L multiplies the line's inductance (docs/verification.md 9.1); Spectre's card has no such multiplier, so the inductance is the line's alone
 computes resistor narrow short : R = RSH (L - 2 ETCHL) / (W - 2 ETCH)
 no pattern : Spectre names a bit pattern on the source itself (type=bit data=); HSPICE's .PAT has no form here
 no fft : Spectre has no FFT statement; a spectrum is post-processing of the transient result

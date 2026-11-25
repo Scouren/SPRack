@@ -465,6 +465,7 @@ end
 modelparams inductor
   same ind tc1
 end
+noparam inductor lscale error : Xyce's inductor card L multiplies the line's inductance (docs/verification.md 9.1); ngspice's card has no such multiplier, so the inductance is the line's alone
 # One parameter under several names, as ngspice's devhelp gives them (one id),
 # and the names ngspice 45 adds to a diode's (tcv, vjsw, isw): made by
 # `tools/param_lists.py ngspice` (docs/verification.md 4.23).

@@ -235,6 +235,10 @@ computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # these parameters, as measured: said, with
                                    # the other dialect's line, in the error for
                                    # a card that has no form in one of the two
+edge resistor narrow : where W - 2 DW is 0, ...
+                                   # a corner where the model here computes
+                                   # something else: a caveat on each card with
+                                   # the parameter crossing into or out of it
 no pz : Xyce has no pole-zero analysis          # the simulator lacks it, and why
 no options vntol : Xyce has no ...              # one value of a kind it has: the
                                                 # reason ends the error of that slot

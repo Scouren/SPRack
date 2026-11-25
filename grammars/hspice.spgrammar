@@ -502,6 +502,7 @@ modelparams resistor
   short  = dlr
 end
 computes resistor narrow short : R = RSH (L - 2 DLR) / (W - 2 DW)
+edge resistor narrow : where W - 2 DW is 0, HSPICE takes a floor resistance (1e5 A at 1 V) with a warning, where ngspice and Spectre leave the resistor open (docs/verification.md 4.13)
 # Statements of HSPICE's own that no kind holds: written elsewhere, each is
 # an `unsupported` with the reason. The other dialects' references were read
 # for each (docs/verification.md 4.32).

@@ -7023,3 +7023,22 @@ test "#74: a requires line with an analysis list checks only those analyses" {
         try testing.expectEqual(case[1], r.contains(.@"error", "mini's operating point fails on a node with no DC path"));
     }
 }
+
+test "#76: HSPICE's floor resistance and Xyce's inductor multiplier are said" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.model rm r rsh=1k narrow=1u\nR1 a 0 rm l=11u w=2u\nV1 a 0 1\n.op\n.end\n", &r), ".model rm r rsh=1k dw=1u\n");
+    try reported(&r, .warning, "model 'rm': narrow: where W - 2 DW is 0, HSPICE takes a floor resistance");
+    // Within one dialect nothing crosses.
+    var r1: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "hspice", "t\n.model rm r rsh=1k dw=1u\nR1 a 0 rm l=11u w=2u\nV1 a 0 1\n.op\n.end\n", &r1);
+    try testing.expect(!r1.contains(.warning, "floor resistance"));
+    const xy = "t\nL1 a 0 1m lmod\n.model lmod ind l=3 tc1=0.01\nI1 0 a ac 1\n.ac lin 1 159 159\n.end\n";
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "ngspice", xy, &r2), ".model lmod l tc1=0.01\n");
+    try reported(&r2, .@"error", "Xyce's inductor card L multiplies the line's inductance");
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "xyce", xy, &r3), ".model lmod l l=3 tc1=0.01\n");
+}

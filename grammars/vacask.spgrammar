@@ -536,6 +536,7 @@ end
 modelparams inductor
   same ind tc1
 end
+noparam inductor lscale error : Xyce's inductor card L multiplies the line's inductance (docs/verification.md 9.1); VACASK's card has no such multiplier, so the inductance is the line's alone
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 no pattern : VACASK has no pattern sources; a bit pattern is a PWL
 no fft : VACASK has no FFT statement; a spectrum is post-processing of the transient result

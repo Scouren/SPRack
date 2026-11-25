@@ -180,7 +180,7 @@ pub const Dir = enum { both, read, write };
 /// `within`: `rule tran@script = ...`, a rule only for lines inside that
 /// block (ngspice's control language inside .control); rules without it are
 /// not used there.
-pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, line: u32, family: []const u8 = "", within: ?Kind = null };
+pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, family: []const u8 = "", within: ?Kind = null };
 pub const Block = struct {
     kind: Kind,
     open: []const Node,
@@ -244,6 +244,11 @@ pub const Convert = struct {
 /// the family computes with these parameters (canonical names), as measured.
 /// Said, with the other dialect's, where a card has no form in one of them.
 pub const Computes = struct { family: []const u8, keys: []const []const u8, text: []const u8 };
+/// `edge family key : text`: where this dialect's model computes something
+/// else than the others at a corner of the parameter (HSPICE's floor
+/// resistance where W - 2 DW is 0). A card with the key crossing into or
+/// out of the dialect is a caveat with the text.
+pub const Edge = struct { family: []const u8, key: []const u8, text: []const u8 };
 pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
 
 pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
@@ -508,6 +513,7 @@ pub const Grammar = struct {
     switches: []const Switch = &.{},
     noparams: []const NoParam = &.{},
     computes: []const Computes = &.{},
+    edges: []const Edge = &.{},
     inerts: []const Inert = &.{},
 
     /// Does this dialect give the slot a meaning of its own when it is
@@ -570,6 +576,11 @@ pub const Grammar = struct {
     }
 
     /// The formula of the `computes` line for `family` that names `key`.
+    pub fn edgeText(g: *const Grammar, family: []const u8, key: []const u8) ?[]const u8 {
+        for (g.edges) |e| if (std.mem.eql(u8, e.family, family) and std.ascii.eqlIgnoreCase(e.key, key)) return e.text;
+        return null;
+    }
+
     pub fn computesText(g: *const Grammar, family: []const u8, key: []const u8) ?[]const u8 {
         for (g.computes) |c| {
             if (!std.mem.eql(u8, c.family, family)) continue;
@@ -1524,6 +1535,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var switches: []const Switch = &.{};
     var noparams: []const NoParam = &.{};
     var computes: []const Computes = &.{};
+    var edges: []const Edge = &.{};
     var inerts: []const Inert = &.{};
 
     while (lines.next()) |line| {
@@ -1636,7 +1648,6 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .kind = kind,
                 .dir = dir,
                 .pat = try pattern(c, no, kind, fold, rest[eq + 3 ..], defs),
-                .line = no,
                 .family = family,
                 .within = within,
             });
@@ -1671,6 +1682,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (e.len < 2) return c.fail(no, "computes needs a model family and a parameter", .{});
             if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
             computes = try c.add(Computes, computes, .{ .family = e[0], .keys = e[1..], .text = rest[colon + 3 ..] });
+        } else if (std.mem.eql(u8, head, "edge")) {
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "edge is `edge family key : text`", .{});
+            const e = try args(c, no, rest[0..colon]);
+            if (e.len != 2) return c.fail(no, "edge needs a model family and a parameter", .{});
+            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            edges = try c.add(Edge, edges, .{ .family = e[0], .key = e[1], .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "noparam")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] warning|error : text`", .{});
             const e = try args(c, no, rest[0..colon]);
@@ -1997,6 +2014,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .switches = switches,
         .noparams = noparams,
         .computes = computes,
+        .edges = edges,
         .inerts = inerts,
     };
 }

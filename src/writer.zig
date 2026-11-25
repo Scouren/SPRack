@@ -1328,6 +1328,13 @@ const Writer = struct {
             try cs.append(a, .{ .p = p, .wrote = p.key, .as_is = true });
         }
         ps.shrinkRetainingCapacity(own);
+        // A corner where one of the two computes something else, once a card.
+        if (sg != w.g) for (cs.items) |c| {
+            if (c.as_is) continue;
+            const text = w.g.edgeText(family, c.p.key) orelse sg.edgeText(family, c.p.key) orelse continue;
+            w.report.add(.warning, .caveat, st.line, "model '{s}': {s}: {s}", .{ name, c.p.key, text });
+            break;
+        };
         for (cs.items, 0..) |*c, i| {
             if (c.done) continue;
             const e = (if (c.as_is) null else spellingsOf(to, c.p.key)) orelse {
