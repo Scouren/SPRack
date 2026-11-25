@@ -88,17 +88,17 @@ rule  mutual    = name~"K" l1 l2 k
 read  mutual    = name~"K" l1 l2 { k=k! }
 # The waveform of a V or I source; vsource and isource share these slots.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl val0 fsig freq [delay] ~")" | wave:"pat" ~"(" val1 val0 delay rise fall width bits+ ~")" )
-rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
-read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
 # b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
-read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
+read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 # A named pattern; a PAT source gives its name where the bits go.
 rule  pattern   = ".pat" name ~"=" data...
-rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
-read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
-read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
+read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 rule  bsource   = name~"E" pos neg { vol=v! }
 rule  bsource   = name~"G" pos neg { cur=i! }
 rule  vcvs      = name~"E" pos neg cpos cneg gain
@@ -461,7 +461,7 @@ params inductor
   same dtemp ic m>0 nt r scale tc1 tc2
 end
 params isource
-  same m>0 r td
+  same m>0 td
 end
 params diode
   same area dtemp ic l lm lp m>0 mult off perim pj w wm wp

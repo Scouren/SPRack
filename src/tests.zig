@@ -6459,20 +6459,32 @@ test "z2: a choice with blanks around its operators is read after an equals sign
     try has(try tr(a, "ngspice", "xyce", "t\n.param x = 2 * 3 y = 4\n.end\n", &r2), ".param x={2 * 3} y=4\n");
 }
 
-test "z2: a PWL's repeat has no place on an LTspice source: a loss, not a line LTspice refuses" {
+test "z2: a PWL's repeat into LTspice: from the first point REPEAT FOREVER, from another a loss (#73)" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var r1: ir.Report = .init(a);
-    const out = try tr(a, "ngspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1 2m 0) r=0\nI1 0 b pwl(0 0 1m 1m 2m 0) td=1m m=2\nR1 a 0 1k\nR2 b 0 1k\n.tran 10u 5m\n.end\n", &r1);
-    try has(out, "V1 a 0 pwl(0 0 1m 1 2m 0)\nI1 0 b pwl(0 0 1m 1m 2m 0)\n");
-    try reported(&r1, .@"error", "vsource: 'r=0' has no spelling in ltspice, whose vsource takes no such instance parameter");
+    const out = try tr(a, "ngspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1 2m 0) r=0\nI1 0 b pwl(0 0 1m 1m 2m 0) r=1m td=1m m=2\nR1 a 0 1k\nR2 b 0 1k\n.tran 10u 5m\n.end\n", &r1);
+    try has(out, "V1 a 0 pwl repeat forever (0 0 1m 1 2m 0) endrepeat\nI1 0 b pwl(0 0 1m 1m 2m 0)\n");
+    try reported(&r1, .@"error", "isource.repeat = 1m has no spelling in ltspice: LTspice repeats a PWL from its first point only");
     try reported(&r1, .@"error", "isource: 'td=1m' has no spelling in ltspice, whose isource takes no such instance parameter");
     try testing.expectEqual(3, r1.countCode(.loss));
-    // What LTspice's own sources take stays.
+    // And back: REPEAT FOREVER is SPICE's r=0.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ngspice", "t\nV1 a 0 PWL REPEAT FOREVER (0 0 1m 1 2m 0) ENDREPEAT\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r3), "V1 a 0 pwl(0 0 1m 1 2m 0) r=0\n");
+    // What LTspice's own sources take stays, and is a loss elsewhere.
+    const lt = "t\nV1 a 0 pwl(0 0 1m 1) Rser=1 Cpar=1p\nI1 0 b 1m load\nR1 a 0 1k\nR2 b 0 1k\n.tran 10u 5m\n.end\n";
     var r2: ir.Report = .init(a);
-    try has(try tr(a, "ltspice", "ltspice", "t\nV1 a 0 pwl(0 0 1m 1) Rser=1 Cpar=1p\nR1 a 0 1k\n.tran 10u 5m\n.end\n", &r2), "V1 a 0 pwl(0 0 1m 1) rser=1 cpar=1p\n");
+    try has(try tr(a, "ltspice", "ltspice", lt, &r2), "V1 a 0 pwl(0 0 1m 1) rser=1 cpar=1p\nI1 0 b dc 1m load\n");
     try testing.expectEqual(0, r2.items.items.len);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ngspice", lt, &r4), "V1 a 0 pwl(0 0 1m 1)\nI1 0 b dc 1m\n");
+    try reported(&r4, .@"error", "vsource.rser = 1 has no spelling in ngspice");
+    try reported(&r4, .@"error", "isource.load = yes has no spelling in ngspice");
+    // LTspice's r= on a current source is no repeat: never written as ngspice's r=.
+    var r5: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ngspice", "t\nI1 0 b 1m r=1k\nR2 b 0 1k\n.op\n.end\n", &r5), "I1 0 b dc 1m\n");
+    try reported(&r5, .@"error", "isource: 'r=1k' has no spelling in ngspice");
 }
 
 test "z2: the cycles of an LTspice sine have a slot, and are a loss where a sine has none" {

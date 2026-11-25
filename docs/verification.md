@@ -2310,9 +2310,18 @@ that ngspice, Xyce and HSPICE put after them, and it has no `td=`. The
 grammar passed both on with the source's other parameters: a voltage source
 that LTspice refuses, and a current source that loads and does not repeat.
 It now has a `params` table for each source (`rser cpar`, and `load`), so
-an `r=`, a `td=` or an `m=` crossing in is a `loss` error and is not
-written. The grammar does not write `REPEAT FOREVER`: the repeat time is
-not a slot, and only `r=0` (from the first point) has that form.
+a `td=` or an `m=` crossing in is a `loss` error and is not written.
+
+The repeat is a slot of its own (`repeat`, #73): SPICE's `r=` in ngspice,
+Xyce and HSPICE, and in LTspice `PWL REPEAT FOREVER (...) ENDREPEAT`,
+which is `r=0`, the repeat from the first point (the third row above). A
+repeat from a later point has no LTspice form and is a loss that says so.
+LTspice's `Rser=`, `Cpar=` and a current source's `load` are slots too, so
+into another dialect they are a loss rather than parameters copied as
+written; and LTspice's `r=` on a current source, which is no repeat there,
+is not written as ngspice's or Xyce's `r=` (both read that as one): it is
+a loss. Not run: whether LTspice loads `REPEAT FOREVER` written in lower
+case, as SPRack writes it (LTspice reads keywords in any case elsewhere).
 
 ### 8.10 A choice with blanks around its operators
 

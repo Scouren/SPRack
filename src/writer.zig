@@ -558,7 +558,10 @@ const Emit = struct {
                     try e.tok(n.text);
                     return true;
                 }
-                if (v != .atom or !std.mem.eql(u8, v.atom, n.atom)) {
+                // On a value slot (`repeat:"endrepeat"=0`) the literal stands
+                // for a number, and a number equal to it is written so.
+                const num_ok = v == .num and if (lexer.parseNumber(e.arena, &e.g.lex, n.atom)) |want| want.toFloat() == v.num.toFloat() else false;
+                if (!num_ok and (v != .atom or !std.mem.eql(u8, v.atom, n.atom))) {
                     if (v == .atom) e.why = try e.arena.print("{s} = {s}", .{ e.slot(n.slot).name, v.atom });
                     return false;
                 }

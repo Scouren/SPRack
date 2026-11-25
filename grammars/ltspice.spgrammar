@@ -80,17 +80,17 @@ rule  capacitor = name~"C" pos neg c {...params}
 rule  inductor  = name~"L" pos neg l {...params}
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
-define wave = ( wave:"pulse" ~"(" val0 val1 delay?0 rise [fall [width [period [count]]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
+define wave = ( wave:"pulse" ~"(" val0 val1 delay?0 rise [fall [width [period [count]]]] ~")" | wave:"sine"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase [count]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" "repeat" "forever" "(" pwl+ ~")" repeat:"endrepeat"=0 | wave:"pwl" "repeat" "forever" ~"(" pwl+ ~")" repeat:"endrepeat"=0 | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
 # A DC value next to a waveform is the value of the operating point; the
 # transient starts from the waveform. A pulse of fewer than four values is
 # refused, and a sine without a frequency is a constant, so both are required.
 # A sine's seventh value is a number of cycles, counted from the delay; after
 # them the source stays where the last cycle ended. 0 or none: no end. A
 # pulse's eighth is its number of pulses, as in ngspice.
-rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
-rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {rser=rser cpar=cpar ...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {rser=rser cpar=cpar ...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ load:"load"=yes ] {...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ load:"load"=yes ] {...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 read  bsource   = name~"E" pos neg { value=v! }
 read  bsource   = name~"G" pos neg { value=i! }
@@ -142,15 +142,18 @@ caveat print style : LTspice reads the line and prints nothing; every node is in
 unique analysis dc ac tran noise tf beside op : LTspice refuses a deck with more than one analysis ("More than one analysis specified."), unless there are two and one is .op, which it then does not run on its own
 
 # What a source takes besides its values. A PWL is repeated by words of its
-# own (PWL REPEAT FOREVER (...) ENDREPEAT), which this grammar does not write:
-# `r=` is refused on a voltage source and is a load resistance on a current
-# source, which then does not repeat, and `td=` is refused on both.
+# own (PWL REPEAT FOREVER (...) ENDREPEAT), the repeat from the first point
+# (SPICE `r=0`); one from a later point has no form. `r=` is refused on a
+# voltage source and is a load resistance on a current source, which then
+# does not repeat, and `td=` is refused on both (docs/verification.md 8.9).
 params vsource
   same rser cpar
 end
 params isource
   same load
 end
+no vsource repeat : LTspice repeats a PWL from its first point only (PWL REPEAT FOREVER); a repeat from a later point has no form
+no isource repeat : LTspice repeats a PWL from its first point only (PWL REPEAT FOREVER); a repeat from a later point has no form
 
 implied noise ref = 0
 implied tf ref = 0

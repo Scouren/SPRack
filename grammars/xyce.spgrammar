@@ -82,12 +82,12 @@ rule  mutual    = name~"K" l1 l2 k
 # Xyce requires FREQ in SIN(); ngspice defaults it to 1/tstop, which a source
 # line cannot say here, so a SIN without it is not written.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl freq [delay [damp [sphase]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" )
-rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
-read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {...params}
-rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {...params}
-read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {...params}
-read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {...params}
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 rule  bsource   = name~"E" pos neg { value=v! }
 rule  bsource   = name~"G" pos neg { value=i! }
@@ -430,7 +430,7 @@ params inductor
   same dtemp ic m>0 tc1 tc2 temp
 end
 params isource
-  same r td
+  same td
 end
 params diode
   same area dtemp ic m mult off perim pj temp

@@ -109,18 +109,18 @@ rule  inductor  = name~"L" pos neg master [l] {...params}
 rule  mutual    = name~"K" l1 l2 k
 # The waveform of a V or I source; vsource and isource share these slots.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
-rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
-read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
 # `dc` with no value before a waveform: ngspice 45 runs it (gf180mcu's test decks).
-read  vsource   = name~"V" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {...params}
-read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
+read  vsource   = name~"V" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
 # b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
-read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
-rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
-read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
-read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {...params}
-read  isource   = name~"I" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {...params}
-read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {...params}
+read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 rule  bsource   = name~"B" pos neg { v=v i=i ...params }
 # The HSPICE and PSpice spellings of a behavioural source, which ngspice also reads.
 rule  bsource   = name~"E" pos neg { vol=v! }
@@ -419,7 +419,7 @@ params inductor
   same dtemp ic m nt scale tc1 tc2 temp
 end
 params isource
-  same m r td
+  same m td
 end
 params diode
   same area dtemp ic l lm lp m off perim pj temp w wm wp

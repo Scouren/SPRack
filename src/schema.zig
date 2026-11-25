@@ -194,7 +194,13 @@ const source_spec = "name pos:node neg:node dc:value acmag:value acphase:value w
     "count:value wargs:value* bits:atom* mphase:value pacmag:value fundname:atom params:params " ++
     // A balanced (mixed-mode) RF port: pos and neg are its two legs and
     // `portref` the reference they are measured against (HSPICE `P1 a b 0`).
-    "portref:node";
+    "portref:node " ++
+    // A PWL's repeat: the time it starts again from (SPICE `r=`); LTspice
+    // has only the repeat from the first point (`REPEAT FOREVER`).
+    "repeat:value " ++
+    // LTspice: a voltage source's series resistance and parallel
+    // capacitance, and a current source that is a load (`load`).
+    "rser:value cpar:value load:atom";
 
 const sweep_spec = "sweep:atom points:value fstart:value fstop:value";
 
@@ -413,7 +419,7 @@ const defs = [_]Def{
 };
 
 pub const kind_count = defs.len;
-pub const max_slots = 40;
+pub const max_slots = 48;
 
 pub const table: [kind_count]KindInfo = blk: {
     @setEvalBranchQuota(100_000);
