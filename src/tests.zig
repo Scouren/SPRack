@@ -2036,8 +2036,9 @@ fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    var buf: [400]u8 = undefined;
-    const n = smith.slice(&buf);
+    // Up to 64 KiB, so repetition and nesting are reachable (issue 64).
+    const buf = try a.alloc(u8, 64 << 10);
+    const n = smith.slice(buf);
     for (dialects) |from| {
         var report: ir.Report = .init(a);
         const nl = try readAs(a, from, buf[0..n], &report);
@@ -2061,11 +2062,113 @@ test "fuzz: any bytes in, no crash" {
     try testing.fuzz({}, fuzzOne, .{ .corpus = &.{ core_ngspice, core_spectre, core_vacask, "\x00+\\\n+ ( = = )\n{'\"[", ".ic v(a)=1 v(\n.print tran v(a,b) i(\n.func f(x,\n.options a b=\n" } });
 }
 
+/// Any bytes as the JSON form: read, then written in every dialect.
+fn fuzzJson(_: void, smith: *std.testing.Smith) anyerror!void {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const buf = try a.alloc(u8, 64 << 10);
+    const n = smith.slice(buf);
+    var report: ir.Report = .init(a);
+    const nl = (try sprack.json.parseDocument(a, buf[0..n], &report)) orelse return;
+    for (dialects) |to| _ = try writeAs(a, to, &nl, &report);
+}
+
+test "fuzz: any bytes as JSON, no crash" {
+    try testing.fuzz({}, fuzzJson, .{ .corpus = &.{
+        "{\"title\":\"t\",\"dialect\":\"ngspice\",\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1e3\"},{\"kind\":\"tran\",\"step\":\"1e-9\",\"stop\":\"1e-6\"}]}",
+        "{\"title\":\"t\",\"stmts\":[{\"kind\":\"subckt\",\"name\":\"s\",\"ports\":[\"a\"],\"body\":[{\"kind\":\"subckt\",\"name\":\"t\",\"body\":[]}]}]}",
+        "{\"stmts\":[{\"kind\":\"param\",\"params\":{\"a\":\"1+\",\"b\":{\"str\":\"x\"}}}]}",
+        "[]",
+        "{\"stmts\":",
+    } });
+}
+
+/// Any bytes as a grammar file: compiled, and where it compiles, a sample
+/// read and written with it.
+fn fuzzGrammar(_: void, smith: *std.testing.Smith) anyerror!void {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const buf = try a.alloc(u8, 16 << 10);
+    const n = smith.slice(buf);
+    var diag: sprack.grammar.Diag = .{};
+    const g = sprack.grammar.compile(a, buf[0..n], "fuzz.spgrammar", &diag) catch return;
+    var report: ir.Report = .init(a);
+    const nl = try sprack.read(a, &g, core_ngspice, &report);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &g, &aw.writer, &nl, &report);
+    const back = try readAs(a, "ngspice", core_ngspice, &report);
+    var aw2: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &g, &aw2.writer, &back, &report);
+}
+
+test "fuzz: any bytes as a grammar, no crash" {
+    try testing.fuzz({}, fuzzGrammar, .{ .corpus = &.{
+        "dialect f\nlexer\n  case insensitive\n  title yes\n  comment line \"*\"\nend\nrule resistor = name~\"R\" pos neg r\nrule op = \".op\"\n",
+        "dialect f\nlexer\nend\nblock subckt\n  open \".subckt\" name ports*\n  close \".ends\"\nend\ndefine x = ( a | b )\n",
+        "dialect f\nlexer\nend\nmodels\n  mos1 n = nmos level=1 | nmos !level\nend\n",
+    } });
+}
+
+/// A small tree of files whose include lines the input chooses (cycles,
+/// a missing file, sections), run as a project with and without a target.
+fn fuzzProject(_: void, smith: *std.testing.Smith) anyerror!void {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var pick: [16]u8 = undefined;
+    const n = smith.slice(&pick);
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const names = [_][]const u8{ "top.sp", "a.sp", "sub/b.sp", "missing.sp", "lib.lib" };
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    for (names[0..3], 0..) |name, k| {
+        var text: std.ArrayList(u8) = .empty;
+        try text.appendSlice(a, if (k == 0) "top\n" else "* part\n");
+        var j: usize = k;
+        while (j < n) : (j += 3) {
+            const to = names[pick[j] % names.len];
+            if (pick[j] & 0x80 != 0) {
+                try text.print(a, ".lib \"{s}/{s}\" {s}\n", .{ base, to, if (pick[j] & 0x40 != 0) "tt" else "ff" });
+            } else try text.print(a, ".include \"{s}\"\n", .{to});
+        }
+        try text.print(a, "R{d} n{d} 0 1k\n", .{ k, k });
+        if (k == 0) try text.appendSlice(a, ".op\n.end\n");
+        try tmp.dir.createDirPath(testing.io, "sub");
+        try tmp.dir.writeFile(testing.io, .{ .sub_path = name, .data = text.items });
+    }
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "lib.lib", .data = ".lib tt\n.include \"a.sp\"\n.endl tt\n.lib ff\n.include \"lib.lib\"\n.endl ff\n" });
+    var log: std.Io.Writer.Allocating = .init(a);
+    const top = try std.fmt.allocPrint(a, "{s}/top.sp", .{base});
+    for ([_]?*const sprack.Grammar{ null, sprack.find("xyce").? }) |to| {
+        _ = try sprack.project.run(testing.io, testing.allocator, .{
+            .from = sprack.find("ngspice").?,
+            .to = to,
+            .tops = &.{top},
+            .out_dir = try std.fmt.allocPrint(a, "{s}/out", .{base}),
+            .log = &log.writer,
+            .catalog = if (to == null) &log.writer else null,
+        });
+    }
+}
+
+test "fuzz: any tree of includes, no crash" {
+    try testing.fuzz({}, fuzzProject, .{ .corpus = &.{ "", "\x00\x01\x02", "\x81\xc2\x83\x04\x05\x06", "\x01\x01\x01\x01\x01\x01" } });
+}
+
 test "20,000 randomly damaged netlists, no crash" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    var prng: std.Random.DefaultPrng = .init(0x5eed);
+    // A fixed seed in `zig build test`; the nightly job gives its own
+    // (SPRACK_FUZZ_SEED), printed when the test fails.
+    const seed: u64 = blk: {
+        const v = testing.environ.getAlloc(a, "SPRACK_FUZZ_SEED") catch break :blk 0x5eed;
+        break :blk std.fmt.parseInt(u64, v, 0) catch 0x5eed;
+    };
+    errdefer std.debug.print("20,000 damaged netlists: seed 0x{x}\n", .{seed});
+    var prng: std.Random.DefaultPrng = .init(seed);
     const rnd = prng.random();
     const junk = "\n\n+\\ ()=={}'\"[],.$;*/ \t0123456789eEkKmMuU_abcXVR^?:";
     const extra = "\n.options reltol=1e-3 method=gear klu\n.ic v(out)=1\n.save v(out) i(V1)\n.print tran v(in,out)\n.func f(x) {x*2}\nB1 out 0 V={f(v(in))^2}\n.meas tran m1 max v(out)\n";

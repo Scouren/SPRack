@@ -38,6 +38,22 @@ jobs:
         if: always()
         run: nix develop .#verify --command tools/vacask-loadcheck/check.sh
 
+      # Ten minutes of coverage-guided fuzzing over the four targets (netlist
+      # text, JSON, grammar files, include trees), and the 20,000 damaged
+      # netlists from this run's seed, printed when they fail (issue 64).
+      # Running out the time is a pass; a failure saves its input.
+      - name: Fuzz
+        if: always()
+        run: |
+          export SPRACK_FUZZ_SEED=$(od -An -N8 -tu8 /dev/urandom | tr -d ' ')
+          echo "seed $SPRACK_FUZZ_SEED"
+          nix develop .#ci --command sh -c '
+            zig build test || exit 1
+            start=$(date +%s)
+            timeout 600 zig build test --fuzz=100M; rc=$?
+            echo "fuzzed $(( $(date +%s) - start )) s, status $rc"
+            [ $rc -eq 0 ] || [ $rc -eq 124 ]'
+
       # Every catalogue device of sky130, IHP and GF180 in ngspice against its
       # Xyce and VACASK translation (issue 61); a changed verdict fails.
       - name: PDK devices
@@ -55,3 +71,4 @@ jobs:
           path: |
             out.tsv*
             pdk-devices.tsv
+            .zig-cache/f/crash

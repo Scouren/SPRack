@@ -137,5 +137,9 @@ tests, the Python tests with the real PDKs, `zig fmt --check build.zig
 src`, the three checkers of the pages' examples (`docs/check/`), the corpus
 audit against `tools/corpus-baseline.tsv`, and the wheels. `publish.yaml`'s
 test job runs the same before a release. The nightly workflow keeps the
-audit, the VACASK load check (which builds VACASK) and the PDK device
-comparison.
+audit, the VACASK load check (which builds VACASK), the PDK device
+comparison, and ten minutes of fuzzing: four targets in `src/tests.zig`
+(netlist text up to 64 KiB, the JSON form, grammar files, trees of
+includes) under `zig build test --fuzz`, and the 20,000 damaged netlists
+from a seed of the night's own, printed when they fail
+(`SPRACK_FUZZ_SEED`; `zig build test` keeps a fixed one).

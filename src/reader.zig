@@ -175,6 +175,8 @@ const Matcher = struct {
             var depth: usize = 1;
             var count: usize = 0;
             while (depth > 0) : (j += 1) {
+                // The window ends before the call closes: no signal.
+                if (j + 1 >= self.toks().len) return null;
                 const a = self.toks()[j];
                 if (tokens and a.tag == .rparen) {
                     try text.append(self.arena, ')');
