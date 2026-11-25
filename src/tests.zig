@@ -6991,3 +6991,23 @@ test "#53: a family a dialect has only as a module given to the translation" {
     try reported(&r2, .warning, "written for the module /m/bsimcmg.osdi given to the translation");
     try testing.expectEqual(0, r2.count(.@"error"));
 }
+
+test "#74: a requires line with an analysis list checks only those analyses" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = testing.io;
+    // The mini grammar of docs/src/adding-a-simulator.md, and one line.
+    const mini = try std.Io.Dir.cwd().readFileAlloc(io, "docs/src/examples/mini.spgrammar", a, .unlimited);
+    const src = try std.fmt.allocPrint(a, "{s}\nrequires dc-path error [op dc ac] : mini's operating point fails on a node with no DC path\n", .{mini});
+    var diag: sprack.grammar.Diag = .{};
+    const g = try sprack.grammar.compile(a, src, "mini.spgrammar", &diag);
+    const island = "t\nV1 a 0 dc 1\nC1 a b 1u\nC2 b 0 1u\n";
+    for ([_]struct { []const u8, bool }{ .{ ".tran 1n 1u\n", false }, .{ ".op\n", true } }) |case| {
+        var r: ir.Report = .init(a);
+        const nl = try sprack.read(a, sprack.find("ngspice").?, try std.fmt.allocPrint(a, "{s}{s}.end\n", .{ island, case[0] }), &r);
+        var w: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, &g, &w.writer, &nl, &r);
+        try testing.expectEqual(case[1], r.contains(.@"error", "mini's operating point fails on a node with no DC path"));
+    }
+}
