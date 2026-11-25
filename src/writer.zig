@@ -2569,8 +2569,24 @@ const Writer = struct {
             if (omittedLine(w.g, st, o.slot)) |t| {
                 if (std.mem.eql(u8, t.text, o.text) and t.given == o.given and (v == .none or t.zero)) continue;
             }
-            // Without the slot the formula holds for, the value plays no part.
-            if (o.given != grammar.no_slot and st.at(o.given) == .none) continue;
+            // Without the slot the formula holds for, the value plays no
+            // part (no fall within the run). A target that cannot leave it
+            // out (an `invalid` line) is given its own step, which changes
+            // nothing before the stop (#75).
+            if (o.given != grammar.no_slot and st.at(o.given) == .none) {
+                if (!w.g.checksSlot(st.kind, o.slot)) continue;
+                // A run with no step (Spectre's `tran stop=`): a hundredth of it.
+                const step = firstValue(all, .tran, schema.slotIndex(.tran, "step").?) orelse
+                    try expr.arith(w.arena, .div, firstValue(all, .tran, schema.slotIndex(.tran, "stop").?) orelse continue, .{ .num = .init("100", 0) });
+                try cur.own(w.arena);
+                try cur.set(w.arena, o.slot, step);
+                changed = true;
+                var em = w.emitter(w.arena, st);
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is not given: without {s}.{s} {s} means it plays no part within the run, and {s} needs it said; wrote {s}, which changes nothing before the stop", .{
+                    @tagName(st.kind), sl[o.slot].name, @tagName(st.kind), sl[o.given].name, s.name, w.g.name, try em.describe(step),
+                });
+                continue;
+            }
             const what = try omittedPhrase(w.arena, o);
             var missing: ?Kind = null;
             const val = (try w.omittedValue(s, st, o, all, &missing, 0)) orelse {

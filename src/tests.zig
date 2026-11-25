@@ -6078,10 +6078,22 @@ test "y1: an EXP source crossing into or out of HSPICE and Spectre says what was
     try has(sh, "V1 a 0 exp(0 1 0 500p)\n");
     try has(sh, "I1 0 a exp(0 1 3n 0.3n 6n 500p)\n");
     try testing.expectEqual(0, r7.count(.@"error"));
-    // An instant fall is still what LTspice means by no TAU2.
+    // LTspice and VACASK cannot leave TAU2 out: where it plays no part (no
+    // TD2, so no fall within the run) it is written as the step (#75).
     var r8: ir.Report = .init(a);
-    try has(try tr(a, "hspice", "ltspice", hsrc, &r8), "V2 b 0 exp(0 1 3n 23500p 50n)\n");
-    try reported(&r8, .@"error", "vsource.tau2 is not given: LTspice's default fall time constant is 0, an instant fall");
+    try has(try tr(a, "hspice", "ltspice", hsrc, &r8), "V2 b 0 exp(0 1 3n 23500p 50n 2n)\n");
+    try reported(&r8, .warning, "vsource.tau2 is not given: without vsource.td2 hspice means it plays no part within the run, and ltspice needs it said; wrote 2n");
+    try testing.expectEqual(0, r8.count(.@"error"));
+    const one = "t\nV1 a 0 EXP(0 1 3n 0.5n)\n" ++ tran;
+    for ([_][]const u8{ "ltspice", "vacask" }) |to| {
+        var rt: ir.Report = .init(a);
+        _ = try tr(a, "hspice", to, one, &rt);
+        try testing.expectEqual(0, rt.count(.@"error"));
+    }
+    // A Spectre run with no step: a hundredth of the stop.
+    var r11: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ltspice", "// t\nsimulator lang=spectre\nV1 (a 0) vsource type=exp val0=0 val1=1 td1=3n tau1=0.5n\nR1 (a 0) resistor r=1k\ntran1 tran stop=50n\n", &r11), "V1 a 0 exp(0 1 3n 0.5n 50n 500p)\n");
+    try testing.expectEqual(0, r11.count(.@"error"));
 
     // No .tran to take the stop from.
     var r9: ir.Report = .init(a);

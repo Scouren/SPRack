@@ -1275,8 +1275,15 @@ dialect's value wherever the target's line differs or is missing (ngspice
 `EXP(0 1 3n)` with a stop of 50 ns is `exp(0 1 3n 23500p 50n)` in Xyce); a
 TD2 neither HSPICE nor Spectre has is written as the stop, a time at which
 nothing falls within the run, and its TAU2 is left to the target, where it
-plays no part (LTspice and VACASK, which cannot leave it out, keep their
-`invalid` error). With no `.tran` in the netlist the crossing is an error.
+plays no part. LTspice and VACASK cannot leave it out (each has an
+`invalid` line for it), so there it is written as the run's step, or a
+hundredth of the stop where the `.tran` has no step (Spectre's `tran
+stop=`), with a `synthesized` warning (#75): HSPICE `EXP(0 1 3n 0.5n)` at
+`.tran 2n 50n` is `exp(0 1 3n 0.5n 50n 2n)` in LTspice and `delay=3n td2=47n
+tau1=0.5n tau2=2n` in VACASK, with no error. The fall starts at the stop,
+so before it the source is the rise alone: ngspice 42, run here on the
+LTspice line, gives 0.6316819 at 3.5n and 1.000000 at 49n, HSPICE's 1.0 at
+49n above. Not run in LTspice or VACASK (neither is in this environment). With no `.tran` in the netlist the crossing is an error.
 A TD1 of 0 crossing into ngspice (Xyce's, LTspice's, VACASK's, HSPICE's and
 Spectre's) is written as 1e-18 with a `synthesized` warning (`omitted
 vsource td1=0 wave=exp : tran.step zero 1e-18`; `exp(0 1 1a)`); a TAU1, TD2
