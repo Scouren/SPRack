@@ -918,6 +918,10 @@ pub fn signalCanon(arena: Allocator, g: *const Grammar, text: []const u8) Alloca
         if (std.mem.eql(u8, sf.form, "expr")) continue;
         const n = matchTemplate(sf.template, folded, text, &args) orelse continue;
         if (std.mem.eql(u8, sf.form, "all")) return "all";
+        // A terminal (`ID(M1)`'s D) is no name: one spelling, the folded one.
+        if (!g.lex.case_sensitive) for (args[0..n], 0..) |*a, k| {
+            if (signalSpace(sf.form, k) == null) a.* = try std.ascii.allocLowerString(arena, a.*);
+        };
         const name = if (std.mem.eql(u8, sf.form, "vdiff")) "v" else sf.form;
         var out: std.ArrayList(u8) = .empty;
         try out.print(arena, "{s}(", .{name});
@@ -1149,7 +1153,7 @@ const Spelling = struct {
                 // A number (`1.5k`, `2e-3`) starts with a digit or a point.
                 if (call) {
                     space = expr.argSpace(text[i..j]);
-                } else if (std.ascii.isAlphabetic(c) or c == '_') try sp.learn(space, text[i..j]);
+                } else if (std.ascii.isAlphabetic(c) or c == '_') try sp.learn(if (i > 0 and text[i - 1] == '@') .instance else space, text[i..j]);
                 i = j;
             }
         }
@@ -1285,6 +1289,25 @@ const Spelling = struct {
         return out.items;
     }
 };
+
+/// A function's arguments and their uses in its body share one spelling,
+/// the argument's (#72): `.func f(X) {X*2}` folded is `f(x) {x*2}`.
+fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void {
+    const ai = schema.slotIndex(.func, "args").?;
+    const ei = schema.slotIndex(.func, "expr").?;
+    if (vals[ei] != .expr) return;
+    const Args = struct {
+        args: []const Value,
+        pub fn get(a: @This(), word: []const u8) ?[]const u8 {
+            const list: []const Value = if (a.args.len == 1 and a.args[0] == .list) a.args[0].list else a.args;
+            for (list) |v| if (v == .atom and std.ascii.eqlIgnoreCase(v.atom, word) and !std.mem.eql(u8, v.atom, word)) return v.atom;
+            return null;
+        }
+    };
+    var hit: std.ArrayList([]const u8) = .empty;
+    const body = try expr.rename(arena, vals[ei].expr, Args{ .args = (&vals[ai])[0..1] }, &hit);
+    vals[ei] = .{ .expr = body };
+}
 
 fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8, space: ?Space) Allocator.Error![]const u8 {
     const sp: *const Spelling = @ptrCast(@alignCast(ctx.?));
@@ -1746,6 +1769,7 @@ const Reader = struct {
                     }
                 } else vals[i] = try self.finishValue(vals[i], st.line);
             }
+            if (st.kind == .func and fold_case) try funcArgs(self.arena, vals);
             try st.store(self.arena, vals);
             try self.finish(st.body);
         }

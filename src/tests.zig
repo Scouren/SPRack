@@ -6826,6 +6826,32 @@ test "#70: a Monte Carlo run into Spectre varies the mismatch block too" {
     try reported(&r3, .@"error", "montecarlo.variations = process has no spelling in hspice");
 }
 
+test "#72: names in probes and function arguments keep their own spellings" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 OUT 0 1\nM1 OUT OUT 0 0 nch w=1u l=1u\n.model nch nmos level=1\n.func f(X) {X*2}\n" ++
+        "B1 a 0 v={f(1)*id(m1)*vdb(out)*@m1[gm]}\nR1 a 0 1k\n.dc V1 0 1 0.1\n.end\n";
+    var r: ir.Report = .init(a);
+    var nl = try sprack.read(a, sprack.find("ngspice").?, src, &r);
+    // Spectre told the names are as written: no insensitive=yes, so each
+    // name must be the one its device or node is written with.
+    nl.folds_case = false;
+    nl.dialect = "sprack";
+    var w: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, sprack.find("spectre").?, &w.writer, &nl, &r);
+    const out = w.written();
+    try testing.expect(std.mem.indexOf(u8, out, "insensitive") == null);
+    try has(out, "id(M1)*vdb(OUT)");
+    try has(out, "real f(real x) {\nreturn (x*2)\n}\n");
+    // ngspice's own device-quantity form names the device as written.
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ngspice", src, &r1), "@M1[gm]");
+    // A terminal current read from a print list: one spelling of its letter.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "xyce", "xyce", "t\nV1 OUT 0 1\nM1 OUT OUT 0 0 nch w=1u l=1u\n.model nch nmos level=1\n.print dc ID(M1) vdb(out)\n.dc V1 0 1 0.1\n.end\n", &r2), ".print dc id(M1) vdb(OUT)\n");
+}
+
 test "#50: an ngspice .control block is a script of statements" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

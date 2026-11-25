@@ -40,14 +40,26 @@ pub const Resolver = struct {
 };
 
 /// What the names in the parentheses of a call to `word` are: the nodes of
-/// `v(a,b)`, the device of `i(v1)`, parameters in any other.
+/// a voltage probe (`v(a,b)`, `vdb(out)`, the forms a `signals` section
+/// spells), the device of a current probe (`i(v1)`, `idb(v1)`) or of a
+/// terminal current (`id(m1)`, `ig(m1)`), parameters in any other (#72).
 pub fn argSpace(word: []const u8) schema.Space {
-    if (word.len != 1) return .param;
-    return switch (word[0]) {
-        'v', 'V' => .node,
-        'i', 'I' => .instance,
-        else => .param,
-    };
+    var buf: [3]u8 = undefined;
+    if (word.len == 0 or word.len > buf.len) return .param;
+    const w = std.ascii.lowerString(&buf, word);
+    for ([_][]const u8{ "v", "vdb", "vm", "vp", "vr", "vi" }) |f| if (std.mem.eql(u8, w, f)) return .node;
+    for ([_][]const u8{ "i", "idb", "im", "ip", "ir", "ii" }) |f| if (std.mem.eql(u8, w, f)) return .instance;
+    // A terminal current: `i` and the terminal's letter or number.
+    if (w.len == 2 and w[0] == 'i' and std.mem.indexOfScalar(u8, "dgsbec1234", w[1]) != null) return .instance;
+    return .param;
+}
+
+test "argSpace: probes name nodes and devices, other calls parameters" {
+    try std.testing.expectEqual(.node, argSpace("VDB"));
+    try std.testing.expectEqual(.instance, argSpace("id"));
+    try std.testing.expectEqual(.instance, argSpace("I"));
+    try std.testing.expectEqual(.param, argSpace("max"));
+    try std.testing.expectEqual(.param, argSpace("vt"));
 }
 
 pub const canon_pow = "**";
@@ -162,7 +174,9 @@ pub fn read(
             const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
             const is_call = nextIsCall(src, j);
             const known = if (is_call) canonOf(g.functions, folded) else canonOf(g.variables, folded);
-            const name = known orelse try names.resolve(arena, word, if (is_call) null else space);
+            // `@m1[gm]`: the device whose quantity is read.
+            const at_device = i > 0 and src[i - 1] == '@';
+            const name = known orelse try names.resolve(arena, word, if (is_call) null else if (at_device) .instance else space);
             // A parameter that a variable's canonical name would take for the variable.
             if (known == null and !is_call and space == .param and schema.isVariable(name)) try out.append(arena, param_mark);
             try out.appendSlice(arena, name);
@@ -688,7 +702,7 @@ pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u
 
 /// `text` with each word `renames` names written as its new name, where the
 /// word is a parameter: not the name of a call, and not a node or a branch
-/// inside `v()` or `i()`. `hit` gets each word renamed. The same slice when
+/// inside a probe (`v()`, `i()`, `vdb()`, `id()`: `argSpace`). `hit` gets each word renamed. The same slice when
 /// there is none.
 pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.ArrayList([]const u8)) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -725,7 +739,7 @@ pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.Ar
         // A variable's own word is the variable, never a parameter.
         if (schema.isVariable(word)) continue;
         if (nextIsCall(text, j)) {
-            if (std.ascii.eqlIgnoreCase(word, "v") or std.ascii.eqlIgnoreCase(word, "i")) {
+            if (argSpace(word) != .param) {
                 const open = std.mem.indexOfScalarPos(u8, text, j, '(').?;
                 i = (matching(text, open) orelse text.len - 1) + 1;
             }
