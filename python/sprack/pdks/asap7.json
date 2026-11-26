@@ -15,5 +15,6 @@
     "ss": [["{m}/7nm_SS.pm", null]]
   },
   "default_corner": "tt",
-  "prefix": ""
+  "prefix": "",
+  "provide": {"ngspice": {"bsimcmg": "$BSIMCMG_OSDI"}, "vacask": {"bsimcmg": "$BSIMCMG_OSDI"}}
 }

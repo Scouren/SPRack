@@ -88,6 +88,14 @@
               done
             '';
 
+        # BSIM-CMG 107.0.0, the version ASAP7's cards state, compiled from
+        # the Xyce source nixpkgs builds Xyce from: the module a translation
+        # to ngspice or VACASK is given (issue 53). openvaf-r: x86_64-linux.
+        bsimcmgOsdi = pkgs.runCommandCC "bsimcmg-osdi" { nativeBuildInputs = [ refPkgs.openvaf-r pkgs.python3 ]; } ''
+          mkdir $out
+          sh ${./tools/bsimcmg-osdi.sh} ${builtins.head pkgs.xyce.srcs} $out/bsimcmg.osdi
+        '';
+
         # The Python package to ship (zig build bundle): $out/python/sprack/
         # with __init__.py, pdks/*.json and the extension, for one Zig target.
         # Any system builds any target: Zig cross-compiles, and the Windows
@@ -200,6 +208,7 @@
         }
         // nixpkgs.lib.optionalAttrs (refPkgs ? openvaf-r) {
           test-pdks-installed = testPdksInstalled;
+          bsimcmg-osdi = bsimcmgOsdi;
         }
         // {
           # This system's own bundle.
@@ -228,6 +237,7 @@
             ];
             SPRACK_TEST_PDKS = testPdks;
             SPRACK_TEST_PDKS_INSTALLED = testPdksInstalled;
+            SPRACK_BSIMCMG_OSDI = "${bsimcmgOsdi}/bsimcmg.osdi";
             SPRACK_SUITE = conformance;
             inherit (ci) shellHook;
           };

@@ -120,6 +120,10 @@ end
 needs psp103
   load "psp103v4.osdi"
 end
+# VACASK ships no BSIM-CMG: the module given with --provide (4.43).
+needs bsimcmg
+  load "{file}"
+end
 
 wrap "control" "endc" : options save op dc ac tran noise tf sp stb pss hb pac pnoise xf simctl alter
 
@@ -419,6 +423,11 @@ noparam jfet level error : sp_jfet1 is the level 1 JFET and has no level paramet
 # devices/spice/bjt.va has no level either: VACASK b2c1551 refuses
 # `model q sp_bjt (type=1 level=1)` with "Parameter 'level' not found".
 noparam bjt level=1 warning : sp_bjt is the level 1 (Gummel-Poon) BJT and has no level parameter; the card is simulated as written
+# BSIM-CMG modules declare no version (107.0.0, 108.0.0 and 112.1.0
+# sources); a version 107 card on the 107.0.0 module gives Xyce's level 107
+# to 9 digits, another version was not measured (docs/verification.md 4.43).
+noparam bsimcmg version=107 warning : the module given has no version parameter; BSIM-CMG 107.0.0 compiled with openvaf-r (tools/bsimcmg-osdi.sh) runs version 107 cards as Xyce's level 107 does (docs/verification.md 4.43), which module was given is not checked
+noparam bsimcmg version error : the module given has no version parameter, and only version 107 cards were measured against a built-in BSIM-CMG (docs/verification.md 4.43)
 # docs/cmd-options-op.md "Nodesets": op_nsiter=1, nr_nsforce=10.
 caveat op     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
 caveat dc     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
@@ -510,6 +519,9 @@ models
   vdmos      = sp_vdmos
   psp103 n   = psp103va type=1
   psp103 p   = psp103va type=-1
+  # The module given with --provide (4.43); polarity is DEVTYPE, as ngspice's.
+  bsimcmg n  = bsimcmg devtype=1 provided
+  bsimcmg p  = bsimcmg devtype=0 provided
 end
 
 # sweeps

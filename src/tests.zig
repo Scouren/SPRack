@@ -1176,7 +1176,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     _ = try tr(a, "ngspice", "vacask", "t\n.model nh nmos level=68\n.end\n", &r4);
     try reported(&r4, .@"error", "vacask.spgrammar has no spelling for model family 'hisim2 n'. Defined by: hspice, ngspice, spectre");
 
-    // FinFET models: HSPICE level 72 is the Xyce level of its version, and ngspice has neither.
+    // FinFET models: HSPICE level 72 is the Xyce level of its version; ngspice has it only as a module given.
     var r5: ir.Report = .init(a);
     const fin = "t\n.model nfet nmos level=72 version=107\nM1 d g 0 0 nfet nfin=2\n.end\n";
     try has(try tr(a, "hspice", "xyce", fin, &r5), ".model nfet nmos level=107\n");
@@ -1184,7 +1184,7 @@ test "model cards: level numbers and master names are mapped, with a warning" {
     try has(try tr(a, "hspice", "spectre", fin, &r5), "model nfet bsimcmg type=n version=107\n");
     try clean(&r5);
     _ = try tr(a, "hspice", "ngspice", fin, &r5);
-    try reported(&r5, .@"error", "no spelling for model family 'bsimcmg n'. Defined by: hspice, spectre, xyce");
+    try reported(&r5, .@"error", "ngspice has no built-in bsimcmg; it runs one as a compiled module given to the translation: --provide bsimcmg=FILE");
 }
 
 test "a model card's level by its version or by its instances' terminals (when)" {
@@ -7083,20 +7083,8 @@ test "#53: a family a dialect has only as a module given to the translation" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    // A grammar that has BSIM-CMG as a provided module (no built-in line
-    // is added to ngspice's own until the module is measured).
-    const base = try std.Io.Dir.cwd().readFileAlloc(testing.io, "grammars/ngspice.spgrammar", a, .limited(1 << 20));
-    var text = try std.mem.replaceOwned(u8, a, base, "  vdmos      = vdmos\n", "  vdmos      = vdmos\n  bsimcmg n  = bsimcmg type=1 provided\n");
-    text = try std.fmt.allocPrint(a, "{s}\nneeds bsimcmg\n  .control\n  pre_osdi {{file}}\n  .endc\nend\n", .{text});
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.writeFile(testing.io, .{ .sub_path = "cmg.spgrammar", .data = text });
-    const path = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/cmg.spgrammar", .{tmp.sub_path});
-    var diag: sprack.grammar.Diag = .{};
-    const g = sprack.resolve(a, testing.io, path, &diag) catch |e| {
-        std.debug.print("{s}\n", .{diag.msg});
-        return e;
-    };
+    // ngspice's own `bsimcmg n = bsimcmg devtype=1 provided` line (4.43).
+    const g = sprack.find("ngspice").?;
     const src = "t\n.model nmos_lvt nmos level=72 version=107\nm1 d g 0 0 nmos_lvt l=20n nfin=3\n.op\n.end\n";
     var r: ir.Report = .init(a);
     const nl = try readAs(a, "hspice", src, &r);
@@ -7111,9 +7099,118 @@ test "#53: a family a dialect has only as a module given to the translation" {
     var w2: std.Io.Writer.Allocating = .init(a);
     try sprack.writeIn(a, g, &w2.writer, &nl, &r2, &env);
     try has(w2.written(), ".control\npre_osdi /m/bsimcmg.osdi\n.endc\n");
-    try has(w2.written(), ".model nmos_lvt bsimcmg type=1");
+    try has(w2.written(), ".model nmos_lvt bsimcmg devtype=1");
     try reported(&r2, .warning, "written for the module /m/bsimcmg.osdi given to the translation");
     try testing.expectEqual(0, r2.count(.@"error"));
+}
+
+test "#27: a BSIM-CMG card into ngspice is an N device of the module given" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.model pmos_rvt pmos level=72 version=107\nm1 d g 0 0 pmos_rvt l=20n nfin=3\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    const env: ir.Env = .{ .provided = &.{.{ "bsimcmg", "/m/bsimcmg.osdi" }} };
+    var r1: ir.Report = .init(a);
+    var w1: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, sprack.find("ngspice").?, &w1.writer, &nl, &r1, &env);
+    // ngspice 45 ran this as `nm1` on BSIM-CMG 107.0.0: 98.6313428 uA (4.43).
+    try has(w1.written(), ".model pmos_rvt bsimcmg devtype=0\n");
+    try has(w1.written(), "nm1 d g 0 0 pmos_rvt l=20n nfin=3\n");
+    try testing.expectEqual(0, r1.count(.@"error"));
+}
+
+test "#27: a BSIM-CMG card into VACASK loads the module given" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\n.model nmos_rvt nmos level=72 version=107\nVd d 0 0.7\nVg g 0 0.7\nm1 d g 0 0 nmos_rvt l=20n nfin=3\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    const g = sprack.find("vacask").?;
+    var r1: ir.Report = .init(a);
+    var w1: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, g, &w1.writer, &nl, &r1, null);
+    try reported(&r1, .@"error", "vacask has no built-in bsimcmg; it runs one as a compiled module given to the translation: --provide bsimcmg=FILE");
+    const env: ir.Env = .{ .provided = &.{.{ "bsimcmg", "/m/bsimcmg.osdi" }} };
+    var r2: ir.Report = .init(a);
+    var w2: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, g, &w2.writer, &nl, &r2, &env);
+    // VACASK b2c1551 ran this on BSIM-CMG 107.0.0: 113.550354 uA (4.43).
+    try has(w2.written(), "load \"/m/bsimcmg.osdi\"\n");
+    try has(w2.written(), "model nmos_rvt bsimcmg (devtype=1)\n");
+    try has(w2.written(), "m1 (d g 0 0) nmos_rvt l=20n nfin=3\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+}
+
+test "#27: a BSIM-CMG card's version is dropped for the module given, and only 107 was measured" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const env: ir.Env = .{ .provided = &.{.{ "bsimcmg", "/m/bsimcmg.osdi" }} };
+    for ([_][]const u8{ "ngspice", "vacask" }) |to| {
+        for ([_]struct { []const u8, ir.Severity }{ .{ "107", .warning }, .{ "110", .@"error" } }) |case| {
+            const src = try std.fmt.allocPrint(a, "t\n.model n1 nmos level=72 version={s}\nm1 d g 0 0 n1 l=20n nfin=3\n.op\n.end\n", .{case[0]});
+            var r: ir.Report = .init(a);
+            const nl = try readAs(a, "hspice", src, &r);
+            var r1: ir.Report = .init(a);
+            var w1: std.Io.Writer.Allocating = .init(a);
+            try sprack.writeIn(a, sprack.find(to).?, &w1.writer, &nl, &r1, &env);
+            try testing.expect(std.mem.indexOf(u8, w1.written(), "version") == null);
+            try reported(&r1, case[1], "version not written: the module given has no version parameter");
+        }
+    }
+}
+
+test "#53: ASAP7 into ngspice and VACASK: 24 errors, or with the module given 0 and one caveat a file" {
+    const io = testing.io;
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const pdks = testing.environ.getAlloc(a, "SPRACK_TEST_PDKS") catch return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var tops: [3][]const u8 = undefined;
+    for (&tops, [_][]const u8{ "TT", "FF", "SS" }) |*t, c| t.* = try std.fmt.allocPrint(a, "{s}/asap7/models/hspice/7nm_{s}.pm", .{ pdks, c });
+    for ([_][]const u8{ "ngspice", "vacask" }) |to| {
+        for ([_]bool{ false, true }) |given| {
+            var log: std.Io.Writer.Allocating = .init(a);
+            const sum = try sprack.project.run(io, testing.allocator, .{
+                .from = sprack.find("hspice").?,
+                .to = sprack.find(to).?,
+                .tops = &tops,
+                .out_dir = try std.fmt.allocPrint(a, "{s}/{s}{}", .{ base, to, given }),
+                .library = true,
+                .provided = if (given) &.{.{ "bsimcmg", "/m/bsimcmg.osdi" }} else &.{},
+                .log = &log.writer,
+            });
+            // The writer kept the caveat's set in a statement's arena: the
+            // second file crashed it (sprack project, 3 files, 4.43).
+            try testing.expectEqual(@as(usize, if (given) 0 else 24), sum.errors);
+            try testing.expectEqual(@as(usize, if (given) 3 else 0), std.mem.count(u8, log.written(), "written for the module /m/bsimcmg.osdi given to the translation"));
+        }
+    }
+}
+
+test "#27: a needs line keeps a long file given whole" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice 45 lowercased the continuation line of a wrapped pre_osdi and
+    // could not open /tmp/.../-home-omare-Documents-.../bsimcmg108.osdi (4.43).
+    const file = "/a/Long-Directory-Name/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/bsimcmg.osdi";
+    const env: ir.Env = .{ .provided = &.{.{ "bsimcmg", file }} };
+    const src = "t\n.model n1 nmos level=72\nm1 d g 0 0 n1 l=20n nfin=3\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    var w1: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, sprack.find("ngspice").?, &w1.writer, &nl, &r, &env);
+    try has(w1.written(), "\npre_osdi " ++ file ++ "\n");
+    var w2: std.Io.Writer.Allocating = .init(a);
+    _ = try sprack.stream.translate(a, sprack.find("hspice").?, sprack.find("ngspice").?, src, &w2.writer, &r, &sprack.caps, .{ .env = &env });
+    try has(w2.written(), "\npre_osdi " ++ file ++ "\n");
 }
 
 test "#74: a requires line with an analysis list checks only those analyses" {

@@ -603,6 +603,14 @@ fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
         var it = m.object.iterator();
         while (it.next()) |kv| if (kv.value_ptr.* == .string) try @field(env, field).put(arena, kv.key_ptr.*, kv.value_ptr.string);
     };
+    // Read, never written: a PDK's manifest gives the files its libraries
+    // were translated with, and the top netlist loads them (issue 53).
+    if (j.object.get("provided")) |m| if (m == .object) {
+        var given: std.ArrayList([2][]const u8) = .empty;
+        var it = m.object.iterator();
+        while (it.next()) |kv| if (kv.value_ptr.* == .string) try given.append(arena, .{ kv.key_ptr.*, kv.value_ptr.string });
+        env.provided = given.items;
+    };
     return env;
 }
 

@@ -1937,14 +1937,7 @@ the same option as #52's plugins), its `needs` line takes the file in
 place of `{file}`, and one caveat names it; with no file, the error names
 the option. A test builds a grammar with such a line and checks both.
 
-Not done, and so no `provided` line is in ngspice's or VACASK's grammar:
-the measurement the issue asks for first. It needs the BSIM-CMG 107
-Verilog-A source and openvaf-r to compile it for ngspice, and VACASK to
-run it, none of which this environment has. The reference is Xyce 7.10's
-level 107 at L = 20n, NFIN = 3, 0.7 V on gate and drain, 25 degrees (4.21):
-nmos_rvt 113.55035 uA, pmos_rvt 98.631343 uA. Until a run matches it,
-ASAP7 into ngspice and VACASK keeps its 24 errors, and the version check
-and the manifest's per-target `load` keys wait with the grammar line.
+The measurement and the grammar lines it lets in are 4.43.
 
 ### 4.38 HSPICE checks waiting for a run (#56)
 
@@ -2031,6 +2024,91 @@ written into them as it was read, without a report: whether its deck has
 a mismatch block is not checked.
 
 From issue 70 (not rerun here: no Spectre in this environment).
+
+### 4.43 BSIM-CMG for ngspice and VACASK as a module given (#27, #53)
+
+The module: BSIM-CMG 107.0.0, the version ASAP7's cards state, as Xyce
+7.10's source ships it for ADMS (`utils/ADMS/examples/bsimcmg_107.0.0/code`,
+the source nixpkgs builds Xyce from). `tools/bsimcmg-osdi.sh` makes it
+standard Verilog-A in three edits and compiles it with the verify shell's
+`openvaf-r` (OpenVAF-reloaded 24.0.2); the flake builds it as
+`packages.bsimcmg-osdi` and the verify shell names it in
+`SPRACK_BSIMCMG_OSDI`. The edits: the ADMS attributes after the module's
+port list dropped ("unexpected token '(*'"); each
+`` `attr(a="x" b="y") `` after a declaration written `(* a="x", b="y" *)`
+before it (two declarations have a blank after the `;`; missed, they
+gave 25 errors);
+`EOTACC` bounded `[1.0e-10:inf)` in place of `[0.1n:inf)` (0.1n parses above
+1e-10, and ASAP7's `eotacc = 1e-010` failed "Parameter EOTACC is out of
+bounds"). It declares no `version`, `level`, `m` or `type`: polarity is
+`DEVTYPE`, 1 or 0. Given `type=-1` on it, ngspice said "unrecognized
+parameter (type) - ignored" and ran pmos_rvt as n-type (0 A at -0.7 V);
+VACASK refused it ("Parameter 'type' not found").
+
+ASAP7 `7nm_TT.pm` `nmos_rvt` and `pmos_rvt`, `nfin=3 l=20n`, source and
+bulk at 0, 0.7 V on the drain (-0.7 V for the p-type). Each deck is an
+HSPICE deck translated by SPRack: into Xyce 7.10 (level 107), and into
+ngspice 45 and VACASK b2c1551 with `--provide bsimcmg=$SPRACK_BSIMCMG_OSDI`;
+all three at the `temp=25 tnom=25` the translation writes for HSPICE's
+defaults. Drain current:
+
+| device | Vg | Xyce level 107 | ngspice 45, module | VACASK b2c1551, module |
+|---|---|---|---|---|
+| nmos_rvt | 0.7 V | -113.550354 uA | -113.5503543 uA | -113.5503542 uA |
+| nmos_rvt | 0.35 V | -8.63732439 uA | -8.637324413 uA | -8.637324387 uA |
+| pmos_rvt | -0.7 V | 98.6313428 uA | 98.63134278 uA | 98.63134278 uA |
+| pmos_rvt | -0.35 V | 6.96088376 uA | 6.960883752 uA | 6.960883756 uA |
+
+Nine digits alike, Xyce's printed eight and a ninth. At 27 degrees (no
+`.options`) the nmos_rvt current is 113.40477 uA in Xyce: the 113.55035 of
+#53 is at HSPICE's 25 degrees.
+
+Beyond DC, the same decks with `Vg g 0 0.7 ac 1` and `.ac lin 1 1e9 1e9`:
+the gate current of nmos_rvt at 1 GHz is -4.26957974e-12 - 1.07491869e-06j A
+in Xyce, -4.269579738e-12 - 1.074918689e-06j in ngspice and
+-4.269579738e-12 - 1.074918689e-06j in VACASK (Cgg 0.171 fF), the charge
+model alike to nine digits. An inverter (pmos_rvt and nmos_rvt, `nfin=3
+l=20n`, 0.7 V, 1 fF load, `pulse(0 0.7 10p 10p 10p 40p 200p)`, `.tran
+0.01p 100p`, the step capped at 0.01p and `reltol=1e-6`, Xyce with
+`method=trap`): `v(out)` at 15, 20, 25, 30, 65, 70, 75 and 90 ps is
+0.722179, 0.491477, 0.099314, 0.009984, -0.018237, 0.163771, 0.513534,
+0.698659 V in both Xyce and ngspice; VACASK, at its own tolerances, within
+20 uV of them. With Xyce's default integrator and no cap the two differ by
+up to 1.2 mV: the integrators' and their steps'.
+
+The version matters. Xyce's own levels on the same card at 27 degrees:
+107 and 108 give 113.404766 uA, 110 gives 107.443761 uA, 111 108.913500 uA.
+BSIM-CMG 108.0.0 (the same source tree, five edits, among them `TYPE`
+bounded `[-1:1]`) gave the same currents as 107.0.0 to eight digits; 112.1.0
+(ESPice's `models/bsimcmg.va`, module `bsimcmg_va`) through ngspice gives
+107.436 uA, and ignores `coremod`, `capmod`, `nseg` and `etaqm`. A version
+107 card is measured on the 107.0.0 module only. 111.2.1 has no `DEVTYPE`
+(its polarity is `TYPE`, 1 or -1).
+
+What the grammars now say:
+
+- ngspice and VACASK: `bsimcmg n = bsimcmg devtype=1 provided`,
+  `bsimcmg p = bsimcmg devtype=0 provided`; `needs bsimcmg` loads the file
+  given (`pre_osdi` in a `.control` block; `load "FILE"`). ngspice writes
+  the instance as an `N` device, as PSP103's.
+- `noparam bsimcmg version=107 warning` and `noparam bsimcmg version
+  error`: the module has no version, so the card's is not written; a
+  version other than 107 was not measured and is an error. Which module
+  the file holds is not checked.
+- A `needs` line is not wrapped. ngspice 45 joined a wrapped
+  `pre_osdi` / `+ /tmp/.../-home-omare-Documents-.../bsimcmg108.osdi` and
+  lowercased the continuation: "Error opening osdi lib
+  .../-home-omare-documents-...". The `hdl` statement was already not
+  wrapped (`.include` and `.lib` likewise).
+- ASAP7's manifest: `"provide": {"ngspice": {"bsimcmg": "$BSIMCMG_OSDI"},
+  "vacask": {...}}`, used when the file is there, as `load` is.
+
+ASAP7's three model files into each of ngspice and VACASK (`sprack project
+--lib`, the three at once, as `PDK.translate` does): 24 errors with nothing
+given, 0 errors with the module given, one caveat and one version warning a
+file. The three at once first crashed the writer on the second file: the
+set that says the caveat once a file was kept in a statement's arena, which
+the stream frees after each statement.
 
 ## 5. Enum spellings (6.5): integration method
 

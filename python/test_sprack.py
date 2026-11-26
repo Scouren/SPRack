@@ -453,8 +453,49 @@ def test_pdk_asap7():
     xy = open(os.path.join(p.translate("xyce"), "7nm_FF.pm")).read()
     # ASAP7's cards say version = 107: Xyce's level 107, which the level says (docs/verification.md 4.21).
     assert ".model nmos_rvt nmos level=107 " in xy and "version" not in xy
-    # ngspice has no built-in BSIM-CMG: an error that says who has.
-    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "model family 'bsimcmg n'", "Defined by: hspice, spectre, xyce")
+    # ngspice has no built-in BSIM-CMG: an error that names the option for a module (docs/verification.md 4.43).
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "ngspice has no built-in bsimcmg", "--provide bsimcmg=FILE")
+
+
+BSIMCMG = os.environ.get("SPRACK_BSIMCMG_OSDI", "")
+
+
+def test_pdk_bsimcmg_asap7():
+    """ASAP7 with BSIM-CMG 107.0.0 compiled by the flake (tools/bsimcmg-osdi.sh),
+    named by the manifest's `provide` through $BSIMCMG_OSDI (issue 53)."""
+    import re, subprocess
+    was = os.environ.pop("BSIMCMG_OSDI", None)
+    try:
+        for d in ("ngspice", "vacask"):
+            raises(sprack.Unsupported, lambda: pdk("ASAP7", "asap7").translate(d), f"{d} has no built-in bsimcmg")
+        os.environ["BSIMCMG_OSDI"] = BSIMCMG
+        p = pdk("ASAP7", "asap7")
+        for d in ("ngspice", "vacask"):
+            # The three corners' files at once: 0 errors, one caveat a file.
+            log = open(os.path.join(p.translate(d), "sprack.log")).read()
+            assert log.count(f"written for the module {BSIMCMG} given to the translation") == 3, log
+        c = sprack.Circuit("asap7 nmos_rvt", pdk=p)
+        c.V("d", "d", 0, 0.7)
+        c.V("g", "g", 0, 0.7)
+        c.nmos_rvt("M1", "d", "g", 0, 0, nfin=3, l="20n")
+        c.options(temp=25, tnom=25)  # the PDK's own simulator's (HSPICE)
+        c.op()
+        net = c.netlist("ngspice")
+    finally:
+        os.environ.pop("BSIMCMG_OSDI", None)
+        if was is not None:
+            os.environ["BSIMCMG_OSDI"] = was
+    assert f"pre_osdi {BSIMCMG}\n" in net and "NM1 d g 0 0 nmos_rvt nfin=3 l=20n\n" in net
+    with tempfile.TemporaryDirectory() as t:
+        f = os.path.join(t, "tb.spice")
+        with open(f, "w") as fh:
+            fh.write(net.replace(".end\n", ".control\nset numdgt=10\nrun\nprint i(vd)\n.endc\n.end\n"))
+        r = subprocess.run(["ngspice", "-b", f], capture_output=True, text=True)
+    m = re.search(r"^i\(vd\) = (\S+)", r.stdout, re.M)
+    assert m, r.stdout + r.stderr
+    # Xyce 7.10's level 107 on the same card at 25 degrees: -113.550354 uA
+    # (docs/verification.md 4.21, 4.43).
+    assert abs(float(m.group(1)) / -113.550354e-6 - 1) < 1e-6, m.group(1)
 
 
 def test_pdk_freepdk45():
@@ -1311,6 +1352,10 @@ if __name__ == "__main__":
             continue
         if name.startswith("test_pdk_installed_") and not INSTALLED:
             print(f"skip  {name} (set SPRACK_TEST_PDKS_INSTALLED)")
+            skipped += 1
+            continue
+        if name.startswith("test_pdk_bsimcmg_") and not (PDKS and BSIMCMG):
+            print(f"skip  {name} (set SPRACK_TEST_PDKS and SPRACK_BSIMCMG_OSDI)")
             skipped += 1
             continue
         if name.startswith("test_pdk_") and name != "test_pdk_errors" and not PDKS:

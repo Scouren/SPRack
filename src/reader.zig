@@ -2609,6 +2609,12 @@ pub const Source = struct {
         for (g.preamble) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         for (g.header) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         for (g.needs) |n| {
+            // A block that loads the file given (`{file}`) is not boilerplate:
+            // ngspice's `.control` and `.endc` lines there are any block's.
+            const given = for (n.lines) |l| {
+                if (std.mem.indexOf(u8, l, "{file}") != null) break true;
+            } else false;
+            if (given) continue;
             for (n.lines) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         }
         var folded: std.ArrayList([]const u8) = .empty;

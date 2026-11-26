@@ -1153,7 +1153,8 @@ const Writer = struct {
                 return null;
             };
             if (w.plugins_said.get(fam.atom) == null) {
-                try w.plugins_said.put(w.arena, fam.atom, {});
+                // Kept for the file: w.arena is the statement's when streamed.
+                try w.plugins_said.put(w.perm, try w.perm.dupe(u8, fam.atom), {});
                 w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): written for the module {s} given to the translation; {s} has no built-in one", .{ st.get("name").atom, fam.atom, file, w.g.name });
             }
         }
@@ -3832,7 +3833,11 @@ pub fn write(
                 } else unreachable;
                 if (!fams[fi]) continue;
             } else if (!used[@backingInt(n.kind)]) continue;
+            // A needs line stays whole: ngspice lowercases a continuation
+            // line inside .control, and so a path given with --provide (4.43).
+            w.nowrap = true;
             for (n.lines) |l| try w.line(try needLine(arena, l, n.family, env));
+            w.nowrap = false;
         }
     }
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
@@ -4167,7 +4172,11 @@ pub const Stream = struct {
                     } else unreachable;
                     if (!fams[fi]) continue;
                 } else if (!used[@backingInt(n.kind)]) continue;
+                // A needs line stays whole: ngspice lowercases a continuation
+                // line inside .control, and so a path given with --provide (4.43).
+                w.nowrap = true;
                 for (n.lines) |l| try w.line(try needLine(perm, l, n.family, env));
+                w.nowrap = false;
             }
         }
         if (s.foreign and g.unique_master.len > 0) {

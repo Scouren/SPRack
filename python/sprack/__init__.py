@@ -609,6 +609,9 @@ class Circuit(_Scope):
             # What the PDK's libraries declare: the writer sees their names
             # only, and a model or a function of theirs is one it knows.
             doc["env"] = self.pdk._env
+            # The modules the libraries were translated for: the netlist loads them.
+            if self.pdk._provided(dialect):
+                doc["env"] = {**doc["env"], "provided": self.pdk._provided(dialect)}
         if self.pdk is not None and not self._source_dialect:
             # A circuit of no dialect on a PDK means the defaults of the
             # PDK's simulator (its temperature): the writer reports a target
@@ -1459,6 +1462,15 @@ class PDK:
         found = {mod: os.path.normpath(os.path.join(self.root, self._fmt(f))) for mod, f in self.manifest.get("xyce_plugins", {}).items()}
         return {mod: f for mod, f in found.items() if os.path.isfile(f)}
 
+    def _provided(self, dialect: str) -> dict[str, str]:
+        """The manifest's `provide` for `dialect` whose file is there, family
+        to path: what the translation is given, as `--provide` gives it
+        (issue 53). A path may name `$VARIABLES`; with no file there, the
+        family is the error it is with nothing given."""
+        found = {fam: os.path.normpath(os.path.join(self.root, os.path.expandvars(self._fmt(f))))
+                 for fam, f in self.manifest.get("provide", {}).get(_dialect(dialect), {}).items()}
+        return {fam: f for fam, f in found.items() if os.path.isfile(f)}
+
     def _errata(self) -> str:
         """The manifest's errata, as the core takes them: lines the PDK's own
         simulator refuses, and what is read instead (issue 25)."""
@@ -1478,10 +1490,10 @@ class PDK:
         pairs = self.entries()
         sections = [sec for _, sec in pairs if sec] if all(sec for _, sec in pairs) else []
         tag = f"{_dialect_tag(d)}-{self.corner}" if sections else _dialect_tag(d)
-        plugins = self._plugins(d)
-        # A plugin built since is another translation.
-        if plugins:
-            tag += "-" + hashlib.sha1(json.dumps(plugins, sort_keys=True).encode()).hexdigest()[:8]
+        plugins, provided = self._plugins(d), self._provided(d)
+        # A plugin built since, or a module given since, is another translation.
+        if plugins or provided:
+            tag += "-" + hashlib.sha1(json.dumps([plugins, provided], sort_keys=True).encode()).hexdigest()[:8]
         out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
         summary = _cached(out, variables=self._defines())
         if summary is not None:
@@ -1489,7 +1501,7 @@ class PDK:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
-            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections), self._errata(), _lines(plugins))
+            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections), self._errata(), _lines({**plugins, **provided}))
             summary = json.loads(text)
             # Kept while every file translated is unchanged.
             summary["files"] = _sources(out, summary["root"])
