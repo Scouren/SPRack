@@ -26,13 +26,21 @@ fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct { u64, i32 } {
             seen_point = true;
             continue;
         }
-        mant = std.math.mul(u64, mant, 10) catch return c.fail(line, "bad multiplier '{s}'", .{text});
+        mant = std.math.mul(u64, mant, 10) catch return c.fail(
+            line,
+            "bad multiplier '{s}'",
+            .{text},
+        );
         mant += text[i] - '0';
         if (seen_point) exp -= 1;
     }
     if (i < text.len) {
         if (text[i] != 'e' and text[i] != 'E') return c.fail(line, "bad multiplier '{s}'", .{text});
-        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch return c.fail(line, "bad multiplier '{s}'", .{text});
+        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch return c.fail(
+            line,
+            "bad multiplier '{s}'",
+            .{text},
+        );
     }
     if (mant == 0) return c.fail(line, "bad multiplier '{s}'", .{text});
     return .{ mant, exp };
@@ -235,7 +243,8 @@ pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Ki
 /// `reason`: why no other dialect can take it (`raw "embed" ">>>FILE" : ...`).
 /// `as embed`: the region is a statement of that kind (a named file and
 /// its text), not text.
-pub const RawBlock = struct { open: []const u8, close: []const u8, reason: []const u8 = "", kind: ?Kind = null };
+pub const RawBlock =
+    struct { open: []const u8, close: []const u8, reason: []const u8 = "", kind: ?Kind = null };
 /// `own ".check" ".dout" : reason`: statements of this dialect that no kind
 /// of the schema holds, and why no other dialect gets them. Read as text,
 /// as any line no rule reads; written elsewhere they are `unsupported` with
@@ -287,9 +296,11 @@ pub const Computes = struct { family: []const u8, keys: []const []const u8, text
 /// resistance where W - 2 DW is 0). A card with the key crossing into or
 /// out of the dialect is a caveat with the text.
 pub const Edge = struct { family: []const u8, key: []const u8, text: []const u8 };
-pub const NoParam = struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
+pub const NoParam =
+    struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
 
-pub const Threshold = struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
+pub const Threshold =
+    struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
 
 /// `invalid kind slot[=0] [slot=atom] : text`: a statement without that slot
 /// (or, with `=0`, with it zero) means something else here; an error
@@ -360,14 +371,19 @@ pub const Omitted = struct {
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
 /// `caveat hdl path=*.osdi : ...` holds only where the value ends so.
 /// `read`: said when a translation reads this dialect, not writes it.
-pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 = "", read: bool = false };
+pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 =
+    "",
+    read: bool = false };
 /// `inert options post : why`: a parameter that changes no result here; a
 /// translation out of this dialect leaves it out with a note, not an error.
 pub const Inert = struct { kind: Kind, key: []const u8, text: []const u8 };
 
 /// A value the dialect assumes when the statement does not say it;
 /// `wave=exp` after it: only where that atom slot holds that word.
-pub const Implied = struct { kind: Kind, slot: u8, text: []const u8, when_slot: u8 = no_slot, when_atom: []const u8 = "" };
+pub const Implied =
+    struct { kind: Kind, slot: u8, text: []const u8, when_slot: u8 =
+        no_slot,
+    when_atom: []const u8 = "" };
 pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 /// How the dialect spells the values of a closed-set slot.
 pub const EnumMap = struct { kind: Kind, slot: u8, pairs: []const EnumPair };
@@ -406,7 +422,8 @@ pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 /// 0); a name listed without itself among its spellings is not taken here.
 /// `modelparams family [only]`: with `only`, the table lists every
 /// parameter the family's card takes here, and any other is a loss.
-pub const ModelParamTable = struct { family: []const u8, names: []const Spellings, only: bool = false };
+pub const ModelParamTable =
+    struct { family: []const u8, names: []const Spellings, only: bool = false };
 
 /// Does a `params` table end in `same ...`: unlisted parameters are not checked?
 pub fn paramsOpen(table: []const Spellings) bool {
@@ -419,7 +436,9 @@ pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// `means [kind] f(x, y) = body`: what this dialect means by a function,
 /// in canonical functions, for a target that lacks it; with a kind, in
 /// statements of that kind only (a behavioural source).
-pub const Means = struct { kind: ?Kind = null, canon: []const u8, args: []const []const u8, body: []const u8 };
+pub const Means = struct { kind: ?Kind =
+    null,
+    canon: []const u8, args: []const []const u8, body: []const u8 };
 /// A kind the simulator itself lacks, and why; with a slot, the one value
 /// of a kind it has (`no options vntol : why`), the reason ending the error.
 pub const Absent = struct { kind: Kind, slot: u8 = no_slot, reason: []const u8 };
@@ -431,7 +450,8 @@ pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `reserved [shadowed] name ... : reason`. `shadowed`: the simulator
 /// takes a parameter of the name, but the word in an expression is its
 /// variable, so the parameter is renamed all the same.
-pub const Reserved = struct { names: []const []const u8, reason: []const u8, shadowed: bool = false };
+pub const Reserved =
+    struct { names: []const []const u8, reason: []const u8, shadowed: bool = false };
 /// A circuit topology the simulator cannot solve (`src/topology.zig`):
 /// nodes with no DC path to ground, or a loop of voltage sources only, of
 /// voltage sources and inductors, or of inductors only. `cutset` is such an
@@ -442,12 +462,14 @@ pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop", cuts
 /// here, an error when the simulator fails on it, a warning when it solves it
 /// its own way. Only in a netlist with one of `analyses` (`tran`: one without
 /// UIC); with none listed, with any analysis.
-pub const Require = struct { what: Topo, err: bool, analyses: []const Kind = &.{}, reason: []const u8 };
+pub const Require =
+    struct { what: Topo, err: bool, analyses: []const Kind = &.{}, reason: []const u8 };
 
 /// `kinds`: the statements that count as an analysis. More than one in a
 /// netlist is refused, except two when one is of the kind `beside` (it
 /// counts too), which is then loaded and not run.
-pub const UniqueAnalysis = struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
+pub const UniqueAnalysis =
+    struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
 
 /// `level>=99`: read only, any number from `val` up (what the dialect itself
 /// takes as another level); never written.
@@ -467,7 +489,8 @@ pub const ModelWhen = struct {
         return std.mem.eql(u8, w.key, "nodes");
     }
 };
-pub const ModelSpelling = struct { type: []const u8, kv: []const ModelKv, when: []const ModelWhen = &.{} };
+pub const ModelSpelling =
+    struct { type: []const u8, kv: []const ModelKv, when: []const ModelWhen = &.{} };
 /// `provided`: the dialect has the family only as a compiled module the
 /// translation is given (`--provide family=FILE`); without one it is an
 /// error, as a family with no line.
@@ -587,7 +610,9 @@ pub const Grammar = struct {
     pub fn ownReason(g: *const Grammar, line: []const u8) ?[]const u8 {
         const t = std.mem.trimStart(u8, line, " \t");
         var end: usize = 0;
-        while (end < t.len and t[end] != ' ' and t[end] != '\t' and t[end] != '\n' and t[end] != '(' and t[end] != '=') end += 1;
+        while (end < t.len and t[end] != ' ' and t[end] != '\t' and t[end] != '\n' and
+            t[end] != '(' and t[end] != '=')
+            end += 1;
         const first = t[0..end];
         for (g.owns) |o| {
             if (o.model) continue;
@@ -629,7 +654,9 @@ pub const Grammar = struct {
 
     /// The formula of the `computes` line for `family` that names `key`.
     pub fn edgeText(g: *const Grammar, family: []const u8, key: []const u8) ?[]const u8 {
-        for (g.edges) |e| if (std.mem.eql(u8, e.family, family) and std.ascii.eqlIgnoreCase(e.key, key)) return e.text;
+        for (g.edges) |e|
+            if (std.mem.eql(u8, e.family, family) and std.ascii.eqlIgnoreCase(e.key, key))
+                return e.text;
         return null;
     }
 
@@ -716,7 +743,8 @@ pub const Grammar = struct {
 
     pub fn hasModel(g: *const Grammar, family: []const u8, polarity: []const u8) bool {
         for (g.models) |m| {
-            if (std.mem.eql(u8, m.family, family) and std.mem.eql(u8, m.polarity, polarity)) return true;
+            if (std.mem.eql(u8, m.family, family) and std.mem.eql(u8, m.polarity, polarity))
+                return true;
         }
         return false;
     }
@@ -763,7 +791,11 @@ const C = struct {
             try std.fmt.allocPrint(c.gpa, "{s}:{d}: ", .{ c.file, line })
         else
             try std.fmt.allocPrint(c.gpa, "{s}.spgrammar:{d}: ", .{ c.name, line });
-        c.diag.msg = try std.mem.concat(c.gpa, u8, &.{ where, try std.fmt.allocPrint(c.gpa, fmt, a) });
+        c.diag.msg = try std.mem.concat(
+            c.gpa,
+            u8,
+            &.{ where, try std.fmt.allocPrint(c.gpa, fmt, a) },
+        );
         return error.BadGrammar;
     }
 
@@ -844,7 +876,11 @@ fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8 {
         if (ch == ' ' or ch == '\t') {
             i += 1;
         } else if (ch == '"' or ch == '\'') {
-            const end = std.mem.indexOfScalarPos(u8, line, i + 1, ch) orelse return c.fail(line_no, "unterminated string", .{});
+            const end = std.mem.indexOfScalarPos(u8, line, i + 1, ch) orelse return c.fail(
+                line_no,
+                "unterminated string",
+                .{},
+            );
             // An empty word matches everywhere and consumes nothing.
             if (end == i + 1) return c.fail(line_no, "empty string", .{});
             out = try c.add([]const u8, out, line[i + 1 .. end]);
@@ -892,7 +928,11 @@ const P = struct {
     const max_nodes = 10_000;
 
     fn err(p: *P, comptime fmt: []const u8, a: anytype) Error {
-        return p.c.fail(p.line, "{s} in pattern `{s}`", .{ try std.fmt.allocPrint(p.c.gpa, fmt, a), p.s });
+        return p.c.fail(
+            p.line,
+            "{s} in pattern `{s}`",
+            .{ try std.fmt.allocPrint(p.c.gpa, fmt, a), p.s },
+        );
     }
 
     fn ws(p: *P) void {
@@ -909,7 +949,10 @@ const P = struct {
 
     fn string(p: *P) Error![]const u8 {
         const q = p.s[p.i];
-        const end = std.mem.indexOfScalarPos(u8, p.s, p.i + 1, q) orelse return p.err("unterminated string", .{});
+        const end = std.mem.indexOfScalarPos(u8, p.s, p.i + 1, q) orelse return p.err(
+            "unterminated string",
+            .{},
+        );
         const out = p.s[p.i + 1 .. end];
         p.i = end + 1;
         return out;
@@ -938,8 +981,12 @@ const P = struct {
     fn slotOf(p: *P, name: []const u8) Error!u8 {
         return schema.slotIndex(p.kind, name) orelse {
             var known: []const u8 = "";
-            for (schema.info(p.kind).slots) |s| known = try p.c.cat(try p.c.cat(known, " "), s.name);
-            return p.err("unknown slot '{s}' for kind '{s}' (known:{s})", .{ name, @tagName(p.kind), known });
+            for (schema.info(p.kind).slots) |s|
+                known = try p.c.cat(try p.c.cat(known, " "), s.name);
+            return p.err(
+                "unknown slot '{s}' for kind '{s}' (known:{s})",
+                .{ name, @tagName(p.kind), known },
+            );
         };
     }
 
@@ -975,7 +1022,8 @@ const P = struct {
 
     fn count(p: *P, n: usize) Error!void {
         p.c.nodes += @intCast(n);
-        if (p.c.nodes > max_nodes) return p.err("more than {d} nodes, defines expanded", .{max_nodes});
+        if (p.c.nodes > max_nodes)
+            return p.err("more than {d} nodes, defines expanded", .{max_nodes});
     }
 
     /// `<name>`: the nodes of a `define`, spliced in place.
@@ -987,7 +1035,15 @@ const P = struct {
         for (p.defs, 0..) |d, di| {
             if (!std.mem.eql(u8, d.name, name)) continue;
             // A define sees only the ones before it, so it cannot refer to itself.
-            var sub: P = .{ .s = d.text, .kind = p.kind, .fold = p.fold, .c = p.c, .line = p.line, .defs = p.defs[0..di], .depth = p.depth };
+            var sub: P = .{
+                .s = d.text,
+                .kind = p.kind,
+                .fold = p.fold,
+                .c = p.c,
+                .line = p.line,
+                .defs = p.defs[0..di],
+                .depth = p.depth,
+            };
             const out = try sub.seq();
             if (sub.i < sub.s.len) return sub.err("unexpected '{c}'", .{sub.s[sub.i]});
             return out;
@@ -1001,11 +1057,17 @@ const P = struct {
         var j = p.i;
         while (j < p.s.len) : (j += 1) {
             switch (p.s[j]) {
-                '"', '\'' => j = std.mem.indexOfScalarPos(u8, p.s, j + 1, p.s[j]) orelse return false,
+                '"', '\'' => j = std.mem.indexOfScalarPos(
+                    u8,
+                    p.s,
+                    j + 1,
+                    p.s[j],
+                ) orelse return false,
                 '(' => depth += 1,
                 ')' => {
                     depth -= 1;
-                    if (depth == 0) return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+' or p.s[j + 1] == '#');
+                    if (depth == 0)
+                        return j + 1 < p.s.len and (p.s[j + 1] == '*' or p.s[j + 1] == '+' or p.s[j + 1] == '#');
                 },
                 else => {},
             }
@@ -1044,17 +1106,26 @@ const P = struct {
                 const group: Node = .{ .tag = .alt, .kids = alts };
                 if (!rep) return group;
                 // `( ... )*` or `( ... )+`, a separator glued on: `( ... )*","`.
-                var n: Node = .{ .tag = .rep, .plus = p.peek() != '*', .kids = try p.c.add(Node, &.{}, group) };
+                var n: Node = .{
+                    .tag = .rep,
+                    .plus = p.peek() != '*',
+                    .kids = try p.c.add(Node, &.{}, group),
+                };
                 p.i += 1;
                 if (p.s[p.i - 1] == '#') n.count = try p.countSlot();
                 if (p.quoted()) {
-                    n.sep = try p.c.add(Node, &.{}, .{ .tag = .lit, .text = try p.lit(try p.string()) });
+                    n.sep = try p.c.add(
+                        Node,
+                        &.{},
+                        .{ .tag = .lit, .text = try p.lit(try p.string()) },
+                    );
                 } else if (p.peek() == '~') {
                     p.i += 1;
                     if (!p.quoted()) return p.err("expected a quoted separator after '~'", .{});
                     n.sep = try p.c.add(Node, &.{}, .{ .tag = .glue, .text = try p.string() });
                 }
-                if (canBeEmpty(n.kids)) return p.err("a repeated group must take at least one word each time", .{});
+                if (canBeEmpty(n.kids))
+                    return p.err("a repeated group must take at least one word each time", .{});
                 return n;
             },
             '{' => {
@@ -1075,19 +1146,22 @@ const P = struct {
                 return .{ .tag = .glue, .text = try p.string() };
             },
             '.' => if (p.startsWith("...")) {
-                if (p.in_rep) return p.err("a repeated group cannot take the rest of the line", .{});
+                if (p.in_rep)
+                    return p.err("a repeated group cannot take the rest of the line", .{});
                 p.i += 3;
                 return .{ .tag = .rest, .slot = wild_slot };
             },
             else => {},
         }
         const name = try p.ident();
-        if (p.in_rep and p.startsWith("...")) return p.err("a repeated group cannot take the rest of the line", .{});
+        if (p.in_rep and p.startsWith("..."))
+            return p.err("a repeated group cannot take the rest of the line", .{});
         if (p.startsWith("...")) {
             p.i += 3;
             const slot = try p.slotOf(name);
             const rt = p.slotInfo(slot).ty;
-            if (rt != .text and rt != .value) return p.err("'{s}...' needs a text or a value slot", .{name});
+            if (rt != .text and rt != .value)
+                return p.err("'{s}...' needs a text or a value slot", .{name});
             return .{ .tag = .rest, .slot = slot };
         }
         if (p.peek() == ':') {
@@ -1102,16 +1176,27 @@ const P = struct {
             const slot = try p.slotOf(name);
             // On a value slot (`acmag:"ac"=1`) the literal stands for a number.
             const vty = p.slotInfo(slot).ty;
-            if (vty != .atom and !(vty == .value and !p.slotInfo(slot).list)) return p.err("tagged literal needs an atom slot, '{s}' is not one", .{name});
-            if (p.in_rep and !p.slotInfo(slot).list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
+            if (vty != .atom and !(vty == .value and !p.slotInfo(slot).list))
+                return p.err("tagged literal needs an atom slot, '{s}' is not one", .{name});
+            if (p.in_rep and !p.slotInfo(slot).list)
+                return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
             var soft = false;
             if (p.peek() == '?') {
                 p.i += 1;
                 soft = true;
             }
-            return .{ .tag = .taglit, .slot = slot, .text = try p.lit(text), .atom = atom, .soft = soft };
+            return .{
+                .tag = .taglit,
+                .slot = slot,
+                .text = try p.lit(text),
+                .atom = atom,
+                .soft = soft,
+            };
         }
-        var n: Node = .{ .tag = .cap, .slot = if (std.mem.eql(u8, name, "_")) wild_slot else try p.slotOf(name) };
+        var n: Node = .{ .tag = .cap, .slot = if (std.mem.eql(u8, name, "_"))
+            wild_slot
+        else
+            try p.slotOf(name) };
         while (true) {
             switch (p.peek()) {
                 '~' => {
@@ -1133,12 +1218,14 @@ const P = struct {
                 },
                 '!' => {
                     p.i += 1;
-                    if (n.slot == wild_slot or p.slotInfo(n.slot).ty != .path) return p.err("'{s}!' needs a path slot", .{name});
+                    if (n.slot == wild_slot or p.slotInfo(n.slot).ty != .path)
+                        return p.err("'{s}!' needs a path slot", .{name});
                     n.bare = true;
                 },
                 '#' => {
                     p.i += 1;
-                    if (n.slot == wild_slot or !p.slotInfo(n.slot).list) return p.err("'{s}#' needs a list slot", .{name});
+                    if (n.slot == wild_slot or !p.slotInfo(n.slot).list)
+                        return p.err("'{s}#' needs a list slot", .{name});
                     if (p.peek() == '1') {
                         p.i += 1;
                         n.one = true;
@@ -1154,10 +1241,17 @@ const P = struct {
             const si = p.slotInfo(n.slot);
             if ((n.star or n.plus) and !si.list) return p.err("'{s}' is not a list slot", .{name});
             if (p.in_rep) {
-                if (!si.list) return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
-                if (n.star or n.plus) return p.err("in a repeated group, '{s}' takes one item per pass; drop the '*' or '+'", .{name});
-            } else if (!(n.star or n.plus or n.one) and si.list) return p.err("list slot '{s}' needs '*' or '+'", .{name});
-            if (si.ty == .params or si.ty == .text) return p.err("slot '{s}' cannot be captured as a single token", .{name});
+                if (!si.list)
+                    return p.err("'{s}' is in a repeated group but is not a list slot", .{name});
+                if (n.star or n.plus)
+                    return p.err(
+                        "in a repeated group, '{s}' takes one item per pass; drop the '*' or '+'",
+                        .{name},
+                    );
+            } else if (!(n.star or n.plus or n.one) and
+                si.list) return p.err("list slot '{s}' needs '*' or '+'", .{name});
+            if (si.ty == .params or si.ty == .text)
+                return p.err("slot '{s}' cannot be captured as a single token", .{name});
         }
         return n;
     }
@@ -1167,7 +1261,8 @@ const P = struct {
         const name = try p.ident();
         const slot = try p.slotOf(name);
         const si = p.slotInfo(slot);
-        if (si.ty != .value or si.list) return p.err("'#{s}' needs a value slot holding a count", .{name});
+        if (si.ty != .value or si.list)
+            return p.err("'#{s}' needs a value slot holding a count", .{name});
         return slot;
     }
 
@@ -1184,17 +1279,23 @@ const P = struct {
             if (p.startsWith("...")) {
                 p.i += 3;
                 const slot = try p.slotOf(try p.ident());
-                if (p.slotInfo(slot).ty != .params) return p.err("'...' in a bag needs a params slot", .{});
+                if (p.slotInfo(slot).ty != .params)
+                    return p.err("'...' in a bag needs a params slot", .{});
                 var flags = false;
                 if (p.peek() == '?') {
                     p.i += 1;
                     flags = true;
                 }
-                entries = try p.c.add(BagEntry, entries, .{ .slot = slot, .form = .rest, .flags = flags });
+                entries = try p.c.add(
+                    BagEntry,
+                    entries,
+                    .{ .slot = slot, .form = .rest, .flags = flags },
+                );
                 continue;
             }
             const kstart = p.i;
-            while (p.i < p.s.len and std.mem.indexOfScalar(u8, " \t=}(", p.s[p.i]) == null) p.i += 1;
+            while (p.i < p.s.len and std.mem.indexOfScalar(u8, " \t=}(", p.s[p.i]) == null)
+                p.i += 1;
             var e: BagEntry = .{ .key = try p.lit(p.s[kstart..p.i]) };
             if (p.startsWith("(*)=")) {
                 // `v(*)=slot`: entries are written `v(key)=value`.
@@ -1205,11 +1306,13 @@ const P = struct {
                     p.i += 1;
                     e.bare_pairs = true;
                 }
-                if (p.slotInfo(e.slot).ty != .params) return p.err("'key(*)=' needs a params slot", .{});
+                if (p.slotInfo(e.slot).ty != .params)
+                    return p.err("'key(*)=' needs a params slot", .{});
                 entries = try p.c.add(BagEntry, entries, e);
                 continue;
             }
-            if (e.key.len == 0 or p.peek() != '=') return p.err("expected key=slot inside '{{ }}'", .{});
+            if (e.key.len == 0 or p.peek() != '=')
+                return p.err("expected key=slot inside '{{ }}'", .{});
             p.i += 1;
             switch (p.peek()) {
                 '=' => {
@@ -1238,7 +1341,8 @@ const P = struct {
                     e.slot = try p.slotOf(try p.ident());
                     if (p.peek() != '}') return p.err("missing '}}'", .{});
                     p.i += 1;
-                    if (p.slotInfo(e.slot).ty != .params) return p.err("'{{slot}}' needs a params slot", .{});
+                    if (p.slotInfo(e.slot).ty != .params)
+                        return p.err("'{{slot}}' needs a params slot", .{});
                 },
                 '[' => {
                     p.i += 1;
@@ -1250,11 +1354,13 @@ const P = struct {
                         p.i += 1;
                         e.form = .pair;
                         e.slot2 = try p.slotOf(try p.ident());
-                        if (p.slotInfo(e.slot).list or p.slotInfo(e.slot2).list) return p.err("'[a b]' needs two slots of one value each", .{});
+                        if (p.slotInfo(e.slot).list or p.slotInfo(e.slot2).list)
+                            return p.err("'[a b]' needs two slots of one value each", .{});
                     }
                     if (p.peek() != ']') return p.err("missing ']'", .{});
                     p.i += 1;
-                    if (e.form == .vector and !p.slotInfo(e.slot).list) return p.err("'[slot]' needs a list slot", .{});
+                    if (e.form == .vector and !p.slotInfo(e.slot).list)
+                        return p.err("'[slot]' needs a list slot", .{});
                 },
                 else => {
                     e.slot = try p.slotOf(try p.ident());
@@ -1305,7 +1411,14 @@ fn canBeEmpty(items: []const Node) bool {
     return true;
 }
 
-fn pattern(c: *C, line: u32, kind: Kind, fold: bool, text: []const u8, defs: []const Def) Error![]const Node {
+fn pattern(
+    c: *C,
+    line: u32,
+    kind: Kind,
+    fold: bool,
+    text: []const u8,
+    defs: []const Def,
+) Error![]const Node {
     var p: P = .{ .s = text, .kind = kind, .fold = fold, .c = c, .line = line, .defs = defs };
     c.nodes = 0;
     const out = try p.seq();
@@ -1333,7 +1446,8 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
                 for (a[2..]) |x| cfg.tail_comments = try c.add([]const u8, cfg.tail_comments, x);
             } else if (std.mem.eql(u8, a[1], "block") and n == 3) {
                 cfg.block_comment = .{ a[2], a[3] };
-            } else return c.fail(lines.no, "comment must be 'line', 'tail' or 'block \"open\" \"close\"'", .{});
+            } else return c.fail(lines.no, "comment must be 'line', 'tail' or 'block \"open\" " ++
+                "\"close\"'", .{});
         } else if (std.mem.eql(u8, key, "continue") and n == 2) {
             if (std.mem.eql(u8, a[1], "lead")) {
                 cfg.cont_lead = a[2];
@@ -1344,7 +1458,9 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
             cfg.parens_are_space = std.mem.eql(u8, a[1], "space");
         } else if (std.mem.eql(u8, key, "expr") and n == 1 and std.mem.eql(u8, a[1], "bare")) {
             cfg.bare_expr = true;
-        } else if (std.mem.eql(u8, key, "expr") and n == 1 and std.mem.eql(u8, a[1], "after-equals")) {
+        } else if (std.mem.eql(u8, key, "expr") and n == 1 and
+            std.mem.eql(u8, a[1], "after-equals"))
+        {
             cfg.bare_after_eq = true;
         } else if (std.mem.eql(u8, key, "expr") and n == 2) {
             cfg.expr_delims = try c.add([2][]const u8, cfg.expr_delims, .{ a[1], a[2] });
@@ -1353,28 +1469,54 @@ fn parseLexer(c: *C, lines: *Lines) Error!LexCfg {
         } else if (std.mem.eql(u8, key, "quotes") and n >= 2 and std.mem.eql(u8, a[1], "\"")) {
             if (std.mem.eql(u8, a[2], "expr-in-values")) {
                 cfg.dquote_expr = true;
-            } else if (!std.mem.eql(u8, a[2], "string")) return c.fail(lines.no, "quotes '\"' takes 'string' or 'expr-in-values'", .{});
+            } else if (!std.mem.eql(u8, a[2], "string")) return c.fail(lines.no, "quotes '\"' " ++
+                "takes 'string' or 'expr-in-values'", .{});
             if (n > 2) {
-                if (n == 3 or !std.mem.eql(u8, a[3], "except")) return c.fail(lines.no, "expected `except key...` after the quote rule", .{});
-                for (a[4..]) |x| cfg.dquote_strings = try c.add([]const u8, cfg.dquote_strings, try c.foldIf(!cfg.case_sensitive, x));
+                if (n == 3 or !std.mem.eql(u8, a[3], "except"))
+                    return c.fail(lines.no, "expected `except key...` after the quote rule", .{});
+                for (a[4..]) |x|
+                    cfg.dquote_strings = try c.add(
+                        []const u8,
+                        cfg.dquote_strings,
+                        try c.foldIf(!cfg.case_sensitive, x),
+                    );
             }
         } else if (std.mem.eql(u8, key, "values") and n == 1) {
             cfg.ident_values = std.mem.eql(u8, a[1], "idents");
         } else if (std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "readscale")) {
             for (a[1..]) |pair| {
-                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "scale entries are suffix=exponent", .{});
-                const exp = std.fmt.parseInt(i32, pair[eq + 1 ..], 10) catch return c.fail(lines.no, "bad scale exponent in '{s}'", .{pair});
-                const entry: Scale = .{ .suffix = try c.foldIf(!cfg.case_sensitive, pair[0..eq]), .exp10 = exp };
+                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
+                    lines.no,
+                    "scale entries are suffix=exponent",
+                    .{},
+                );
+                const exp = std.fmt.parseInt(i32, pair[eq + 1 ..], 10) catch return c.fail(
+                    lines.no,
+                    "bad scale exponent in '{s}'",
+                    .{pair},
+                );
+                const entry: Scale = .{
+                    .suffix = try c.foldIf(!cfg.case_sensitive, pair[0..eq]),
+                    .exp10 = exp,
+                };
                 if (key[0] == 's') {
                     cfg.scales = try c.add(Scale, cfg.scales, entry);
                 } else cfg.read_scales = try c.add(Scale, cfg.read_scales, entry);
             }
         } else if (std.mem.eql(u8, key, "oddscale")) {
             for (a[1..]) |pair| {
-                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "oddscale entries are suffix=multiplier", .{});
+                const eq = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
+                    lines.no,
+                    "oddscale entries are suffix=multiplier",
+                    .{},
+                );
                 const mant, const exp = try parseDecimal(c, lines.no, pair[eq + 1 ..]);
                 const suf = try c.foldIf(!cfg.case_sensitive, pair[0..eq]);
-                cfg.odd_scales = try c.add(OddScale, cfg.odd_scales, .{ .suffix = suf, .mant = mant, .exp10 = exp });
+                cfg.odd_scales = try c.add(
+                    OddScale,
+                    cfg.odd_scales,
+                    .{ .suffix = suf, .mant = mant, .exp10 = exp },
+                );
             }
         } else if (std.mem.eql(u8, key, "numbers") and n == 1 and std.mem.eql(u8, a[1], "strict")) {
             cfg.strict_numbers = true;
@@ -1391,10 +1533,16 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
     var out: []const ModelEntry = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
-        const eq = std.mem.indexOf(u8, line, " = ") orelse return c.fail(lines.no, "model lines are `family [polarity] = spelling | spelling`", .{});
+        const eq = std.mem.indexOf(u8, line, " = ") orelse return c.fail(
+            lines.no,
+            "model lines are `family [polarity] = spelling | spelling`",
+            .{},
+        );
         const lhs = try args(c, lines.no, line[0..eq]);
-        if (lhs.len < 1 or lhs.len > 2) return c.fail(lines.no, "expected `family [polarity]` before '='", .{});
-        if (schema.familyKind(lhs[0]) == null) return c.fail(lines.no, "unknown model family '{s}'", .{lhs[0]});
+        if (lhs.len < 1 or lhs.len > 2)
+            return c.fail(lines.no, "expected `family [polarity]` before '='", .{});
+        if (schema.familyKind(lhs[0]) == null)
+            return c.fail(lines.no, "unknown model family '{s}'", .{lhs[0]});
         var spellings: []const ModelSpelling = &.{};
         var rhs = std.mem.trimEnd(u8, line[eq + 3 ..], " \t");
         const provided = std.mem.endsWith(u8, rhs, " provided");
@@ -1413,26 +1561,71 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
                 }
                 if (conds) {
                     const ge = std.mem.indexOf(u8, pair, ">=");
-                    const pe = ge orelse (std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "expected key=value or nodes>=n after `when` in '{s}'", .{pair}));
+                    const pe = ge orelse (std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
+                        lines.no,
+                        "expected key=value or nodes>=n after `when` in '{s}'",
+                        .{pair},
+                    ));
                     const key = pair[0..pe];
                     const val = pair[pe + @as(usize, if (ge != null) 2 else 1) ..];
-                    if (val.len == 0 or !isNumber(val)) return c.fail(lines.no, "a `when` value is a number: '{s}'", .{pair});
-                    if (ge != null and !std.mem.eql(u8, key, "nodes")) return c.fail(lines.no, "only `nodes>=n` compares; a parameter is `key=value`: '{s}'", .{pair});
-                    when = try c.add(ModelWhen, when, .{ .key = try c.foldIf(fold, key), .val = val, .ge = ge != null });
+                    if (val.len == 0 or !isNumber(val))
+                        return c.fail(lines.no, "a `when` value is a number: '{s}'", .{pair});
+                    if (ge != null and !std.mem.eql(u8, key, "nodes"))
+                        return c.fail(
+                            lines.no,
+                            "only `nodes>=n` compares; a parameter is `key=value`: '{s}'",
+                            .{pair},
+                        );
+                    when = try c.add(
+                        ModelWhen,
+                        when,
+                        .{ .key = try c.foldIf(fold, key), .val = val, .ge = ge != null },
+                    );
                     continue;
                 }
                 if (pair[0] == '!') {
-                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true });
+                    kv = try c.add(
+                        ModelKv,
+                        kv,
+                        .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true },
+                    );
                 } else if (std.mem.indexOf(u8, pair, ">=")) |ge| {
-                    if (!isNumber(pair[ge + 2 ..])) return c.fail(lines.no, "`key>=n` takes a number: '{s}'", .{pair});
-                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..ge]), .val = pair[ge + 2 ..], .absent = false, .min = true });
+                    if (!isNumber(pair[ge + 2 ..]))
+                        return c.fail(lines.no, "`key>=n` takes a number: '{s}'", .{pair});
+                    kv = try c.add(
+                        ModelKv,
+                        kv,
+                        .{
+                            .key = try c.foldIf(fold, pair[0..ge]),
+                            .val = pair[ge + 2 ..],
+                            .absent = false,
+                            .min = true,
+                        },
+                    );
                 } else {
-                    const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(lines.no, "expected key=value or !key in '{s}'", .{pair});
-                    kv = try c.add(ModelKv, kv, .{ .key = try c.foldIf(fold, pair[0..pe]), .val = pair[pe + 1 ..], .absent = false });
+                    const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
+                        lines.no,
+                        "expected key=value or !key in '{s}'",
+                        .{pair},
+                    );
+                    kv = try c.add(
+                        ModelKv,
+                        kv,
+                        .{
+                            .key = try c.foldIf(fold, pair[0..pe]),
+                            .val = pair[pe + 1 ..],
+                            .absent = false,
+                        },
+                    );
                 }
             }
-            if (conds and when.len == 0) return c.fail(lines.no, "`when` with no condition after it", .{});
-            spellings = try c.add(ModelSpelling, spellings, .{ .type = try c.foldIf(fold, w[0]), .kv = kv, .when = when });
+            if (conds and when.len == 0)
+                return c.fail(lines.no, "`when` with no condition after it", .{});
+            spellings = try c.add(
+                ModelSpelling,
+                spellings,
+                .{ .type = try c.foldIf(fold, w[0]), .kv = kv, .when = when },
+            );
         }
         out = try c.add(ModelEntry, out, .{
             .family = lhs[0],
@@ -1446,7 +1639,13 @@ fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
 
 /// `known` null: any name goes (instance parameters), and `name>0` marks
 /// one that must be positive.
-fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]const []const u8) Error![]const Spellings {
+fn parseSpellings(
+    c: *C,
+    lines: *Lines,
+    fold: bool,
+    what: []const u8,
+    known: ?[]const []const u8,
+) Error![]const Spellings {
     var out: []const Spellings = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
@@ -1458,13 +1657,15 @@ fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]
         } else {
             names = a[0..1];
             const from: usize = if (a.len > 1 and std.mem.eql(u8, a[1], "=")) 2 else 1;
-            if (a.len <= from) return c.fail(lines.no, "expected `name = spelling ...` or `same name ...`", .{});
+            if (a.len <= from)
+                return c.fail(lines.no, "expected `name = spelling ...` or `same name ...`", .{});
             spell = a[from..];
         }
         // `canon = spelling / 2` (a `modelparams` table).
         const halved = known == null and spell.len == 3 and std.mem.eql(u8, spell[1], "/");
         if (halved) {
-            if (!std.mem.eql(u8, spell[2], "2")) return c.fail(lines.no, "a {s} is halved or not: `name = spelling / 2`", .{what});
+            if (!std.mem.eql(u8, spell[2], "2"))
+                return c.fail(lines.no, "a {s} is halved or not: `name = spelling / 2`", .{what});
             spell = spell[0..1];
         }
         for (names) |raw| {
@@ -1480,7 +1681,11 @@ fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8, known: ?[]
             var sp: []const []const u8 = &.{};
             if (spell.len == 0) sp = try c.add([]const u8, sp, try c.foldIf(fold, n));
             for (spell) |x| sp = try c.add([]const u8, sp, try c.foldIf(fold, x));
-            out = try c.add(Spellings, out, .{ .canon = n, .spellings = sp, .positive = positive, .halved = halved });
+            out = try c.add(
+                Spellings,
+                out,
+                .{ .canon = n, .spellings = sp, .positive = positive, .halved = halved },
+            );
         }
     }
     return c.fail(lines.no, "{s} section is missing 'end'", .{what});
@@ -1491,7 +1696,8 @@ fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm {
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
         const a = try args(c, lines.no, line);
-        if (a.len != 3 or !std.mem.eql(u8, a[1], "=")) return c.fail(lines.no, "signal lines are `form = \"template\"`", .{});
+        if (a.len != 3 or !std.mem.eql(u8, a[1], "="))
+            return c.fail(lines.no, "signal lines are `form = \"template\"`", .{});
         var ok = false;
         for (schema.signal_forms) |k| {
             if (std.mem.eql(u8, k, a[0])) ok = true;
@@ -1502,14 +1708,27 @@ fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm {
     return c.fail(lines.no, "signals section is missing 'end'", .{});
 }
 
-fn kindSlot(c: *C, line: u32, kind_name: []const u8, slot_name: []const u8) Error!struct { Kind, u8 } {
+fn kindSlot(
+    c: *C,
+    line: u32,
+    kind_name: []const u8,
+    slot_name: []const u8,
+) Error!struct { Kind, u8 } {
     const kind = try kindOf(c, line, kind_name);
-    const slot = schema.slotIndex(kind, slot_name) orelse return c.fail(line, "unknown slot '{s}' for kind '{s}'", .{ slot_name, kind_name });
+    const slot = schema.slotIndex(kind, slot_name) orelse return c.fail(
+        line,
+        "unknown slot '{s}' for kind '{s}'",
+        .{ slot_name, kind_name },
+    );
     return .{ kind, slot };
 }
 
 fn dotted(c: *C, line: u32, text: []const u8) Error!struct { Kind, u8 } {
-    const dot = std.mem.indexOfScalar(u8, text, '.') orelse return c.fail(line, "expected kind.slot, found '{s}'", .{text});
+    const dot = std.mem.indexOfScalar(u8, text, '.') orelse return c.fail(
+        line,
+        "expected kind.slot, found '{s}'",
+        .{text},
+    );
     return kindSlot(c, line, text[0..dot], text[dot + 1 ..]);
 }
 
@@ -1593,7 +1812,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (!have_lexer) {
             return c.fail(no, "the lexer section must come before `{s}`", .{head});
         } else if (std.mem.eql(u8, head, "preamble")) {
-            if (std.mem.startsWith(u8, rest, "unless ")) preamble_unless = try kindOf(c, no, rest["unless ".len..]);
+            if (std.mem.startsWith(u8, rest, "unless "))
+                preamble_unless = try kindOf(c, no, rest["unless ".len..]);
             preamble = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "header")) {
             if (std.mem.eql(u8, rest, "folded")) {
@@ -1603,29 +1823,60 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             } else header = try literalLines(c, &lines);
         } else if (std.mem.eql(u8, head, "needs")) {
             if (schema.kindFromName(rest) == null and schema.familyKind(rest) != null) {
-                needs = try c.add(Needs, needs, .{ .kind = .model, .family = rest, .lines = try literalLines(c, &lines) });
+                needs = try c.add(
+                    Needs,
+                    needs,
+                    .{ .kind = .model, .family = rest, .lines = try literalLines(c, &lines) },
+                );
             } else {
                 const kind = try kindOf(c, no, rest);
-                needs = try c.add(Needs, needs, .{ .kind = kind, .lines = try literalLines(c, &lines) });
+                needs = try c.add(
+                    Needs,
+                    needs,
+                    .{ .kind = kind, .lines = try literalLines(c, &lines) },
+                );
             }
         } else if (std.mem.eql(u8, head, "wrap")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "wrap is `wrap \"open\" \"close\" : kind ...`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "wrap is `wrap \"open\" \"close\" : kind ...`",
+                .{},
+            );
             const lits = try args(c, no, rest[0..colon]);
-            if (lits.len != 2) return c.fail(no, "wrap needs an opening and a closing literal", .{});
+            if (lits.len != 2)
+                return c.fail(no, "wrap needs an opening and a closing literal", .{});
             var kinds: []const Kind = &.{};
-            for (try args(c, no, rest[colon + 3 ..])) |k| kinds = try c.add(Kind, kinds, try kindOf(c, no, k));
+            for (try args(c, no, rest[colon + 3 ..])) |k|
+                kinds = try c.add(Kind, kinds, try kindOf(c, no, k));
             wraps = try c.add(Wrap, wraps, .{
                 .open = try c.foldIf(fold, lits[0]),
                 .close = try c.foldIf(fold, lits[1]),
                 .kinds = kinds,
             });
         } else if (std.mem.eql(u8, head, "own")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "own is `own \"word\"... : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "own is `own \"word\"... : reason`",
+                .{},
+            );
             var words = try args(c, no, rest[0..colon]);
-            const model = words.len > 1 and std.mem.eql(u8, words[0], "model") and !std.mem.startsWith(u8, rest, "\"");
+            const model = words.len > 1 and std.mem.eql(
+                u8,
+                words[0],
+                "model",
+            ) and !std.mem.startsWith(u8, rest, "\"");
             if (model) words = words[1..];
             if (words.len == 0) return c.fail(no, "own needs a word", .{});
-            for (words) |wd| owns = try c.add(Own, owns, .{ .word = try c.foldIf(fold, wd), .reason = rest[colon + 3 ..], .model = model });
+            for (words) |wd|
+                owns = try c.add(
+                    Own,
+                    owns,
+                    .{
+                        .word = try c.foldIf(fold, wd),
+                        .reason = rest[colon + 3 ..],
+                        .model = model,
+                    },
+                );
         } else if (std.mem.eql(u8, head, "raw")) {
             const colon = std.mem.indexOf(u8, rest, " : ");
             var lits = try args(c, no, if (colon) |k| rest[0..k] else rest);
@@ -1634,7 +1885,8 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 as_kind = try kindOf(c, no, lits[3]);
                 lits = lits[0..2];
             }
-            if (lits.len != 2) return c.fail(no, "raw is `raw \"open\" \"close\" [as kind] [: reason]`", .{});
+            if (lits.len != 2)
+                return c.fail(no, "raw is `raw \"open\" \"close\" [as kind] [: reason]`", .{});
             raws = try c.add(RawBlock, raws, .{
                 .open = try c.foldIf(fold, lits[0]),
                 .close = try c.foldIf(fold, lits[1]),
@@ -1648,7 +1900,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var inner: []const []const Node = &.{};
             var closed = false;
             while (true) {
-                const bl = lines.next() orelse return c.fail(lines.no, "block is missing 'end'", .{});
+                const bl = lines.next() orelse return c.fail(
+                    lines.no,
+                    "block is missing 'end'",
+                    .{},
+                );
                 if (std.mem.eql(u8, bl, "end")) break;
                 if (std.mem.eql(u8, bl, "closed")) {
                     closed = true;
@@ -1664,11 +1920,23 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     inner = try c.add([]const Node, inner, pat);
                 } else return c.fail(lines.no, "expected open, inner, close, closed or end", .{});
             }
-            if (open.len == 0 or close.len == 0) return c.fail(lines.no, "block needs both open and close", .{});
-            if (closed and close[0].tag != .lit) return c.fail(lines.no, "a closed block's close starts with a word", .{});
-            blocks = try c.add(Block, blocks, .{ .kind = kind, .open = open, .inner = inner, .close = close, .closed = closed });
-        } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or std.mem.eql(u8, head, "write")) {
-            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `{s} kind = pattern`", .{head});
+            if (open.len == 0 or close.len == 0)
+                return c.fail(lines.no, "block needs both open and close", .{});
+            if (closed and close[0].tag != .lit)
+                return c.fail(lines.no, "a closed block's close starts with a word", .{});
+            blocks = try c.add(
+                Block,
+                blocks,
+                .{ .kind = kind, .open = open, .inner = inner, .close = close, .closed = closed },
+            );
+        } else if (std.mem.eql(u8, head, "rule") or std.mem.eql(u8, head, "read") or
+            std.mem.eql(u8, head, "write"))
+        {
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(
+                no,
+                "expected `{s} kind = pattern`",
+                .{head},
+            );
             var kname = std.mem.trim(u8, rest[0..eq], " \t");
             var within: ?Kind = null;
             if (std.mem.indexOfScalar(u8, kname, '@')) |at| {
@@ -1683,10 +1951,18 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             }
             const kind = try kindOf(c, no, kname);
             if (family.len > 0) {
-                if (schema.familyKind(family) == null) return c.fail(no, "unknown model family '{s}'", .{family});
-                if (schema.slotOf(kind, "master") == null) return c.fail(no, "'{s}' names no model, so it cannot depend on a family", .{kname});
+                if (schema.familyKind(family) == null)
+                    return c.fail(no, "unknown model family '{s}'", .{family});
+                if (schema.slotOf(kind, "master") == null)
+                    return c.fail(
+                        no,
+                        "'{s}' names no model, so it cannot depend on a family",
+                        .{kname},
+                    );
             }
-            const dir: Dir = if (head[0] == 'r' and head[1] == 'u') .both else if (head[0] == 'r') .read else .write;
+            const dir: Dir = if (head[0] == 'r' and head[1] == 'u')
+                .both
+            else if (head[0] == 'r') .read else .write;
             rules = try c.add(Rule, rules, .{
                 .kind = kind,
                 .dir = dir,
@@ -1695,50 +1971,113 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .within = within,
             });
         } else if (std.mem.eql(u8, head, "define")) {
-            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "expected `define name = pattern`", .{});
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(
+                no,
+                "expected `define name = pattern`",
+                .{},
+            );
             const dname = std.mem.trim(u8, rest[0..eq], " \t");
-            for (defs) |d| if (std.mem.eql(u8, d.name, dname)) return c.fail(no, "`{s}` is already defined", .{dname});
+            for (defs) |d|
+                if (std.mem.eql(u8, d.name, dname))
+                    return c.fail(no, "`{s}` is already defined", .{dname});
             defs = try c.add(Def, defs, .{ .name = dname, .text = rest[eq + 3 ..] });
         } else if (std.mem.eql(u8, head, "caveat")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "caveat is `caveat kind slot : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "caveat is `caveat kind slot : text`",
+                .{},
+            );
             const all = try args(c, no, rest[0..colon]);
             const read = all.len > 0 and std.mem.eql(u8, all[0], "read");
             const ks = all[@intFromBool(read)..];
             if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
             const star = std.mem.indexOf(u8, ks[1], "=*");
-            const kind, const slot = try kindSlot(c, no, ks[0], if (star) |k| ks[1][0..k] else ks[1]);
-            caveats = try c.add(Caveat, caveats, .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k| ks[1][k + 2 ..] else "", .read = read });
+            const kind, const slot = try kindSlot(c, no, ks[0], if (star) |k|
+                ks[1][0..k]
+            else
+                ks[1]);
+            caveats = try c.add(
+                Caveat,
+                caveats,
+                .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k|
+                    ks[1][k + 2 ..]
+                else
+                    "", .read = read },
+            );
         } else if (std.mem.eql(u8, head, "inert")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "inert is `inert kind key : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "inert is `inert kind key : text`",
+                .{},
+            );
             const e = try args(c, no, rest[0..colon]);
             if (e.len != 2) return c.fail(no, "inert needs a kind and a parameter", .{});
-            inerts = try c.add(Inert, inerts, .{ .kind = try kindOf(c, no, e[0]), .key = e[1], .text = rest[colon + 3 ..] });
+            inerts = try c.add(
+                Inert,
+                inerts,
+                .{ .kind = try kindOf(c, no, e[0]), .key = e[1], .text = rest[colon + 3 ..] },
+            );
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))
                 return c.fail(no, "threshold is `threshold family : on off = mid half`", .{});
-            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
-            thresholds = try c.add(Threshold, thresholds, .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] });
+            if (schema.familyKind(e[0]) == null)
+                return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            thresholds = try c.add(
+                Threshold,
+                thresholds,
+                .{ .family = e[0], .on = e[2], .off = e[3], .mid = e[5], .half = e[6] },
+            );
         } else if (std.mem.eql(u8, head, "computes")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "computes is `computes family key... : formula`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "computes is `computes family key... : formula`",
+                .{},
+            );
             const e = try args(c, no, rest[0..colon]);
             if (e.len < 2) return c.fail(no, "computes needs a model family and a parameter", .{});
-            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
-            computes = try c.add(Computes, computes, .{ .family = e[0], .keys = e[1..], .text = rest[colon + 3 ..] });
+            if (schema.familyKind(e[0]) == null)
+                return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            computes = try c.add(
+                Computes,
+                computes,
+                .{ .family = e[0], .keys = e[1..], .text = rest[colon + 3 ..] },
+            );
         } else if (std.mem.eql(u8, head, "edge")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "edge is `edge family key : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "edge is `edge family key : text`",
+                .{},
+            );
             const e = try args(c, no, rest[0..colon]);
             if (e.len != 2) return c.fail(no, "edge needs a model family and a parameter", .{});
-            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
-            edges = try c.add(Edge, edges, .{ .family = e[0], .key = e[1], .text = rest[colon + 3 ..] });
+            if (schema.familyKind(e[0]) == null)
+                return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            edges = try c.add(
+                Edge,
+                edges,
+                .{ .family = e[0], .key = e[1], .text = rest[colon + 3 ..] },
+            );
         } else if (std.mem.eql(u8, head, "noparam")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "noparam is `noparam family key[=value] warning|error : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "noparam is `noparam family key[=value] warning|error : text`",
+                .{},
+            );
             const e = try args(c, no, rest[0..colon]);
-            if (e.len != 3) return c.fail(no, "noparam needs a model family, a parameter and a severity", .{});
-            if (!(std.mem.eql(u8, e[2], "error") or std.mem.eql(u8, e[2], "warning"))) return c.fail(no, "noparam severity is warning or error, not '{s}'", .{e[2]});
-            if (schema.familyKind(e[0]) == null) return c.fail(no, "unknown model family '{s}'", .{e[0]});
+            if (e.len != 3)
+                return c.fail(no, "noparam needs a model family, a parameter and a severity", .{});
+            if (!(std.mem.eql(u8, e[2], "error") or std.mem.eql(u8, e[2], "warning")))
+                return c.fail(no, "noparam severity is warning or error, not '{s}'", .{e[2]});
+            if (schema.familyKind(e[0]) == null)
+                return c.fail(no, "unknown model family '{s}'", .{e[0]});
             const eq = std.mem.indexOfScalar(u8, e[1], '=') orelse e[1].len;
-            if (eq < e[1].len) _ = std.fmt.parseFloat(f64, e[1][eq + 1 ..]) catch return c.fail(no, "noparam takes a plain number after '='", .{});
+            if (eq < e[1].len)
+                _ = std.fmt.parseFloat(f64, e[1][eq + 1 ..]) catch return c.fail(
+                    no,
+                    "noparam takes a plain number after '='",
+                    .{},
+                );
             noparams = try c.add(NoParam, noparams, .{
                 .family = e[0],
                 .key = e[1][0..eq],
@@ -1747,25 +2086,43 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .text = rest[colon + 3 ..],
             });
         } else if (std.mem.eql(u8, head, "convert")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "convert is `convert kind [slot=atom] : a = b [op c]`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "convert is `convert kind [slot=atom] : a = b [op c]`",
+                .{},
+            );
             const ks = try args(c, no, rest[0..colon]);
-            if (ks.len < 1 or ks.len > 2) return c.fail(no, "convert needs a kind and at most one condition", .{});
+            if (ks.len < 1 or ks.len > 2)
+                return c.fail(no, "convert needs a kind and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
             var cv: Convert = .{ .kind = kind, .dst = 0, .src = 0 };
             var eq: ?[2]u8 = null;
             if (ks.len == 2) {
                 if (std.mem.indexOf(u8, ks[1], "==")) |at| {
-                    eq = .{ try slotNamed(c, no, kind, ks[1][0..at]), try slotNamed(c, no, kind, ks[1][at + 2 ..]) };
+                    eq = .{
+                        try slotNamed(c, no, kind, ks[1][0..at]),
+                        try slotNamed(c, no, kind, ks[1][at + 2 ..]),
+                    };
                 } else cv.when_slot, cv.when_atom = try condition(c, no, kind, ks[1]);
             }
             const e = try args(c, no, rest[colon + 3 ..]);
-            if (e.len < 3 or !std.mem.eql(u8, e[1], "=")) return c.fail(no, "expected `a = b [op c]` after ':'", .{});
+            if (e.len < 3 or !std.mem.eql(u8, e[1], "="))
+                return c.fail(no, "expected `a = b [op c]` after ':'", .{});
             cv.dst = try slotNamed(c, no, kind, e[0]);
             if (eq) |pair| {
-                const inner = if (e.len == 3 and e[2].len > 2 and e[2][0] == '[' and e[2][e[2].len - 1] == ']') e[2][1 .. e[2].len - 1] else "";
-                if (inner.len == 0 or !std.mem.eql(u8, inner, ks[1][0..std.mem.indexOf(u8, ks[1], "==").?]))
+                const inner = if (e.len == 3 and e[2].len > 2 and e[2][0] == '[' and
+                    e[2][e[2].len - 1] == ']')
+                    e[2][1 .. e[2].len - 1]
+                else
+                    "";
+                if (inner.len == 0 or !std.mem.eql(
+                    u8,
+                    inner,
+                    ks[1][0..std.mem.indexOf(u8, ks[1], "==").?],
+                ))
                     return c.fail(no, "with `a==b` the conversion is `l = [a]`", .{});
-                if (!schema.info(kind).slots[cv.dst].list) return c.fail(no, "`l = [a]` needs a list slot", .{});
+                if (!schema.info(kind).slots[cv.dst].list)
+                    return c.fail(no, "`l = [a]` needs a list slot", .{});
                 cv.op = .wrap;
                 cv.src = pair[0];
                 cv.when_eq = pair[1];
@@ -1774,8 +2131,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             } else if (e.len == 5 and std.mem.eql(u8, e[2], "1") and std.mem.eql(u8, e[3], "/")) {
                 cv.op = .recip;
                 cv.src = try slotNamed(c, no, kind, e[4]);
-                if (cv.src != cv.dst) return c.fail(no, "`a = 1 / b` needs a and b to be the same slot", .{});
-            } else if (e.len == 5 and e[3].len == 1 and std.mem.indexOfScalar(u8, "-+*/", e[3][0]) != null) {
+                if (cv.src != cv.dst)
+                    return c.fail(no, "`a = 1 / b` needs a and b to be the same slot", .{});
+            } else if (e.len == 5 and e[3].len == 1 and
+                std.mem.indexOfScalar(u8, "-+*/", e[3][0]) != null)
+            {
                 cv.op = switch (e[3][0]) {
                     '-' => .sub,
                     '+' => .add,
@@ -1783,46 +2143,78 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     else => .div,
                 };
                 cv.src = try slotNamed(c, no, kind, e[2]);
-                if (cv.src != cv.dst) return c.fail(no, "`a = b - c` needs a and b to be the same slot", .{});
+                if (cv.src != cv.dst)
+                    return c.fail(no, "`a = b - c` needs a and b to be the same slot", .{});
                 if (schema.slotIndex(kind, e[4])) |si| {
                     cv.arg_slot = si;
                 } else {
                     _ = try parseDecimal(c, no, e[4]);
                     cv.arg_num = e[4];
                 }
-            } else return c.fail(no, "expected `a = b`, `a = a - c`, `a = a + c`, `a = a * c`, `a = a / c` or `a = 1 / a`", .{});
+            } else return c.fail(no, "expected `a = b`, `a = a - c`, `a = a + c`, `a = a * " ++
+                "c`, `a = a / c` or `a = 1 / a`", .{});
             converts = try c.add(Convert, converts, cv);
         } else if (std.mem.eql(u8, head, "invalid")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "invalid is `invalid kind slot[=0] [slot=atom] : text`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "invalid is `invalid kind slot[=0] [slot=atom] : text`",
+                .{},
+            );
             const ks = try args(c, no, rest[0..colon]);
-            if (ks.len < 2 or ks.len > 3) return c.fail(no, "invalid needs a kind, a slot and at most one condition", .{});
+            if (ks.len < 2 or ks.len > 3)
+                return c.fail(no, "invalid needs a kind, a slot and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
             const zero = std.mem.endsWith(u8, ks[1], "=0");
             const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
-            var ck: Check = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .text = rest[colon + 3 ..] };
+            var ck: Check = .{
+                .kind = kind,
+                .slot = try slotNamed(c, no, kind, sname),
+                .zero = zero,
+                .text = rest[colon + 3 ..],
+            };
             if (ks.len == 3) ck.when_slot, ck.when_atom = try condition(c, no, kind, ks[2]);
             checks = try c.add(Check, checks, ck);
         } else if (std.mem.eql(u8, head, "default")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "default is `default kind slot[=0] [slot=atom] : kind.slot`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "default is `default kind slot[=0] [slot=atom] : kind.slot`",
+                .{},
+            );
             const ks = try args(c, no, rest[0..colon]);
-            if (ks.len < 2 or ks.len > 3) return c.fail(no, "default needs a kind, a slot and at most one condition", .{});
+            if (ks.len < 2 or ks.len > 3)
+                return c.fail(no, "default needs a kind, a slot and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
             const zero = std.mem.endsWith(u8, ks[1], "=0");
             const sname = if (zero) ks[1][0 .. ks[1].len - 2] else ks[1];
             const to = try args(c, no, rest[colon + 3 ..]);
             if (to.len != 1) return c.fail(no, "default takes one `kind.slot`", .{});
             const fk, const fs = try dotted(c, no, to[0]);
-            var f: Fill = .{ .kind = kind, .slot = try slotNamed(c, no, kind, sname), .zero = zero, .from = fk, .from_slot = fs };
+            var f: Fill = .{
+                .kind = kind,
+                .slot = try slotNamed(c, no, kind, sname),
+                .zero = zero,
+                .from = fk,
+                .from_slot = fs,
+            };
             if (ks.len == 3) f.when_slot, f.when_atom = try condition(c, no, kind, ks[2]);
             fills = try c.add(Fill, fills, f);
         } else if (std.mem.eql(u8, head, "omitted")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "omitted is `omitted kind slot[=0] [slot=atom] : formula [given slot] [zero value]`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "omitted is `omitted kind slot[=0] [slot=atom] : formula [given slot] [zero " ++
+                    "value]`",
+                .{},
+            );
             const ks = try args(c, no, rest[0..colon]);
-            if (ks.len < 2 or ks.len > 3) return c.fail(no, "omitted needs a kind, a slot and at most one condition", .{});
+            if (ks.len < 2 or ks.len > 3)
+                return c.fail(no, "omitted needs a kind, a slot and at most one condition", .{});
             const kind = try kindOf(c, no, ks[0]);
             const zero = std.mem.endsWith(u8, ks[1], "=0");
             var text = std.mem.trim(u8, rest[colon + 3 ..], " \t");
-            var o: Omitted = .{ .kind = kind, .slot = try slotNamed(c, no, kind, if (zero) ks[1][0 .. ks[1].len - 2] else ks[1]), .zero = zero, .text = "", .terms = &.{} };
+            var o: Omitted = .{ .kind = kind, .slot = try slotNamed(c, no, kind, if (zero)
+                ks[1][0 .. ks[1].len - 2]
+            else
+                ks[1]), .zero = zero, .text = "", .terms = &.{} };
             if (ks.len == 3) o.when_slot, o.when_atom = try condition(c, no, kind, ks[2]);
             if (std.mem.lastIndexOf(u8, text, " zero ")) |at| {
                 if (!zero) return c.fail(no, "`zero value` needs the slot written `slot=0`", .{});
@@ -1837,14 +2229,22 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const f = try args(c, no, text);
             // Read left to right, so two operators need the first in
             // parentheses: `a`, `a + b`, `(a - b) / c`.
-            if (f.len != 1 and f.len != 3 and f.len != 5) return c.fail(no, "an omitted formula is `a`, `a + b` or `(a - b) / c`", .{});
+            if (f.len != 1 and f.len != 3 and f.len != 5)
+                return c.fail(no, "an omitted formula is `a`, `a + b` or `(a - b) / c`", .{});
             for (f, 0..) |tok, i| {
                 var t = tok;
                 if (f.len == 5 and i == 0 and t[0] == '(') t = t[1..];
                 if (f.len == 5 and i == 2 and t[t.len - 1] == ')') t = t[0 .. t.len - 1];
-                if (f.len == 5 and (i == 0 or i == 2) and t.len == tok.len) return c.fail(no, "an omitted formula with two operators is `(a - b) / c`", .{});
+                if (f.len == 5 and (i == 0 or i == 2) and t.len == tok.len)
+                    return c.fail(
+                        no,
+                        "an omitted formula with two operators is `(a - b) / c`",
+                        .{},
+                    );
                 const term: Omitted.Term = if (i % 2 == 1)
-                    .{ .op = if (t.len != 1) return c.fail(no, "expected + - * or /, found '{s}'", .{t}) else switch (t[0]) {
+                    .{ .op = if (t.len != 1)
+                        return c.fail(no, "expected + - * or /, found '{s}'", .{t})
+                    else switch (t[0]) {
                         '+' => .add,
                         '-' => .sub,
                         '*' => .mul,
@@ -1852,7 +2252,11 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                         else => return c.fail(no, "expected + - * or /, found '{s}'", .{t}),
                     } }
                 else if (t.len > 0 and std.ascii.isDigit(t[0]))
-                    .{ .num = if (std.mem.indexOfNone(u8, t, "0123456789") == null) t else return c.fail(no, "a number in an omitted formula is a whole one, found '{s}'", .{t}) }
+                    .{ .num = if (std.mem.indexOfNone(u8, t, "0123456789") == null)
+                        t
+                    else
+                        return c.fail(no, "a number in an omitted formula is a whole one, " ++
+                            "found '{s}'", .{t}) }
                 else if (std.mem.indexOfScalar(u8, t, '.') != null) first: {
                     const fk, const fs = try dotted(c, no, t);
                     break :first .{ .first = .{ .kind = fk, .slot = fs } };
@@ -1866,10 +2270,15 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             }
             omitted = try c.add(Omitted, omitted, o);
         } else if (std.mem.eql(u8, head, "libsections")) {
-            if (!std.mem.startsWith(u8, rest, "opened : ")) return c.fail(no, "libsections is `libsections opened : reason`", .{});
+            if (!std.mem.startsWith(u8, rest, "opened : "))
+                return c.fail(no, "libsections is `libsections opened : reason`", .{});
             libsections_opened = rest["opened : ".len..];
         } else if (std.mem.eql(u8, head, "unique")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "unique is `unique param|master|analysis kind... [beside kind] : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "unique is `unique param|master|analysis kind... [beside kind] : reason`",
+                .{},
+            );
             const what = std.mem.trim(u8, rest[0..colon], " \t");
             if (std.mem.eql(u8, what, "param")) {
                 unique_param = rest[colon + 3 ..];
@@ -1881,7 +2290,12 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 while (it.next()) |word| {
                     const beside = std.mem.eql(u8, word, "beside");
                     const k = try kindOf(c, no, if (beside) it.next() orelse "" else word);
-                    if (schema.info(k).class != .analysis) return c.fail(no, "unique analysis: '{s}' is not an analysis", .{@tagName(k)});
+                    if (schema.info(k).class != .analysis)
+                        return c.fail(
+                            no,
+                            "unique analysis: '{s}' is not an analysis",
+                            .{@tagName(k)},
+                        );
                     if (beside) u.beside = k;
                     u.kinds = try c.add(Kind, u.kinds, k);
                 }
@@ -1889,40 +2303,65 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             } else return c.fail(no, "unique takes param, master or analysis, not '{s}'", .{what});
         } else if (std.mem.eql(u8, head, "hoist")) {
             const a = try args(c, no, rest);
-            if (a.len < 3 or !std.mem.eql(u8, a[0], "param") or !std.mem.eql(u8, a[1], "from")) return c.fail(no, "hoist is `hoist param from dialect...`", .{});
+            if (a.len < 3 or !std.mem.eql(u8, a[0], "param") or !std.mem.eql(u8, a[1], "from"))
+                return c.fail(no, "hoist is `hoist param from dialect...`", .{});
             hoist_param = a[2..];
         } else if (std.mem.eql(u8, head, "models")) {
             models = try parseModels(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "implied")) {
             const a = try args(c, no, rest);
-            if (a.len < 4 or a.len > 5 or !std.mem.eql(u8, a[2], "=")) return c.fail(no, "implied is `implied kind slot = value [slot=atom]`", .{});
+            if (a.len < 4 or a.len > 5 or !std.mem.eql(u8, a[2], "="))
+                return c.fail(no, "implied is `implied kind slot = value [slot=atom]`", .{});
             const kind, const slot = try kindSlot(c, no, a[0], a[1]);
             var im: Implied = .{ .kind = kind, .slot = slot, .text = a[3] };
             if (a.len == 5) im.when_slot, im.when_atom = try condition(c, no, kind, a[4]);
             implied = try c.add(Implied, implied, im);
         } else if (std.mem.eql(u8, head, "enum")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "enum is `enum kind slot : canonical=spelling ...`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "enum is `enum kind slot : canonical=spelling ...`",
+                .{},
+            );
             const ks = try args(c, no, rest[0..colon]);
             if (ks.len != 2) return c.fail(no, "enum needs a kind and a slot", .{});
             const kind, const slot = try kindSlot(c, no, ks[0], ks[1]);
-            if (schema.info(kind).slots[slot].ty != .atom) return c.fail(no, "enum needs an atom slot", .{});
+            if (schema.info(kind).slots[slot].ty != .atom)
+                return c.fail(no, "enum needs an atom slot", .{});
             var pairs: []const EnumPair = &.{};
             for (try args(c, no, rest[colon + 3 ..])) |pair| {
-                const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(no, "expected canonical=spelling in '{s}'", .{pair});
-                pairs = try c.add(EnumPair, pairs, .{ .canon = pair[0..pe], .spelling = try c.foldIf(fold, pair[pe + 1 ..]) });
+                const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
+                    no,
+                    "expected canonical=spelling in '{s}'",
+                    .{pair},
+                );
+                pairs = try c.add(
+                    EnumPair,
+                    pairs,
+                    .{ .canon = pair[0..pe], .spelling = try c.foldIf(fold, pair[pe + 1 ..]) },
+                );
             }
             enums = try c.add(EnumMap, enums, .{ .kind = kind, .slot = slot, .pairs = pairs });
         } else if (std.mem.eql(u8, head, "move")) {
             const a = try args(c, no, rest);
             const oneway = a.len == 4 and std.mem.eql(u8, a[3], "oneway");
-            if ((a.len != 3 and !oneway) or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "move is `move kind.slot -> kind.slot [oneway]`", .{});
+            if ((a.len != 3 and !oneway) or !std.mem.eql(u8, a[1], "->"))
+                return c.fail(no, "move is `move kind.slot -> kind.slot [oneway]`", .{});
             const fk, const fs = try dotted(c, no, a[0]);
             const tk, const ts = try dotted(c, no, a[2]);
-            moves = try c.add(Move, moves, .{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts, .oneway = oneway });
+            moves = try c.add(
+                Move,
+                moves,
+                .{ .from = fk, .from_slot = fs, .to = tk, .to_slot = ts, .oneway = oneway },
+            );
         } else if (std.mem.eql(u8, head, "merge")) {
             const a = try args(c, no, rest);
-            if (a.len != 3 or !std.mem.eql(u8, a[1], "->")) return c.fail(no, "merge is `merge kind -> kind`", .{});
-            merges = try c.add(Merge, merges, .{ .from = try kindOf(c, no, a[0]), .into = try kindOf(c, no, a[2]) });
+            if (a.len != 3 or !std.mem.eql(u8, a[1], "->"))
+                return c.fail(no, "merge is `merge kind -> kind`", .{});
+            merges = try c.add(
+                Merge,
+                merges,
+                .{ .from = try kindOf(c, no, a[0]), .into = try kindOf(c, no, a[2]) },
+            );
         } else if (std.mem.eql(u8, head, "signals")) {
             signals = try parseSignals(c, &lines, fold);
         } else if (std.mem.eql(u8, head, "functions")) {
@@ -1933,15 +2372,33 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
         } else if (std.mem.eql(u8, head, "params")) {
             const kind = try kindOf(c, no, rest);
-            if (schema.slotOf(kind, "params") == null) return c.fail(no, "params needs a kind with parameters", .{});
-            params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
+            if (schema.slotOf(kind, "params") == null)
+                return c.fail(no, "params needs a kind with parameters", .{});
+            params = try c.add(
+                ParamTable,
+                params,
+                .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) },
+            );
         } else if (std.mem.eql(u8, head, "modelparams")) {
             const only = std.mem.endsWith(u8, rest, " only");
             const fam = if (only) rest[0 .. rest.len - " only".len] else rest;
-            if (schema.familyKind(fam) == null) return c.fail(no, "unknown model family '{s}'", .{fam});
-            modelparams = try c.add(ModelParamTable, modelparams, .{ .family = fam, .names = try parseSpellings(c, &lines, fold, "model parameter", null), .only = only });
+            if (schema.familyKind(fam) == null)
+                return c.fail(no, "unknown model family '{s}'", .{fam});
+            modelparams = try c.add(
+                ModelParamTable,
+                modelparams,
+                .{
+                    .family = fam,
+                    .names = try parseSpellings(c, &lines, fold, "model parameter", null),
+                    .only = only,
+                },
+            );
         } else if (std.mem.eql(u8, head, "differs")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "differs is `differs function-or-operator : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "differs is `differs function-or-operator : reason`",
+                .{},
+            );
             const canon = std.mem.trim(u8, rest[0..colon], " \t");
             var known = false;
             for (schema.functions) |k| known = known or std.mem.eql(u8, k, canon);
@@ -1949,65 +2406,146 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
             differs = try c.add(Differs, differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
         } else if (std.mem.eql(u8, head, "means")) {
-            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "means is `means [kind] f(x, y) = expression`", .{});
+            const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(
+                no,
+                "means is `means [kind] f(x, y) = expression`",
+                .{},
+            );
             var lhs = std.mem.trim(u8, rest[0..eq], " \t");
             var kind: ?Kind = null;
-            if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp| if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
-                kind = try kindOf(c, no, lhs[0..sp]);
-                lhs = std.mem.trim(u8, lhs[sp + 1 ..], " \t");
-            };
-            const open = std.mem.indexOfScalar(u8, lhs, '(') orelse return c.fail(no, "means needs `f(x, y)` before '='", .{});
+            if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp|
+                if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
+                    kind = try kindOf(c, no, lhs[0..sp]);
+                    lhs = std.mem.trim(u8, lhs[sp + 1 ..], " \t");
+                };
+            const open = std.mem.indexOfScalar(u8, lhs, '(') orelse return c.fail(
+                no,
+                "means needs `f(x, y)` before '='",
+                .{},
+            );
             if (lhs[lhs.len - 1] != ')') return c.fail(no, "means needs `f(x, y)` before '='", .{});
             const canon = lhs[0..open];
             if (!schema.isFunction(canon)) return c.fail(no, "unknown function '{s}'", .{canon});
             var margs: []const []const u8 = &.{};
             var it = std.mem.splitScalar(u8, lhs[open + 1 .. lhs.len - 1], ',');
             while (it.next()) |a| margs = try c.add([]const u8, margs, std.mem.trim(u8, a, " \t"));
-            means = try c.add(Means, means, .{ .kind = kind, .canon = canon, .args = margs, .body = std.mem.trim(u8, rest[eq + 3 ..], " \t") });
+            means = try c.add(
+                Means,
+                means,
+                .{
+                    .kind = kind,
+                    .canon = canon,
+                    .args = margs,
+                    .body = std.mem.trim(u8, rest[eq + 3 ..], " \t"),
+                },
+            );
         } else if (std.mem.eql(u8, head, "switch")) {
-            const arrow = std.mem.indexOf(u8, rest, " -> ") orelse return c.fail(no, "switch is `switch \"words\" -> dialect`", .{});
+            const arrow = std.mem.indexOf(u8, rest, " -> ") orelse return c.fail(
+                no,
+                "switch is `switch \"words\" -> dialect`",
+                .{},
+            );
             const lits = try args(c, no, rest[0..arrow]);
             if (lits.len != 1) return c.fail(no, "switch needs one quoted line start", .{});
-            switches = try c.add(Switch, switches, .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") });
+            switches = try c.add(
+                Switch,
+                switches,
+                .{ .words = lits[0], .dialect = std.mem.trim(u8, rest[arrow + 4 ..], " \t") },
+            );
         } else if (std.mem.eql(u8, head, "requires")) {
-            const usage = "requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`";
+            const usage = "requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop " ++
+                "error|warning [analysis ...] : reason`";
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, usage, .{});
             var it = std.mem.tokenizeAny(u8, rest[0..colon], " \t[]");
-            const what = std.meta.stringToEnum(Topo, it.next() orelse "") orelse return c.fail(no, usage, .{});
+            const what = std.meta.stringToEnum(
+                Topo,
+                it.next() orelse "",
+            ) orelse return c.fail(no, usage, .{});
             const sev = it.next() orelse "";
-            if (!(std.mem.eql(u8, sev, "error") or std.mem.eql(u8, sev, "warning"))) return c.fail(no, usage, .{});
+            if (!(std.mem.eql(u8, sev, "error") or std.mem.eql(u8, sev, "warning")))
+                return c.fail(no, usage, .{});
             const open = std.mem.indexOfScalar(u8, rest[0..colon], '[');
-            if ((open == null) != (it.peek() == null) or (open != null and std.mem.indexOfScalar(u8, rest[open.?..colon], ']') == null)) return c.fail(no, usage, .{});
+            if ((open == null) != (it.peek() == null) or (open != null and std.mem.indexOfScalar(u8, rest[open.?..colon], ']') == null)) return c.fail(
+                no,
+                usage,
+                .{},
+            );
             var analyses: []const Kind = &.{};
             while (it.next()) |w| {
-                const k = std.meta.stringToEnum(Kind, w) orelse return c.fail(no, "requires: '{s}' is not an analysis", .{w});
-                if (schema.info(k).class != .analysis) return c.fail(no, "requires: '{s}' is not an analysis", .{w});
+                const k = std.meta.stringToEnum(Kind, w) orelse return c.fail(
+                    no,
+                    "requires: '{s}' is not an analysis",
+                    .{w},
+                );
+                if (schema.info(k).class != .analysis)
+                    return c.fail(no, "requires: '{s}' is not an analysis", .{w});
                 analyses = try c.add(Kind, analyses, k);
             }
-            requires = try c.add(Require, requires, .{ .what = what, .err = sev[0] == 'e', .analyses = analyses, .reason = rest[colon + 3 ..] });
+            requires = try c.add(
+                Require,
+                requires,
+                .{
+                    .what = what,
+                    .err = sev[0] == 'e',
+                    .analyses = analyses,
+                    .reason = rest[colon + 3 ..],
+                },
+            );
         } else if (std.mem.eql(u8, head, "reserved")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "reserved is `reserved name ... : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "reserved is `reserved name ... : reason`",
+                .{},
+            );
             const names = try args(c, no, rest[0..colon]);
             const shadowed = names.len > 1 and std.mem.eql(u8, names[0], "shadowed");
-            reserved = try c.add(Reserved, reserved, .{ .names = if (shadowed) names[1..] else names, .reason = rest[colon + 3 ..], .shadowed = shadowed });
+            reserved = try c.add(Reserved, reserved, .{ .names = if (shadowed)
+                names[1..]
+            else
+                names, .reason = rest[colon + 3 ..], .shadowed = shadowed });
         } else if (std.mem.eql(u8, head, "spread")) {
             const a = try args(c, no, rest);
-            if (a.len < 1 or a.len > 2) return c.fail(no, "spread is `spread kind [\"word\"]`", .{});
-            spreads = try c.add(Spread, spreads, .{ .kind = try kindOf(c, no, a[0]), .word = if (a.len == 2) try c.foldIf(fold, a[1]) else "" });
+            if (a.len < 1 or a.len > 2)
+                return c.fail(no, "spread is `spread kind [\"word\"]`", .{});
+            spreads = try c.add(
+                Spread,
+                spreads,
+                .{ .kind = try kindOf(c, no, a[0]), .word = if (a.len == 2)
+                    try c.foldIf(fold, a[1])
+                else
+                    "" },
+            );
         } else if (std.mem.eql(u8, head, "rerun")) {
             reruns = try c.add(Kind, reruns, try kindOf(c, no, rest));
         } else if (std.mem.eql(u8, head, "no")) {
-            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(no, "no is `no kind [slot] : reason`", .{});
+            const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+                no,
+                "no is `no kind [slot] : reason`",
+                .{},
+            );
             const e = try args(c, no, rest[0..colon]);
             // `no model mos6 : reason`: a family this dialect has no model of.
             if (e.len == 2 and std.mem.eql(u8, e[0], "model")) {
-                if (schema.familyKind(e[1]) == null) return c.fail(no, "no model: '{s}' is no model family", .{e[1]});
-                no_families = try c.add(NoFamily, no_families, .{ .family = e[1], .reason = rest[colon + 3 ..] });
+                if (schema.familyKind(e[1]) == null)
+                    return c.fail(no, "no model: '{s}' is no model family", .{e[1]});
+                no_families = try c.add(
+                    NoFamily,
+                    no_families,
+                    .{ .family = e[1], .reason = rest[colon + 3 ..] },
+                );
                 continue;
             }
-            if (e.len != 1 and e.len != 2) return c.fail(no, "no needs a kind, or a kind and a slot", .{});
-            const kind, const slot = if (e.len == 2) try kindSlot(c, no, e[0], e[1]) else .{ try kindOf(c, no, e[0]), no_slot };
-            absent = try c.add(Absent, absent, .{ .kind = kind, .slot = slot, .reason = rest[colon + 3 ..] });
+            if (e.len != 1 and e.len != 2)
+                return c.fail(no, "no needs a kind, or a kind and a slot", .{});
+            const kind, const slot = if (e.len == 2)
+                try kindSlot(c, no, e[0], e[1])
+            else
+                .{ try kindOf(c, no, e[0]), no_slot };
+            absent = try c.add(
+                Absent,
+                absent,
+                .{ .kind = kind, .slot = slot, .reason = rest[colon + 3 ..] },
+            );
         } else return c.fail(no, "unknown directive `{s}`", .{head});
     }
     if (std.mem.eql(u8, c.name, "?")) return c.fail(1, "missing `dialect <name>`", .{});
@@ -2132,14 +2670,23 @@ fn startsWith(rule: *const Rule, byte: u8) bool {
 }
 
 fn slotNamed(c: *C, line: u32, kind: Kind, s: []const u8) Error!u8 {
-    return schema.slotIndex(kind, s) orelse c.fail(line, "unknown slot '{s}' for kind '{s}'", .{ s, @tagName(kind) });
+    return schema.slotIndex(kind, s) orelse c.fail(
+        line,
+        "unknown slot '{s}' for kind '{s}'",
+        .{ s, @tagName(kind) },
+    );
 }
 
 /// `slot=atom`: a condition on an atom slot.
 fn condition(c: *C, line: u32, kind: Kind, text: []const u8) Error!struct { u8, []const u8 } {
-    const eq = std.mem.indexOfScalar(u8, text, '=') orelse return c.fail(line, "expected slot=atom, found '{s}'", .{text});
+    const eq = std.mem.indexOfScalar(u8, text, '=') orelse return c.fail(
+        line,
+        "expected slot=atom, found '{s}'",
+        .{text},
+    );
     const slot = try slotNamed(c, line, kind, text[0..eq]);
-    if (schema.info(kind).slots[slot].ty != .atom) return c.fail(line, "a condition needs an atom slot", .{});
+    if (schema.info(kind).slots[slot].ty != .atom)
+        return c.fail(line, "a condition needs an atom slot", .{});
     return .{ slot, text[eq + 1 ..] };
 }
 
@@ -2173,7 +2720,9 @@ fn expectTiny(g: Grammar) !void {
     try std.testing.expectEqual(NodeTag.alt, g.rules[2].pat[1].tag);
     try std.testing.expectEqual(3, g.models.len);
     try std.testing.expect(g.models[1].spellings[1].kv[0].absent);
-    try std.testing.expect(g.models[2].spellings[0].when[0].ge and g.models[2].spellings[0].when[0].isNodes());
+    try std.testing.expect(
+        g.models[2].spellings[0].when[0].ge and g.models[2].spellings[0].when[0].isNodes(),
+    );
     try std.testing.expectEqualStrings("4", g.models[2].spellings[0].when[0].val);
     try std.testing.expectEqual(0, g.models[2].spellings[1].when.len);
     try std.testing.expect(g.canWrite(.tran) and !g.canWrite(.noise));
@@ -2190,20 +2739,54 @@ test "a broken grammar at run time names the file and line" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const cases = [_]struct { src: []const u8, msg: []const u8 }{
-        .{ .src = "dialect x\nlexer\nend\nrule nonsense = \"a\"\n", .msg = "x/bad.spgrammar:4: unknown kind 'nonsense'" },
-        .{ .src = "dialect x\nlexer\nend\n\nrule tran = \".tran\" bogus\n", .msg = "x/bad.spgrammar:5: unknown slot 'bogus' for kind 'tran'" },
-        .{ .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n", .msg = "x/bad.spgrammar:4: missing ']' in pattern" },
-        .{ .src = "dialect x\nlexer\n  case insensitive\n", .msg = "x/bad.spgrammar:3: lexer section is missing 'end'" },
-        .{ .src = "rule op = \".op\"\n", .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`" },
-        .{ .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n", .msg = "x/bad.spgrammar:4: requires is `requires dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`" },
-        .{ .src = "dialect x\nlexer\nend\nnoparam bsim4 version : why\n", .msg = "x/bad.spgrammar:4: noparam needs a model family, a parameter and a severity" },
-        .{ .src = "dialect x\nlexer\nend\nmodelparams nosuch\nend\n", .msg = "x/bad.spgrammar:4: unknown model family 'nosuch'" },
-        .{ .src = "dialect x\nlexer\nend\nmodelparams resistor\n  narrow = narrow / 3\nend\n", .msg = "x/bad.spgrammar:5: a model parameter is halved or not: `name = spelling / 2`" },
-        .{ .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n", .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis" },
+        .{
+            .src = "dialect x\nlexer\nend\nrule nonsense = \"a\"\n",
+            .msg = "x/bad.spgrammar:4: unknown kind 'nonsense'",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\n\nrule tran = \".tran\" bogus\n",
+            .msg = "x/bad.spgrammar:5: unknown slot 'bogus' for kind 'tran'",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrule tran = \".tran\" [ stop\n",
+            .msg = "x/bad.spgrammar:4: missing ']' in pattern",
+        },
+        .{
+            .src = "dialect x\nlexer\n  case insensitive\n",
+            .msg = "x/bad.spgrammar:3: lexer section is missing 'end'",
+        },
+        .{
+            .src = "rule op = \".op\"\n",
+            .msg = "x/bad.spgrammar:1: the lexer section must come before `rule`",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrequires dc-path maybe : why\n",
+            .msg = "x/bad.spgrammar:4: requires is `requires " ++
+                "dc-path|cutset|no-vloop|no-vlloop|no-lloop error|warning [analysis ...] : reason`",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nnoparam bsim4 version : why\n",
+            .msg = "x/bad.spgrammar:4: noparam needs a model family, a parameter and a severity",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nmodelparams nosuch\nend\n",
+            .msg = "x/bad.spgrammar:4: unknown model family 'nosuch'",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nmodelparams resistor\n  narrow = narrow / 3\nend\n",
+            .msg = "x/bad.spgrammar:5: a model parameter is halved or not: `name = spelling / 2`",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n",
+            .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis",
+        },
     };
     for (cases) |cs| {
         var diag: Diag = .{};
-        try std.testing.expectError(error.BadGrammar, compile(arena.allocator(), cs.src, "x/bad.spgrammar", &diag));
+        try std.testing.expectError(
+            error.BadGrammar,
+            compile(arena.allocator(), cs.src, "x/bad.spgrammar", &diag),
+        );
         if (!std.mem.startsWith(u8, diag.msg, cs.msg)) {
             std.debug.print("got: {s}\nwant prefix: {s}\n", .{ diag.msg, cs.msg });
             return error.TestUnexpectedResult;

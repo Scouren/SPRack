@@ -36,12 +36,19 @@ fn hasFunction(g: *const Grammar, canon: []const u8) bool {
     return false;
 }
 
-pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+pub fn prepare(
+    arena: Allocator,
+    g: *const Grammar,
+    source: []const u8,
+    stmts_in: []const Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const Stmt {
     var stmts = stmts_in;
     var functions: usize = 0;
     // ponytail: HSPICE is the one dialect named here, as the home of the
     // `dev/gauss=` form; a grammar directive if a second one needs it.
-    if (devLots(g, source) and usesDevLot(stmts)) stmts = try devLot(arena, stmts, report, &functions);
+    if (devLots(g, source) and usesDevLot(stmts))
+        stmts = try devLot(arena, stmts, report, &functions);
     checkReserved(g, stmts, report);
     if (!hasFunction(g, "agauss") and g.canWrite(.statistics) and g.canWrite(.vary)) {
         if (!usesRandom(stmts)) return stmts;
@@ -50,7 +57,8 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
         l.caveat();
         return out;
     }
-    if (hasFunction(g, "agauss") and usesKind(stmts, .statistics)) stmts = try fold(arena, g, stmts, report, &functions);
+    if (hasFunction(g, "agauss") and usesKind(stmts, .statistics))
+        stmts = try fold(arena, g, stmts, report, &functions);
     asFunctions(g, functions, report);
     return stmts;
 }
@@ -60,7 +68,14 @@ pub fn prepare(arena: Allocator, g: *const Grammar, source: []const u8, stmts_in
 /// definition, which is what `g` reads back.
 pub fn asFunctions(g: *const Grammar, n: usize, report: *ir.Report) void {
     if (n == 0 or !hasFunction(g, "agauss")) return;
-    report.add(.info, .oneway, 0, "{d} parameter{s} varied by a random function in the definition, in place of a variation given separately; {s} reads back the function, not the variation", .{ n, if (n == 1) "" else "s", g.name });
+    report.add(
+        .info,
+        .oneway,
+        0,
+        "{d} parameter{s} varied by a random function in the definition, in place of a " ++
+            "variation given separately; {s} reads back the function, not the variation",
+        .{ n, if (n == 1) "" else "s", g.name },
+    );
 }
 
 /// Does `prepare` need every statement of the netlist at once for
@@ -135,7 +150,12 @@ pub fn usesDevLot(stmts: []const Stmt) bool {
 /// `p=nom dev/gauss=s` as `p=agauss(nom, s, 1)`, which the rest of this
 /// file and every dialect with agauss() understand.
 /// `n` counts them, for `asFunctions`.
-pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report, n: *usize) Allocator.Error![]const Stmt {
+pub fn devLot(
+    arena: Allocator,
+    stmts: []const Stmt,
+    report: *ir.Report,
+    n: *usize,
+) Allocator.Error![]const Stmt {
     const out = try arena.dupe(Stmt, stmts);
     const pi = schema.slot(.param, "params");
     for (out) |*st| {
@@ -161,7 +181,15 @@ pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report, n: *usi
             } };
             changed = true;
             n.* += 1;
-            report.add(.warning, .caveat, st.line, "{s}={s} on parameter '{s}': written as a random function in its definition, so it is drawn per instance inside a subcircuit and per run at the top level, whatever dev or lot said", .{ p.key, s, prev.key });
+            report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "{s}={s} on parameter '{s}': written as a random function in its definition, " ++
+                    "so it is drawn per instance inside a subcircuit and per run at the top " ++
+                    "level, whatever dev or lot said",
+                .{ p.key, s, prev.key },
+            );
         }
         if (!changed) continue;
         try st.own(arena);
@@ -181,7 +209,14 @@ pub fn checkReserved(g: *const Grammar, stmts: []const Stmt, report: *ir.Report)
         const v = s.get("params");
         if (v != .params) continue;
         for (v.params) |p| for (g.reserved) |r| for (r.names) |n| {
-            if (std.ascii.eqlIgnoreCase(n, p.key)) report.add(.@"error", .invalid, s.line, "parameter '{s}': {s}; rename it", .{ p.key, r.reason });
+            if (std.ascii.eqlIgnoreCase(n, p.key))
+                report.add(
+                    .@"error",
+                    .invalid,
+                    s.line,
+                    "parameter '{s}': {s}; rename it",
+                    .{ p.key, r.reason },
+                );
         };
     }
 }
@@ -236,7 +271,9 @@ const Calls = struct {
                 it.i = (std.mem.indexOfScalarPos(u8, t, it.i + 1, c) orelse t.len - 1) + 1;
                 continue;
             }
-            if (!(std.ascii.isAlphabetic(c) or c == '_') or (it.i > 0 and isWordChar(t[it.i - 1]))) {
+            if (!(std.ascii.isAlphabetic(c) or c == '_') or (it.i > 0 and
+                isWordChar(t[it.i - 1])))
+            {
                 it.i += 1;
                 continue;
             }
@@ -252,7 +289,13 @@ const Calls = struct {
             var k = j;
             while (k < t.len and (t[k] == ' ' or t[k] == '\t')) k += 1;
             if (k >= t.len or t[k] != '(') continue;
-            var call: Call = .{ .name = word, .start = start, .end = 0, .args = .{ "", "", "" }, .n = 0 };
+            var call: Call = .{
+                .name = word,
+                .start = start,
+                .end = 0,
+                .args = .{ "", "", "" },
+                .n = 0,
+            };
             var depth: usize = 0;
             var arg_start = k + 1;
             var m = k;
@@ -311,10 +354,14 @@ fn spreadOf(arena: Allocator, call: Call, need_constant: bool) Allocator.Error!?
     var s: []const u8 = call.args[1];
     if (gaussian) {
         const n = if (call.n == 3) call.args[2] else "1";
-        if (need_constant and !(isNumber(n) and (std.fmt.parseFloat(f64, n) catch 0) != 0)) return null;
+        if (need_constant and !(isNumber(n) and (std.fmt.parseFloat(f64, n) catch 0) != 0))
+            return null;
         s = try over(arena, s, n);
     }
-    return .{ .nominal = call.args[0], .dist = if (gaussian) "gauss" else "unif", .spread = s, .relative = relative };
+    return .{ .nominal = call.args[0], .dist = if (gaussian)
+        "gauss"
+    else
+        "unif", .spread = s, .relative = relative };
 }
 
 const Lower = struct {
@@ -338,9 +385,25 @@ const Lower = struct {
     }
 
     fn caveat(l: *const Lower) void {
-        l.report.add(.warning, .caveat, l.first_line, "agauss(), gauss(), aunif() and unif() are written as {s} statistics variations: outside a Monte Carlo analysis the parameters keep their nominal values, where ngspice draws a new sample on every run", .{l.g.name});
+        l.report.add(
+            .warning,
+            .caveat,
+            l.first_line,
+            "agauss(), gauss(), aunif() and unif() are written as {s} statistics variations: " ++
+                "outside a Monte Carlo analysis the parameters keep their nominal values, " ++
+                "where ngspice draws a new sample on every run",
+            .{l.g.name},
+        );
         // One note for the file, where a PDK has thousands.
-        if (l.varied > 0) l.report.add(.info, .oneway, l.first_line, "{d} parameter{s} varied in a statistics block in place of a random function; {s} reads back the block, not the function", .{ l.varied, if (l.varied == 1) "" else "s", l.g.name });
+        if (l.varied > 0)
+            l.report.add(
+                .info,
+                .oneway,
+                l.first_line,
+                "{d} parameter{s} varied in a statistics block in place of a random function; " ++
+                    "{s} reads back the block, not the function",
+                .{ l.varied, if (l.varied == 1) "" else "s", l.g.name },
+            );
     }
 
     /// Variations made for the list being lowered.
@@ -351,7 +414,13 @@ const Lower = struct {
         line: u32 = 0,
     };
 
-    fn vary(l: *Lower, name: []const u8, dist: []const u8, spread: []const u8, line: u32) Allocator.Error!Stmt {
+    fn vary(
+        l: *Lower,
+        name: []const u8,
+        dist: []const u8,
+        spread: []const u8,
+        line: u32,
+    ) Allocator.Error!Stmt {
         const a = l.perm();
         var st = try ir.newStmt(a, .vary, line);
         try st.set(a, schema.slot(.vary, "param"), .{ .atom = try l.kept(name) });
@@ -364,7 +433,8 @@ const Lower = struct {
     fn freshName(l: *Lower, hint: []const u8) Allocator.Error![]const u8 {
         var base: std.ArrayList(u8) = .empty;
         try base.appendSlice(l.arena, "sprack_rv_");
-        for (hint) |c| try base.append(l.arena, if (std.ascii.isAlphanumeric(c) or c == '_') c else '_');
+        for (hint) |c|
+            try base.append(l.arena, if (std.ascii.isAlphanumeric(c) or c == '_') c else '_');
         var name: []const u8 = base.items;
         var k: usize = 2;
         while (l.used.contains(name)) : (k += 1) name = try std.fmt.allocPrint(l.arena, "{s}_{d}", .{ base.items, k });
@@ -375,7 +445,14 @@ const Lower = struct {
 
     /// Replace every random call in `text` by its nominal value plus a
     /// scaled new parameter.
-    fn rewrite(l: *Lower, acc: *Acc, text: []const u8, hint: []const u8, mismatch: bool, line: u32) Allocator.Error![]const u8 {
+    fn rewrite(
+        l: *Lower,
+        acc: *Acc,
+        text: []const u8,
+        hint: []const u8,
+        mismatch: bool,
+        line: u32,
+    ) Allocator.Error![]const u8 {
         var cur = text;
         while (true) {
             var it = Calls{ .text = cur };
@@ -386,8 +463,16 @@ const Lower = struct {
             const into = if (mismatch) &acc.mismatch else &acc.process;
             try into.append(l.perm(), try l.vary(rv, sp.dist, "1", line));
             var factor = sp.spread;
-            if (std.mem.endsWith(u8, call.name, "gauss") and call.n == 3 and !isNumber(call.args[2])) {
-                factor = try std.fmt.allocPrint(l.arena, "(({s}) == 0 ? 0 : {s})", .{ call.args[2], sp.spread });
+            if (std.mem.endsWith(
+                u8,
+                call.name,
+                "gauss",
+            ) and call.n == 3 and !isNumber(call.args[2])) {
+                factor = try std.fmt.allocPrint(
+                    l.arena,
+                    "(({s}) == 0 ? 0 : {s})",
+                    .{ call.args[2], sp.spread },
+                );
             }
             const repl = if (sp.relative)
                 try std.fmt.allocPrint(l.arena, "({s})*(1 + {s}*{s})", .{ sp.nominal, factor, rv })
@@ -398,9 +483,19 @@ const Lower = struct {
         }
     }
 
-    fn value(l: *Lower, acc: *Acc, v: Value, hint: []const u8, mismatch: bool, line: u32) Allocator.Error!Value {
+    fn value(
+        l: *Lower,
+        acc: *Acc,
+        v: Value,
+        hint: []const u8,
+        mismatch: bool,
+        line: u32,
+    ) Allocator.Error!Value {
         return switch (v) {
-            .expr => |e| if (isRandomCall(e)) .{ .expr = try l.rewrite(acc, e, hint, mismatch, line) } else v,
+            .expr => |e| if (isRandomCall(e))
+                .{ .expr = try l.rewrite(acc, e, hint, mismatch, line) }
+            else
+                v,
             .list => |items| blk: {
                 const out = try l.arena.dupe(Value, items);
                 for (out) |*x| x.* = try l.value(acc, x.*, hint, mismatch, line);
@@ -409,7 +504,10 @@ const Lower = struct {
             .params => |ps| blk: {
                 const out = try l.arena.dupe(ir.Param, ps);
                 for (out) |*p| {
-                    const h = if (hint.len == 0) p.key else try std.fmt.allocPrint(l.arena, "{s}_{s}", .{ hint, p.key });
+                    const h = if (hint.len == 0)
+                        p.key
+                    else
+                        try std.fmt.allocPrint(l.arena, "{s}_{s}", .{ hint, p.key });
                     p.val = try l.value(acc, p.val, h, mismatch, line);
                 }
                 break :blk .{ .params = out };
@@ -431,7 +529,10 @@ const Lower = struct {
             const call = it.next() orelse continue;
             if (call.start != 0 or call.end != e.len) continue;
             const sp = (try spreadOf(l.arena, call, true)) orelse continue;
-            const spread = if (sp.relative) try std.fmt.allocPrint(l.arena, "({s})*({s})", .{ sp.nominal, sp.spread }) else sp.spread;
+            const spread = if (sp.relative)
+                try std.fmt.allocPrint(l.arena, "({s})*({s})", .{ sp.nominal, sp.spread })
+            else
+                sp.spread;
             try acc.process.append(l.perm(), try l.vary(p.key, sp.dist, spread, st.line));
             p.val = .{ .expr = sp.nominal };
             changed = true;
@@ -478,7 +579,12 @@ const Lower = struct {
         return all.items;
     }
 
-    fn walk(l: *Lower, acc: *Acc, stmts: []const Stmt, owner: ?[]const u8) Allocator.Error![]const Stmt {
+    fn walk(
+        l: *Lower,
+        acc: *Acc,
+        stmts: []const Stmt,
+        owner: ?[]const u8,
+    ) Allocator.Error![]const Stmt {
         const out = try l.arena.dupe(Stmt, stmts);
         for (out) |*st| {
             if (st.kind == .subckt) {
@@ -491,18 +597,32 @@ const Lower = struct {
             if (st.body.len > 0) {
                 // A library section gets its own variations; a conditional
                 // inside a subcircuit adds to the subcircuit's.
-                st.body = @constCast(if (owner == null) try l.list(st.body, null) else try l.walk(acc, st.body, owner));
+                st.body = @constCast(if (owner == null)
+                    try l.list(st.body, null)
+                else
+                    try l.walk(acc, st.body, owner));
             }
             try st.own(l.arena);
             if (owner == null and st.kind == .param) try l.wholeParam(acc, st);
-            const hint = if (st.get("name") == .atom) st.get("name").atom else if (st.kind == .param) "" else @tagName(st.kind);
-            const full = if (owner) |o| (if (hint.len == 0) o else try std.fmt.allocPrint(l.arena, "{s}_{s}", .{ o, hint })) else hint;
+            const hint = if (st.get("name") == .atom)
+                st.get("name").atom
+            else if (st.kind == .param) "" else @tagName(st.kind);
+            const full = if (owner) |o|
+                (if (hint.len == 0) o else try std.fmt.allocPrint(l.arena, "{s}_{s}", .{ o, hint }))
+            else
+                hint;
             try l.values(acc, st, full, owner != null);
         }
         return out;
     }
 
-    fn values(l: *Lower, acc: *Acc, st: *Stmt, hint: []const u8, mismatch: bool) Allocator.Error!void {
+    fn values(
+        l: *Lower,
+        acc: *Acc,
+        st: *Stmt,
+        hint: []const u8,
+        mismatch: bool,
+    ) Allocator.Error!void {
         var buf: [schema.max_slots]Value = undefined;
         const vals = st.unpack(&buf);
         var changed = false;
@@ -518,11 +638,18 @@ const Lower = struct {
 /// Process variations of parameters defined in the same list, as random
 /// functions in their definitions. Whatever is left keeps its statistics
 /// block, for the writer to report.
-fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Report, n: *usize) Allocator.Error![]const Stmt {
+fn fold(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []const Stmt,
+    report: *ir.Report,
+    n: *usize,
+) Allocator.Error![]const Stmt {
     var out: std.ArrayList(Stmt) = .empty;
     try out.appendSlice(arena, stmts);
     for (out.items) |*st| {
-        if (st.body.len > 0 and st.kind != .statistics) st.body = @constCast(try fold(arena, g, st.body, report, n));
+        if (st.body.len > 0 and st.kind != .statistics)
+            st.body = @constCast(try fold(arena, g, st.body, report, n));
     }
     var i: usize = 0;
     while (i < out.items.len) {
@@ -555,7 +682,13 @@ fn fold(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Re
             // any grammar, and do not go with it unsaid.
             if (st.get("params") == .params) for (st.get("params").params) |p| {
                 const val = if (p.val == .none) "" else try valueText(arena, p.val);
-                report.add(.@"error", .loss, st.line, "statistics: '{s}{s}{s}' has no spelling in {s}", .{ p.key, if (p.val == .none) "" else "=", val, g.name });
+                report.add(
+                    .@"error",
+                    .loss,
+                    st.line,
+                    "statistics: '{s}{s}{s}' has no spelling in {s}",
+                    .{ p.key, if (p.val == .none) "" else "=", val, g.name },
+                );
             };
             _ = out.orderedRemove(i);
             continue;
@@ -570,7 +703,12 @@ fn atomOf(v: Value) []const u8 {
     return if (v == .atom) v.atom else "";
 }
 
-fn foldOne(arena: Allocator, list: []Stmt, v: *const Stmt, report: *ir.Report) Allocator.Error!bool {
+fn foldOne(
+    arena: Allocator,
+    list: []Stmt,
+    v: *const Stmt,
+    report: *ir.Report,
+) Allocator.Error!bool {
     if (v.get("model") != .none or v.get("param") != .atom) return false;
     if (v.get("params") != .none) return false;
     const name = v.get("param").atom;
@@ -593,7 +731,15 @@ fn foldOne(arena: Allocator, list: []Stmt, v: *const Stmt, report: *ir.Report) A
                 try std.fmt.allocPrint(arena, "aunif({s}, {s})", .{ nom, s }) };
             try st.own(arena);
             try st.set(arena, pi, .{ .params = ps });
-            report.add(.warning, .caveat, v.line, "vary {s}: written as a random function in the parameter's definition; ngspice draws a new value on every run, where a statistics variation keeps the nominal value outside a Monte Carlo analysis", .{name});
+            report.add(
+                .warning,
+                .caveat,
+                v.line,
+                "vary {s}: written as a random function in the parameter's definition; " ++
+                    "ngspice draws a new value on every run, where a statistics variation " ++
+                    "keeps the nominal value outside a Monte Carlo analysis",
+                .{name},
+            );
             return true;
         }
     }
@@ -602,7 +748,10 @@ fn foldOne(arena: Allocator, list: []Stmt, v: *const Stmt, report: *ir.Report) A
 
 fn valueText(arena: Allocator, v: Value) Allocator.Error![]const u8 {
     return switch (v) {
-        .num => |n| if (n.exp10 == 0) n.digits() else try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
+        .num => |n| if (n.exp10 == 0)
+            n.digits()
+        else
+            try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
         .expr, .atom, .str => |s| s,
         else => "0",
     };

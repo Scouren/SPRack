@@ -63,9 +63,15 @@ const Matcher = struct {
             const t = self.toks()[ti];
             switch (n.tag) {
                 .lit => if (!litMatches(n, t)) return false,
-                .cap => if (n.prefix.len > 0 and !n.star and !n.plus and n.count == grammar.no_slot and n.slot != grammar.wild_slot) {
+                .cap => if (n.prefix.len > 0 and !n.star and !n.plus and
+                    n.count == grammar.no_slot and n.slot != grammar.wild_slot)
+                {
                     const ty = schema.info(kind).slots[n.slot].ty;
-                    if (ty != .value and ty != .signal and !std.mem.startsWith(u8, t.text, n.prefix)) return false;
+                    if (ty != .value and ty != .signal and !std.mem.startsWith(
+                        u8,
+                        t.text,
+                        n.prefix,
+                    )) return false;
                 },
                 else => {},
             }
@@ -84,7 +90,10 @@ const Matcher = struct {
 
     /// A word's folded text lives only as long as its line's tokens.
     fn own(self: *const Matcher, t: Tok) Allocator.Error![]const u8 {
-        return if (t.tag == .word and t.text.ptr != t.raw.ptr) self.arena.dupe(u8, t.text) else t.text;
+        return if (t.tag == .word and t.text.ptr != t.raw.ptr)
+            self.arena.dupe(u8, t.text)
+        else
+            t.text;
     }
 
     /// A number keeps its digits from the source spelling, not from the
@@ -105,17 +114,34 @@ const Matcher = struct {
         const cfg = &self.g.lex;
         switch (ty) {
             // HSPICE `.meas dc "ia" ...` is the measurement ia: a label.
-            .name => return if ((t.tag == .word or (t.tag == .str and cfg.dquote_expr)) and lexer.isNameLike(t.text)) .{ .atom = if (t.tag == .str) t.text else t.raw } else null,
+            .name => return if ((t.tag == .word or (t.tag == .str and cfg.dquote_expr)) and
+                lexer.isNameLike(t.text))
+                .{
+                    .atom = if (t.tag == .str) t.text else t.raw,
+                }
+            else
+                null,
             // A word ending in a colon is a keyword (`params:`), never a node.
-            .node => return if (t.tag == .word and lexer.isNameLike(t.text) and !std.mem.endsWith(u8, t.text, ":")) .{ .atom = t.raw } else null,
+            .node => return if (t.tag == .word and lexer.isNameLike(t.text) and !std.mem.endsWith(
+                u8,
+                t.text,
+                ":",
+            )) .{ .atom = t.raw } else null,
             .ident, .ref => {
-                if (t.tag != .word or !lexer.isNameLike(t.text) or std.mem.endsWith(u8, t.text, ":")) return null;
+                if (t.tag != .word or !lexer.isNameLike(t.text) or std.mem.endsWith(
+                    u8,
+                    t.text,
+                    ":",
+                )) return null;
                 // A model or subcircuit name starts like a name, not like an operator.
                 if (!(std.ascii.isAlphanumeric(t.text[0]) or t.text[0] == '_')) return null;
                 if (lexer.parseNumber(self.arena, cfg, t.text) != null) return null;
                 return .{ .atom = t.raw };
             },
-            .atom => return if (t.tag == .word or t.tag == .str) .{ .atom = try self.own(t) } else null,
+            .atom => return if (t.tag == .word or t.tag == .str)
+                .{ .atom = try self.own(t) }
+            else
+                null,
             .value => switch (t.tag) {
                 .word => {
                     if (self.number(t)) |n| return .{ .num = n };
@@ -123,7 +149,8 @@ const Matcher = struct {
                     // and never when it names a model or subcircuit.
                     // After `=` a bare name is a parameter reference where
                     // the dialect reads undelimited expressions there.
-                    if (!(cfg.ident_values or cfg.bare_expr or (cfg.bare_after_eq and t.f.val))) return null;
+                    if (!(cfg.ident_values or cfg.bare_expr or (cfg.bare_after_eq and t.f.val)))
+                        return null;
                     if (!lexer.isIdent(t.text) or self.declared.contains(t.text)) return null;
                     return .{ .expr = t.raw };
                 },
@@ -154,7 +181,11 @@ const Matcher = struct {
         if (t.f.call and self.toks()[ti + 1].tag == .expr and self.g.lex.parens_are_space) {
             for (self.g.signals) |sf| {
                 if (!std.mem.eql(u8, sf.form, "expr")) continue;
-                if (sf.template.len > t.text.len and std.mem.startsWith(u8, sf.template, t.text) and sf.template[t.text.len] == '(') {
+                if (sf.template.len > t.text.len and std.mem.startsWith(
+                    u8,
+                    sf.template,
+                    t.text,
+                ) and sf.template[t.text.len] == '(') {
                     return .{ .v = .{ .expr = self.toks()[ti + 1].text }, .n = 2 };
                 }
             }
@@ -186,7 +217,8 @@ const Matcher = struct {
                 }
                 // `v(a)=0.5`: the `=` after the call marks its last name a key.
                 const closes = if (tokens) self.toks()[j + 1].tag == .rparen else a.closes > 0;
-                if (a.tag != .word or (a.f.key and !closes) or count == 3 or j - ti > 12) return null;
+                if (a.tag != .word or (a.f.key and !closes) or count == 3 or j - ti > 12)
+                    return null;
                 if (count > 0) try text.append(self.arena, ',');
                 try text.appendSlice(self.arena, a.raw);
                 count += 1;
@@ -208,7 +240,11 @@ const Matcher = struct {
             n = j - ti;
         }
         const canon = (try signalCanon(self.arena, self.g, text.items)) orelse return null;
-        if (neg) return .{ .v = .{ .expr = try std.mem.concat(self.arena, u8, &.{ "-", canon }) }, .n = n };
+        if (neg)
+            return .{
+                .v = .{ .expr = try std.mem.concat(self.arena, u8, &.{ "-", canon }) },
+                .n = n,
+            };
         return .{ .v = .{ .atom = canon }, .n = n };
     }
 
@@ -222,7 +258,10 @@ const Matcher = struct {
         for (cfg.dquote_strings) |k| if (std.ascii.eqlIgnoreCase(k, key)) return null;
         const text = std.mem.trim(u8, t.text, " \t");
         if (text.len == 0) return null;
-        const folded = if (cfg.case_sensitive) text else try std.ascii.allocLowerString(self.arena, text);
+        const folded = if (cfg.case_sensitive)
+            text
+        else
+            try std.ascii.allocLowerString(self.arena, text);
         if (lexer.parseNumber(self.arena, cfg, folded)) |n| return .{ .num = n };
         return .{ .expr = text };
     }
@@ -241,7 +280,10 @@ const Matcher = struct {
             // `version=3.3.0` read as an undelimited expression is a word, not arithmetic.
             .expr => return if (isVersion(t.text)) .{ .atom = t.text } else .{ .expr = t.text },
             // An unknown option keeps a string; a declared one is typed.
-            .str => return (if (self.kind == .options) null else try self.quotedExpr(t, key)) orelse .{ .str = t.text },
+            .str => return (if (self.kind == .options)
+                null
+            else
+                try self.quotedExpr(t, key)) orelse .{ .str = t.text },
             .vec => return .{ .list = try self.vector(t.text) },
             else => return null,
         }
@@ -252,7 +294,10 @@ const Matcher = struct {
         var it = std.mem.tokenizeAny(u8, text, " \t,");
         while (it.next()) |w| {
             const cfg = &self.g.lex;
-            const folded = if (cfg.case_sensitive) w else try std.ascii.allocLowerString(self.arena, w);
+            const folded = if (cfg.case_sensitive)
+                w
+            else
+                try std.ascii.allocLowerString(self.arena, w);
             if (lexer.parseNumber(self.arena, cfg, folded)) |n| {
                 try out.append(self.arena, .{ .num = n });
             } else try out.append(self.arena, .{ .expr = w });
@@ -275,8 +320,14 @@ const Matcher = struct {
                 continue;
             }
             if (names.items.len == 0) break;
-            const v: Value = if (lexer.parseNumber(self.arena, &self.g.lex, w)) |n| .{ .num = n } else .{ .expr = w };
-            try self.log.append(self.arena, .{ .slot = into, .key = try names.toOwnedSlice(self.arena), .val = v });
+            const v: Value = if (lexer.parseNumber(self.arena, &self.g.lex, w)) |n|
+                .{ .num = n }
+            else
+                .{ .expr = w };
+            try self.log.append(
+                self.arena,
+                .{ .slot = into, .key = try names.toOwnedSlice(self.arena), .val = v },
+            );
         } else if (names.items.len == 0 and self.log.items.len > start) return true;
         self.log.shrinkRetainingCapacity(start);
         return false;
@@ -382,8 +433,14 @@ const Matcher = struct {
             },
             .taglit => {
                 if (!litMatches(node, t)) return false;
-                const num = if (self.slot(node.slot).ty == .value) lexer.parseNumber(self.arena, &self.g.lex, node.atom) else null;
-                try self.log.append(self.arena, .{ .slot = node.slot, .val = if (num) |n| .{ .num = n } else .{ .atom = node.atom } });
+                const num = if (self.slot(node.slot).ty == .value)
+                    lexer.parseNumber(self.arena, &self.g.lex, node.atom)
+                else
+                    null;
+                try self.log.append(self.arena, .{ .slot = node.slot, .val = if (num) |n|
+                    .{ .num = n }
+                else
+                    .{ .atom = node.atom } });
                 if (try self.m(rest, ti + 1, k)) return true;
                 self.log.shrinkRetainingCapacity(mark);
                 return false;
@@ -433,21 +490,32 @@ const Matcher = struct {
                     while (true) {
                         const t0 = self.toks()[at];
                         if (words and ends.items.len > 0 and t0.f.key and self.toks()[at + 1].tag == .eq and (self.toks()[at + 2].tag == .word or self.toks()[at + 2].tag == .expr)) {
-                            try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = try self.joinTokens(at, at + 3) } });
+                            try self.log.append(
+                                self.arena,
+                                .{
+                                    .slot = node.slot,
+                                    .val = .{ .atom = try self.joinTokens(at, at + 3) },
+                                },
+                            );
                             at += 3;
                             try ends.append(self.arena, at);
                             continue;
                         }
                         const v = (try self.capOne(node, t0)) orelse break;
                         if (followLit(rest, t0)) break;
-                        if (!wild) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
+                        if (!wild)
+                            try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
                         at += 1;
                         try ends.append(self.arena, at);
                     }
                     const least: usize = if (node.plus) 1 else 0;
                     while (true) {
                         const n = ends.items.len;
-                        if (n >= least and try self.m(rest, if (n == 0) ti else ends.items[n - 1], k)) return true;
+                        if (n >= least and try self.m(
+                            rest,
+                            if (n == 0) ti else ends.items[n - 1],
+                            k,
+                        )) return true;
                         if (n <= least) break;
                         _ = ends.pop();
                         if (!wild) self.log.shrinkRetainingCapacity(mark + n - 1);
@@ -458,7 +526,8 @@ const Matcher = struct {
                 const one = try self.capOne(node, t);
                 if (one) |v| {
                     if (followLit(rest, t)) return false;
-                    if (node.slot != grammar.wild_slot) try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
+                    if (node.slot != grammar.wild_slot)
+                        try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
                     if (try self.m(rest, ti + 1, k)) return true;
                     self.log.shrinkRetainingCapacity(mark);
                 }
@@ -466,11 +535,19 @@ const Matcher = struct {
                 // and the pattern closes one right after a value, everything
                 // up to that `)` is the expression, whether its first token
                 // is no value (`(`) or one the `)` does not follow (`a`).
-                const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(u8, rest[0].text, ")");
-                if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value) return false;
+                const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(
+                    u8,
+                    rest[0].text,
+                    ")",
+                );
+                if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value)
+                    return false;
                 const j = self.parenRun(ti) orelse return false;
                 if (one != null and j == ti + 1) return false;
-                try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } });
+                try self.log.append(
+                    self.arena,
+                    .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } },
+                );
                 if (try self.m(rest, j, k)) return true;
                 self.log.shrinkRetainingCapacity(mark);
                 return false;
@@ -516,7 +593,10 @@ const Matcher = struct {
                 const after: Cont = .{ .items = rest, .next = k };
                 const loop: Cont = .{ .items = &tail, .next = &after };
                 const pass: Cont = .{ .items = node.kids, .next = &loop };
-                const ok = if (node.star) try self.m(node.sep, ti, &pass) else try self.m(node.kids, ti, &loop);
+                const ok = if (node.star)
+                    try self.m(node.sep, ti, &pass)
+                else
+                    try self.m(node.kids, ti, &loop);
                 if (ok) return true;
                 self.log.shrinkRetainingCapacity(mark);
                 return !node.plus and try self.m(rest, ti, k);
@@ -528,7 +608,9 @@ const Matcher = struct {
                     // From the end of the token before, so that an opening
                     // parenthesis the lexer treated as a blank is kept.
                     var off = @intFromPtr(t.raw.ptr) - @intFromPtr(line.ptr);
-                    if (ti > 0 and self.toks()[ti - 1].lno == t.lno and self.toks()[ti - 1].tag != .nl) {
+                    if (ti > 0 and self.toks()[ti - 1].lno == t.lno and
+                        self.toks()[ti - 1].tag != .nl)
+                    {
                         const prev = self.toks()[ti - 1].raw;
                         off = @intFromPtr(prev.ptr) + prev.len - @intFromPtr(line.ptr);
                     }
@@ -550,7 +632,10 @@ const Matcher = struct {
                             }
                             if (whole) text = std.mem.trim(u8, text[1 .. text.len - 1], " \t");
                         }
-                        try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = text } });
+                        try self.log.append(
+                            self.arena,
+                            .{ .slot = node.slot, .val = .{ .expr = text } },
+                        );
                     } else if (text.len > 0) try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = text } });
                 }
                 if (try self.m(rest, j, k)) return true;
@@ -569,12 +654,21 @@ const Matcher = struct {
                         j += 3;
                         // `R=0.2 0 0.2`: the numbers after one open-ended
                         // key are its matrix (CPL and RLGC line models).
-                        const last: *Capture = if (self.log.items.len > before) &self.log.items[self.log.items.len - 1] else continue;
-                        if (last.key.len > 0 and last.val == .num and self.toks()[j].tag == .word and !self.toks()[j].f.key and self.number(self.toks()[j]) != null) {
+                        const last: *Capture = if (self.log.items.len > before)
+                            &self.log.items[self.log.items.len - 1]
+                        else
+                            continue;
+                        if (last.key.len > 0 and last.val == .num and
+                            self.toks()[j].tag == .word and !self.toks()[j].f.key and
+                            self.number(self.toks()[j]) != null)
+                        {
                             var matrix: std.ArrayList(Value) = .empty;
                             try matrix.append(self.arena, last.val);
                             while (self.toks()[j].tag == .word and !self.toks()[j].f.key) : (j += 1) {
-                                try matrix.append(self.arena, .{ .num = self.number(self.toks()[j]) orelse break });
+                                try matrix.append(
+                                    self.arena,
+                                    .{ .num = self.number(self.toks()[j]) orelse break },
+                                );
                             }
                             last.val = .{ .list = matrix.items };
                         }
@@ -600,7 +694,10 @@ const Matcher = struct {
                         }
                         if (self.toks()[b].tag != .eq) break;
                         const v = (try self.anyValue(self.toks()[b + 1], "")) orelse break;
-                        try self.log.append(self.arena, .{ .slot = entry.slot, .key = nt.raw, .val = v });
+                        try self.log.append(
+                            self.arena,
+                            .{ .slot = entry.slot, .key = nt.raw, .val = v },
+                        );
                         j = b + 2;
                         continue;
                     }
@@ -611,7 +708,10 @@ const Matcher = struct {
                         const vt = self.toks()[j + 1];
                         if (vt.tag != .word or vt.f.key) break;
                         const v = (try self.anyValue(vt, kt.text)) orelse break;
-                        try self.log.append(self.arena, .{ .slot = entry.slot, .key = kt.raw, .val = v });
+                        try self.log.append(
+                            self.arena,
+                            .{ .slot = entry.slot, .key = kt.raw, .val = v },
+                        );
                         j += 2;
                         continue;
                     }
@@ -622,7 +722,10 @@ const Matcher = struct {
                     // A declared model is no flag: a longer form names it
                     // (`Q c b e s tj model`).
                     if (!lexer.isIdent(kt.text) or self.declared.contains(kt.text)) break;
-                    try self.log.append(self.arena, .{ .slot = flags.slot, .key = kt.raw, .val = .none });
+                    try self.log.append(
+                        self.arena,
+                        .{ .slot = flags.slot, .key = kt.raw, .val = .none },
+                    );
                     j += 1;
                 }
                 for (node.bag) |e| {
@@ -701,21 +804,29 @@ const Matcher = struct {
         }
         var out: std.ArrayList(u8) = .empty;
         for (self.toks()[from..to], 0..) |t, i| {
-            if (i > 0 and t.tag != .rparen and self.toks()[from + i - 1].tag != .lparen) try out.append(self.arena, ' ');
+            if (i > 0 and t.tag != .rparen and self.toks()[from + i - 1].tag != .lparen)
+                try out.append(self.arena, ' ');
             try out.appendSlice(self.arena, t.raw);
         }
         return out.toOwnedSlice(self.arena);
     }
 
     fn capOne(self: *const Matcher, node: Node, t: Tok) Allocator.Error!?Value {
-        if (node.slot == grammar.wild_slot) return if (t.tag == .word and !t.f.key) .{ .atom = t.text } else null;
+        if (node.slot == grammar.wild_slot)
+            return if (t.tag == .word and !t.f.key) .{ .atom = t.text } else null;
         const v = (try self.toValue(self.slot(node.slot).ty, t)) orelse return null;
         if (node.prefix.len > 0 and !std.mem.startsWith(u8, t.text, node.prefix)) return null;
         return v;
     }
 
     /// Bind one `key=value` pair. False means the pair does not belong to this bag.
-    fn bagEntry(self: *Matcher, node: Node, key: []const u8, key_raw: []const u8, vt: Tok) Allocator.Error!bool {
+    fn bagEntry(
+        self: *Matcher,
+        node: Node,
+        key: []const u8,
+        key_raw: []const u8,
+        vt: Tok,
+    ) Allocator.Error!bool {
         var rest_slot: ?u8 = null;
         for (node.bag) |e| {
             if (e.form == .rest) {
@@ -748,16 +859,23 @@ const Matcher = struct {
                     if (vt.tag != .str and vt.tag != .word) return false;
                     const text = try self.own(vt);
                     if (e.suffix.len > 0 and (text.len <= e.suffix.len or !std.mem.endsWith(u8, text, e.suffix))) return false;
-                    try self.log.append(self.arena, .{ .slot = e.slot, .val = .{ .atom = text[0 .. text.len - e.suffix.len] } });
+                    try self.log.append(
+                        self.arena,
+                        .{ .slot = e.slot, .val = .{ .atom = text[0 .. text.len - e.suffix.len] } },
+                    );
                 },
                 .vector => {
                     if (vt.tag != .vec) return false;
-                    for (try self.vector(vt.text)) |v| try self.log.append(self.arena, .{ .slot = e.slot, .val = v });
+                    for (try self.vector(vt.text)) |v|
+                        try self.log.append(self.arena, .{ .slot = e.slot, .val = v });
                 },
                 .pairs => if (!try self.pairs(e.slot, vt)) return false,
                 .pair => {
                     if (vt.tag == .str or vt.tag == .word) {
-                        try self.log.append(self.arena, .{ .slot = e.slot, .val = .{ .atom = try self.own(vt) } });
+                        try self.log.append(
+                            self.arena,
+                            .{ .slot = e.slot, .val = .{ .atom = try self.own(vt) } },
+                        );
                     } else if (vt.tag == .vec) {
                         const items = try self.vector(vt.text);
                         if (items.len != 2) return false;
@@ -766,16 +884,26 @@ const Matcher = struct {
                                 .str, .atom, .expr => |x| x,
                                 else => return false,
                             };
-                            const name = if (raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"') raw[1 .. raw.len - 1] else raw;
+                            const name = if (raw.len >= 2 and raw[0] == '"' and
+                                raw[raw.len - 1] == '"')
+                                raw[1 .. raw.len - 1]
+                            else
+                                raw;
                             if (name.len == 0) return false;
-                            try self.log.append(self.arena, .{ .slot = sl, .val = .{ .atom = name } });
+                            try self.log.append(
+                                self.arena,
+                                .{ .slot = sl, .val = .{ .atom = name } },
+                            );
                         }
                     } else return false;
                 },
                 .rest, .call => unreachable,
             }
             if (e.tag_slot != grammar.no_slot) {
-                try self.log.append(self.arena, .{ .slot = e.tag_slot, .val = .{ .atom = e.tag_atom } });
+                try self.log.append(
+                    self.arena,
+                    .{ .slot = e.tag_slot, .val = .{ .atom = e.tag_atom } },
+                );
             }
             return true;
         }
@@ -795,7 +923,8 @@ const Matcher = struct {
                 var ps: std.ArrayList(ir.Param) = .empty;
                 if (vals[i] == .params) try ps.appendSlice(self.arena, vals[i].params);
                 for (self.log.items) |c| {
-                    if (c.slot == i and c.key.len > 0) try ps.append(self.arena, .{ .key = c.key, .val = c.val });
+                    if (c.slot == i and c.key.len > 0)
+                        try ps.append(self.arena, .{ .key = c.key, .val = c.val });
                 }
                 if (ps.items.len > 0) vals[i] = .{ .params = try ps.toOwnedSlice(self.arena) };
             } else if (sl.list) {
@@ -837,7 +966,11 @@ const Matcher = struct {
         var st = try ir.newStmt(self.arena, self.kind, line);
         try self.applyTo(&st);
         if (self.kind == .options) for (self.log.items) |c| {
-            if (c.key.len == 0) try self.said.append(self.keep.perm, .{ .slot = c.slot, .val = try ir.cloneValue(self.keep, c.val) });
+            if (c.key.len == 0)
+                try self.said.append(
+                    self.keep.perm,
+                    .{ .slot = c.slot, .val = try ir.cloneValue(self.keep, c.val) },
+                );
         };
         return st;
     }
@@ -881,7 +1014,12 @@ fn sameText(g: *const Grammar, a: []const u8, b: []const u8) bool {
 /// Replace a dialect's model spelling (`nmos level=54`) with the canonical
 /// family and polarity (`bsim4`, `n`).
 /// Match `text` against a template such as `v(%,%)`; `%` stands for a name.
-fn matchTemplate(tmpl: []const u8, folded: []const u8, raw: []const u8, args: *[3][]const u8) ?usize {
+fn matchTemplate(
+    tmpl: []const u8,
+    folded: []const u8,
+    raw: []const u8,
+    args: *[3][]const u8,
+) ?usize {
     var it = std.mem.splitScalar(u8, tmpl, '%');
     const head = it.first();
     if (!std.mem.startsWith(u8, folded, head)) return null;
@@ -898,7 +1036,8 @@ fn matchTemplate(tmpl: []const u8, folded: []const u8, raw: []const u8, args: *[
         }
         const last = it.peek() == null;
         const end = if (last) blk: {
-            if (folded.len < pos + lit.len or !std.mem.endsWith(u8, folded[pos..], lit)) return null;
+            if (folded.len < pos + lit.len or !std.mem.endsWith(u8, folded[pos..], lit))
+                return null;
             break :blk folded.len - lit.len;
         } else std.mem.indexOfPos(u8, folded, pos, lit) orelse return null;
         if (end <= pos or n == args.len) return null;
@@ -913,7 +1052,11 @@ fn matchTemplate(tmpl: []const u8, folded: []const u8, raw: []const u8, args: *[
 
 /// The canonical spelling of a signal written in this dialect, or null if
 /// the dialect's `signals` section has no form for it.
-pub fn signalCanon(arena: Allocator, g: *const Grammar, text: []const u8) Allocator.Error!?[]const u8 {
+pub fn signalCanon(
+    arena: Allocator,
+    g: *const Grammar,
+    text: []const u8,
+) Allocator.Error!?[]const u8 {
     const folded = if (g.lex.case_sensitive) text else try std.ascii.allocLowerString(arena, text);
     var args: [3][]const u8 = undefined;
     for (g.signals) |sf| {
@@ -962,7 +1105,12 @@ fn signalSpace(form: []const u8, k: usize) ?Space {
     return if (form[0] == 'i' and k == 0) .instance else null;
 }
 
-fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
+fn mapModel(
+    arena: Allocator,
+    g: *const Grammar,
+    st: *ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error!void {
     const ti = schema.slot(.model, "type");
     const pi = schema.slot(.model, "params");
     var buf: [schema.max_slots]Value = undefined;
@@ -985,7 +1133,8 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
                     if (found != null) ok = false;
                 } else if (kv.min) {
                     const least = lexer.parseNumber(arena, &g.lex, kv.val) orelse unreachable;
-                    if (found == null or found.? != .num or found.?.num.toFloat() < least.toFloat()) ok = false;
+                    if (found == null or found.? != .num or found.?.num.toFloat() < least.toFloat())
+                        ok = false;
                 } else if (found == null or !valueIsText(arena, g, found.?, kv.val)) ok = false;
             }
             if (!ok) continue;
@@ -1001,12 +1150,27 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
                 if (std.mem.eql(u8, s.type, ty)) known_word = true;
             }
         }
-        if (known_word) report.add(.warning, .unsupported, st.line, "model type '{s}' with these parameters is not in the {s} models table; kept as written", .{ ty, g.name });
+        if (known_word)
+            report.add(
+                .warning,
+                .unsupported,
+                st.line,
+                "model type '{s}' with these parameters is not in the {s} models table; kept " ++
+                    "as written",
+                .{ ty, g.name },
+            );
         return;
     };
     for (hit.s.kv) |kv| if (kv.min) {
         for (params) |p| if (std.mem.eql(u8, p.key, kv.key)) {
-            report.add(.warning, .caveat, st.line, "model type '{s}' with {s}={s}: {s} takes it as the {s} model (it warns that the value is out of range)", .{ ty, kv.key, try describeNum(arena, p.val), g.name, hit.e.family });
+            report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "model type '{s}' with {s}={s}: {s} takes it as the {s} model (it warns that " ++
+                    "the value is out of range)",
+                .{ ty, kv.key, try describeNum(arena, p.val), g.name, hit.e.family },
+            );
         };
     };
     vals[schema.slot(.model, "family")] = .{ .atom = hit.e.family };
@@ -1094,7 +1258,8 @@ const Spelling = struct {
                 .atom => &one,
                 .list => |l| l,
                 .params => |ps| {
-                    if (st.kind == .ic or st.kind == .nodeset) for (ps) |p| try sp.learn(.node, p.key);
+                    if (st.kind == .ic or st.kind == .nodeset)
+                        for (ps) |p| try sp.learn(.node, p.key);
                     if (st.kind == .instance) for (ps) |p| try sp.learn(.param, p.key);
                     for (ps) |p| try sp.exprNames(p.val);
                     continue;
@@ -1156,7 +1321,8 @@ const Spelling = struct {
                 // A number (`1.5k`, `2e-3`) starts with a digit or a point.
                 if (call) {
                     space = expr.argSpace(text[i..j]);
-                } else if (std.ascii.isAlphabetic(c) or c == '_') try sp.learn(if (i > 0 and text[i - 1] == '@') .instance else space, text[i..j]);
+                } else if (std.ascii.isAlphabetic(c) or c == '_') try sp.learn(if (i > 0 and
+                    text[i - 1] == '@') .instance else space, text[i..j]);
                 i = j;
             }
         }
@@ -1177,7 +1343,12 @@ const Spelling = struct {
 
     /// The one spelling of the name `raw` of `space`. A parameter the
     /// netlist defines is spelled the way its first definition spells it.
-    fn spell(sp: *const Spelling, arena: Allocator, space: Space, raw: []const u8) Allocator.Error![]const u8 {
+    fn spell(
+        sp: *const Spelling,
+        arena: Allocator,
+        space: Space,
+        raw: []const u8,
+    ) Allocator.Error![]const u8 {
         if (raw.len > 256) return raw;
         if (space != .param) return sp.lookup(space, raw, raw);
         const low = try lowered(arena, raw);
@@ -1185,7 +1356,12 @@ const Spelling = struct {
     }
 
     /// The capitalised spelling of `name` among those of `space`, else `fallback`.
-    fn lookup(sp: *const Spelling, space: Space, name: []const u8, fallback: []const u8) []const u8 {
+    fn lookup(
+        sp: *const Spelling,
+        space: Space,
+        name: []const u8,
+        fallback: []const u8,
+    ) []const u8 {
         const k = sp.mixed.getPtrConst(space).getKey(name) orelse return fallback;
         if (sp.needed) |n| if (!std.mem.eql(u8, k, fallback)) {
             n.sets.getPtr(space).put(ir.big, k, {}) catch {
@@ -1240,7 +1416,8 @@ const Spelling = struct {
                     // word is a keyword, not a name: their one spelling is
                     // the lower-case one.
                     if (st.kind == .func or sl.space == null) {
-                        if (vals[i] == .atom) vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
+                        if (vals[i] == .atom)
+                            vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
                     } else vals[i] = try sp.atom(arena, sl.space.?, vals[i]);
                 },
                 .params => {
@@ -1261,7 +1438,8 @@ const Spelling = struct {
                             // A subcircuit's parameter, which may be defined
                             // in another file: spelled as the source does.
                             p.key = try sp.spell(arena, .param, p.key);
-                        } else p.key = sp.params.get(try lowered(arena, p.key)) orelse try lowered(arena, p.key);
+                        } else p.key = sp.params.get(try lowered(arena, p.key)) orelse
+                            try lowered(arena, p.key);
                     }
                 },
                 else => {},
@@ -1271,7 +1449,12 @@ const Spelling = struct {
     }
 
     /// A word of an expression: a call (`space` null), or a name of `space`.
-    fn identifier(sp: *const Spelling, arena: Allocator, word: []const u8, space: ?Space) Allocator.Error![]const u8 {
+    fn identifier(
+        sp: *const Spelling,
+        arena: Allocator,
+        word: []const u8,
+        space: ?Space,
+    ) Allocator.Error![]const u8 {
         const low = try lowered(arena, word);
         const in = space orelse return low;
         if (in == .param) if (sp.params.get(low)) |p| return p;
@@ -1286,7 +1469,10 @@ const Spelling = struct {
         try out.print(arena, "{s}(", .{text[0..std.mem.indexOfScalar(u8, text, '(').?]});
         for (args[0..n], 0..) |a, i| {
             if (i > 0) try out.append(arena, ',');
-            try out.appendSlice(arena, if (signalSpace(form, i)) |space| try sp.spell(arena, space, a) else a);
+            try out.appendSlice(arena, if (signalSpace(form, i)) |space|
+                try sp.spell(arena, space, a)
+            else
+                a);
         }
         try out.append(arena, ')');
         return out.items;
@@ -1302,8 +1488,16 @@ fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void {
     const Args = struct {
         args: []const Value,
         pub fn get(a: @This(), word: []const u8) ?[]const u8 {
-            const list: []const Value = if (a.args.len == 1 and a.args[0] == .list) a.args[0].list else a.args;
-            for (list) |v| if (v == .atom and std.ascii.eqlIgnoreCase(v.atom, word) and !std.mem.eql(u8, v.atom, word)) return v.atom;
+            const list: []const Value = if (a.args.len == 1 and a.args[0] == .list)
+                a.args[0].list
+            else
+                a.args;
+            for (list) |v|
+                if (v == .atom and std.ascii.eqlIgnoreCase(v.atom, word) and !std.mem.eql(
+                    u8,
+                    v.atom,
+                    word,
+                )) return v.atom;
             return null;
         }
     };
@@ -1312,7 +1506,12 @@ fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void {
     vals[ei] = .{ .expr = body };
 }
 
-fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8, space: ?Space) Allocator.Error![]const u8 {
+fn resolveName(
+    ctx: ?*const anyopaque,
+    arena: Allocator,
+    word: []const u8,
+    space: ?Space,
+) Allocator.Error![]const u8 {
     const sp: *const Spelling = @ptrCast(@alignCast(ctx.?));
     return sp.identifier(arena, word, space);
 }
@@ -1367,14 +1566,23 @@ const Reader = struct {
         while (it.next()) |l| {
             no += 1;
             const t = std.mem.trimStart(u8, l, " \t");
-            if (t.len < word.len or (t.len > word.len and !std.ascii.isWhitespace(t[word.len]))) continue;
+            if (t.len < word.len or (t.len > word.len and !std.ascii.isWhitespace(t[word.len])))
+                continue;
             const head = t[0..word.len];
-            if (if (self.g.lex.case_sensitive) std.mem.eql(u8, head, word) else std.ascii.eqlIgnoreCase(head, word)) last = no;
+            if (if (self.g.lex.case_sensitive) std.mem.eql(
+                u8,
+                head,
+                word,
+            ) else std.ascii.eqlIgnoreCase(head, word)) last = no;
         }
         return last;
     }
 
-    fn body(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt) Allocator.Error![]ir.Stmt {
+    fn body(
+        self: *Reader,
+        block: ?*const grammar.Block,
+        owner: ?*ir.Stmt,
+    ) Allocator.Error![]ir.Stmt {
         // A growing list leaves every outgrown copy behind in an arena. Grow
         // it on the page allocator and keep one copy of the final size.
         var list: Grow = .{ .gpa = ir.big };
@@ -1388,7 +1596,10 @@ const Reader = struct {
     /// as the netlist from `Grow` would double it for a moment.
     fn top(self: *Reader) Allocator.Error![]ir.Stmt {
         var list: Grow = .{ .gpa = self.arena };
-        try list.items.ensureTotalCapacityPrecise(self.arena, std.mem.count(u8, self.lines.src, "\n") + 1);
+        try list.items.ensureTotalCapacityPrecise(
+            self.arena,
+            std.mem.count(u8, self.lines.src, "\n") + 1,
+        );
         return self.bodyInto(null, null, &list);
     }
 
@@ -1406,13 +1617,19 @@ const Reader = struct {
         }
     };
 
-    fn bodyInto(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt, out: anytype) Allocator.Error![]ir.Stmt {
+    fn bodyInto(
+        self: *Reader,
+        block: ?*const grammar.Block,
+        owner: ?*ir.Stmt,
+        out: anytype,
+    ) Allocator.Error![]ir.Stmt {
         while (true) switch (try self.step(block, owner, out)) {
             .more => {},
             .closed => return out.toOwnedSlice(self.arena),
             .eof => break,
         };
-        if (block) |b| self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
+        if (block) |b|
+            self.report.add(.@"error", .invalid, 0, "{s} block is not closed", .{@tagName(b.kind)});
         return out.toOwnedSlice(self.arena);
     }
 
@@ -1420,7 +1637,12 @@ const Reader = struct {
 
     /// Read what starts at the next line: a statement (a block with its
     /// whole body), the comments in front of it, or the end of `block`.
-    fn step(self: *Reader, block: ?*const grammar.Block, owner: ?*ir.Stmt, out: anytype) Allocator.Error!Step {
+    fn step(
+        self: *Reader,
+        block: ?*const grammar.Block,
+        owner: ?*ir.Stmt,
+        out: anytype,
+    ) Allocator.Error!Step {
         {
             self.m.win.drop(self.ti);
             self.ti = 0;
@@ -1448,7 +1670,11 @@ const Reader = struct {
             if (first.tag == .word) {
                 if (self.toks()[ti + 1].tag == .nl) {
                     for (self.g.wraps) |w| {
-                        if (std.mem.eql(u8, first.text, w.open) or std.mem.eql(u8, first.text, w.close)) {
+                        if (std.mem.eql(u8, first.text, w.open) or std.mem.eql(
+                            u8,
+                            first.text,
+                            w.close,
+                        )) {
                             self.skipLine();
                             return .more;
                         }
@@ -1458,14 +1684,19 @@ const Reader = struct {
             if (block) |b| {
                 if (try self.m.run(b.kind, b.close, ti)) {
                     const tail = self.toks()[self.m.end].text;
-                    if (tail.len > 0) try out.append(self.arena, .{ .kind = .comment, .raw = tail, .line = line.no });
+                    if (tail.len > 0)
+                        try out.append(
+                            self.arena,
+                            .{ .kind = .comment, .raw = tail, .line = line.no },
+                        );
                     self.ti = self.m.end + 1;
                     return .closed;
                 }
                 for (b.inner) |pat| {
                     if (try self.m.run(b.kind, pat, ti)) {
                         try self.m.applyTo(owner.?);
-                        if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, owner.?);
+                        if (!self.g.lex.case_sensitive)
+                            try self.spell.statement(self.arena, owner.?);
                         self.ti = self.m.end + 1;
                         return .more;
                     }
@@ -1477,7 +1708,15 @@ const Reader = struct {
                 // Deeper than any netlist nests: no block, so no stack
                 // overflow; the line goes to the rules, and so to text.
                 if (self.depth >= ir.max_depth) {
-                    if (!self.too_deep) self.report.add(.@"error", .invalid, line.no, "blocks nested more than {d} deep: from here a line that would open one deeper is read as a statement, or kept as text", .{ir.max_depth});
+                    if (!self.too_deep)
+                        self.report.add(
+                            .@"error",
+                            .invalid,
+                            line.no,
+                            "blocks nested more than {d} deep: from here a line that would " ++
+                                "open one deeper is read as a statement, or kept as text",
+                            .{ir.max_depth},
+                        );
                     self.too_deep = true;
                     break;
                 }
@@ -1504,9 +1743,13 @@ const Reader = struct {
                 var st = try self.m.build(line.no);
                 // Segments are numbers: `.tran 1n 1u SWEEP ...` is a spread.
                 if (st.kind == .tran and !numericSegments(&st)) continue;
-                if (st.kind == .options) if (self.m.clash()) |sl| self.report.add(.@"error", .loss, line.no, "{s}.{s} is given twice with different values, by two keys {s} reads as one; the last is kept", .{
-                    @tagName(st.kind), schema.info(st.kind).slots[sl].name, self.g.name,
-                });
+                if (st.kind == .options)
+                    if (self.m.clash()) |sl|
+                        self.report.add(.@"error", .loss, line.no, "{s}.{s} is given twice " ++
+                            "with different values, by two keys {s} reads as one; the last is " ++
+                            "kept", .{
+                            @tagName(st.kind), schema.info(st.kind).slots[sl].name, self.g.name,
+                        });
                 st.tail = self.toks()[self.m.end].text;
                 if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
                 if (st.kind == .model) try mapModel(self.arena, self.g, &st, self.report);
@@ -1514,7 +1757,15 @@ const Reader = struct {
                 self.flagOddValues(&st);
                 // Comment lines met inside a multi-line statement go before it.
                 for (self.toks()[ti..self.m.end]) |ct| {
-                    if (ct.tag == .comment) try out.append(self.arena, .{ .kind = .comment, .raw = ct.text, .line = self.lines.get(ct.lno).no });
+                    if (ct.tag == .comment)
+                        try out.append(
+                            self.arena,
+                            .{
+                                .kind = .comment,
+                                .raw = ct.text,
+                                .line = self.lines.get(ct.lno).no,
+                            },
+                        );
                 }
                 self.ti = self.m.end + 1;
                 try out.append(self.arena, st);
@@ -1542,12 +1793,21 @@ const Reader = struct {
                             self.skipLine();
                             if (t.tag == .word and std.mem.eql(u8, t.text, rb.close)) break;
                             try text.appendSlice(self.arena, rl.text);
-                            if (rl.tail.len > 0 and self.g.lex.tail_comments.len > 0) try text.print(self.arena, " {s} {s}", .{ self.g.lex.tail_comments[0], rl.tail });
+                            if (rl.tail.len > 0 and self.g.lex.tail_comments.len > 0)
+                                try text.print(
+                                    self.arena,
+                                    " {s} {s}",
+                                    .{ self.g.lex.tail_comments[0], rl.tail },
+                                );
                             try text.append(self.arena, '\n');
                         }
                         var st = try ir.newStmt(self.arena, .embed, line.no);
                         try st.set(self.arena, schema.slot(.embed, "path"), path);
-                        try st.set(self.arena, schema.slot(.embed, "text"), .{ .atom = try text.toOwnedSlice(self.arena) });
+                        try st.set(
+                            self.arena,
+                            schema.slot(.embed, "text"),
+                            .{ .atom = try text.toOwnedSlice(self.arena) },
+                        );
                         try out.append(self.arena, st);
                         return .more;
                     };
@@ -1558,22 +1818,39 @@ const Reader = struct {
                         const rl = self.lines.get(t.lno);
                         try raw.appendSlice(self.arena, rl.text);
                         if (rl.tail.len > 0 and self.g.lex.tail_comments.len > 0) {
-                            try raw.print(self.arena, " {s} {s}", .{ self.g.lex.tail_comments[0], rl.tail });
+                            try raw.print(
+                                self.arena,
+                                " {s} {s}",
+                                .{ self.g.lex.tail_comments[0], rl.tail },
+                            );
                         }
                         self.skipLine();
                         if (t.tag == .word and std.mem.eql(u8, t.text, rb.close)) break;
                     }
-                    try out.append(self.arena, .{ .kind = .@"opaque", .raw = try raw.toOwnedSlice(self.arena), .line = line.no });
+                    try out.append(
+                        self.arena,
+                        .{
+                            .kind = .@"opaque",
+                            .raw = try raw.toOwnedSlice(self.arena),
+                            .line = line.no,
+                        },
+                    );
                     return .more;
                 }
             }
             // A statement of the dialect's own (`own`): its words, not text.
             if (self.g.ownReason(line.text) != null) {
-                try out.append(self.arena, try nativeOf(self.arena, self.g, line.text, line.no, line.tail));
+                try out.append(
+                    self.arena,
+                    try nativeOf(self.arena, self.g, line.text, line.no, line.tail),
+                );
                 self.skipLine();
                 return .more;
             }
-            try out.append(self.arena, .{ .kind = .@"opaque", .raw = line.text, .line = line.no, .tail = line.tail });
+            try out.append(
+                self.arena,
+                .{ .kind = .@"opaque", .raw = line.text, .line = line.no, .tail = line.tail },
+            );
             self.skipLine();
             return .more;
         }
@@ -1588,7 +1865,9 @@ const Reader = struct {
         if (head.tag != .word) return false;
         var first_kind: ?Kind = null;
         const shared = for (self.g.rules) |*rule| {
-            if (rule.dir == .write or rule.within != null or rule.pat.len == 0 or rule.pat[0].tag != .lit) continue;
+            if (rule.dir == .write or rule.within != null or rule.pat.len == 0 or
+                rule.pat[0].tag != .lit)
+                continue;
             if (!std.mem.eql(u8, rule.pat[0].text, head.text)) continue;
             if (first_kind) |k| {
                 if (k != rule.kind) break true;
@@ -1669,7 +1948,9 @@ const Reader = struct {
                 items[j].text = "";
                 defer items[j] = cut;
                 for (self.g.rules) |*rule| {
-                    if (rule.dir == .write or rule.within != null or schema.info(rule.kind).class != .analysis) continue;
+                    if (rule.dir == .write or rule.within != null or
+                        schema.info(rule.kind).class != .analysis)
+                        continue;
                     if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
                     var st = try self.m.build(line_no);
                     try self.canonStmt(&st);
@@ -1695,7 +1976,8 @@ const Reader = struct {
             const hit = for (e.pairs) |pr| {
                 if (std.mem.eql(u8, pr.spelling, have)) break pr.canon;
             } else {
-                self.report.add(.warning, .invalid, st.line, "{s}.{s} = {s} is not a value the {s} grammar lists; kept as written", .{
+                self.report.add(.warning, .invalid, st.line, "{s}.{s} = {s} is not a value " ++
+                    "the {s} grammar lists; kept as written", .{
                     @tagName(st.kind), schema.info(st.kind).slots[e.slot].name, have, self.g.name,
                 });
                 continue;
@@ -1705,15 +1987,27 @@ const Reader = struct {
         // A statement (not a device) whose keys this dialect lists, closed:
         // another key is one the simulator refuses (HSPICE drops an .FFT
         // with one it does not know).
-        if (schema.info(st.kind).class != .device) if (self.g.paramsOf(st.kind)) |table| if (!grammar.paramsOpen(table)) {
-            if (schema.slotOf(st.kind, "params")) |pi| if (vals[pi] == .params) for (vals[pi].params) |p| {
-                const known = blk: {
-                    for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, p.key)) break :blk true;
-                    break :blk false;
-                };
-                if (!known) self.report.add(.@"error", .invalid, st.line, "{s}: '{s}' is not a key {s} takes there; {s} does not run the statement with it", .{ @tagName(st.kind), p.key, self.g.name, self.g.name });
+        if (schema.info(st.kind).class != .device)
+            if (self.g.paramsOf(st.kind)) |table| if (!grammar.paramsOpen(table)) {
+                if (schema.slotOf(st.kind, "params")) |pi|
+                    if (vals[pi] == .params) for (vals[pi].params) |p| {
+                        const known = blk: {
+                            for (table) |e|
+                                for (e.spellings) |sp|
+                                    if (std.ascii.eqlIgnoreCase(sp, p.key)) break :blk true;
+                            break :blk false;
+                        };
+                        if (!known)
+                            self.report.add(
+                                .@"error",
+                                .invalid,
+                                st.line,
+                                "{s}: '{s}' is not a key {s} takes there; {s} does not run " ++
+                                    "the statement with it",
+                                .{ @tagName(st.kind), p.key, self.g.name, self.g.name },
+                            );
+                    };
             };
-        };
         for (self.g.implied) |im| {
             // Options hold for the whole netlist, not per statement: the
             // writer says a default the target does not share (`defaultOptions`).
@@ -1721,7 +2015,10 @@ const Reader = struct {
             if (im.kind != st.kind or vals[im.slot] != .none) continue;
             if (im.when_slot != grammar.no_slot and (vals[im.when_slot] != .atom or !std.mem.eql(u8, vals[im.when_slot].atom, im.when_atom))) continue;
             vals[im.slot] = if (schema.info(st.kind).slots[im.slot].ty == .value)
-                (if (lexer.parseNumber(self.arena, &self.g.lex, im.text)) |n| Value{ .num = n } else Value{ .expr = im.text })
+                (if (lexer.parseNumber(self.arena, &self.g.lex, im.text)) |n|
+                    Value{ .num = n }
+                else
+                    Value{ .expr = im.text })
             else
                 Value{ .atom = im.text };
         }
@@ -1732,10 +2029,20 @@ const Reader = struct {
         switch (v) {
             .expr => |e| {
                 var problems: std.ArrayList(expr.Problem) = .empty;
-                const names: expr.Resolver = if (self.g.lex.case_sensitive) .{} else .{ .ctx = &self.spell, .func = resolveName };
+                const names: expr.Resolver = if (self.g.lex.case_sensitive)
+                    .{}
+                else
+                    .{ .ctx = &self.spell, .func = resolveName };
                 const canon = try expr.read(self.arena, self.g, e, names, &problems);
                 for (problems.items) |pb| {
-                    self.report.add(.@"error", .invalid, line, "expression '{s}': {s} is not an operator the {s} grammar lists; copied as written", .{ e, pb.text, self.g.name });
+                    self.report.add(
+                        .@"error",
+                        .invalid,
+                        line,
+                        "expression '{s}': {s} is not an operator the {s} grammar lists; " ++
+                            "copied as written",
+                        .{ e, pb.text, self.g.name },
+                    );
                 }
                 return .{ .expr = canon };
             },
@@ -1768,7 +2075,11 @@ const Reader = struct {
                         .atom => |a| vals[i] = .{ .atom = try self.spell.signal(self.arena, a) },
                         .list => |items| {
                             const out = try self.arena.alloc(Value, items.len);
-                            for (items, 0..) |it, k| out[k] = if (it == .atom) Value{ .atom = try self.spell.signal(self.arena, it.atom) } else try self.finishValue(it, st.line);
+                            for (items, 0..) |it, k|
+                                out[k] = if (it == .atom)
+                                    Value{ .atom = try self.spell.signal(self.arena, it.atom) }
+                                else
+                                    try self.finishValue(it, st.line);
                             vals[i] = .{ .list = out };
                         },
                         else => {},
@@ -1786,7 +2097,15 @@ const Reader = struct {
             if (v != .params) continue;
             if (schema.info(st.kind).class == .control) continue;
             for (v.params) |p| {
-                if (p.val == .atom and !isVersion(p.val.atom)) self.report.add(.warning, .invalid, st.line, "{s}={s}: not a number, a name or a delimited expression in {s}; copied as written", .{ p.key, p.val.atom, self.g.name });
+                if (p.val == .atom and !isVersion(p.val.atom))
+                    self.report.add(
+                        .warning,
+                        .invalid,
+                        st.line,
+                        "{s}={s}: not a number, a name or a delimited expression in {s}; " ++
+                            "copied as written",
+                        .{ p.key, p.val.atom, self.g.name },
+                    );
             }
         }
     }
@@ -1854,7 +2173,10 @@ const Reader = struct {
                     if (fold_case) try self.spell.statement(scratch.allocator(), st);
                     const n = st.get("name");
                     if (st.kind != .param and n == .atom) {
-                        const name = if (fold_case) try Spelling.lowered(scratch.allocator(), n.atom) else n.atom;
+                        const name = if (fold_case)
+                            try Spelling.lowered(scratch.allocator(), n.atom)
+                        else
+                            n.atom;
                         const gop = try declared.getOrPut(self.spell.perm, name);
                         if (!gop.found_existing) gop.key_ptr.* = try self.spell.keep(name);
                     }
@@ -1872,7 +2194,12 @@ fn bagEntryFor(nodes: []const Node, key: []const u8) ?grammar.BagEntry {
     for (nodes) |n| {
         if (n.tag == .bag) {
             for (n.bag) |e| {
-                if ((e.form == .plain or e.form == .quoted) and e.tag_slot == grammar.no_slot and std.mem.eql(u8, e.key, key)) return e;
+                if ((e.form == .plain or e.form == .quoted) and e.tag_slot == grammar.no_slot and
+                    std.mem.eql(
+                        u8,
+                        e.key,
+                        key,
+                    )) return e;
             }
         }
         if (bagEntryFor(n.kids, key)) |e| return e;
@@ -1925,7 +2252,10 @@ fn rebindParams(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt) Allocator
                 else => p.val,
             });
         }
-        try st.set(arena, pi, if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none);
+        try st.set(arena, pi, if (kept.items.len > 0)
+            .{ .params = try kept.toOwnedSlice(arena) }
+        else
+            .none);
     }
 }
 
@@ -1940,7 +2270,12 @@ fn isBound(v: Value) bool {
 
 /// A `move a.x -> b.y` in the grammar says where this dialect writes the
 /// value. Reading puts it back where the canonical IR keeps it.
-fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
+fn undoMoves(
+    g: *const Grammar,
+    arena: Allocator,
+    list: *std.ArrayList(ir.Stmt),
+    report: *ir.Report,
+) Allocator.Error!void {
     for (g.moves) |mv| {
         if (mv.oneway) continue;
         var i: usize = 0;
@@ -1957,7 +2292,8 @@ fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
                 break :blk &list.items[i - 1];
             };
             if (isBound(home.at(mv.from_slot)) and !home.at(mv.from_slot).eql(v)) {
-                report.add(.warning, .caveat, list.items[i].line, "{s}.{s} is given more than once with different values; the first is kept", .{
+                report.add(.warning, .caveat, list.items[i].line, "{s}.{s} is given more than " ++
+                    "once with different values; the first is kept", .{
                     @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name,
                 });
                 continue;
@@ -1969,7 +2305,11 @@ fn undoMoves(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
 
 /// A `merge a -> b` in the grammar: this dialect writes one statement as
 /// two (HSPICE noise is `.ac` plus `.noise`). Reading makes them one again.
-fn undoMerges(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
+fn undoMerges(
+    g: *const Grammar,
+    arena: Allocator,
+    list: *std.ArrayList(ir.Stmt),
+) Allocator.Error!void {
     for (g.merges) |mg| {
         var i: usize = 0;
         while (i < list.items.len) : (i += 1) {
@@ -2028,7 +2368,17 @@ pub fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.E
             for (schema.info(.options).slots, 0..) |sl, k| {
                 if (!isBound(b.at(k))) continue;
                 if (sl.ty == .params and a.at(k) == .params) {
-                    try a.set(arena, k, .{ .params = try std.mem.concat(arena, ir.Param, &.{ a.at(k).params, b.at(k).params }) });
+                    try a.set(
+                        arena,
+                        k,
+                        .{
+                            .params = try std.mem.concat(
+                                arena,
+                                ir.Param,
+                                &.{ a.at(k).params, b.at(k).params },
+                            ),
+                        },
+                    );
                 } else try a.set(arena, k, b.at(k)); // a later option overrides an earlier one
             }
             if (a.tail.len == 0) a.tail = b.tail;
@@ -2039,7 +2389,12 @@ pub fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.E
 
 /// A binned model block (`model nch bsim4 { 1: ... }`) is the model cards
 /// `nch.1`, `nch.2`, ... of the SPICE dialects, each with the block's type.
-fn flattenBins(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
+fn flattenBins(
+    g: *const Grammar,
+    arena: Allocator,
+    list: *std.ArrayList(ir.Stmt),
+    report: *ir.Report,
+) Allocator.Error!void {
     const ni = schema.slot(.model, "name");
     const ti = schema.slot(.model, "type");
     var i: usize = 0;
@@ -2050,7 +2405,17 @@ fn flattenBins(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt
         for (bins) |*bin| {
             if (bin.kind != .model or bin.get("name") != .atom) continue;
             const label = std.mem.trimEnd(u8, bin.get("name").atom, ":");
-            try bin.set(arena, ni, .{ .atom = try std.fmt.allocPrint(arena, "{s}.{s}", .{ parent.get("name").atom, label }) });
+            try bin.set(
+                arena,
+                ni,
+                .{
+                    .atom = try std.fmt.allocPrint(
+                        arena,
+                        "{s}.{s}",
+                        .{ parent.get("name").atom, label },
+                    ),
+                },
+            );
             try bin.set(arena, ti, parent.at(ti));
             try mapModel(arena, g, bin, report);
         }
@@ -2069,7 +2434,9 @@ fn gatherMonteCarlo(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.E
     var body: std.ArrayList(ir.Stmt) = .empty;
     var i: usize = 0;
     while (i < list.items.len) {
-        if (schema.info(list.items[i].kind).class == .analysis and list.items[i].kind != .montecarlo and list.items[i].kind != .alter) {
+        if (schema.info(list.items[i].kind).class == .analysis and
+            list.items[i].kind != .montecarlo and list.items[i].kind != .alter)
+        {
             try body.append(arena, list.orderedRemove(i));
         } else i += 1;
     }
@@ -2086,13 +2453,20 @@ fn gatherMonteCarlo(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.E
 /// alter is followed by the analyses again: those that are the netlist's
 /// own are dropped, one-change alters (`a1 alter dev=r1 param=r value=2k`)
 /// become bodies, and alters with no analysis between them are one.
-fn gatherAlters(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
+fn gatherAlters(
+    g: *const Grammar,
+    arena: Allocator,
+    list: *std.ArrayList(ir.Stmt),
+    report: *ir.Report,
+) Allocator.Error!void {
     const at = for (list.items, 0..) |st, i| {
         if (st.kind == .alter) break i;
     } else return;
     if (!g.isRerun(.alter)) {
         if (g.blockOf(.alter) != null) return;
-        var out: std.ArrayList(ir.Stmt) = .fromOwnedSlice(try arena.dupe(ir.Stmt, list.items[0..at]));
+        var out: std.ArrayList(ir.Stmt) = .fromOwnedSlice(
+            try arena.dupe(ir.Stmt, list.items[0..at]),
+        );
         var i = at;
         while (i < list.items.len) {
             var alt = list.items[i];
@@ -2111,7 +2485,8 @@ fn gatherAlters(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stm
         try alt.own(arena);
         const edit = try oneChange(g, arena, list.items[0..i], alt, report) orelse continue;
         alt.body = try arena.dupe(ir.Stmt, &.{edit});
-        for ([_][]const u8{ "dev", "mod", "param", "value" }) |n| try alt.set(arena, schema.slotIndex(.alter, n).?, .none);
+        for ([_][]const u8{ "dev", "mod", "param", "value" }) |n|
+            try alt.set(arena, schema.slotIndex(.alter, n).?, .none);
     }
     var base: std.ArrayList(ir.Stmt) = .empty;
     var rest: std.ArrayList(ir.Stmt) = .empty;
@@ -2144,7 +2519,14 @@ fn gatherAlters(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stm
 
 /// The analyses written after an alter: dropped when they are the
 /// netlist's own, which every alter reruns.
-fn dropRerun(arena: Allocator, rest: *std.ArrayList(ir.Stmt), run: *std.ArrayList(usize), base: []const ir.Stmt, alters: []const ir.Stmt, report: *ir.Report) Allocator.Error!void {
+fn dropRerun(
+    arena: Allocator,
+    rest: *std.ArrayList(ir.Stmt),
+    run: *std.ArrayList(usize),
+    base: []const ir.Stmt,
+    alters: []const ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error!void {
     defer run.clearRetainingCapacity();
     if (alters.len == 0) return;
     var got: std.ArrayList(ir.Stmt) = .empty;
@@ -2158,13 +2540,26 @@ fn dropRerun(arena: Allocator, rest: *std.ArrayList(ir.Stmt), run: *std.ArrayLis
         return;
     }
     const alt = alters[alters.len - 1];
-    report.add(.@"error", .invalid, alt.line, "alter '{s}': the analyses after it are not those of the netlist, which an alter reruns; they are kept as analyses of the netlist", .{if (alt.get("name") == .atom) alt.get("name").atom else "?"});
+    report.add(
+        .@"error",
+        .invalid,
+        alt.line,
+        "alter '{s}': the analyses after it are not those of the netlist, which an alter " ++
+            "reruns; they are kept as analyses of the netlist",
+        .{if (alt.get("name") == .atom) alt.get("name").atom else "?"},
+    );
 }
 
 /// A one-change alter (`dev=` or `mod=`, `param=`, `value=`) as the
 /// statement it changes, edited: an instance or a model card, a parameter,
 /// or the temperature.
-fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: *const ir.Stmt, report: *ir.Report) Allocator.Error!?ir.Stmt {
+fn oneChange(
+    g: *const Grammar,
+    arena: Allocator,
+    before: []const ir.Stmt,
+    alt: *const ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error!?ir.Stmt {
     const key = alt.get("param").atom;
     const val = alt.get("value");
     const target: ?[]const u8 = switch (alt.get("dev")) {
@@ -2172,7 +2567,10 @@ fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: 
         else => if (alt.get("mod") == .atom) alt.get("mod").atom else null,
     };
     const name = target orelse {
-        var st = try ir.newStmt(arena, if (std.mem.eql(u8, key, "temp")) .options else .param, alt.line);
+        var st = try ir.newStmt(arena, if (std.mem.eql(u8, key, "temp"))
+            .options
+        else
+            .param, alt.line);
         if (st.kind == .options) {
             try st.set(arena, schema.slot(.options, "temp"), val);
         } else try st.set(arena, schema.slot(.param, "params"), .{ .params = try arena.dupe(ir.Param, &.{.{ .key = key, .val = val }}) });
@@ -2188,7 +2586,13 @@ fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: 
         } else if (namedAs(st, name)) found = st.*;
     }
     var st = found orelse {
-        report.add(.@"error", .invalid, alt.line, "alter: the netlist has no instance or model '{s}'", .{name});
+        report.add(
+            .@"error",
+            .invalid,
+            alt.line,
+            "alter: the netlist has no instance or model '{s}'",
+            .{name},
+        );
         return null;
     };
     try st.own(arena);
@@ -2204,7 +2608,13 @@ fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: 
         }
     }
     const pi = schema.slotOf(st.kind, "params") orelse {
-        report.add(.@"error", .invalid, alt.line, "alter: {s} '{s}' has no parameter '{s}' here", .{ @tagName(st.kind), name, key });
+        report.add(
+            .@"error",
+            .invalid,
+            alt.line,
+            "alter: {s} '{s}' has no parameter '{s}' here",
+            .{ @tagName(st.kind), name, key },
+        );
         return null;
     };
     var ps: std.ArrayList(ir.Param) = .empty;
@@ -2252,22 +2662,46 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
             const prev = if (k == 0) st.at(ti) else items[2 * k - 1];
             const step = items[2 * k];
             const stop = items[2 * k + 1];
-            if (prev != .num or step != .num or stop != .num or stop.num.toFloat() <= prev.num.toFloat()) break false;
+            if (prev != .num or step != .num or stop != .num or
+                stop.num.toFloat() <= prev.num.toFloat())
+                break false;
         } else true;
         if (!rises) {
             if (items.len > 2) {
-                report.add(.@"error", .invalid, st.line, "tran: {d} numbers after the step and stop are neither rising step and stop pairs nor a start time and a step ceiling", .{items.len});
+                report.add(
+                    .@"error",
+                    .invalid,
+                    st.line,
+                    "tran: {d} numbers after the step and stop are neither rising step and " ++
+                        "stop pairs nor a start time and a step ceiling",
+                    .{items.len},
+                );
                 continue;
             }
             if (items.len > 0) try st.set(arena, schema.slot(.tran, "start"), items[0]);
             // Measured (docs/verification.md 4.18): the same samples with
             // and without it; `.option delmax` is what caps the step.
-            if (items.len > 1) report.add(.info, .caveat, st.line, "tran: HSPICE takes a fourth .TRAN number that is no second segment as nothing (its step cap is .OPTION DELMAX), so it is left out", .{});
+            if (items.len > 1)
+                report.add(
+                    .info,
+                    .caveat,
+                    st.line,
+                    "tran: HSPICE takes a fourth .TRAN number that is no second segment as " ++
+                        "nothing (its step cap is .OPTION DELMAX), so it is left out",
+                    .{},
+                );
             continue;
         }
         var step = st.at(si);
         if (step != .num) {
-            report.add(.@"error", .invalid, st.line, "tran: a multi-segment .tran with an expression in it has no smallest step to run at", .{});
+            report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "tran: a multi-segment .tran with an expression in it has no smallest step to " ++
+                    "run at",
+                .{},
+            );
             continue;
         }
         var k: usize = 0;
@@ -2276,7 +2710,14 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
         }
         try st.set(arena, si, step);
         try st.set(arena, ti, items[items.len - 1]);
-        report.add(.warning, .caveat, st.line, "tran: a multi-segment .tran is one run to its last stop at its smallest step; the output is no longer sampled per segment", .{});
+        report.add(
+            .warning,
+            .caveat,
+            st.line,
+            "tran: a multi-segment .tran is one run to its last stop at its smallest step; " ++
+                "the output is no longer sampled per segment",
+            .{},
+        );
     }
 }
 
@@ -2297,13 +2738,19 @@ fn foldModules(arena: Allocator, list: []ir.Stmt, all: []const ir.Stmt) Allocato
         if (m.len > 1 and (m[0] == 'y' or m[0] == 'Y')) m = m[1..];
         const master = if (st.get("master") == .atom) st.get("master").atom else "";
         const said = modelType(all, master);
-        try st.set(arena, mi, if (said != null and std.ascii.eqlIgnoreCase(said.?, m)) .none else Value{ .atom = m });
+        try st.set(arena, mi, if (said != null and std.ascii.eqlIgnoreCase(said.?, m))
+            .none
+        else
+            Value{ .atom = m });
     }
 }
 
 fn modelType(stmts: []const ir.Stmt, name: []const u8) ?[]const u8 {
     for (stmts) |*s| {
-        if (s.kind == .model and s.get("name") == .atom and std.ascii.eqlIgnoreCase(s.get("name").atom, name) and s.get("type") == .atom) return s.get("type").atom;
+        if (s.kind == .model and s.get("name") == .atom and std.ascii.eqlIgnoreCase(
+            s.get("name").atom,
+            name,
+        ) and s.get("type") == .atom) return s.get("type").atom;
         if (modelType(s.body, name)) |t| return t;
     }
     return null;
@@ -2348,7 +2795,11 @@ fn foldPeriod(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
     } else try st.set(arena, fi, .{ .expr = try std.fmt.allocPrint(arena, "1/({s})", .{try numText(arena, period)}) });
     if (tres == .none) return;
     if (period == .num and tres == .num) {
-        try st.set(arena, hi, try floatNum(arena, @round(period.num.toFloat() / tres.num.toFloat())));
+        try st.set(
+            arena,
+            hi,
+            try floatNum(arena, @round(period.num.toFloat() / tres.num.toFloat())),
+        );
     } else try st.set(arena, hi, .{ .expr = try std.fmt.allocPrint(arena, "nint(({s})/({s}))", .{ try numText(arena, period), try numText(arena, tres) }) });
 }
 
@@ -2377,7 +2828,13 @@ fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Erro
     var it = std.mem.tokenizeAny(u8, e[5 .. e.len - 1], " ,");
     while (it.next()) |w| {
         const n = std.fmt.parseInt(u32, w, 10) catch {
-            report.add(.@"error", .invalid, st.line, "montecarlo: '{s}' in {s} is not a run number", .{ w, e });
+            report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "montecarlo: '{s}' in {s} is not a run number",
+                .{ w, e },
+            );
             return;
         };
         _ = n;
@@ -2391,7 +2848,13 @@ fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Erro
 /// The words of a line no kind holds: the first, then each blank-separated
 /// word (parentheses and quotes keep their blanks), a `key=value` one a
 /// parameter. Values stay as written.
-fn nativeOf(arena: Allocator, g: *const Grammar, text: []const u8, line_no: u32, tail: []const u8) Allocator.Error!ir.Stmt {
+fn nativeOf(
+    arena: Allocator,
+    g: *const Grammar,
+    text: []const u8,
+    line_no: u32,
+    tail: []const u8,
+) Allocator.Error!ir.Stmt {
     var words: std.ArrayList([]const u8) = .empty;
     var i: usize = 0;
     while (i < text.len) {
@@ -2426,16 +2889,25 @@ fn nativeOf(arena: Allocator, g: *const Grammar, text: []const u8, line_no: u32,
             continue;
         }
         const eq = std.mem.indexOfScalar(u8, w, '=');
-        if (eq != null and eq.? > 0 and eq.? + 1 < w.len and std.mem.indexOfAny(u8, w[0..eq.?], "('\"[{") == null) {
+        if (eq != null and eq.? > 0 and eq.? + 1 < w.len and std.mem.indexOfAny(
+            u8,
+            w[0..eq.?],
+            "('\"[{",
+        ) == null) {
             try ps.append(arena, .{ .key = w[0..eq.?], .val = .{ .atom = w[eq.? + 1 ..] } });
         } else try args.append(arena, .{ .atom = w });
     }
     var st = try ir.newStmt(arena, .native, line_no);
     st.tail = tail;
     try st.set(arena, schema.slot(.native, "of"), .{ .atom = g.name });
-    try st.set(arena, schema.slot(.native, "word"), .{ .atom = if (words.items.len > 0) words.items[0] else "" });
-    if (args.items.len > 0) try st.set(arena, schema.slot(.native, "args"), .{ .list = args.items });
-    if (ps.items.len > 0) try st.set(arena, schema.slot(.native, "params"), .{ .params = ps.items });
+    try st.set(arena, schema.slot(.native, "word"), .{ .atom = if (words.items.len > 0)
+        words.items[0]
+    else
+        "" });
+    if (args.items.len > 0)
+        try st.set(arena, schema.slot(.native, "args"), .{ .list = args.items });
+    if (ps.items.len > 0)
+        try st.set(arena, schema.slot(.native, "params"), .{ .params = ps.items });
     return st;
 }
 
@@ -2478,7 +2950,12 @@ fn measureWith(arena: Allocator, list: []ir.Stmt, last: ?[]const u8) Allocator.E
     }
 }
 
-fn normalizeLists(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error![]ir.Stmt {
+fn normalizeLists(
+    g: *const Grammar,
+    arena: Allocator,
+    stmts: []ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error![]ir.Stmt {
     // Edited in place: a copy of the top-level list would be as large as
     // every statement header in the netlist.
     var list: std.ArrayList(ir.Stmt) = .fromOwnedSlice(stmts);
@@ -2518,7 +2995,13 @@ fn switchOf(g: *const Grammar, line: []const u8) ?*const grammar.Switch {
 /// A file that changes language (`simulator lang=spice`) is read one run
 /// of lines at a time, each with its own grammar. Lines outside the run
 /// are blanked rather than cut, so that line numbers stay those of the file.
-fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!?ir.Netlist {
+fn readSwitched(
+    g: *const Grammar,
+    arena: Allocator,
+    src: []const u8,
+    report: *ir.Report,
+    opts: ir.ReadOptions,
+) Allocator.Error!?ir.Netlist {
     var starts: std.ArrayList(usize) = .empty;
     var it = std.mem.splitScalar(u8, src, '\n');
     var lines: std.ArrayList([]const u8) = .empty;
@@ -2552,7 +3035,11 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
             const tag: u8 = if (cur == g) 0 else (try dialects.intern(cur.name)) orelse 0;
             for (nl.stmts) |st| {
                 // The blanked lines read as blank lines; they are not the file's.
-                if (st.kind == .comment and std.mem.eql(u8, st.raw, ir.blank_line) and (st.line < from + 1 or st.line > to)) continue;
+                if (st.kind == .comment and std.mem.eql(
+                    u8,
+                    st.raw,
+                    ir.blank_line,
+                ) and (st.line < from + 1 or st.line > to)) continue;
                 var s = st;
                 if (s.dialect == 0) s.dialect = tag;
                 try out.append(arena, s);
@@ -2562,19 +3049,38 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
         const sw = switchOf(g, lines.items[starts.items[k]]).?;
         // Back to the file's own language is back to `g`, which may be a
         // grammar loaded from a file, not the built-in of the same name.
-        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name)) g else dialects.find(sw.dialect) orelse g;
+        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name))
+            g
+        else
+            dialects.find(sw.dialect) orelse g;
         const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
-        for (cur.header_folded) |l| folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
+        for (cur.header_folded) |l|
+            folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
         from = starts.items[k] + 1;
         k += 1;
     }
-    var nl: ir.Netlist = .{ .title = title, .dialect = g.name, .library = opts.library, .folds_case = folds, .stmts = out.items };
+    var nl: ir.Netlist = .{
+        .title = title,
+        .dialect = g.name,
+        .library = opts.library,
+        .folds_case = folds,
+        .stmts = out.items,
+    };
     try ir.resolveInstances(arena, &nl, opts.env);
     return nl;
 }
 
-pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!ir.Netlist {
-    const switched = if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null) try readSwitched(g, arena, src, report, opts) else null;
+pub fn read(
+    g: *const Grammar,
+    arena: Allocator,
+    src: []const u8,
+    report: *ir.Report,
+    opts: ir.ReadOptions,
+) Allocator.Error!ir.Netlist {
+    const switched = if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)
+        try readSwitched(g, arena, src, report, opts)
+    else
+        null;
     const nl = switched orelse try readPlain(g, arena, src, report, opts);
     if (report.lost) return error.OutOfMemory;
     return nl;
@@ -2593,7 +3099,13 @@ pub const Source = struct {
 
     /// Pass one: what the netlist declares and how it spells its names.
     /// Tables go to `perm`; nothing the pass reads is kept unless copied.
-    pub fn open(g: *const Grammar, perm: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!*Source {
+    pub fn open(
+        g: *const Grammar,
+        perm: Allocator,
+        src: []const u8,
+        report: *ir.Report,
+        opts: ir.ReadOptions,
+    ) Allocator.Error!*Source {
         const s = try perm.create(Source);
         s.cfg = g.lex;
         if (opts.library) s.cfg.title = false;
@@ -2623,16 +3135,28 @@ pub const Source = struct {
             for (n.lines) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         }
         var folded: std.ArrayList([]const u8) = .empty;
-        for (g.header_folded) |l| try folded.append(perm, try normalize(perm, g.lex.case_sensitive, l));
+        for (g.header_folded) |l|
+            try folded.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         s.r = .{
             .g = g,
             .arena = perm,
-            .spell = .{ .perm = perm, .src = src, .mixed = .initFill(.{ .src = src, .perm = perm }) },
+            .spell = .{
+                .perm = perm,
+                .src = src,
+                .mixed = .initFill(.{ .src = src, .perm = perm }),
+            },
             .lines = &s.lines,
             .report = report,
             .boiler = boiler.items,
             .folded_boiler = folded.items,
-            .m = .{ .g = g, .arena = perm, .win = &s.win, .lines = &s.lines, .declared = &s.declared, .keep = .{ .perm = perm, .src = src } },
+            .m = .{
+                .g = g,
+                .arena = perm,
+                .win = &s.win,
+                .lines = &s.lines,
+                .declared = &s.declared,
+                .keep = .{ .perm = perm, .src = src },
+            },
         };
         errdefer s.r.spell.deinit();
         // The spelling table is filled in the first pass: nothing that pass
@@ -2690,7 +3214,8 @@ pub const Source = struct {
         const sp = &s.r.spell;
         var buf: [256]u8 = undefined;
         if (space == .param and name.len <= buf.len) {
-            if (sp.params.get(std.ascii.lowerString(&buf, name))) |p| return std.mem.eql(u8, p, name);
+            if (sp.params.get(std.ascii.lowerString(&buf, name))) |p|
+                return std.mem.eql(u8, p, name);
         }
         if (sp.mixed.getPtrConst(space).getKey(name)) |k| return std.mem.eql(u8, k, name);
         for (name) |c| if (std.ascii.isUpper(c)) return false;
@@ -2719,7 +3244,12 @@ pub const Source = struct {
     /// The passes `read` runs over the whole netlist that need nothing but
     /// the statements `next` gave, run on them. `last`: the netlist's last
     /// analysis (`lastAnalysis`), which a `.measure` naming none measures.
-    pub fn finishGroup(s: *Source, list: *std.ArrayList(ir.Stmt), report: *ir.Report, last: ?[]const u8) Allocator.Error!void {
+    pub fn finishGroup(
+        s: *Source,
+        list: *std.ArrayList(ir.Stmt),
+        report: *ir.Report,
+        last: ?[]const u8,
+    ) Allocator.Error!void {
         const r = &s.r;
         const g = r.g;
         const arena = r.arena;
@@ -2765,20 +3295,37 @@ pub const Tables = struct {
 };
 
 /// The passes `read` ends with, on the statements `Source.next` gave.
-pub fn resolveGroup(g: *const Grammar, arena: Allocator, list: []ir.Stmt, t: *const Tables, report: *ir.Report) Allocator.Error!void {
+pub fn resolveGroup(
+    g: *const Grammar,
+    arena: Allocator,
+    list: []ir.Stmt,
+    t: *const Tables,
+    report: *ir.Report,
+) Allocator.Error!void {
     if (t.models.count() > 0) try ir.retag(arena, list, &t.models, &t.subckts);
     try rebindParams(g, arena, list);
     report.phase = ir.Phase.kinds;
     if (t.models.count() > 0) try ir.checkKinds(list, &t.models, &t.families, report);
 }
 
-fn readPlain(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report, opts: ir.ReadOptions) Allocator.Error!ir.Netlist {
+fn readPlain(
+    g: *const Grammar,
+    arena: Allocator,
+    src: []const u8,
+    report: *ir.Report,
+    opts: ir.ReadOptions,
+) Allocator.Error!ir.Netlist {
     const env = opts.env;
     const s = try Source.open(g, arena, src, report, opts);
     defer s.deinit();
     s.rewind(arena, arena);
     const r = &s.r;
-    var nl: ir.Netlist = .{ .title = s.title, .dialect = g.name, .library = opts.library, .stmts = try r.top() };
+    var nl: ir.Netlist = .{
+        .title = s.title,
+        .dialect = g.name,
+        .library = opts.library,
+        .stmts = try r.top(),
+    };
     nl.folds_case = r.folded;
     try r.finish(nl.stmts);
     nl.stmts = try normalizeLists(g, arena, nl.stmts, report);

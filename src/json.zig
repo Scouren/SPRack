@@ -43,10 +43,21 @@ const Writer = std.Io.Writer;
 pub const number_cfg: grammar.LexCfg = .{
     .case_sensitive = true,
     .scales = &.{
-        .{ .suffix = "meg", .exp10 = 6 }, .{ .suffix = "Meg", .exp10 = 6 }, .{ .suffix = "MEG", .exp10 = 6 },
-        .{ .suffix = "T", .exp10 = 12 },  .{ .suffix = "G", .exp10 = 9 },   .{ .suffix = "k", .exp10 = 3 },
-        .{ .suffix = "K", .exp10 = 3 },   .{ .suffix = "m", .exp10 = -3 },  .{ .suffix = "u", .exp10 = -6 },
-        .{ .suffix = "n", .exp10 = -9 },  .{ .suffix = "p", .exp10 = -12 }, .{ .suffix = "f", .exp10 = -15 },
+        .{
+            .suffix = "meg",
+            .exp10 = 6,
+        },
+        .{ .suffix = "Meg", .exp10 = 6 },
+        .{ .suffix = "MEG", .exp10 = 6 },
+        .{ .suffix = "T", .exp10 = 12 },
+        .{ .suffix = "G", .exp10 = 9 },
+        .{ .suffix = "k", .exp10 = 3 },
+        .{ .suffix = "K", .exp10 = 3 },
+        .{ .suffix = "m", .exp10 = -3 },
+        .{ .suffix = "u", .exp10 = -6 },
+        .{ .suffix = "n", .exp10 = -9 },
+        .{ .suffix = "p", .exp10 = -12 },
+        .{ .suffix = "f", .exp10 = -15 },
         .{ .suffix = "a", .exp10 = -18 },
     },
     .units_ignored = false,
@@ -186,7 +197,8 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
         if (s.kind == .@"opaque" or s.kind == .comment) {
             try w.writeAll(",\"raw\":");
             try str(w, if (std.mem.eql(u8, s.raw, ir.blank_line)) "" else s.raw);
-            if (s.kind == .comment and std.mem.eql(u8, s.raw, ir.blank_line)) try w.writeAll(",\"blank\":true");
+            if (s.kind == .comment and std.mem.eql(u8, s.raw, ir.blank_line))
+                try w.writeAll(",\"blank\":true");
         }
         if (s.tail.len > 0) {
             try w.writeAll(",\"tail\":");
@@ -303,7 +315,10 @@ pub fn writeReport(w: *Writer, report: *const ir.Report) Writer.Error!void {
     try w.writeByte('[');
     for (report.items.items, 0..) |d, i| {
         if (i > 0) try w.writeByte(',');
-        try w.print("{{\"severity\":\"{s}\",\"code\":\"{s}\",\"line\":{d},\"message\":", .{ @tagName(d.sev), @tagName(d.code), d.line });
+        try w.print(
+            "{{\"severity\":\"{s}\",\"code\":\"{s}\",\"line\":{d},\"message\":",
+            .{ @tagName(d.sev), @tagName(d.code), d.line },
+        );
         try str(w, d.msg);
         try w.writeByte('}');
     }
@@ -321,10 +336,16 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
     try w.writeAll("],\"kinds\":{");
     for (schema.table, 0..) |info, i| {
         if (i > 0) try w.writeByte(',');
-        try w.print("\"{s}\":{{\"class\":\"{s}\",\"slots\":[", .{ @tagName(info.kind), @tagName(info.class) });
+        try w.print(
+            "\"{s}\":{{\"class\":\"{s}\",\"slots\":[",
+            .{ @tagName(info.kind), @tagName(info.class) },
+        );
         for (info.slots, 0..) |sl, k| {
             if (k > 0) try w.writeByte(',');
-            try w.print("{{\"name\":\"{s}\",\"type\":\"{s}\",\"list\":{}}}", .{ sl.name, @tagName(sl.ty), sl.list });
+            try w.print(
+                "{{\"name\":\"{s}\",\"type\":\"{s}\",\"list\":{}}}",
+                .{ sl.name, @tagName(sl.ty), sl.list },
+            );
         }
         try w.writeAll("],\"writers\":[");
         var first = true;
@@ -392,7 +413,8 @@ const Parser = struct {
     /// Deeper than `ir.max_depth`: reported once, and not read.
     fn deep(p: *Parser, line: u32) bool {
         if (p.depth < ir.max_depth) return false;
-        if (!p.too_deep) p.fail(line, "nested more than {d} deep: what is deeper is not read", .{ir.max_depth});
+        if (!p.too_deep)
+            p.fail(line, "nested more than {d} deep: what is deeper is not read", .{ir.max_depth});
         p.too_deep = true;
         return true;
     }
@@ -407,8 +429,16 @@ const Parser = struct {
         if (reader.isVersion(text)) return .{ .atom = text };
         if (text.len > 1 and std.ascii.isDigit(text[0])) {
             const digits = std.mem.trimEnd(u8, text, "M");
-            if (digits.len + 1 == text.len and lexer.parseNumber(p.arena, &number_cfg, digits) != null) {
-                p.fail(line, "'{s}' is ambiguous: M is milli in SPICE and mega in SI. Write {s}m or {s}meg", .{ text, digits, digits });
+            if (digits.len + 1 == text.len and lexer.parseNumber(
+                p.arena,
+                &number_cfg,
+                digits,
+            ) != null) {
+                p.fail(
+                    line,
+                    "'{s}' is ambiguous: M is milli in SPICE and mega in SI. Write {s}m or {s}meg",
+                    .{ text, digits, digits },
+                );
                 return .none;
             }
             // Digits followed by letters only is a number with a suffix this
@@ -420,7 +450,12 @@ const Parser = struct {
                 if (!std.ascii.isAlphabetic(c)) letters = false;
             }
             if (letters) {
-                p.fail(line, "'{s}' is not a number: the scale suffixes are T G meg k m u n p f a, and case matters", .{text});
+                p.fail(
+                    line,
+                    "'{s}' is not a number: the scale suffixes are T G meg k m u n p f a, and " ++
+                        "case matters",
+                    .{text},
+                );
                 return .none;
             }
         }
@@ -464,7 +499,11 @@ const Parser = struct {
     fn params(p: *Parser, obj: std.json.ObjectMap, line: u32) Allocator.Error!Value {
         var out: std.ArrayList(ir.Param) = .empty;
         var it = obj.iterator();
-        while (it.next()) |kv| try out.append(p.arena, .{ .key = kv.key_ptr.*, .val = try p.any(kv.value_ptr.*, line) });
+        while (it.next()) |kv|
+            try out.append(
+                p.arena,
+                .{ .key = kv.key_ptr.*, .val = try p.any(kv.value_ptr.*, line) },
+            );
         return if (out.items.len > 0) .{ .params = out.items } else .none;
     }
 
@@ -476,7 +515,10 @@ const Parser = struct {
                 p.fail(line, "'{s}' as an array must hold [name, value] pairs", .{sl.name});
                 return .none;
             }
-            try out.append(p.arena, .{ .key = it.array.items[0].string, .val = try p.any(it.array.items[1], line) });
+            try out.append(
+                p.arena,
+                .{ .key = it.array.items[0].string, .val = try p.any(it.array.items[1], line) },
+            );
         }
         return if (out.items.len > 0) .{ .params = out.items } else .none;
     }
@@ -507,7 +549,10 @@ const Parser = struct {
             .name, .node, .ident, .ref, .atom, .signal, .text => {
                 if (j == .bool) return .{ .atom = if (j.bool) "yes" else "no" };
                 const text = (try p.nameOf(j, line, sl.name)) orelse return .none;
-                return if (plainTag(posOf(sl.ty), text) == .expr) .{ .expr = text } else .{ .atom = text };
+                return if (plainTag(posOf(sl.ty), text) == .expr)
+                    .{ .expr = text }
+                else
+                    .{ .atom = text };
             },
             .path => return .{ .str = (try p.nameOf(j, line, sl.name)) orelse return .none },
             .value => return p.any(j, line),
@@ -557,7 +602,12 @@ const Parser = struct {
                 } else if (std.mem.eql(u8, key, "dialect")) {
                     if (val == .string and val.string.len > 0) {
                         st.dialect = (try dialects.intern(val.string)) orelse blk: {
-                            p.fail(st.line, "dialect '{s}' is one more than the 255 dialect names a process can hold", .{val.string});
+                            p.fail(
+                                st.line,
+                                "dialect '{s}' is one more than the 255 dialect names a " ++
+                                    "process can hold",
+                                .{val.string},
+                            );
                             break :blk 0;
                         };
                     }
@@ -568,11 +618,19 @@ const Parser = struct {
                         st.body = try p.stmtList(val);
                     }
                 } else if (schema.slotIndex(kind, key)) |si| {
-                    try st.set(p.arena, si, try p.slotValue(schema.info(kind).slots[si], val, st.line));
+                    try st.set(
+                        p.arena,
+                        si,
+                        try p.slotValue(schema.info(kind).slots[si], val, st.line),
+                    );
                 } else {
                     var known: std.ArrayList(u8) = .empty;
                     for (schema.info(kind).slots) |sl| try known.print(p.arena, " {s}", .{sl.name});
-                    p.fail(st.line, "'{s}' has no '{s}'; it has:{s}", .{ kind_name, key, known.items });
+                    p.fail(
+                        st.line,
+                        "'{s}' has no '{s}'; it has:{s}",
+                        .{ kind_name, key, known.items },
+                    );
                 }
             }
             try out.append(p.arena, st);
@@ -602,7 +660,10 @@ fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
     if (j.object.get("models")) |m| if (m == .object) {
         var it = m.object.iterator();
         while (it.next()) |kv| {
-            const kind = if (kv.value_ptr.* == .string) schema.kindFromName(kv.value_ptr.string) else null;
+            const kind = if (kv.value_ptr.* == .string)
+                schema.kindFromName(kv.value_ptr.string)
+            else
+                null;
             if (kind) |k| try env.models.put(arena, kv.key_ptr.*, k);
         }
     };
@@ -618,16 +679,21 @@ fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
         }
     }
     for (try strings(arena, j, "params")) |s| try env.params.put(arena, s, {});
-    inline for (.{ "family_of", "modules" }) |field| if (j.object.get(field)) |m| if (m == .object) {
-        var it = m.object.iterator();
-        while (it.next()) |kv| if (kv.value_ptr.* == .string) try @field(env, field).put(arena, kv.key_ptr.*, kv.value_ptr.string);
-    };
+    inline for (.{ "family_of", "modules" }) |field|
+        if (j.object.get(field)) |m| if (m == .object) {
+            var it = m.object.iterator();
+            while (it.next()) |kv|
+                if (kv.value_ptr.* == .string)
+                    try @field(env, field).put(arena, kv.key_ptr.*, kv.value_ptr.string);
+        };
     // Read, never written: a PDK's manifest gives the files its libraries
     // were translated with, and the top netlist loads them (issue 53).
     if (j.object.get("provided")) |m| if (m == .object) {
         var given: std.ArrayList([2][]const u8) = .empty;
         var it = m.object.iterator();
-        while (it.next()) |kv| if (kv.value_ptr.* == .string) try given.append(arena, .{ kv.key_ptr.*, kv.value_ptr.string });
+        while (it.next()) |kv|
+            if (kv.value_ptr.* == .string)
+                try given.append(arena, .{ kv.key_ptr.*, kv.value_ptr.string });
         env.provided = given.items;
     };
     return env;
@@ -635,13 +701,21 @@ fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
 
 /// Parse the JSON form. Problems are reported, never fatal: what could be
 /// understood is returned.
-pub fn parseNetlist(arena: Allocator, text: []const u8, report: *ir.Report) Allocator.Error!ir.Netlist {
+pub fn parseNetlist(
+    arena: Allocator,
+    text: []const u8,
+    report: *ir.Report,
+) Allocator.Error!ir.Netlist {
     return try parseDocument(arena, text, report) orelse .{};
 }
 
 /// As `parseNetlist`, but null when nothing was read at all: the text is
 /// not JSON, or its top level is not an object.
-pub fn parseDocument(arena: Allocator, text: []const u8, report: *ir.Report) Allocator.Error!?ir.Netlist {
+pub fn parseDocument(
+    arena: Allocator,
+    text: []const u8,
+    report: *ir.Report,
+) Allocator.Error!?ir.Netlist {
     const root = std.json.parseFromSliceLeaky(J, arena, text, .{}) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
@@ -701,10 +775,20 @@ test "IR to JSON and back" {
 
     // The one trap in the number notation is refused, not guessed.
     var r2: ir.Report = .init(a);
-    _ = try parseNetlist(a, "{\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1M\"}]}", &r2);
+    _ = try parseNetlist(
+        a,
+        "{\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1M\"}]}",
+        &r2,
+    );
     try std.testing.expect(r2.contains(.@"error", "'1M' is ambiguous"));
     var r3: ir.Report = .init(a);
-    _ = try parseNetlist(a, "{\"stmts\":[{\"kind\":\"resistor\",\"nmae\":\"R1\"},{\"kind\":\"zener\"}]}", &r3);
-    try std.testing.expect(r3.contains(.@"error", "'resistor' has no 'nmae'; it has: name pos neg r master params"));
+    _ = try parseNetlist(
+        a,
+        "{\"stmts\":[{\"kind\":\"resistor\",\"nmae\":\"R1\"},{\"kind\":\"zener\"}]}",
+        &r3,
+    );
+    try std.testing.expect(
+        r3.contains(.@"error", "'resistor' has no 'nmae'; it has: name pos neg r master params"),
+    );
     try std.testing.expect(r3.contains(.@"error", "unknown statement kind 'zener'"));
 }

@@ -7480,3 +7480,71 @@ test "every field of Env is in its JSON form, and back (#71)" {
     try sprack.json.writeEnv(&again.writer, nl.env.?);
     try testing.expectEqualStrings(listed.written(), again.written());
 }
+
+/// One file of tests/fixtures: a netlist, the dialects it goes between, and
+/// the output and the report that must come out, byte for byte.
+const Fixture = struct {
+    from: []const u8 = "",
+    to: []const u8 = "",
+    input: []const u8 = "",
+    output: []const u8 = "",
+    report: []const u8 = "",
+
+    /// The parts of a fixture file (`tools/fixture.py` writes them): `from:`
+    /// and `to:` lines, then the three sections, each after its `--- name` line.
+    fn parse(text: []const u8) !Fixture {
+        var fixture: Fixture = .{};
+        const input_at = std.mem.indexOf(u8, text, "--- input\n") orelse return error.FixtureWithoutInput;
+        var head = std.mem.tokenizeScalar(u8, text[0..input_at], '\n');
+        while (head.next()) |line| {
+            if (std.mem.startsWith(u8, line, "from:")) fixture.from = std.mem.trim(u8, line[5..], " ");
+            if (std.mem.startsWith(u8, line, "to:")) fixture.to = std.mem.trim(u8, line[3..], " ");
+        }
+        const rest = text[input_at + "--- input\n".len ..];
+        const output_at = std.mem.indexOf(u8, rest, "--- output\n") orelse return error.FixtureWithoutOutput;
+        const after = rest[output_at + "--- output\n".len ..];
+        const report_at = std.mem.indexOf(u8, after, "--- report\n") orelse return error.FixtureWithoutReport;
+        fixture.input = rest[0..output_at];
+        fixture.output = after[0..report_at];
+        fixture.report = after[report_at + "--- report\n".len ..];
+        if (sprack.find(fixture.from) == null or sprack.find(fixture.to) == null) return error.FixtureOfUnknownDialect;
+        return fixture;
+    }
+};
+
+// A fix for a reported netlist adds a file here (docs/src/testing.md): the
+// netlist, and what it must be written as. `python3 -I tools/fixture.py new`
+// makes one from the binary's present answer.
+test "fixtures: every case of tests/fixtures gives the output and the report it holds" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = testing.io;
+    var dir = try std.Io.Dir.cwd().openDir(io, "tests/fixtures", .{ .iterate = true });
+    defer dir.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (try entries.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".case")) continue;
+        try names.append(a, try a.dupe(u8, entry.name));
+    }
+    try testing.expect(names.items.len > 0);
+    var failed: usize = 0;
+    for (names.items) |name| {
+        const fixture = try Fixture.parse(try dir.readFileAlloc(io, name, a, .limited(1 << 20)));
+        var report: ir.Report = .init(a);
+        const out = try sprack.translateAlloc(a, fixture.from, fixture.to, fixture.input, &report);
+        var said: std.Io.Writer.Allocating = .init(a);
+        try report.print(&said.writer);
+        if (!std.mem.eql(u8, fixture.output, out) or !std.mem.eql(u8, fixture.report, said.written())) {
+            failed += 1;
+            std.debug.print("\n--- tests/fixtures/{s}: expected\n{s}{s}--- got\n{s}{s}", .{
+                name, fixture.output, fixture.report, out, said.written(),
+            });
+            continue;
+        }
+        // What holds for any translation holds for these too.
+        _ = try anyInput(a, fixture.from, fixture.to, fixture.input, out);
+    }
+    try testing.expectEqual(0, failed);
+}

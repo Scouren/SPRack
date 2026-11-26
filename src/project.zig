@@ -79,15 +79,27 @@ pub const Options = struct {
 
 /// `was`, whole lines of a file whose path ends in `file`, is read as
 /// `read`: a line the PDK's own simulator refuses (`why`).
-pub const Erratum = struct { file: []const u8, was: []const u8, read: []const u8, why: []const u8 = "" };
+pub const Erratum =
+    struct { file: []const u8, was: []const u8, read: []const u8, why: []const u8 = "" };
 
 /// Errata from JSON: a list of `{file, was, read, why}`, or an object that
 /// holds one under `errata` (a PDK manifest).
-pub fn parseErrata(arena: Allocator, text: []const u8) error{ OutOfMemory, BadErrata }![]const Erratum {
-    const v = std.json.parseFromSliceLeaky(std.json.Value, arena, text, .{}) catch return error.BadErrata;
+pub fn parseErrata(
+    arena: Allocator,
+    text: []const u8,
+) error{ OutOfMemory, BadErrata }![]const Erratum {
+    const v = std.json.parseFromSliceLeaky(
+        std.json.Value,
+        arena,
+        text,
+        .{},
+    ) catch return error.BadErrata;
     const list = switch (v) {
         .array => |a| a,
-        .object => |o| if (o.get("errata")) |e| (if (e == .array) e.array else return error.BadErrata) else return &.{},
+        .object => |o| if (o.get("errata")) |e|
+            (if (e == .array) e.array else return error.BadErrata)
+        else
+            return &.{},
         else => return error.BadErrata,
     };
     var out: std.ArrayList(Erratum) = .empty;
@@ -150,7 +162,11 @@ fn normalizeOn(win: bool, arena: Allocator, path: []const u8) Allocator.Error![]
     var it = std.mem.tokenizeScalar(u8, path[root.len..], '/');
     while (it.next()) |part| {
         if (std.mem.eql(u8, part, ".")) continue;
-        if (std.mem.eql(u8, part, "..") and parts.items.len > 0 and !std.mem.eql(u8, parts.items[parts.items.len - 1], "..")) {
+        if (std.mem.eql(u8, part, "..") and parts.items.len > 0 and !std.mem.eql(
+            u8,
+            parts.items[parts.items.len - 1],
+            "..",
+        )) {
             _ = parts.pop();
         } else if (std.mem.eql(u8, part, "..") and absolute) {
             continue;
@@ -171,11 +187,20 @@ fn dirOf(path: []const u8) []const u8 {
 /// Every path comes in through here, and on Windows leaves written with
 /// `/`, which Windows takes as well as `\`: the rest of this file, and the
 /// include lines of a translated copy, know one separator.
-pub fn resolve(arena: Allocator, base_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+pub fn resolve(
+    arena: Allocator,
+    base_dir: []const u8,
+    path: []const u8,
+) Allocator.Error![]const u8 {
     return resolveOn(windows, arena, base_dir, path);
 }
 
-fn resolveOn(win: bool, arena: Allocator, base_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+fn resolveOn(
+    win: bool,
+    arena: Allocator,
+    base_dir: []const u8,
+    path: []const u8,
+) Allocator.Error![]const u8 {
     var p = path;
     if (win) {
         const copy = try arena.dupe(u8, path);
@@ -194,13 +219,25 @@ test "paths as Windows has them, on any host: a drive or a share is a root, a ba
     try std.testing.expectEqual(2, rootLenOn(true, "//server/share/x.lib"));
     try std.testing.expectEqual(0, rootLenOn(true, "pdk/x.lib"));
     try std.testing.expectEqual(0, rootLenOn(false, "C:/pdk/x.lib"));
-    try std.testing.expectEqualStrings("C:/pdk/models/x.lib", try resolveOn(true, a, "C:/work", "C:\\pdk\\lib\\..\\models\\x.lib"));
-    try std.testing.expectEqualStrings("C:/work/inc/sub.sp", try resolveOn(true, a, "C:/work", "inc\\sub.sp"));
-    try std.testing.expectEqualStrings("//srv/share/m.lib", try resolveOn(true, a, "C:/work", "\\\\srv\\share\\m.lib"));
+    try std.testing.expectEqualStrings(
+        "C:/pdk/models/x.lib",
+        try resolveOn(true, a, "C:/work", "C:\\pdk\\lib\\..\\models\\x.lib"),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/work/inc/sub.sp",
+        try resolveOn(true, a, "C:/work", "inc\\sub.sp"),
+    );
+    try std.testing.expectEqualStrings(
+        "//srv/share/m.lib",
+        try resolveOn(true, a, "C:/work", "\\\\srv\\share\\m.lib"),
+    );
     // `..` stops at the drive.
     try std.testing.expectEqualStrings("C:/x.lib", try normalizeOn(true, a, "C:/../x.lib"));
     // Elsewhere a backslash is a character of a name.
-    try std.testing.expectEqualStrings("/work/inc\\sub.sp", try resolveOn(false, a, "/work", "inc\\sub.sp"));
+    try std.testing.expectEqualStrings(
+        "/work/inc\\sub.sp",
+        try resolveOn(false, a, "/work", "inc\\sub.sp"),
+    );
 }
 
 /// The path that leads from `from_dir` to `to`, both normalized.
@@ -213,7 +250,8 @@ pub fn relative(arena: Allocator, from_dir: []const u8, to: []const u8) Allocato
         const save_b = b.index;
         const x = a.next();
         const y = b.next();
-        if (x != null and y != null and std.mem.eql(u8, x.?, y.?) and !std.mem.eql(u8, x.?, ".")) continue;
+        if (x != null and y != null and std.mem.eql(u8, x.?, y.?) and !std.mem.eql(u8, x.?, "."))
+            continue;
         a.index = save_a;
         b.index = save_b;
         break;
@@ -307,10 +345,17 @@ const Run = struct {
         if (d.sev == .@"error") r.sum.errors += 1;
         if (d.sev == .warning) r.sum.warnings += 1;
         const w = r.opts.log orelse return;
-        const under = full.len > r.cwd.len + 1 and std.mem.startsWith(u8, full, r.cwd) and full[r.cwd.len] == '/';
+        const under = full.len > r.cwd.len + 1 and std.mem.startsWith(
+            u8,
+            full,
+            r.cwd,
+        ) and full[r.cwd.len] == '/';
         const path = if (under) full[r.cwd.len + 1 ..] else full;
         if (d.line > 0) {
-            w.print("{s}:{d}: {s}[{s}]: {s}\n", .{ path, d.line, @tagName(d.sev), @tagName(d.code), d.msg }) catch {};
+            w.print(
+                "{s}:{d}: {s}[{s}]: {s}\n",
+                .{ path, d.line, @tagName(d.sev), @tagName(d.code), d.msg },
+            ) catch {};
         } else w.print("{s}: {s}[{s}]: {s}\n", .{ path, @tagName(d.sev), @tagName(d.code), d.msg }) catch {};
     }
 
@@ -343,7 +388,8 @@ const Run = struct {
             while (j < path.len and (std.ascii.isAlphanumeric(path[j]) or path[j] == '_')) j += 1;
             const name = path[start..j];
             const value = varValue(r.opts.vars, name, windows);
-            if (name.len > 0 and !r.expanded.contains(name)) try r.expanded.put(r.arena, try r.arena.dupe(u8, name), value);
+            if (name.len > 0 and !r.expanded.contains(name))
+                try r.expanded.put(r.arena, try r.arena.dupe(u8, name), value);
             if (braced and j < path.len and path[j] == '}') j += 1;
             try out.appendSlice(a, value orelse path[i..j]);
             i = j;
@@ -353,7 +399,12 @@ const Run = struct {
 
     /// The file an include names: beside the including file, else in the
     /// first search directory that has it.
-    fn locate(r: *Run, scratch: Allocator, dir_in: []const u8, path: []const u8) Allocator.Error![]const u8 {
+    fn locate(
+        r: *Run,
+        scratch: Allocator,
+        dir_in: []const u8,
+        path: []const u8,
+    ) Allocator.Error![]const u8 {
         const p = try r.expand(scratch, path);
         // `$PDK/corners.lib` with `-D PDK=pdk`: the variable's value is a
         // path of its own, from where SPRack runs, whichever file names it.
@@ -392,7 +443,10 @@ const Run = struct {
 
     fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void {
         if (st.kind != .options or st.get("search") != .str) return;
-        const sd = try resolve(r.arena, if (r.leadsWithDefined(st.get("search").str)) r.cwd else dir, try r.expand(r.arena, st.get("search").str));
+        const sd = try resolve(r.arena, if (r.leadsWithDefined(st.get("search").str))
+            r.cwd
+        else
+            dir, try r.expand(r.arena, st.get("search").str));
         for (r.search.items) |x| if (std.mem.eql(u8, x, sd)) return;
         try r.search.append(r.arena, sd);
     }
@@ -408,7 +462,13 @@ const Run = struct {
         return k;
     }
 
-    fn findIncludes(r: *Run, file: []const u8, stmts: []const ir.Stmt, scratch: Allocator, top: bool) Allocator.Error!void {
+    fn findIncludes(
+        r: *Run,
+        file: []const u8,
+        stmts: []const ir.Stmt,
+        scratch: Allocator,
+        top: bool,
+    ) Allocator.Error!void {
         const dir = dirOf(file);
         for (stmts) |*st| {
             if (st.kind == .libsection and st.get("name") == .atom) {
@@ -422,7 +482,10 @@ const Run = struct {
                 if (r.wanted) |*w| if (!w.contains(name) and !(top and r.top_sections)) {
                     var refs: std.ArrayList(Ref) = .empty;
                     try r.collectRefs(dir, st.body, scratch, &refs);
-                    try r.skipped.append(r.arena, .{ .path = file, .name = try r.arena.dupe(u8, name), .refs = refs.items });
+                    try r.skipped.append(
+                        r.arena,
+                        .{ .path = file, .name = try r.arena.dupe(u8, name), .refs = refs.items },
+                    );
                     continue;
                 };
             }
@@ -442,7 +505,13 @@ const Run = struct {
     }
 
     /// What a skipped section would reach, to follow if it is named later.
-    fn collectRefs(r: *Run, dir: []const u8, stmts: []const ir.Stmt, scratch: Allocator, out: *std.ArrayList(Ref)) Allocator.Error!void {
+    fn collectRefs(
+        r: *Run,
+        dir: []const u8,
+        stmts: []const ir.Stmt,
+        scratch: Allocator,
+        out: *std.ArrayList(Ref),
+    ) Allocator.Error!void {
         for (stmts) |*st| {
             if (pathOf(st)) |p| try out.append(r.arena, .{
                 .path = try r.arena.dupe(u8, try r.locate(scratch, dir, p)),
@@ -472,9 +541,13 @@ const Run = struct {
     /// name files the copy has not.
     fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool {
         const gt = r.opts.to orelse return false;
-        if (gt.libsections_opened.len == 0 or st.kind != .libsection or st.get("name") != .atom) return false;
+        if (gt.libsections_opened.len == 0 or st.kind != .libsection or st.get("name") != .atom)
+            return false;
         for (r.skipped.items) |sk| {
-            if (!sk.released and std.mem.eql(u8, sk.path, path) and std.ascii.eqlIgnoreCase(sk.name, st.get("name").atom)) return true;
+            if (!sk.released and std.mem.eql(u8, sk.path, path) and std.ascii.eqlIgnoreCase(
+                sk.name,
+                st.get("name").atom,
+            )) return true;
         }
         return false;
     }
@@ -484,7 +557,11 @@ const Run = struct {
         for (stmts) |*st| {
             if (pathOf(st)) |p| {
                 const sec = sectionOf(st);
-                const raw = try std.fmt.allocPrint(scratch, "[sprack] not in this copy: {s} \"{s}\"{s}{s}", .{ @tagName(st.kind), p, if (sec.len > 0) " " else "", sec });
+                const raw = try std.fmt.allocPrint(
+                    scratch,
+                    "[sprack] not in this copy: {s} \"{s}\"{s}{s}",
+                    .{ @tagName(st.kind), p, if (sec.len > 0) " " else "", sec },
+                );
                 st.* = .{ .kind = .comment, .raw = raw, .line = st.line };
                 n.* += 1;
                 continue;
@@ -493,14 +570,25 @@ const Run = struct {
         }
     }
 
-    fn rewriteIncludes(r: *Run, path_of_file: []const u8, dir: []const u8, stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report) Allocator.Error!void {
+    fn rewriteIncludes(
+        r: *Run,
+        path_of_file: []const u8,
+        dir: []const u8,
+        stmts: []ir.Stmt,
+        scratch: Allocator,
+        report: *ir.Report,
+    ) Allocator.Error!void {
         for (stmts) |*st| {
             if (r.emptied(path_of_file, st)) {
                 var n: usize = 0;
                 try commentIncludes(scratch, st.body, &n);
-                if (n > 0) report.add(.warning, .caveat, st.line, "section '{s}' is not followed, and {s} opens the includes of every section of a library: its includes are left out of this copy as comments ({d}), so the section is empty here ({s})", .{
-                    st.get("name").atom, r.opts.to.?.name, n, r.opts.to.?.libsections_opened,
-                });
+                if (n > 0)
+                    report.add(.warning, .caveat, st.line, "section '{s}' is not followed, " ++
+                        "and {s} opens the includes of every section of a library: its " ++
+                        "includes are left out of this copy as comments ({d}), so the section " ++
+                        "is empty here ({s})", .{
+                        st.get("name").atom, r.opts.to.?.name, n, r.opts.to.?.libsections_opened,
+                    });
                 continue;
             }
             // Every include is rewritten to the copy it resolved to, so the
@@ -508,13 +596,27 @@ const Run = struct {
             if (st.kind == .options and st.get("search") != .none) {
                 try st.own(scratch);
                 try st.set(scratch, schema.slot(.options, "search"), .none);
-                report.add(.info, .cosmetic, st.line, "options.search: the includes it finds are written as paths to their translated copies", .{});
+                report.add(
+                    .info,
+                    .cosmetic,
+                    st.line,
+                    "options.search: the includes it finds are written as paths to their " ++
+                        "translated copies",
+                    .{},
+                );
             }
-            const p = pathOf(st) orelse if (st.kind == .hdl and st.get("path") == .str) st.get("path").str else null;
+            const p = pathOf(st) orelse if (st.kind == .hdl and st.get("path") == .str)
+                st.get("path").str
+            else
+                null;
             if (p) |path| {
                 const target = try r.locate(scratch, dir, path);
                 try st.own(scratch);
-                try st.set(scratch, schema.slotOf(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
+                try st.set(
+                    scratch,
+                    schema.slotOf(st.kind, "path").?,
+                    .{ .str = try relative(scratch, dir, target) },
+                );
                 // The section as the file that defines it spells it.
                 const sec = sectionOf(st);
                 if (st.kind == .lib and sec.len > 0) {
@@ -534,14 +636,23 @@ const Run = struct {
             count.* += 1;
             try w.print("{f}:", .{std.json.fmt(p.key, .{})});
             switch (p.val) {
-                .num => |n| if (n.exp10 == 0) try w.print("\"{s}\"", .{n.digits()}) else try w.print("\"{s}e{d}\"", .{ n.digits(), n.exp10 }),
+                .num => |n| if (n.exp10 == 0)
+                    try w.print("\"{s}\"", .{n.digits()})
+                else
+                    try w.print("\"{s}e{d}\"", .{ n.digits(), n.exp10 }),
                 .expr => |e| try w.print("{f}", .{std.json.fmt(e, .{})}),
                 else => try w.writeAll("null"),
             }
         }
     }
 
-    fn catalogStmts(r: *Run, w: *Writer, path: []const u8, section: []const u8, stmts: []const ir.Stmt) Writer.Error!void {
+    fn catalogStmts(
+        r: *Run,
+        w: *Writer,
+        path: []const u8,
+        section: []const u8,
+        stmts: []const ir.Stmt,
+    ) Writer.Error!void {
         for (stmts) |*st| {
             const name = st.get("name");
             switch (st.kind) {
@@ -555,7 +666,14 @@ const Run = struct {
             if (name != .atom) continue;
             if (!r.first_device) try w.writeAll(",\n");
             r.first_device = false;
-            try w.print("{{\"name\":{f},\"file\":{f},\"section\":{f}", .{ std.json.fmt(name.atom, .{}), std.json.fmt(path, .{}), std.json.fmt(section, .{}) });
+            try w.print(
+                "{{\"name\":{f},\"file\":{f},\"section\":{f}",
+                .{
+                    std.json.fmt(name.atom, .{}),
+                    std.json.fmt(path, .{}),
+                    std.json.fmt(section, .{}),
+                },
+            );
             if (st.kind == .subckt) {
                 try w.writeAll(",\"kind\":\"subckt\",\"ports\":[");
                 const ports = st.get("ports");
@@ -576,13 +694,19 @@ const Run = struct {
                 const fam = st.get("family");
                 const pol = st.get("polarity");
                 const ty = st.get("type");
-                const dev: []const u8 = if (fam == .atom) @tagName(schema.familyKind(fam.atom) orelse .device) else "device";
-                try w.print(",\"kind\":\"model\",\"device\":\"{s}\",\"family\":{f},\"polarity\":{f},\"type\":{f}}}", .{
-                    dev,
-                    std.json.fmt(if (fam == .atom) fam.atom else "", .{}),
-                    std.json.fmt(if (pol == .atom) pol.atom else "", .{}),
-                    std.json.fmt(if (ty == .atom) ty.atom else "", .{}),
-                });
+                const dev: []const u8 = if (fam == .atom)
+                    @tagName(schema.familyKind(fam.atom) orelse .device)
+                else
+                    "device";
+                try w.print(
+                    ",\"kind\":\"model\",\"device\":\"{s}\",\"family\":{f},\"polarity\":{f},\"type\":{f}}}",
+                    .{
+                        dev,
+                        std.json.fmt(if (fam == .atom) fam.atom else "", .{}),
+                        std.json.fmt(if (pol == .atom) pol.atom else "", .{}),
+                        std.json.fmt(if (ty == .atom) ty.atom else "", .{}),
+                    },
+                );
             }
         }
     }
@@ -594,15 +718,27 @@ const Run = struct {
             if (st.kind == .@"opaque") {
                 var buf: [160]u8 = undefined;
                 const first = std.mem.sliceTo(st.raw, '\n');
-                const msg = std.fmt.bufPrint(&buf, "not understood: {s}", .{first[0..@min(first.len, 120)]}) catch "not understood";
-                r.logLine(path, .{ .sev = .warning, .code = .untranslated, .line = st.line, .msg = msg });
+                const msg = std.fmt.bufPrint(
+                    &buf,
+                    "not understood: {s}",
+                    .{first[0..@min(first.len, 120)]},
+                ) catch "not understood";
+                r.logLine(
+                    path,
+                    .{ .sev = .warning, .code = .untranslated, .line = st.line, .msg = msg },
+                );
             }
             r.noteOpaque(path, st.body);
         }
     }
 
     /// Where the copy of `path` goes; its directory is made.
-    fn outPath(r: *Run, a: Allocator, root_dir: []const u8, path: []const u8) Allocator.Error![]const u8 {
+    fn outPath(
+        r: *Run,
+        a: Allocator,
+        root_dir: []const u8,
+        path: []const u8,
+    ) Allocator.Error![]const u8 {
         const rel = try relative(a, root_dir, path);
         const out_path = try std.fmt.allocPrint(a, "{s}/{s}", .{ r.opts.out_dir, rel });
         std.Io.Dir.cwd().createDirPath(r.io, dirOf(out_path)) catch {};
@@ -611,12 +747,25 @@ const Run = struct {
 
     const Includes = struct { r: *Run, path: []const u8, dir: []const u8 };
 
-    fn includes(ctx: *anyopaque, a: Allocator, stmts: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
+    fn includes(
+        ctx: *anyopaque,
+        a: Allocator,
+        stmts: []ir.Stmt,
+        report: *ir.Report,
+    ) Allocator.Error!void {
         const in: *Includes = @ptrCast(@alignCast(ctx));
         try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report);
     }
 
-    fn translateFile(r: *Run, a: Allocator, path: []const u8, root_dir: []const u8, text: []const u8, report: *ir.Report, library: bool) (Allocator.Error || Writer.Error)!void {
+    fn translateFile(
+        r: *Run,
+        a: Allocator,
+        path: []const u8,
+        root_dir: []const u8,
+        text: []const u8,
+        report: *ir.Report,
+        library: bool,
+    ) (Allocator.Error || Writer.Error)!void {
         const out_path = try r.outPath(a, root_dir, path);
         var buf: [64 * 1024]u8 = undefined;
         var discard: Writer.Discarding = .init(&buf);
@@ -638,7 +787,11 @@ const Run = struct {
         if (!failed) out.flush() catch {
             failed = true;
         };
-        if (failed) r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+        if (failed)
+            r.logLine(
+                out_path,
+                .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" },
+            );
     }
 
     /// The text of an input file; null when it cannot be read, or is
@@ -652,15 +805,28 @@ const Run = struct {
             return null;
         }
         if (st.size > ir.max_input) {
-            r.refusal = std.fmt.comptimePrint("larger than {d} MiB, the most an input may hold; not read", .{ir.max_input >> 20});
+            r.refusal = std.fmt.comptimePrint(
+                "larger than {d} MiB, the most an input may hold; not read",
+                .{ir.max_input >> 20},
+            );
             return null;
         }
-        const text = std.Io.Dir.cwd().readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch return null;
+        const text = std.Io.Dir.cwd().readFileAlloc(
+            r.io,
+            path,
+            a,
+            .limited(ir.max_input),
+        ) catch return null;
         return r.applyErrata(path, text, a) catch null;
     }
 
     /// `text`, the file at `path`, with its errata read in: one caveat each.
-    fn applyErrata(r: *Run, path: []const u8, text_in: []const u8, a: Allocator) Allocator.Error![]const u8 {
+    fn applyErrata(
+        r: *Run,
+        path: []const u8,
+        text_in: []const u8,
+        a: Allocator,
+    ) Allocator.Error![]const u8 {
         var text = text_in;
         for (r.opts.errata, 0..) |e, i| {
             if (!std.mem.endsWith(u8, path, e.file)) continue;
@@ -672,10 +838,20 @@ const Run = struct {
             const key = try std.fmt.allocPrint(r.arena, "{s}\x00{d}", .{ path, i });
             if (r.errata_said.contains(key)) continue;
             try r.errata_said.put(r.arena, key, {});
-            const msg = try std.fmt.allocPrint(r.arena, "read through an erratum of the PDK: '{s}'{s}{s}; read as '{s}'", .{
-                std.mem.sliceTo(e.was, '\n'), if (e.why.len > 0) ": " else "", e.why, std.mem.sliceTo(e.read, '\n'),
+            const msg = try std.fmt.allocPrint(r.arena, "read through an erratum of the PDK: " ++
+                "'{s}'{s}{s}; read as '{s}'", .{
+                std.mem.sliceTo(e.was, '\n'),
+                if (e.why.len > 0)
+                    ": "
+                else
+                    "",
+                e.why,
+                std.mem.sliceTo(e.read, '\n'),
             });
-            r.logLine(path, .{ .sev = .warning, .code = .caveat, .line = @intCast(line), .msg = msg });
+            r.logLine(
+                path,
+                .{ .sev = .warning, .code = .caveat, .line = @intCast(line), .msg = msg },
+            );
         }
         return text;
     }
@@ -685,7 +861,11 @@ const Run = struct {
     fn staleErrata(r: *Run) Allocator.Error!void {
         for (r.opts.errata, r.errata_seen, r.errata_found) |e, seen, found| {
             if (!seen or found) continue;
-            const msg = try std.fmt.allocPrint(r.arena, "the PDK's erratum for this file no longer applies: '{s}' is not in it", .{std.mem.sliceTo(e.was, '\n')});
+            const msg = try std.fmt.allocPrint(
+                r.arena,
+                "the PDK's erratum for this file no longer applies: '{s}' is not in it",
+                .{std.mem.sliceTo(e.was, '\n')},
+            );
             r.logLine(e.file, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
         }
     }
@@ -700,13 +880,25 @@ const Run = struct {
             const scratch = scratch_state.allocator();
             const text = r.readFile(path, scratch) orelse {
                 r.sum.missing += 1;
-                r.logLine(path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = if (r.refusal.len > 0) r.refusal else "cannot open this file; it is included by the project" });
+                r.logLine(
+                    path,
+                    .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = if (r.refusal.len > 0)
+                        r.refusal
+                    else
+                        "cannot open this file; it is included by the project" },
+                );
                 // Keep the slot so indices stay stable, but mark it.
                 r.files.items[i] = "";
                 continue;
             };
             var report: ir.Report = .init(scratch);
-            const nl = try reader.read(r.opts.from, scratch, text, &report, .{ .library = r.opts.library or i >= r.opts.tops.len });
+            const nl = try reader.read(
+                r.opts.from,
+                scratch,
+                text,
+                &report,
+                .{ .library = r.opts.library or i >= r.opts.tops.len },
+            );
             try r.env.absorb(r.arena, nl.stmts);
             // "": every name is copied, as `text` goes away with the statements.
             // With no target (a catalogue, kept for any): the names any
@@ -725,15 +917,29 @@ const Run = struct {
                 if (std.ascii.eqlIgnoreCase(s.section, sec)) break;
             } else {
                 var buf: [200]u8 = undefined;
-                const msg = std.fmt.bufPrint(&buf, "section '{s}' is asked for, but no file read defines it", .{sec[0..@min(sec.len, 60)]}) catch "a section asked for is not defined";
-                r.logLine(if (r.opts.tops.len > 0) r.opts.tops[0] else "", .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = msg });
+                const msg = std.fmt.bufPrint(
+                    &buf,
+                    "section '{s}' is asked for, but no file read defines it",
+                    .{sec[0..@min(sec.len, 60)]},
+                ) catch "a section asked for is not defined";
+                r.logLine(if (r.opts.tops.len > 0)
+                    r.opts.tops[0]
+                else
+                    "", .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = msg });
             }
         }
         for (r.skipped.items) |sk| {
             if (sk.released) continue;
             var buf: [200]u8 = undefined;
-            const why = if (r.top_sections) "no followed .lib line names it" else "it is not among the sections asked for";
-            const msg = std.fmt.bufPrint(&buf, "section '{s}' not followed: {s}, so the files it includes are not translated", .{ sk.name[0..@min(sk.name.len, 60)], why }) catch "a section not followed";
+            const why = if (r.top_sections)
+                "no followed .lib line names it"
+            else
+                "it is not among the sections asked for";
+            const msg = std.fmt.bufPrint(
+                &buf,
+                "section '{s}' not followed: {s}, so the files it includes are not translated",
+                .{ sk.name[0..@min(sk.name.len, 60)], why },
+            ) catch "a section not followed";
             r.logLine(sk.path, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
         }
     }
@@ -754,11 +960,23 @@ const Run = struct {
         if (r.opts.to != null) for (sources.items) |sv| try rooted.append(r.arena, sv[0]);
         const root_dir = try commonDir(r.arena, rooted.items);
         if (r.opts.to != null) for (sources.items) |sv| {
-            const out_path = try std.fmt.allocPrint(r.arena, "{s}/{s}", .{ r.opts.out_dir, try relative(r.arena, root_dir, sv[0]) });
+            const out_path = try std.fmt.allocPrint(
+                r.arena,
+                "{s}/{s}",
+                .{ r.opts.out_dir, try relative(r.arena, root_dir, sv[0]) },
+            );
             const cwd = std.Io.Dir.cwd();
             cwd.createDirPath(r.io, dirOf(out_path)) catch {};
             cwd.writeFile(r.io, .{ .sub_path = out_path, .data = sv[1] }) catch {
-                r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+                r.logLine(
+                    out_path,
+                    .{
+                        .sev = .@"error",
+                        .code = .invalid,
+                        .line = 0,
+                        .msg = "cannot write this file",
+                    },
+                );
             };
         };
         r.sum.root_len = @min(root_dir.len, r.sum.root_buf.len);
@@ -777,7 +995,13 @@ const Run = struct {
                 // Translated a statement at a time, straight into the copy.
                 try r.translateFile(scratch, path, root_dir, text, &report, library);
             } else {
-                var nl = try reader.read(r.opts.from, scratch, text, &report, .{ .env = &r.env, .library = library });
+                var nl = try reader.read(
+                    r.opts.from,
+                    scratch,
+                    text,
+                    &report,
+                    .{ .env = &r.env, .library = library },
+                );
                 if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
                 if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
                 if (r.opts.to) |gt| {
@@ -785,14 +1009,29 @@ const Run = struct {
                     var aw: Writer.Allocating = .init(scratch);
                     try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
                     const out_path = try r.outPath(scratch, root_dir, path);
-                    std.Io.Dir.cwd().writeFile(r.io, .{ .sub_path = out_path, .data = aw.written() }) catch {
-                        r.logLine(out_path, .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" });
+                    std.Io.Dir.cwd().writeFile(
+                        r.io,
+                        .{ .sub_path = out_path, .data = aw.written() },
+                    ) catch {
+                        r.logLine(
+                            out_path,
+                            .{
+                                .sev = .@"error",
+                                .code = .invalid,
+                                .line = 0,
+                                .msg = "cannot write this file",
+                            },
+                        );
                     };
                 }
             }
             for (report.items.items) |d| {
                 // Within a project the other files are translated too.
-                if (d.code == .caveat and std.mem.indexOf(u8, d.msg, "translate that file too") != null) continue;
+                if (d.code == .caveat and std.mem.indexOf(
+                    u8,
+                    d.msg,
+                    "translate that file too",
+                ) != null) continue;
                 r.logLine(path, d);
             }
         }
@@ -805,7 +1044,10 @@ const Run = struct {
             try w.writeAll("],\"sections\":[");
             for (r.sections.items, 0..) |sec, i| {
                 if (i > 0) try w.writeByte(',');
-                try w.print("{{\"file\":{f},\"name\":{f}}}", .{ std.json.fmt(sec.path, .{}), std.json.fmt(sec.section, .{}) });
+                try w.print(
+                    "{{\"file\":{f},\"name\":{f}}}",
+                    .{ std.json.fmt(sec.path, .{}), std.json.fmt(sec.section, .{}) },
+                );
             }
             try w.writeAll("],\"env\":");
             try json.writeEnv(w, &r.env);
@@ -852,11 +1094,20 @@ test "paths" {
     const a = arena_state.allocator();
     try std.testing.expectEqualStrings("a/c", try normalize(a, "./a/b/../c"));
     try std.testing.expectEqualStrings("../x", try normalize(a, "../x"));
-    try std.testing.expectEqualStrings("/pdk/models/n.lib", try resolve(a, "/pdk/libs", "../models/n.lib"));
-    try std.testing.expectEqualStrings("../models/n.lib", try relative(a, "/pdk/libs", "/pdk/models/n.lib"));
+    try std.testing.expectEqualStrings(
+        "/pdk/models/n.lib",
+        try resolve(a, "/pdk/libs", "../models/n.lib"),
+    );
+    try std.testing.expectEqualStrings(
+        "../models/n.lib",
+        try relative(a, "/pdk/libs", "/pdk/models/n.lib"),
+    );
     try std.testing.expectEqualStrings("n.lib", try relative(a, "pdk", "pdk/n.lib"));
     try std.testing.expectEqualStrings("sub/n.lib", try relative(a, ".", "sub/n.lib"));
-    try std.testing.expectEqualStrings("/pdk", try commonDir(a, &.{ "/pdk/libs/a.lib", "/pdk/models/n.lib" }));
+    try std.testing.expectEqualStrings(
+        "/pdk",
+        try commonDir(a, &.{ "/pdk/libs/a.lib", "/pdk/models/n.lib" }),
+    );
 }
 
 test "errata: a line the PDK's own simulator refuses is read as the manifest says, once" {
@@ -868,8 +1119,17 @@ test "errata: a line the PDK's own simulator refuses is read as the manifest say
     const a = arena_state.allocator();
     const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     try tmp.dir.createDirPath(io, "in/cells");
-    try tmp.dir.writeFile(io, .{ .sub_path = "in/lib.spice", .data = "* lib\n.include \"cells/r.spice\"\n" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "in/cells/r.spice", .data = "* cell\n.subckt rr a b\nres a b rm r = 1k tc1r = 1m\n.ends\n" });
+    try tmp.dir.writeFile(
+        io,
+        .{ .sub_path = "in/lib.spice", .data = "* lib\n.include \"cells/r.spice\"\n" },
+    );
+    try tmp.dir.writeFile(
+        io,
+        .{
+            .sub_path = "in/cells/r.spice",
+            .data = "* cell\n.subckt rr a b\nres a b rm r = 1k tc1r = 1m\n.ends\n",
+        },
+    );
     const errata = try parseErrata(a,
         \\{"name": "x", "errata": [
         \\  {"file": "cells/r.spice", "was": "res a b rm r = 1k tc1r = 1m", "read": "Rres a b rm r = 1k tc1 = 1m", "why": "a switch to ngspice"},
@@ -893,8 +1153,23 @@ test "errata: a line the PDK's own simulator refuses is read as the manifest say
     const out = try tmp.dir.readFileAlloc(io, "out/cells/r.spice", a, .unlimited);
     try std.testing.expect(std.mem.indexOf(u8, out, "Rres a b 1k rm tc1=1m\n") != null);
     // Said once, though both passes read the file.
-    try std.testing.expectEqual(1, std.mem.count(u8, log.written(), "r.spice:3: warning[caveat]: read through an erratum of the PDK: 'res a b rm r = 1k tc1r = 1m': a switch to ngspice; read as 'Rres a b rm r = 1k tc1 = 1m'"));
-    try std.testing.expect(std.mem.indexOf(u8, log.written(), "info[cosmetic]: the PDK's erratum for this file no longer applies: 'gone a b 1k' is not in it") != null);
+    try std.testing.expectEqual(
+        1,
+        std.mem.count(
+            u8,
+            log.written(),
+            "r.spice:3: warning[caveat]: read through an erratum of the PDK: 'res a b rm r = " ++
+                "1k tc1r = 1m': a switch to ngspice; read as 'Rres a b rm r = 1k tc1 = 1m'",
+        ),
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            log.written(),
+            "info[cosmetic]: the PDK's erratum for this file no longer applies: 'gone a b 1k' " ++
+                "is not in it",
+        ) != null,
+    );
     try std.testing.expectError(error.BadErrata, parseErrata(a, "[1]"));
 }
 
@@ -907,7 +1182,10 @@ test "an include that is no regular file is refused, not read until memory runs 
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    try tmp.dir.writeFile(io, .{ .sub_path = "top.sp", .data = "t\n.include /dev/zero\nR1 a 0 1k\n.end\n" });
+    try tmp.dir.writeFile(
+        io,
+        .{ .sub_path = "top.sp", .data = "t\n.include /dev/zero\nR1 a 0 1k\n.end\n" },
+    );
     const ngspice = dialects.find("ngspice").?.*;
     var log: Writer.Allocating = .init(a);
     const sum = try run(io, std.testing.allocator, .{
@@ -918,7 +1196,13 @@ test "an include that is no regular file is refused, not read until memory runs 
         .log = &log.writer,
     });
     try std.testing.expectEqual(1, sum.errors);
-    try std.testing.expect(std.mem.indexOf(u8, log.written(), "/dev/zero: error[invalid]: not a regular file; not read") != null);
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            log.written(),
+            "/dev/zero: error[invalid]: not a regular file; not read",
+        ) != null,
+    );
 }
 
 test "one section for a target that opens every section: the others' includes are comments" {
@@ -942,7 +1226,10 @@ test "one section for a target that opens every section: the others' includes ar
         \\.endl ff
         \\
     });
-    try tmp.dir.writeFile(io, .{ .sub_path = "in/tt.mod", .data = "* tt\n.model nch nmos level=1\n" });
+    try tmp.dir.writeFile(
+        io,
+        .{ .sub_path = "in/tt.mod", .data = "* tt\n.model nch nmos level=1\n" },
+    );
     const ngspice = dialects.find("ngspice").?.*;
     const xyce = dialects.find("xyce").?.*;
     for ([_]*const Grammar{ &ngspice, &xyce }) |to| {
@@ -957,15 +1244,36 @@ test "one section for a target that opens every section: the others' includes ar
             .log = &log.writer,
             .sections = &.{"tt"},
         });
-        const lib = try tmp.dir.readFileAlloc(io, try std.fmt.allocPrint(a, "out-{s}/corners.lib", .{to.name}), a, .unlimited);
+        const lib = try tmp.dir.readFileAlloc(
+            io,
+            try std.fmt.allocPrint(a, "out-{s}/corners.lib", .{to.name}),
+            a,
+            .unlimited,
+        );
         if (to == &ngspice) {
-            try std.testing.expect(std.mem.indexOf(u8, lib, ".lib ff\n* [sprack] not in this copy: include \"ff.mod\"\n* [sprack] not in this copy: lib \"corners.lib\" tt\n.endl ff\n") != null);
+            try std.testing.expect(
+                std.mem.indexOf(
+                    u8,
+                    lib,
+                    ".lib ff\n* [sprack] not in this copy: include \"ff.mod\"\n* [sprack] not " ++
+                        "in this copy: lib \"corners.lib\" tt\n.endl ff\n",
+                ) != null,
+            );
             try std.testing.expect(std.mem.indexOf(u8, lib, ".include \"tt.mod\"\n") != null);
-            try std.testing.expect(std.mem.indexOf(u8, log.written(), "warning[caveat]: section 'ff' is not followed, and ngspice opens the includes of every section of a library") != null);
+            try std.testing.expect(
+                std.mem.indexOf(
+                    u8,
+                    log.written(),
+                    "warning[caveat]: section 'ff' is not followed, and ngspice opens the " ++
+                        "includes of every section of a library",
+                ) != null,
+            );
         } else {
             // Xyce opens only the section asked for: the copy keeps the line.
             try std.testing.expect(std.mem.indexOf(u8, lib, ".include \"ff.mod\"\n") != null);
-            try std.testing.expect(std.mem.indexOf(u8, log.written(), "opens the includes") == null);
+            try std.testing.expect(
+                std.mem.indexOf(u8, log.written(), "opens the includes") == null,
+            );
         }
     }
 }
@@ -1029,20 +1337,51 @@ test "a small project: includes followed, declarations shared, tree copied" {
         // reached (#67).
     });
     try std.testing.expectEqual(3, sum.files);
-    try std.testing.expectEqualStrings(try std.fmt.allocPrint(a, "{{\"MODELS\":\"{s}\"}}", .{models}), expanded.written());
+    try std.testing.expectEqualStrings(
+        try std.fmt.allocPrint(a, "{{\"MODELS\":\"{s}\"}}", .{models}),
+        expanded.written(),
+    );
     try std.testing.expectEqual(1, sum.missing);
-    try std.testing.expect(std.mem.indexOf(u8, log.written(), "missing.mod: error[invalid]: cannot open this file") != null);
-    try std.testing.expect(std.mem.indexOf(u8, log.written(), "corners.lib: info[cosmetic]: section 'ff' not followed: no followed .lib line names it") != null);
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            log.written(),
+            "missing.mod: error[invalid]: cannot open this file",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            log.written(),
+            "corners.lib: info[cosmetic]: section 'ff' not followed: no followed .lib line " ++
+                "names it",
+        ) != null,
+    );
 
     const top = try tmp.dir.readFileAlloc(io, "out/top.sp", a, .unlimited);
-    try std.testing.expect(std.mem.indexOf(u8, top, "// Top netlist\nsimulator lang=spectre insensitive=yes\nglobal 0\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, top, "include \"models/corners.lib\" section=tt\n") != null);
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            top,
+            "// Top netlist\nsimulator lang=spectre insensitive=yes\nglobal 0\n",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(u8, top, "include \"models/corners.lib\" section=tt\n") != null,
+    );
     // Recognised as a transistor of a model declared elsewhere in the project.
     try std.testing.expect(std.mem.indexOf(u8, top, "M1 (d g 0 0) nch w=1u l=1u\n") != null);
     const lib = try tmp.dir.readFileAlloc(io, "out/models/corners.lib", a, .unlimited);
     // An included file: no title, no `global`, but it does say its language,
     // and that HSPICE ignores case: in Spectre the setting is per file.
-    try std.testing.expect(std.mem.startsWith(u8, lib, "simulator lang=spectre insensitive=yes\n// corners\nsection tt\ninclude \"nch.mod\"\nendsection tt\n"));
+    try std.testing.expect(
+        std.mem.startsWith(
+            u8,
+            lib,
+            "simulator lang=spectre insensitive=yes\n// corners\nsection tt\ninclude " ++
+                "\"nch.mod\"\nendsection tt\n",
+        ),
+    );
     const mod = try tmp.dir.readFileAlloc(io, "out/models/nch.mod", a, .unlimited);
     try std.testing.expect(std.mem.indexOf(u8, mod, "model nch bsim4 type=n vth0=0.4\n") != null);
 
@@ -1055,6 +1394,14 @@ test "a small project: includes followed, declarations shared, tree copied" {
         .catalog = &cat.writer,
     });
     try std.testing.expect(std.mem.indexOf(u8, cat.written(), "\"name\":\"nch\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, cat.written(), "corners.lib\",\"name\":\"tt\"},{\"file\":") != null);
-    try std.testing.expect(std.mem.indexOf(u8, cat.written(), "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\",\"family\":\"bsim4\",\"polarity\":\"n\"") != null);
+    try std.testing.expect(
+        std.mem.indexOf(u8, cat.written(), "corners.lib\",\"name\":\"tt\"},{\"file\":") != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            cat.written(),
+            "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\",\"family\":\"bsim4\",\"polarity\":\"n\"",
+        ) != null,
+    );
 }

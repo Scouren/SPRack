@@ -40,7 +40,9 @@ pub const LineKind = enum { code, comment, blank };
 /// A logical line: a statement with its continuation lines joined, or one
 /// comment line, or a run of blank lines. `gen`: which of `Lines.gens`
 /// holds the text made for it.
-pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, gen: u1 = 0, tail: []const u8 = "" };
+pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, gen: u1 =
+    0,
+    tail: []const u8 = "" };
 
 fn startsWithAny(s: []const u8, markers: []const []const u8) ?usize {
     for (markers) |m| if (m.len > 0 and std.mem.startsWith(u8, s, m)) return m.len;
@@ -284,7 +286,9 @@ pub const Lines = struct {
         if (kind == .blank) {
             // Runs of blank lines collapse, and none leads the file.
             if (l.open) {
-                if (l.pending.items.len > 0 and l.pending.items[l.pending.items.len - 1].kind == .blank) return;
+                if (l.pending.items.len > 0 and
+                    l.pending.items[l.pending.items.len - 1].kind == .blank)
+                    return;
             } else {
                 if (l.last_kind == null or l.last_kind.? == .blank) return;
             }
@@ -300,7 +304,10 @@ pub const Lines = struct {
             const ln: Line = .{
                 .text = if (joined) try l.cur.toOwnedSlice(l.text()) else l.first,
                 .no = l.cur_no,
-                .tail = if (l.tail.items.len > 0) try l.tail.toOwnedSlice(l.text()) else l.first_tail,
+                .tail = if (l.tail.items.len > 0)
+                    try l.tail.toOwnedSlice(l.text())
+                else
+                    l.first_tail,
             };
             l.open = false;
             if (try l.isEnd(ln)) {
@@ -316,12 +323,25 @@ pub const Lines = struct {
     /// The end marker: a line whose first token it is.
     fn isEnd(l: *Lines, ln: Line) Allocator.Error!bool {
         const m = l.cfg.end_marker;
-        if (m.len == 0 or ln.text.len < m.len or !std.ascii.eqlIgnoreCase(ln.text[0..m.len], m)) return false;
+        if (m.len == 0 or ln.text.len < m.len or !std.ascii.eqlIgnoreCase(ln.text[0..m.len], m))
+            return false;
         var scratch: std.heap.ArenaAllocator = .init(ir.big);
         defer scratch.deinit();
         var toks: std.ArrayList(Tok) = .empty;
-        try tokenizeLine(scratch.allocator(), scratch.allocator(), scratch.allocator(), l.cfg, ln.text, 0, &toks);
-        return toks.items.len > 0 and toks.items[0].tag == .word and std.mem.eql(u8, toks.items[0].text, m);
+        try tokenizeLine(
+            scratch.allocator(),
+            scratch.allocator(),
+            scratch.allocator(),
+            l.cfg,
+            ln.text,
+            0,
+            &toks,
+        );
+        return toks.items.len > 0 and toks.items[0].tag == .word and std.mem.eql(
+            u8,
+            toks.items[0].text,
+            m,
+        );
     }
 
     /// Read one more physical line.
@@ -339,7 +359,9 @@ pub const Lines = struct {
         if (l.done) return;
         // Text from here on goes to the other arena, once no line still
         // being joined has text in this one.
-        if (l.want_switch and l.hi[1 - l.gen] == 0 and l.pending.items.len == 0 and l.cur.items.len == 0 and l.tail.items.len == 0 and !l.first_made) {
+        if (l.want_switch and l.hi[1 - l.gen] == 0 and l.pending.items.len == 0 and
+            l.cur.items.len == 0 and l.tail.items.len == 0 and !l.first_made)
+        {
             l.gen = 1 - l.gen;
             l.want_switch = false;
         }
@@ -375,7 +397,11 @@ pub const Lines = struct {
                 const t = std.mem.trim(u8, cut.items, " \t");
                 if (t.len > 0) {
                     const marker = if (cfg.line_comments.len > 0) cfg.line_comments[0] else "*";
-                    try l.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, t }), no);
+                    try l.note(
+                        .comment,
+                        try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, t }),
+                        no,
+                    );
                 }
                 phys = kept.items;
                 made_text = true;
@@ -423,7 +449,11 @@ pub const Lines = struct {
             if (!l.open) {
                 // Nothing to continue but the title or a comment: it is one.
                 const marker = if (cfg.line_comments.len > 0) cfg.line_comments[0] else "*";
-                try l.note(.comment, try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, lead }), no);
+                try l.note(
+                    .comment,
+                    try std.fmt.allocPrint(arena, "{s} {s}", .{ marker, lead }),
+                    no,
+                );
                 return;
             }
             is_cont = true;
@@ -434,7 +464,8 @@ pub const Lines = struct {
             l.trail = true;
             body = body[0 .. body.len - cfg.cont_trail.len];
             // HSPICE's `\\` joins with no blank; a blank is harmless here.
-            if (std.mem.endsWith(u8, body, cfg.cont_trail)) body = body[0 .. body.len - cfg.cont_trail.len];
+            if (std.mem.endsWith(u8, body, cfg.cont_trail))
+                body = body[0 .. body.len - cfg.cont_trail.len];
             body = std.mem.trimEnd(u8, body, " \t");
         }
         if (!is_cont) {
@@ -452,7 +483,8 @@ pub const Lines = struct {
         try l.cur.append(a, ' ');
         try l.cur.appendSlice(a, body);
         if (tail.len > 0) {
-            if (l.tail.items.len == 0 and l.first_tail.len > 0) try l.tail.appendSlice(a, l.first_tail);
+            if (l.tail.items.len == 0 and l.first_tail.len > 0)
+                try l.tail.appendSlice(a, l.first_tail);
             if (l.tail.items.len > 0) try l.tail.appendSlice(a, "; ");
             try l.tail.appendSlice(a, tail);
         }
@@ -481,7 +513,9 @@ fn isIdentStart(c: u8) bool {
 pub fn isIdent(s: []const u8) bool {
     if (s.len == 0 or !isIdentStart(s[0])) return false;
     for (s) |c| {
-        if (!(std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '!' or c == ':' or c == '#' or c == '$')) return false;
+        if (!(std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '!' or c == ':' or
+            c == '#' or c == '$'))
+            return false;
     }
     return true;
 }
@@ -500,18 +534,34 @@ fn fold(arena: Allocator, cfg: *const LexCfg, s: []const u8) Allocator.Error![]c
     return s;
 }
 
-fn pushTok(list_gpa: Allocator, toks: *std.ArrayList(Tok), tag: TokTag, text: []const u8, raw: []const u8, lno: u32) Allocator.Error!void {
+fn pushTok(
+    list_gpa: Allocator,
+    toks: *std.ArrayList(Tok),
+    tag: TokTag,
+    text: []const u8,
+    raw: []const u8,
+    lno: u32,
+) Allocator.Error!void {
     try toks.append(list_gpa, .{ .tag = tag, .text = text, .raw = raw, .lno = lno });
 }
 
 /// `arena` owns token text; `keep`, text that must outlive the window;
 /// `list_gpa` owns the token list itself.
-fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *const LexCfg, text: []const u8, lno: u32, toks: *std.ArrayList(Tok)) Allocator.Error!void {
+fn tokenizeLine(
+    arena: Allocator,
+    keep: Allocator,
+    list_gpa: Allocator,
+    cfg: *const LexCfg,
+    text: []const u8,
+    lno: u32,
+    toks: *std.ArrayList(Tok),
+) Allocator.Error!void {
     var i: usize = 0;
     var after_eq = false;
     const line_start = toks.items.len;
     outer: while (true) {
-        if (cfg.parens_are_space and toks.items.len > line_start) toks.items[toks.items.len - 1].closes = countCloses(text, i);
+        if (cfg.parens_are_space and toks.items.len > line_start)
+            toks.items[toks.items.len - 1].closes = countCloses(text, i);
         // After `=`, where an undelimited expression may follow, an opening
         // parenthesis belongs to that expression and is not a blank.
         const expr_next = after_eq and (cfg.bare_expr or cfg.bare_after_eq);
@@ -526,7 +576,9 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
         };
 
         if (c == '=') {
-            if (toks.items.len > 0 and toks.items[toks.items.len - 1].tag == .word and toks.items[toks.items.len - 1].lno == lno) {
+            if (toks.items.len > 0 and toks.items[toks.items.len - 1].tag == .word and
+                toks.items[toks.items.len - 1].lno == lno)
+            {
                 toks.items[toks.items.len - 1].f.key = true;
             }
             try pushTok(list_gpa, toks, .eq, "=", text[i .. i + 1], lno);
@@ -536,7 +588,14 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
         }
         if (c == '"') {
             const end = std.mem.indexOfScalarPos(u8, text, i + 1, '"') orelse text.len;
-            try pushTok(list_gpa, toks, .str, text[i + 1 .. end], text[i..@min(end + 1, text.len)], lno);
+            try pushTok(
+                list_gpa,
+                toks,
+                .str,
+                text[i + 1 .. end],
+                text[i..@min(end + 1, text.len)],
+                lno,
+            );
             i = @min(end + 1, text.len);
             continue;
         }
@@ -559,7 +618,14 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
         if (value_ctx and (cfg.bare_expr or cfg.bare_after_eq)) {
             if (c == '[' and cfg.bare_expr) {
                 const end = std.mem.indexOfScalarPos(u8, text, i + 1, ']') orelse text.len;
-                try pushTok(list_gpa, toks, .vec, text[i + 1 .. end], text[i..@min(end + 1, text.len)], lno);
+                try pushTok(
+                    list_gpa,
+                    toks,
+                    .vec,
+                    text[i + 1 .. end],
+                    text[i..@min(end + 1, text.len)],
+                    lno,
+                );
                 i = @min(end + 1, text.len);
                 continue;
             }
@@ -584,7 +650,8 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
                 } else if (ch == ')') {
                     if (depth == 0) break;
                     depth -= 1;
-                } else if (depth == 0 and (ch == ' ' or ch == '\t' or (ch == ',' and !cfg.bare_expr))) break;
+                } else if (depth == 0 and
+                    (ch == ' ' or ch == '\t' or (ch == ',' and !cfg.bare_expr))) break;
             }
             var run = text[i..j];
             // `= (0,0) (1,2)`: a comma at the top level of the parentheses
@@ -609,7 +676,11 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
             // Braces that are not this dialect's delimiters (`w={wn}` in
             // HSPICE) make no expression: kept as a word, flagged later.
             const braces = std.mem.indexOfAny(u8, run, "{}") != null;
-            if (braces or parseNumber(arena, cfg, try fold(arena, cfg, run)) != null or isIdent(run)) {
+            if (braces or parseNumber(
+                arena,
+                cfg,
+                try fold(arena, cfg, run),
+            ) != null or isIdent(run)) {
                 try pushTok(list_gpa, toks, .word, try fold(arena, cfg, run), run, lno);
             } else {
                 try pushTok(list_gpa, toks, .expr, run, run, lno);
@@ -625,12 +696,18 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
             continue;
         }
         if (!cfg.parens_are_space and (c == '(' or c == ')')) {
-            try pushTok(list_gpa, toks, if (c == '(') .lparen else .rparen, text[i .. i + 1], text[i .. i + 1], lno);
+            try pushTok(list_gpa, toks, if (c == '(')
+                .lparen
+            else
+                .rparen, text[i .. i + 1], text[i .. i + 1], lno);
             i += 1;
             continue;
         }
         var j = i;
-        while (j < text.len and !isBlank(cfg, text[j]) and text[j] != '=' and text[j] != '(' and text[j] != ')') j += 1;
+        while (j < text.len and !isBlank(
+            cfg,
+            text[j],
+        ) and text[j] != '=' and text[j] != '(' and text[j] != ')') j += 1;
         if (j == i) j += 1; // lone paren in space mode cannot happen; guard anyway
         try pushTok(list_gpa, toks, .word, try fold(arena, cfg, text[i..j]), text[i..j], lno);
         toks.items[toks.items.len - 1].f.call = j < text.len and text[j] == '(';
@@ -677,7 +754,11 @@ fn joins(c: u8) bool {
 
 /// `==`, `<=`, `>=` or `!=` at `i`: its `=` assigns nothing.
 fn comparesAt(text: []const u8, i: usize) bool {
-    return i + 1 < text.len and text[i + 1] == '=' and std.mem.indexOfScalar(u8, "=<>!", text[i]) != null;
+    return i + 1 < text.len and text[i + 1] == '=' and std.mem.indexOfScalar(
+        u8,
+        "=<>!",
+        text[i],
+    ) != null;
 }
 
 /// `{a} + b`, `{a}*{b}`, `a + {b}`: a delimited expression joined to more
@@ -686,7 +767,12 @@ fn comparesAt(text: []const u8, i: usize) bool {
 /// takes such a line (when it takes it at all) as the delimiters dropped
 /// and the rest kept: `{1+1}*3` is 4, not 6. Null when the value is not
 /// such a join.
-fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usize) Allocator.Error!?struct { text: []const u8, end: usize } {
+fn joinedExpr(
+    arena: Allocator,
+    cfg: *const LexCfg,
+    text: []const u8,
+    start: usize,
+) Allocator.Error!?struct { text: []const u8, end: usize } {
     var out: std.ArrayList(u8) = .empty;
     var i = start;
     var depth: usize = 0;
@@ -698,7 +784,10 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
         for (cfg.expr_delims) |d| {
             if (!std.mem.startsWith(u8, text[i..], d[0])) continue;
             const j = delimClose(text, i, d);
-            try out.appendSlice(arena, std.mem.trim(u8, text[i + d[0].len .. @min(j, text.len)], " \t"));
+            try out.appendSlice(
+                arena,
+                std.mem.trim(u8, text[i + d[0].len .. @min(j, text.len)], " \t"),
+            );
             i = @min(j + d[1].len, text.len);
             delimited = true;
             last_op = false;
@@ -712,9 +801,12 @@ fn joinedExpr(arena: Allocator, cfg: *const LexCfg, text: []const u8, start: usi
             if (j < text.len and text[j] == '=' and spaced and !comparesAt(text, j)) return null;
             if (j == text.len or !(last_op or joins(text[j]) or comparesAt(text, j))) break;
             // `5 %` alone is HSPICE's percent of a variation, no operator.
-            if (!last_op and (text[j] == '%' or text[j] == '\\') and !operandAfter(text, j + 1)) break;
+            if (!last_op and (text[j] == '%' or text[j] == '\\') and !operandAfter(text, j + 1))
+                break;
             // `100p -60p`: a sign, the start of the next value of a list.
-            if (!last_op and (text[j] == '-' or text[j] == '+') and j + 1 < text.len and text[j + 1] != ' ' and text[j + 1] != '\t') break;
+            if (!last_op and (text[j] == '-' or text[j] == '+') and j + 1 < text.len and
+                text[j + 1] != ' ' and text[j + 1] != '\t')
+                break;
             try out.append(arena, ' ');
             spaced = true;
             i = j;
@@ -827,12 +919,22 @@ pub const Window = struct {
         if (ln.kind != .code) {
             const tag: TokTag = if (ln.kind == .blank) .blank else .comment;
             var text = ln.text;
-            if (startsWithAny(text, cfg.line_comments)) |n| text = commentText(text[n..]) else if (startsWithAny(text, cfg.tail_comments)) |n| text = commentText(text[n..]);
+            if (startsWithAny(text, cfg.line_comments)) |n|
+                text = commentText(text[n..])
+            else if (startsWithAny(text, cfg.tail_comments)) |n| text = commentText(text[n..]);
             try w.toks.append(ir.big, .{ .tag = tag, .text = text, .raw = ln.text, .lno = lno });
             try w.toks.append(ir.big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
             return;
         }
-        try tokenizeLine(w.scratch.allocator(), w.lines.textFor(lno), ir.big, cfg, ln.text, lno, &w.toks);
+        try tokenizeLine(
+            w.scratch.allocator(),
+            w.lines.textFor(lno),
+            ir.big,
+            cfg,
+            ln.text,
+            lno,
+            &w.toks,
+        );
         try w.toks.append(ir.big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
     }
 };
@@ -993,7 +1095,11 @@ pub fn renderNumber(w: *std.Io.Writer, cfg: *const LexCfg, n: ir.Number) std.Io.
     var buf: [4096]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&buf);
     const a = fba.allocator();
-    var best: []const u8 = std.fmt.allocPrint(a, "{s}e{d}", .{ n.digits(), n.exp10 }) catch return w.print("{s}e{d}", .{ n.digits(), n.exp10 });
+    var best: []const u8 = std.fmt.allocPrint(
+        a,
+        "{s}e{d}",
+        .{ n.digits(), n.exp10 },
+    ) catch return w.print("{s}e{d}", .{ n.digits(), n.exp10 });
     if (shiftDecimal(a, n.digits(), n.exp10) catch null) |plain| {
         if (plain.len <= best.len) best = plain;
     }
@@ -1056,7 +1162,11 @@ test "the M trap" {
     try testing.expectEqual(@as(i32, 6), parseNumber(a, &spice_cfg, "1.5e3k").?.exp10);
     try testing.expect(parseNumber(a, &spice_cfg, "2n2222") == null);
     try testing.expect(parseNumber(a, &spectre_cfg, "50Ohms") == null);
-    try testing.expectApproxEqRel(@as(f64, 25.4e-6), parseNumber(a, &spice_cfg, "1mil").?.toFloat(), 1e-12);
+    try testing.expectApproxEqRel(
+        @as(f64, 25.4e-6),
+        parseNumber(a, &spice_cfg, "1mil").?.toFloat(),
+        1e-12,
+    );
 }
 
 test "lines, comments, continuation" {
@@ -1124,7 +1234,12 @@ test "odd scale factors are exact" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const cases = [_]struct { []const u8, []const u8 }{
-        .{ "1e6mil", "25.4" }, .{ "1mil", "25.4u" }, .{ "2.5mil", "63.5u" }, .{ "-0.5mil", "-12.7u" }, .{ "100mil", "2540u" },
+        .{ "1e6mil", "25.4" },  .{ "1mil", "25.4u" }, .{ "2.5mil", "63.5u" },
+        .{
+            "-0.5mil",
+            "-12.7u",
+        },
+        .{ "100mil", "2540u" },
     };
     for (cases) |c| {
         var aw: std.Io.Writer.Allocating = .init(a);

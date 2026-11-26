@@ -53,7 +53,11 @@ fn die(io: std.Io, comptime fmt: []const u8, args: anytype) noreturn {
     std.process.exit(2);
 }
 
-fn opaqueKeys(arena: std.mem.Allocator, stmts: []const ir.Stmt, keys: *std.StringArrayHashMapUnmanaged(usize)) !void {
+fn opaqueKeys(
+    arena: std.mem.Allocator,
+    stmts: []const ir.Stmt,
+    keys: *std.StringArrayHashMapUnmanaged(usize),
+) !void {
     for (stmts) |*s| {
         if (s.kind == .@"opaque") {
             var it = std.mem.tokenizeAny(u8, s.raw, " \t\r\n(=,");
@@ -79,14 +83,23 @@ const Args = struct {
     provided: std.ArrayList([2][]const u8) = .empty,
 };
 
-fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []const u8) *const sprack.Grammar {
+fn dialect(
+    io: std.Io,
+    arena: std.mem.Allocator,
+    name: ?[]const u8,
+    flag: []const u8,
+) *const sprack.Grammar {
     const n = name orelse die(io, "{s} is required\n{s}", .{ flag, usage });
     var diag: sprack.grammar.Diag = .{};
     return sprack.resolve(arena, io, n, &diag) catch |e| switch (e) {
         error.UnknownDialect => {
             var known: std.ArrayList(u8) = .empty;
             for (sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
-            die(io, "unknown dialect '{s}'. Built in:{s}; or a path to a .spgrammar file\n", .{ n, known.items });
+            die(
+                io,
+                "unknown dialect '{s}'. Built in:{s}; or a path to a .spgrammar file\n",
+                .{ n, known.items },
+            );
         },
         error.CannotRead, error.BadGrammar, error.TooManyDialects => die(io, "{s}\n", .{diag.msg}),
         error.OutOfMemory => die(io, "out of memory\n", .{}),
@@ -101,11 +114,19 @@ fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []cons
 fn refuse(io: std.Io, name: []const u8, e: anyerror) noreturn {
     switch (e) {
         error.NotARegularFile => {
-            stderrLine(io, "{s}: error[invalid]: not a regular file or a pipe; not read\n", .{name});
+            stderrLine(
+                io,
+                "{s}: error[invalid]: not a regular file or a pipe; not read\n",
+                .{name},
+            );
             std.process.exit(1);
         },
         error.FileTooBig => {
-            stderrLine(io, "{s}: error[invalid]: larger than {d} MiB, the most an input may hold; not read\n", .{ name, ir.max_input >> 20 });
+            stderrLine(
+                io,
+                "{s}: error[invalid]: larger than {d} MiB, the most an input may hold; not read\n",
+                .{ name, ir.max_input >> 20 },
+            );
             std.process.exit(1);
         },
         else => die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) }),
@@ -129,11 +150,12 @@ fn readWhole(io: std.Io, file: std.Io.File) ![]u8 {
     var fr = file.reader(io, &.{});
     const size = fr.getSize() catch 0;
     if (size > ir.max_input) return error.FileTooBig;
-    if (size == 0) return fr.interface.allocRemaining(pages, .limited(ir.max_input)) catch |e| switch (e) {
-        error.ReadFailed => fr.err.?,
-        error.StreamTooLong => error.FileTooBig,
-        else => |x| x,
-    };
+    if (size == 0)
+        return fr.interface.allocRemaining(pages, .limited(ir.max_input)) catch |e| switch (e) {
+            error.ReadFailed => fr.err.?,
+            error.StreamTooLong => error.FileTooBig,
+            else => |x| x,
+        };
     // ponytail: a file that grows meanwhile is read to the size it had.
     const buf = try pages.alloc(u8, size);
     return buf[0 .. fr.interface.readSliceShort(buf) catch return fr.err.?];
@@ -176,7 +198,10 @@ pub fn main(init: std.process.Init) !void {
                     "param"
                 else if (g.absentReason(info.kind) != null)
                     "none"
-                else if (info.class == .device and g.canWrite(.instance) and sprack.schema.slotOf(info.kind, "master") != null)
+                else if (info.class == .device and g.canWrite(.instance) and sprack.schema.slotOf(
+                    info.kind,
+                    "master",
+                ) != null)
                     "inst"
                 else
                     "-";
@@ -212,9 +237,15 @@ pub fn main(init: std.process.Init) !void {
             a.out = argv[i];
         } else if (std.mem.eql(u8, arg, "--lib")) {
             a.library = true;
-        } else if ((std.mem.eql(u8, arg, "--provide") or std.mem.eql(u8, arg, "--xyce-plugin")) and has_next) {
+        } else if ((std.mem.eql(u8, arg, "--provide") or std.mem.eql(u8, arg, "--xyce-plugin")) and
+            has_next)
+        {
             i += 1;
-            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(io, "{s} takes NAME=FILE\n", .{arg});
+            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(
+                io,
+                "{s} takes NAME=FILE\n",
+                .{arg},
+            );
             try a.provided.append(arena, .{ argv[i][0..eq], argv[i][eq + 1 ..] });
         } else if (std.mem.eql(u8, arg, "--errata") and has_next) {
             i += 1;
@@ -224,7 +255,11 @@ pub fn main(init: std.process.Init) !void {
             try a.sections.append(arena, argv[i]);
         } else if ((std.mem.eql(u8, arg, "-D") or std.mem.eql(u8, arg, "--define")) and has_next) {
             i += 1;
-            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(io, "--define takes NAME=VALUE\n", .{});
+            const eq = std.mem.indexOfScalar(u8, argv[i], '=') orelse die(
+                io,
+                "--define takes NAME=VALUE\n",
+                .{},
+            );
             try a.vars.append(arena, .{ argv[i][0..eq], argv[i][eq + 1 ..] });
         } else if (arg.len > 1 and arg[0] == '-') {
             die(io, "unknown option '{s}'\n{s}", .{ arg, usage });
@@ -245,7 +280,10 @@ pub fn main(init: std.process.Init) !void {
             .from = dialect(io, arena, a.from, "--from"),
             .to = if (listing) null else dialect(io, arena, a.to, "--to"),
             .tops = a.files.items,
-            .out_dir = if (listing) "" else a.out orelse die(io, "project needs --out <dir>\n{s}", .{usage}),
+            .out_dir = if (listing)
+                ""
+            else
+                a.out orelse die(io, "project needs --out <dir>\n{s}", .{usage}),
             .log = err,
             .catalog = if (listing) out else null,
             .caps = &sprack.caps,
@@ -254,10 +292,19 @@ pub fn main(init: std.process.Init) !void {
             .sections = a.sections.items,
             .provided = a.provided.items,
             .errata = if (a.errata) |path| blk: {
-                const text = cwd.readFileAlloc(io, path, arena, .limited(16 << 20)) catch |e| die(io, "cannot read {s}: {s}\n", .{ path, @errorName(e) });
+                const text = cwd.readFileAlloc(io, path, arena, .limited(16 << 20)) catch |e| die(
+                    io,
+                    "cannot read {s}: {s}\n",
+                    .{ path, @errorName(e) },
+                );
                 break :blk sprack.project.parseErrata(arena, text) catch |e| switch (e) {
                     error.OutOfMemory => return e,
-                    error.BadErrata => die(io, "{s}: errata are a list of {{file, was, read, why}}, or a manifest that holds one\n", .{path}),
+                    error.BadErrata => die(
+                        io,
+                        "{s}: errata are a list of {{file, was, read, why}}, or a manifest " ++
+                            "that holds one\n",
+                        .{path},
+                    ),
                 };
             } else &.{},
         });
@@ -267,7 +314,11 @@ pub fn main(init: std.process.Init) !void {
             sum.errors,   if (sum.errors == 1) "" else "s",
             sum.warnings, if (sum.warnings == 1) "" else "s",
         });
-        if (sum.missing > 0) try err.print(", {d} included file{s} not found", .{ sum.missing, if (sum.missing == 1) "" else "s" });
+        if (sum.missing > 0)
+            try err.print(", {d} included file{s} not found", .{ sum.missing, if (sum.missing == 1)
+                ""
+            else
+                "s" });
         try err.writeByte('\n');
         try err.flush();
         if (sum.errors > 0) std.process.exit(1);
@@ -276,7 +327,11 @@ pub fn main(init: std.process.Init) !void {
 
     const src = if (a.files.items.len > 0) blk: {
         const name = a.files.items[0];
-        const file = cwd.openFile(io, name, .{}) catch |e| die(io, "cannot read {s}: {s}\n", .{ name, @errorName(e) });
+        const file = cwd.openFile(io, name, .{}) catch |e| die(
+            io,
+            "cannot read {s}: {s}\n",
+            .{ name, @errorName(e) },
+        );
         defer file.close(io);
         break :blk readWhole(io, file) catch |e| refuse(io, name, e);
     } else readWhole(io, std.Io.File.stdin()) catch |e| refuse(io, "standard input", e);
@@ -295,7 +350,16 @@ pub fn main(init: std.process.Init) !void {
         const nl = try sprack.read(arena, gf, src, &read_report);
         // The text is translated as `translate` does, a statement at a time.
         var aw: std.Io.Writer.Allocating = .init(arena);
-        _ = try sprack.stream.translate(arena, gf, gt, src, &aw.writer, &report, &sprack.caps, .{ .whole = whole, .env = plugin_env });
+        _ = try sprack.stream.translate(
+            arena,
+            gf,
+            gt,
+            src,
+            &aw.writer,
+            &report,
+            &sprack.caps,
+            .{ .whole = whole, .env = plugin_env },
+        );
         var report_back: ir.Report = .init(arena);
         const back = try sprack.read(arena, gt, aw.written(), &report_back);
 
@@ -309,7 +373,18 @@ pub fn main(init: std.process.Init) !void {
             @intFromBool(same),
             report.count(.@"error"),
         });
-        inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .caveat, .rename, .cosmetic, .invalid, .ambiguous, .oneway }) |code| {
+        inline for (.{
+            .untranslated,
+            .unsupported,
+            .loss,
+            .synthesized,
+            .caveat,
+            .rename,
+            .cosmetic,
+            .invalid,
+            .ambiguous,
+            .oneway,
+        }) |code| {
             try out.print("\t{d}", .{report.countCode(code)});
         }
         try out.print("\t{d}\t", .{ir.countStmts(back.stmts, .@"opaque")});
@@ -322,9 +397,22 @@ pub fn main(init: std.process.Init) !void {
         // to say why: status 1, so a script can tell (#54).
         if (!same) {
             var excused: usize = 0;
-            inline for (.{ .untranslated, .unsupported, .loss, .synthesized, .invalid, .ambiguous, .oneway, .rename }) |code| excused += report.countCode(code);
+            inline for (.{
+                .untranslated,
+                .unsupported,
+                .loss,
+                .synthesized,
+                .invalid,
+                .ambiguous,
+                .oneway,
+                .rename,
+            }) |code| excused += report.countCode(code);
             if (excused == 0) {
-                try err.print("{s}: the circuit read back from {s} is not the one read, and the report does not say why\n", .{ if (a.files.items.len > 0) a.files.items[0] else "-", gt.name });
+                try err.print(
+                    "{s}: the circuit read back from {s} is not the one read, and the report " ++
+                        "does not say why\n",
+                    .{ if (a.files.items.len > 0) a.files.items[0] else "-", gt.name },
+                );
                 try err.flush();
                 std.process.exit(1);
             }
@@ -334,11 +422,14 @@ pub fn main(init: std.process.Init) !void {
 
     // JSON that is not a document at all: nothing was read, so nothing is
     // written and no -o file is made.
-    const doc: ?ir.Netlist = if (std.mem.eql(u8, cmd, "write")) try sprack.json.parseDocument(arena, src, &report) orelse {
-        try report.print(err);
-        try err.flush();
-        std.process.exit(1);
-    } else null;
+    const doc: ?ir.Netlist = if (std.mem.eql(u8, cmd, "write"))
+        try sprack.json.parseDocument(arena, src, &report) orelse {
+            try report.print(err);
+            try err.flush();
+            std.process.exit(1);
+        }
+    else
+        null;
 
     // The result is streamed, not collected: a netlist can be very large.
     var file_buf: [64 * 1024]u8 = undefined;
@@ -346,15 +437,30 @@ pub fn main(init: std.process.Init) !void {
     var dest_writer: std.Io.File.Writer = undefined;
     var result: *std.Io.Writer = out;
     if (a.out) |path| {
-        dest_file = cwd.createFile(io, path, .{}) catch |e| die(io, "cannot write {s}: {s}\n", .{ path, @errorName(e) });
+        dest_file = cwd.createFile(io, path, .{}) catch |e| die(
+            io,
+            "cannot write {s}: {s}\n",
+            .{ path, @errorName(e) },
+        );
         dest_writer = dest_file.?.writer(io, &file_buf);
         result = &dest_writer.interface;
     }
     if (std.mem.eql(u8, cmd, "translate")) {
         const gf = dialect(io, arena, a.from, "--from");
         const gt = dialect(io, arena, a.to, "--to");
-        const why = try sprack.stream.translate(arena, gf, gt, src, result, &report, &sprack.caps, .{ .whole = whole, .env = plugin_env });
-        if (why) |w| if (init.environ_map.get("SPRACK_STREAM_WHY") != null) try err.print("sprack: read whole: {s}\n", .{w});
+        const why = try sprack.stream.translate(
+            arena,
+            gf,
+            gt,
+            src,
+            result,
+            &report,
+            &sprack.caps,
+            .{ .whole = whole, .env = plugin_env },
+        );
+        if (why) |w|
+            if (init.environ_map.get("SPRACK_STREAM_WHY") != null)
+                try err.print("sprack: read whole: {s}\n", .{w});
     } else if (std.mem.eql(u8, cmd, "read")) {
         const nl = try sprack.read(arena, dialect(io, arena, a.from, "--from"), src, &report);
         try sprack.json.writeNetlist(result, &nl);

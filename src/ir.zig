@@ -25,7 +25,11 @@ pub const Number = struct {
 
     pub fn toFloat(n: Number) f64 {
         var buf: [96]u8 = undefined;
-        const s = std.fmt.bufPrint(&buf, "{s}e{d}", .{ n.digits(), n.exp10 }) catch return std.math.nan(f64);
+        const s = std.fmt.bufPrint(
+            &buf,
+            "{s}e{d}",
+            .{ n.digits(), n.exp10 },
+        ) catch return std.math.nan(f64);
         return std.fmt.parseFloat(f64, s) catch std.math.nan(f64);
     }
 };
@@ -234,7 +238,8 @@ pub fn cloneValue(k: Keep, v: Value) Allocator.Error!Value {
         },
         .params => |ps| blk: {
             const out = try k.perm.alloc(Param, ps.len);
-            for (ps, out) |x, *y| y.* = .{ .key = try k.text(x.key), .val = try cloneValue(k, x.val) };
+            for (ps, out) |x, *y|
+                y.* = .{ .key = try k.text(x.key), .val = try cloneValue(k, x.val) };
             break :blk .{ .params = out };
         },
     };
@@ -255,7 +260,12 @@ pub fn cloneStmt(k: Keep, st: *const Stmt) Allocator.Error!Stmt {
 }
 
 /// Add `name` to `set`; with `src`, a name new to it is kept (`keepText`).
-pub fn putName(set: anytype, arena: Allocator, src: ?[]const u8, name: []const u8) Allocator.Error!void {
+pub fn putName(
+    set: anytype,
+    arena: Allocator,
+    src: ?[]const u8,
+    name: []const u8,
+) Allocator.Error!void {
     const gop = try set.getOrPut(arena, name);
     if (!gop.found_existing) if (src) |t| {
         gop.key_ptr.* = try keepText(arena, t, name);
@@ -263,7 +273,13 @@ pub fn putName(set: anytype, arena: Allocator, src: ?[]const u8, name: []const u
 }
 
 /// As `putName`, for a map: the value is set whether the name is new or not.
-pub fn putValue(map: anytype, arena: Allocator, src: ?[]const u8, name: []const u8, v: anytype) Allocator.Error!void {
+pub fn putValue(
+    map: anytype,
+    arena: Allocator,
+    src: ?[]const u8,
+    name: []const u8,
+    v: anytype,
+) Allocator.Error!void {
     const gop = try map.getOrPut(arena, name);
     if (!gop.found_existing) if (src) |t| {
         gop.key_ptr.* = try keepText(arena, t, name);
@@ -291,7 +307,12 @@ pub const Caseless = struct {
 
 /// A set of names that ignores case. Each key is the spelling it was first
 /// added with, so no lower-cased copy is ever made.
-pub const CaselessSet = std.HashMapUnmanaged([]const u8, void, Caseless, std.hash_map.default_max_load_percentage);
+pub const CaselessSet = std.HashMapUnmanaged(
+    []const u8,
+    void,
+    Caseless,
+    std.hash_map.default_max_load_percentage,
+);
 
 /// A set of names that ignores case, as `CaselessSet`, at 9 bytes a name
 /// rather than 17: each is kept as its offset and length in `src` (the
@@ -347,7 +368,12 @@ pub const NameSet = struct {
 
     /// Add `name` unless a spelling of it is there.
     pub fn put(set: *NameSet, name: []const u8) Allocator.Error!void {
-        const gop = try set.map.getOrPutContextAdapted(ir_big(), name, ByName{ .set = set }, Ctx{ .set = set });
+        const gop = try set.map.getOrPutContextAdapted(
+            ir_big(),
+            name,
+            ByName{ .set = set },
+            Ctx{ .set = set },
+        );
         if (gop.found_existing) return;
         const p = @intFromPtr(name.ptr);
         const lo = @intFromPtr(set.src.ptr);
@@ -430,7 +456,8 @@ pub const Env = struct {
         for (stmts) |*s| {
             env.used[@backingInt(s.kind)] = true;
             const name = s.get("name");
-            if (s.kind == .subckt and holdsCond(s)) try env.conditional.append(arena, try cloneStmt(.{ .perm = arena, .src = "" }, s));
+            if (s.kind == .subckt and holdsCond(s))
+                try env.conditional.append(arena, try cloneStmt(.{ .perm = arena, .src = "" }, s));
             if (name == .atom and (s.kind == .model or s.kind == .subckt)) {
                 const own = try arena.dupe(u8, name.atom);
                 try env.declared.put(arena, own, {});
@@ -438,20 +465,29 @@ pub const Env = struct {
                 if (s.kind == .subckt) try env.subckts.put(arena, own, {});
                 if (s.kind == .model) {
                     const fam = s.get("family");
-                    const kind: ?Kind = if (fam == .atom) schema.familyKind(fam.atom) else if (s.get("type") == .atom) .device else null;
-                    if (fam == .atom) try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
-                    if (fam != .atom and s.get("type") == .atom) try env.modules.put(arena, own, try arena.dupe(u8, s.get("type").atom));
+                    const kind: ?Kind = if (fam == .atom)
+                        schema.familyKind(fam.atom)
+                    else if (s.get("type") == .atom) .device else null;
+                    if (fam == .atom)
+                        try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
+                    if (fam != .atom and s.get("type") == .atom)
+                        try env.modules.put(arena, own, try arena.dupe(u8, s.get("type").atom));
                     if (kind) |k| {
                         try env.models.put(arena, own, k);
                         if (binBase(own)) |base| {
                             try env.models.put(arena, base, k);
                             try env.declared.put(arena, base, {});
-                            try env.declared.put(arena, try std.ascii.allocLowerString(arena, base), {});
+                            try env.declared.put(
+                                arena,
+                                try std.ascii.allocLowerString(arena, base),
+                                {},
+                            );
                         }
                     }
                 }
             }
-            if (name == .atom and s.kind == .func) try env.funcs.put(arena, try std.ascii.allocLowerString(arena, name.atom), {});
+            if (name == .atom and s.kind == .func)
+                try env.funcs.put(arena, try std.ascii.allocLowerString(arena, name.atom), {});
             try env.absorb(arena, s.body);
         }
     }
@@ -544,7 +580,8 @@ fn looseValueEql(a: Value, b: Value) bool {
     }
     if (a == .params and b == .params) {
         if (a.params.len != b.params.len) return false;
-        for (a.params, b.params) |x, y| if (!std.mem.eql(u8, x.key, y.key) or !looseValueEql(x.val, y.val)) return false;
+        for (a.params, b.params) |x, y|
+            if (!std.mem.eql(u8, x.key, y.key) or !looseValueEql(x.val, y.val)) return false;
         return true;
     }
     return a.eql(b);
@@ -553,7 +590,8 @@ fn looseValueEql(a: Value, b: Value) bool {
 fn looseStmtEql(a: *const Stmt, b: *const Stmt) bool {
     if (looseKind(a.kind) != looseKind(b.kind)) return false;
     if (a.kind == .@"opaque" and !sameWords(a.raw, b.raw)) return false;
-    for (0..schema.info(a.kind).slots.len) |i| if (!looseValueEql(looseVal(a, i), looseVal(b, i))) return false;
+    for (0..schema.info(a.kind).slots.len) |i|
+        if (!looseValueEql(looseVal(a, i), looseVal(b, i))) return false;
     return looseListEql(a.body, b.body);
 }
 
@@ -732,13 +770,23 @@ pub const Report = struct {
         return .{ .arena = arena };
     }
 
-    pub fn add(r: *Report, sev: Severity, code: Code, line: u32, comptime fmt: []const u8, args: anytype) void {
+    pub fn add(
+        r: *Report,
+        sev: Severity,
+        code: Code,
+        line: u32,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) void {
         if (r.mute) return;
         const msg = r.arena.print(fmt, args) catch {
             r.lost = true;
             return;
         };
-        r.items.append(r.arena, .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase }) catch {
+        r.items.append(
+            r.arena,
+            .{ .sev = sev, .code = code, .line = line, .msg = msg, .phase = r.phase },
+        ) catch {
             r.lost = true;
         };
     }
@@ -778,7 +826,10 @@ pub const Report = struct {
     pub fn print(r: *const Report, w: *std.Io.Writer) std.Io.Writer.Error!void {
         for (r.items.items) |d| {
             if (d.line > 0) {
-                try w.print("{s}[{s}]: line {d}: {s}\n", .{ @tagName(d.sev), @tagName(d.code), d.line, d.msg });
+                try w.print(
+                    "{s}[{s}]: line {d}: {s}\n",
+                    .{ @tagName(d.sev), @tagName(d.code), d.line, d.msg },
+                );
             } else {
                 try w.print("{s}[{s}]: {s}\n", .{ @tagName(d.sev), @tagName(d.code), d.msg });
             }
@@ -788,7 +839,12 @@ pub const Report = struct {
 
 /// A device whose model is declared in the same netlist as a different kind
 /// of device (a D line on an NPN model) is a mistake in the source.
-pub fn checkModelKinds(arena: Allocator, nl: *const Netlist, report: *Report, env: ?*const Env) Allocator.Error!void {
+pub fn checkModelKinds(
+    arena: Allocator,
+    nl: *const Netlist,
+    report: *Report,
+    env: ?*const Env,
+) Allocator.Error!void {
     var models: std.StringHashMapUnmanaged(Kind) = .empty;
     if (env) |e| {
         var it = e.models.iterator();
@@ -803,7 +859,12 @@ pub fn checkModelKinds(arena: Allocator, nl: *const Netlist, report: *Report, en
 }
 
 /// Model name to family. With `src`, a name not in it is copied.
-pub fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged([]const u8), src: ?[]const u8) Allocator.Error!void {
+pub fn collectFamilies(
+    arena: Allocator,
+    stmts: []const Stmt,
+    out: *std.StringHashMapUnmanaged([]const u8),
+    src: ?[]const u8,
+) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .model and s.get("family") == .atom and s.get("name") == .atom) {
             try putValue(out, arena, src, s.get("name").atom, s.get("family").atom);
@@ -812,7 +873,12 @@ pub fn collectFamilies(arena: Allocator, stmts: []const Stmt, out: *std.StringHa
     }
 }
 
-pub fn checkKinds(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(Kind), names: *const std.StringHashMapUnmanaged([]const u8), report: *Report) Allocator.Error!void {
+pub fn checkKinds(
+    stmts: []const Stmt,
+    models: *const std.StringHashMapUnmanaged(Kind),
+    names: *const std.StringHashMapUnmanaged([]const u8),
+    report: *Report,
+) Allocator.Error!void {
     for (stmts) |*s| {
         try checkKinds(s.body, models, names, report);
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
@@ -820,8 +886,15 @@ pub fn checkKinds(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged
         if (master != .atom) continue;
         const want = models.get(master.atom) orelse continue;
         if (want == s.kind or want == .device or s.kind == .device) continue;
-        report.add(.warning, .invalid, s.line, "'{s}' is a {s} but its model '{s}' is declared as a {s} model", .{
-            if (s.get("name") == .atom) s.get("name").atom else "?", @tagName(s.kind), master.atom, names.get(master.atom) orelse "?",
+        report.add(.warning, .invalid, s.line, "'{s}' is a {s} but its model '{s}' is " ++
+            "declared as a {s} model", .{
+            if (s.get("name") == .atom)
+                s.get("name").atom
+            else
+                "?",
+            @tagName(s.kind),
+            master.atom,
+            names.get(master.atom) orelse "?",
         });
     }
 }
@@ -835,19 +908,30 @@ pub fn checkKinds(stmts: []const Stmt, models: *const std.StringHashMapUnmanaged
 /// any other dialect.
 pub const unlisted_builtin = "builtin";
 
-fn collectUnlisted(arena: Allocator, stmts: []Stmt, out: *std.StringHashMapUnmanaged(*Stmt)) Allocator.Error!void {
+fn collectUnlisted(
+    arena: Allocator,
+    stmts: []Stmt,
+    out: *std.StringHashMapUnmanaged(*Stmt),
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and s.get("name") == .atom) {
+        if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and
+            s.get("name") == .atom)
+        {
             try out.put(arena, s.get("name").atom, s);
         }
         try collectUnlisted(arena, s.body, out);
     }
 }
 
-fn markUsers(arena: Allocator, stmts: []const Stmt, models: *const std.StringHashMapUnmanaged(*Stmt)) Allocator.Error!void {
+fn markUsers(
+    arena: Allocator,
+    stmts: []const Stmt,
+    models: *const std.StringHashMapUnmanaged(*Stmt),
+) Allocator.Error!void {
     for (stmts) |*s| {
         try markUsers(arena, s.body, models);
-        if (schema.info(s.kind).class != .device or s.kind == .instance or s.kind == .device) continue;
+        if (schema.info(s.kind).class != .device or s.kind == .instance or s.kind == .device)
+            continue;
         const master = s.get("master");
         if (master != .atom) continue;
         const m = models.get(master.atom) orelse continue;
@@ -885,9 +969,16 @@ pub fn binBase(name: []const u8) ?[]const u8 {
 }
 
 /// With `src`, a name not in it is copied (the statements go away).
-pub fn collectModels(arena: Allocator, stmts: []const Stmt, out: *std.StringHashMapUnmanaged(Kind), subckts: *CaselessSet, src: ?[]const u8) Allocator.Error!void {
+pub fn collectModels(
+    arena: Allocator,
+    stmts: []const Stmt,
+    out: *std.StringHashMapUnmanaged(Kind),
+    subckts: *CaselessSet,
+    src: ?[]const u8,
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if (s.kind == .subckt and s.get("name") == .atom) try putName(subckts, arena, src, s.get("name").atom);
+        if (s.kind == .subckt and s.get("name") == .atom)
+            try putName(subckts, arena, src, s.get("name").atom);
         if (s.kind == .model) {
             const fam = s.get("family");
             const name = s.get("name");
@@ -911,11 +1002,17 @@ pub fn sameSlots(a: Kind, b: Kind) bool {
     const x = schema.info(a).slots;
     const y = schema.info(b).slots;
     if (x.len != y.len) return false;
-    for (x, y) |p, q| if (!std.mem.eql(u8, p.name, q.name) or p.ty != q.ty or p.list != q.list) return false;
+    for (x, y) |p, q|
+        if (!std.mem.eql(u8, p.name, q.name) or p.ty != q.ty or p.list != q.list) return false;
     return true;
 }
 
-pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUnmanaged(Kind), subckts: *const CaselessSet) Allocator.Error!void {
+pub fn retag(
+    arena: Allocator,
+    stmts: []Stmt,
+    models: *const std.StringHashMapUnmanaged(Kind),
+    subckts: *const CaselessSet,
+) Allocator.Error!void {
     for (stmts) |*s| {
         try retag(arena, s.body, models, subckts);
         // One element letter, two device kinds told apart by the model
@@ -945,7 +1042,9 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
         // A BJT may leave its substrate node off.
         // The substrate, bulk and thermal terminals are optional.
         // A source's port reference is only a balanced port's.
-        const least: usize = if (target == .bjt or target == .mosfet) 3 else if (target == .vsource or target == .isource) 2 else want;
+        const least: usize = if (target == .bjt or target == .mosfet)
+            3
+        else if (target == .vsource or target == .isource) 2 else want;
         const ok = nodes.list.len >= least and nodes.list.len <= want;
         if (!ok) continue;
         var out = try newStmt(arena, target, s.line);
@@ -972,11 +1071,16 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
             var kept: std.ArrayList(Param) = .empty;
             for (vals[pi.?].params) |p| {
                 const si = schema.slotIndex(target, p.key);
-                if (si != null and slots[si.?].ty == .value and !slots[si.?].list and vals[si.?] == .none and p.val != .none) {
+                if (si != null and slots[si.?].ty == .value and !slots[si.?].list and
+                    vals[si.?] == .none and p.val != .none)
+                {
                     vals[si.?] = p.val;
                 } else try kept.append(arena, p);
             }
-            vals[pi.?] = if (kept.items.len > 0) .{ .params = try kept.toOwnedSlice(arena) } else .none;
+            vals[pi.?] = if (kept.items.len > 0)
+                .{ .params = try kept.toOwnedSlice(arena) }
+            else
+                .none;
         }
         try out.pack(arena, vals);
         s.* = out;
@@ -1020,7 +1124,8 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
     }
     if (vals[schema.slot(.instance, "master")] == .none) return null;
     vals[schema.slot(.instance, "nodes")] = .{ .list = try nodes.toOwnedSlice(arena) };
-    if (params.items.len > 0) vals[schema.slot(.instance, "params")] = .{ .params = try params.toOwnedSlice(arena) };
+    if (params.items.len > 0)
+        vals[schema.slot(.instance, "params")] = .{ .params = try params.toOwnedSlice(arena) };
     try out.pack(arena, vals);
     return out;
 }
@@ -1039,7 +1144,12 @@ pub fn principalParam(kind: Kind) ?[]const u8 {
     };
 }
 
-const KindMap = std.HashMapUnmanaged([]const u8, Kind, Caseless, std.hash_map.default_max_load_percentage);
+const KindMap = std.HashMapUnmanaged(
+    []const u8,
+    Kind,
+    Caseless,
+    std.hash_map.default_max_load_percentage,
+);
 
 /// Puts the sweeps of a netlist (`dc`, `step`) in canonical form. A swept
 /// name that is no instance but a parameter of the netlist is a parameter
@@ -1073,8 +1183,19 @@ fn foldSteps(arena: Allocator, stmts: []Stmt) Allocator.Error!void {
         if (!ok) continue;
         var out = dc.*;
         try out.own(arena);
-        const pairs = [_][2][]const u8{ .{ "src", "src2" }, .{ "param", "param2" }, .{ "var", "var2" }, .{ "start", "start2" }, .{ "stop", "stop2" }, .{ "step", "step2" }, .{ "sweep", "sweep2" }, .{ "points", "points2" } };
-        for (pairs) |p| try out.set(arena, schema.slotIndex(.dc, p[1]).?, s.at(schema.slotIndex(.step, p[0]).?));
+        const pairs = [_][2][]const u8{ .{ "src", "src2" }, .{
+            "param",
+            "param2",
+        }, .{ "var", "var2" }, .{ "start", "start2" }, .{ "stop", "stop2" }, .{ "step", "step2" }, .{ "sweep", "sweep2" }, .{
+            "points",
+            "points2",
+        } };
+        for (pairs) |p|
+            try out.set(
+                arena,
+                schema.slotIndex(.dc, p[1]).?,
+                s.at(schema.slotIndex(.step, p[0]).?),
+            );
         s.* = out;
     }
 }
@@ -1084,9 +1205,16 @@ pub fn hasSweep(stmts: []const Stmt) bool {
     return false;
 }
 
-fn sweepNames(arena: Allocator, stmts: []const Stmt, insts: *KindMap, params: *CaselessSet, top: bool) Allocator.Error!void {
+fn sweepNames(
+    arena: Allocator,
+    stmts: []const Stmt,
+    insts: *KindMap,
+    params: *CaselessSet,
+    top: bool,
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try insts.put(arena, s.get("name").atom, s.kind);
+        if (schema.info(s.kind).class == .device and s.get("name") == .atom)
+            try insts.put(arena, s.get("name").atom, s.kind);
         if (top and s.kind == .param and s.get("params") == .params) {
             for (s.get("params").params) |p| try params.put(arena, p.key, {});
         }
@@ -1095,7 +1223,12 @@ fn sweepNames(arena: Allocator, stmts: []const Stmt, insts: *KindMap, params: *C
     }
 }
 
-fn fixSweeps(arena: Allocator, stmts: []Stmt, insts: *const KindMap, params: *const CaselessSet) Allocator.Error!void {
+fn fixSweeps(
+    arena: Allocator,
+    stmts: []Stmt,
+    insts: *const KindMap,
+    params: *const CaselessSet,
+) Allocator.Error!void {
     for (stmts) |*s| {
         try fixSweeps(arena, s.body, insts, params);
         if (s.kind != .dc and s.kind != .step) continue;
@@ -1105,7 +1238,16 @@ fn fixSweeps(arena: Allocator, stmts: []Stmt, insts: *const KindMap, params: *co
     }
 }
 
-fn fixTarget(arena: Allocator, s: *Stmt, src: []const u8, param: []const u8, v: []const u8, devparam: []const u8, insts: *const KindMap, params: *const CaselessSet) Allocator.Error!void {
+fn fixTarget(
+    arena: Allocator,
+    s: *Stmt,
+    src: []const u8,
+    param: []const u8,
+    v: []const u8,
+    devparam: []const u8,
+    insts: *const KindMap,
+    params: *const CaselessSet,
+) Allocator.Error!void {
     const si = schema.slotIndex(s.kind, src).?;
     const name = switch (s.at(si)) {
         .atom => |a| a,
@@ -1135,7 +1277,8 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
     var analyses: usize = 0;
     for (stmts, 0..) |*s, i| {
         if (s.kind == .step and s.body.len == 0 and first == null) first = i;
-        if (s.kind != .step and s.kind != .alter and schema.info(s.kind).class == .analysis) analyses += 1;
+        if (s.kind != .step and s.kind != .alter and schema.info(s.kind).class == .analysis)
+            analyses += 1;
     }
     if (first == null or analyses == 0) return stmts;
     var out: std.ArrayList(Stmt) = .empty;
@@ -1147,7 +1290,9 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
             if (chain.items.len == 0) slot = out.items.len;
             if (chain.items.len == 0) try out.append(arena, s);
             try chain.append(arena, s);
-        } else if (schema.info(s.kind).class == .analysis and s.kind != .step and s.kind != .alter) {
+        } else if (schema.info(s.kind).class == .analysis and s.kind != .step and
+            s.kind != .alter)
+        {
             try inner.append(arena, s);
         } else try out.append(arena, s);
     }
@@ -1174,8 +1319,12 @@ test "the same circuit: blanks in an expression are not content, anything else i
     try std.testing.expect(sameSquashed("", " \t"));
     try std.testing.expect(!sameSquashed("a!=b", "a==b"));
     try std.testing.expect(!sameSquashed("a b", "a"));
-    const x: Value = .{ .params = &.{.{ .key = "t", .val = .{ .list = &.{.{ .expr = "a != b" }} } }} };
-    const y: Value = .{ .params = &.{.{ .key = "t", .val = .{ .list = &.{.{ .expr = "a!=b" }} } }} };
+    const x: Value = .{
+        .params = &.{.{ .key = "t", .val = .{ .list = &.{.{ .expr = "a != b" }} } }},
+    };
+    const y: Value = .{
+        .params = &.{.{ .key = "t", .val = .{ .list = &.{.{ .expr = "a!=b" }} } }},
+    };
     try std.testing.expect(looseValueEql(x, y) and !x.eql(y));
     // Only an expression: a name, a string or a key with a blank is another.
     try std.testing.expect(!looseValueEql(.{ .atom = "a b" }, .{ .atom = "ab" }));

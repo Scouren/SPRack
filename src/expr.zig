@@ -31,9 +31,19 @@ pub const Problem = struct {
 /// (`space` null), or a name of `space`.
 pub const Resolver = struct {
     ctx: ?*const anyopaque = null,
-    func: ?*const fn (ctx: ?*const anyopaque, arena: Allocator, word: []const u8, space: ?schema.Space) Allocator.Error![]const u8 = null,
+    func: ?*const fn (
+        ctx: ?*const anyopaque,
+        arena: Allocator,
+        word: []const u8,
+        space: ?schema.Space,
+    ) Allocator.Error![]const u8 = null,
 
-    fn resolve(r: Resolver, arena: Allocator, word: []const u8, space: ?schema.Space) Allocator.Error![]const u8 {
+    fn resolve(
+        r: Resolver,
+        arena: Allocator,
+        word: []const u8,
+        space: ?schema.Space,
+    ) Allocator.Error![]const u8 {
         const f = r.func orelse return word;
         return f(r.ctx, arena, word, space);
     }
@@ -47,10 +57,13 @@ pub fn argSpace(word: []const u8) schema.Space {
     var buf: [3]u8 = undefined;
     if (word.len == 0 or word.len > buf.len) return .param;
     const w = std.ascii.lowerString(&buf, word);
-    for ([_][]const u8{ "v", "vdb", "vm", "vp", "vr", "vi" }) |f| if (std.mem.eql(u8, w, f)) return .node;
-    for ([_][]const u8{ "i", "idb", "im", "ip", "ir", "ii" }) |f| if (std.mem.eql(u8, w, f)) return .instance;
+    for ([_][]const u8{ "v", "vdb", "vm", "vp", "vr", "vi" }) |f|
+        if (std.mem.eql(u8, w, f)) return .node;
+    for ([_][]const u8{ "i", "idb", "im", "ip", "ir", "ii" }) |f|
+        if (std.mem.eql(u8, w, f)) return .instance;
     // A terminal current: `i` and the terminal's letter or number.
-    if (w.len == 2 and w[0] == 'i' and std.mem.indexOfScalar(u8, "dgsbec1234", w[1]) != null) return .instance;
+    if (w.len == 2 and w[0] == 'i' and std.mem.indexOfScalar(u8, "dgsbec1234", w[1]) != null)
+        return .instance;
     return .param;
 }
 
@@ -80,18 +93,26 @@ fn isWordChar(c: u8) bool {
 /// one of `!=`: `a!=b` is `a`, `!=`, `b`.
 fn wordEnd(text: []const u8, from: usize) usize {
     var j = from;
-    while (j < text.len and isWordChar(text[j]) and !std.mem.startsWith(u8, text[j..], canon_ne)) j += 1;
+    while (j < text.len and isWordChar(text[j]) and !std.mem.startsWith(u8, text[j..], canon_ne))
+        j += 1;
     return j;
 }
 
 /// An operator's spelling. A blank at either end of it is one the target
 /// needs there (Spectre's ` != `), written unless the text has one already.
-fn writeOp(aw: *std.Io.Writer.Allocating, spelling: []const u8, rest: []const u8) Allocator.Error!void {
+fn writeOp(
+    aw: *std.Io.Writer.Allocating,
+    spelling: []const u8,
+    rest: []const u8,
+) Allocator.Error!void {
     const done = aw.written();
     const lead = spelling[0] == ' ' and done.len > 0 and done[done.len - 1] != ' ';
     const trail = spelling[spelling.len - 1] == ' ' and rest.len > 0 and rest[0] != ' ';
     const op = std.mem.trim(u8, spelling, " ");
-    aw.writer.print("{s}{s}{s}", .{ if (lead) " " else "", op, if (trail) " " else "" }) catch return error.OutOfMemory;
+    aw.writer.print("{s}{s}{s}", .{ if (lead)
+        " "
+    else
+        "", op, if (trail) " " else "" }) catch return error.OutOfMemory;
 }
 
 fn canonOf(list: []const grammar.Spellings, word: []const u8) ?[]const u8 {
@@ -124,7 +145,8 @@ fn numberEnd(src: []const u8, i: usize) usize {
             j = k;
         }
     }
-    while (j < src.len and (std.ascii.isAlphabetic(src[j]) or src[j] == '_' or src[j] == '%')) j += 1;
+    while (j < src.len and (std.ascii.isAlphabetic(src[j]) or src[j] == '_' or src[j] == '%'))
+        j += 1;
     return j;
 }
 
@@ -173,12 +195,18 @@ pub fn read(
             const word = src[i..j];
             const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
             const is_call = nextIsCall(src, j);
-            const known = if (is_call) canonOf(g.functions, folded) else canonOf(g.variables, folded);
+            const known = if (is_call)
+                canonOf(g.functions, folded)
+            else
+                canonOf(g.variables, folded);
             // `@m1[gm]`: the device whose quantity is read.
             const at_device = i > 0 and src[i - 1] == '@';
-            const name = known orelse try names.resolve(arena, word, if (is_call) null else if (at_device) .instance else space);
+            const name = known orelse try names.resolve(arena, word, if (is_call)
+                null
+            else if (at_device) .instance else space);
             // A parameter that a variable's canonical name would take for the variable.
-            if (known == null and !is_call and space == .param and schema.isVariable(name)) try out.append(arena, param_mark);
+            if (known == null and !is_call and space == .param and schema.isVariable(name))
+                try out.append(arena, param_mark);
             try out.appendSlice(arena, name);
             if (is_call) space = argSpace(word);
             i = j;
@@ -189,11 +217,14 @@ pub fn read(
         for (g.operators) |op| {
             for (op.spellings) |spelled| {
                 const s = std.mem.trim(u8, spelled, " ");
-                if (std.mem.startsWith(u8, src[i..], s) and (best == null or s.len > best.?.len)) best = .{ .canon = op.canon, .len = s.len };
+                if (std.mem.startsWith(u8, src[i..], s) and (best == null or s.len > best.?.len))
+                    best = .{ .canon = op.canon, .len = s.len };
             }
         }
         if (best) |b| {
-            try out.appendSlice(arena, if (std.mem.eql(u8, b.canon, "pow")) canon_pow else if (std.mem.eql(u8, b.canon, "xor")) canon_xor else src[i .. i + b.len]);
+            try out.appendSlice(arena, if (std.mem.eql(u8, b.canon, "pow"))
+                canon_pow
+            else if (std.mem.eql(u8, b.canon, "xor")) canon_xor else src[i .. i + b.len]);
             i += b.len;
             continue;
         }
@@ -306,7 +337,14 @@ pub fn write(
             const j = wordEnd(text, i + 1);
             const word = text[i + 1 .. j];
             for (g.variables) |v| for (v.spellings) |sp| {
-                if (if (cfg.case_sensitive) std.mem.eql(u8, sp, word) else std.ascii.eqlIgnoreCase(sp, word)) try problems.append(arena, .{ .kind = .shadowed, .text = word });
+                if (if (cfg.case_sensitive) std.mem.eql(
+                    u8,
+                    sp,
+                    word,
+                ) else std.ascii.eqlIgnoreCase(sp, word)) try problems.append(
+                    arena,
+                    .{ .kind = .shadowed, .text = word },
+                );
             };
             w.writeAll(word) catch return error.OutOfMemory;
             i = j;
@@ -338,12 +376,19 @@ pub fn write(
             w.writeAll(word) catch return error.OutOfMemory;
             continue;
         }
-        if (std.mem.startsWith(u8, text[i..], canon_pow) or std.mem.startsWith(u8, text[i..], canon_xor)) {
+        if (std.mem.startsWith(
+            u8,
+            text[i..],
+            canon_pow,
+        ) or std.mem.startsWith(u8, text[i..], canon_xor)) {
             const is_pow = c == '*';
             if (spellingOf(g.operators, if (is_pow) "pow" else "xor")) |s| {
                 try writeOp(&aw, s, text[i + 2 ..]);
             } else {
-                try problems.append(arena, .{ .kind = .operator, .text = if (is_pow) "pow" else "xor" });
+                try problems.append(arena, .{ .kind = .operator, .text = if (is_pow)
+                    "pow"
+                else
+                    "xor" });
                 w.writeAll(text[i .. i + 2]) catch return error.OutOfMemory;
             }
             i += 2;
@@ -356,11 +401,13 @@ pub fn write(
         }
         if (c == '^' and foreign) try problems.append(arena, .{ .kind = .operator, .text = "^" });
         // ngspice's integer division.
-        if (c == '\\' and foreign and spellingOf(g.operators, "idiv") == null) try problems.append(arena, .{ .kind = .operator, .text = "idiv" });
+        if (c == '\\' and foreign and spellingOf(g.operators, "idiv") == null)
+            try problems.append(arena, .{ .kind = .operator, .text = "idiv" });
         // A `%` glued to a number is the number's suffix (`30%`), not a modulo.
         if (foreign and ((c == '%' and !prev_word) or (c == '!' and !(i + 1 < text.len and text[i + 1] == '=')))) {
             const canon = if (c == '%') "mod" else "not";
-            if (spellingOf(g.operators, canon) == null) try problems.append(arena, .{ .kind = .operator, .text = canon });
+            if (spellingOf(g.operators, canon) == null)
+                try problems.append(arena, .{ .kind = .operator, .text = canon });
         }
         w.writeByte(c) catch return error.OutOfMemory;
         i += 1;
@@ -384,7 +431,11 @@ fn decimal(n: ir.Number) ?struct { i128, i32 } {
             point = true;
         },
         '0'...'9' => {
-            m = std.math.add(i128, std.math.mul(i128, m, 10) catch return null, c - '0') catch return null;
+            m = std.math.add(
+                i128,
+                std.math.mul(i128, m, 10) catch return null,
+                c - '0',
+            ) catch return null;
             if (point) e -= 1;
         },
         else => return null,
@@ -395,7 +446,10 @@ fn decimal(n: ir.Number) ?struct { i128, i32 } {
 /// A number or an expression as canonical expression text.
 pub fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8 {
     return switch (v) {
-        .num => |n| if (n.exp10 == 0) n.digits() else try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
+        .num => |n| if (n.exp10 == 0)
+            n.digits()
+        else
+            try std.fmt.allocPrint(arena, "{s}e{d}", .{ n.digits(), n.exp10 }),
         .expr => |s| s,
         .atom => |s| s,
         else => "0",
@@ -451,9 +505,20 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
         },
         .add, .sub => if (da != null and db != null) exact: {
             const e = @min(da.?[1], db.?[1]);
-            const ma = std.math.mul(i128, da.?[0], std.math.powi(i128, 10, @as(i128, da.?[1] - e)) catch break :exact) catch break :exact;
-            const mb = std.math.mul(i128, db.?[0], std.math.powi(i128, 10, @as(i128, db.?[1] - e)) catch break :exact) catch break :exact;
-            var m = (if (op == .add) std.math.add(i128, ma, mb) else std.math.sub(i128, ma, mb)) catch break :exact;
+            const ma = std.math.mul(
+                i128,
+                da.?[0],
+                std.math.powi(i128, 10, @as(i128, da.?[1] - e)) catch break :exact,
+            ) catch break :exact;
+            const mb = std.math.mul(
+                i128,
+                db.?[0],
+                std.math.powi(i128, 10, @as(i128, db.?[1] - e)) catch break :exact,
+            ) catch break :exact;
+            var m = (if (op == .add)
+                std.math.add(i128, ma, mb)
+            else
+                std.math.sub(i128, ma, mb)) catch break :exact;
             var ex = e;
             // Fewest digits, at an exponent a scale suffix can spell (900n, 1u).
             while (m != 0 and @rem(m, 10) == 0) : (ex += 1) m = @divExact(m, 10);
@@ -474,19 +539,28 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
 /// Half a value: exact for a decimal number, else an expression.
 pub fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value {
     if (v == .num) if (decimal(v.num)) |x| {
-        const m = std.math.mul(i128, x[0], 5) catch return .{ .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}) };
+        const m = std.math.mul(i128, x[0], 5) catch return .{
+            .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}),
+        };
         return .{ .num = .init(try std.fmt.allocPrint(arena, "{d}", .{m}), x[1] - 1) };
     };
     return .{ .expr = try std.fmt.allocPrint(arena, "({s})/2", .{try canonText(arena, v)}) };
 }
 
-pub const Thresholds = struct { params: []const ir.Param, changed: bool = false, no_half: bool = false };
+pub const Thresholds =
+    struct { params: []const ir.Param, changed: bool = false, no_half: bool = false };
 
 /// Apply a grammar's `threshold` line for `family` to a model card's
 /// parameters. `forward` (writing) turns SPICE's midpoint and half-width into
 /// on and off levels; otherwise (reading) the levels go back. `no_half` says
 /// a midpoint came with no hysteresis, which gives equal levels.
-pub fn thresholds(arena: Allocator, g: *const Grammar, family: []const u8, params: []const ir.Param, forward: bool) Allocator.Error!Thresholds {
+pub fn thresholds(
+    arena: Allocator,
+    g: *const Grammar,
+    family: []const u8,
+    params: []const ir.Param,
+    forward: bool,
+) Allocator.Error!Thresholds {
     const th = for (g.thresholds) |*t| {
         if (std.mem.eql(u8, t.family, family)) break t;
     } else return .{ .params = params };
@@ -529,7 +603,12 @@ pub fn thresholds(arena: Allocator, g: *const Grammar, family: []const u8, param
 /// values into the dialect's (writing), otherwise the dialect's into
 /// canonical ones (reading, in reverse order). Values are copied before
 /// they change; bodies are walked too.
-pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: bool) Allocator.Error!void {
+pub fn convert(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []ir.Stmt,
+    forward: bool,
+) Allocator.Error!void {
     if (g.converts.len == 0) return;
     for (stmts) |*st| if (st.body.len > 0) {
         st.body = try arena.dupe(ir.Stmt, st.body);
@@ -541,7 +620,12 @@ pub fn convert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: b
 /// `convert` on these statements, not on what their bodies hold: for a pass
 /// that visits every body itself (the reader's), where `convert` at each
 /// level would copy everything below it again.
-pub fn convertFlat(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forward: bool) Allocator.Error!void {
+pub fn convertFlat(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []ir.Stmt,
+    forward: bool,
+) Allocator.Error!void {
     if (g.converts.len == 0) return;
     for (stmts) |*st| {
         var copied = false;
@@ -583,8 +667,14 @@ pub fn convertFlat(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt, forwar
                 .recip => try arith(arena, .recip, v, .none),
                 .wrap => unreachable,
                 // A missing operand counts as zero: nothing to do.
-                .sub, .add => if (arg == .none) continue else try arith(arena, if ((cv.op == .sub) == forward) .sub else .add, v, arg),
-                .mul, .div => if (arg == .none) continue else try arith(arena, if ((cv.op == .mul) == forward) .mul else .div, v, arg),
+                .sub, .add => if (arg == .none)
+                    continue
+                else
+                    try arith(arena, if ((cv.op == .sub) == forward) .sub else .add, v, arg),
+                .mul, .div => if (arg == .none)
+                    continue
+                else
+                    try arith(arena, if ((cv.op == .mul) == forward) .mul else .div, v, arg),
             };
             if (!copied) {
                 try st.own(arena);
@@ -607,7 +697,8 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "mod")) return nested(text, '%');
     if (std.mem.eql(u8, name, "negpow")) return negPow(text);
     if (std.mem.eql(u8, name, "minuspow")) return minusPow(text);
-    if (std.mem.eql(u8, name, "andor")) return std.mem.indexOf(u8, text, "&&") != null or std.mem.indexOf(u8, text, "||") != null;
+    if (std.mem.eql(u8, name, "andor"))
+        return std.mem.indexOf(u8, text, "&&") != null or std.mem.indexOf(u8, text, "||") != null;
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;
@@ -668,7 +759,11 @@ fn topLevelAny(text: []const u8, from: usize) ?usize {
 /// `c ? a : b` as `if(c, a, b)`, in every group and argument.
 pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
     if (topLevel(text, 0, ',')) |comma| {
-        return std.fmt.allocPrint(arena, "{s},{s}", .{ try ternaryToIf(arena, text[0..comma]), try ternaryToIf(arena, text[comma + 1 ..]) });
+        return std.fmt.allocPrint(
+            arena,
+            "{s},{s}",
+            .{ try ternaryToIf(arena, text[0..comma]), try ternaryToIf(arena, text[comma + 1 ..]) },
+        );
     }
     if (topLevel(text, 0, '?')) |q| if (colonOf(text, q)) |colon| {
         const t = " \t";
@@ -704,7 +799,12 @@ pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u
 /// word is a parameter: not the name of a call, and not a node or a branch
 /// inside a probe (`v()`, `i()`, `vdb()`, `id()`: `argSpace`). `hit` gets each word renamed. The same slice when
 /// there is none.
-pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.ArrayList([]const u8)) Allocator.Error![]const u8 {
+pub fn rename(
+    arena: Allocator,
+    text: []const u8,
+    renames: anytype,
+    hit: *std.ArrayList([]const u8),
+) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var copied: usize = 0;
     var i: usize = 0;
@@ -729,7 +829,9 @@ pub fn rename(arena: Allocator, text: []const u8, renames: anytype, hit: *std.Ar
             copied = j;
             continue;
         }
-        if (!(std.ascii.isAlphabetic(c) or c == '_' or c == '$') or (i > 0 and isWordChar(text[i - 1]))) {
+        if (!(std.ascii.isAlphabetic(c) or c == '_' or c == '$') or (i > 0 and
+            isWordChar(text[i - 1])))
+        {
             i += 1;
             continue;
         }
@@ -772,7 +874,12 @@ fn atomic(text: []const u8) bool {
 
 /// Every call of `m.canon` in `text` as `m.body`, each argument put in
 /// parentheses where the body names it; `n` counts the calls rewritten.
-pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) Allocator.Error![]const u8 {
+pub fn applyMeans(
+    arena: Allocator,
+    text: []const u8,
+    m: anytype,
+    n: *usize,
+) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < text.len) {
@@ -783,7 +890,8 @@ pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) All
             i = end;
             continue;
         }
-        const starts = (std.ascii.isAlphabetic(c) or c == '_') and (i == 0 or !isWordChar(text[i - 1]));
+        const starts = (std.ascii.isAlphabetic(c) or c == '_') and
+            (i == 0 or !isWordChar(text[i - 1]));
         if (!starts) {
             try out.append(arena, c);
             i += 1;
@@ -807,7 +915,10 @@ pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) All
         while (true) {
             const comma = topLevel(text[0..close], from, ',');
             const end = comma orelse close;
-            try args.append(arena, try applyMeans(arena, std.mem.trim(u8, text[from..end], " \t"), m, n));
+            try args.append(
+                arena,
+                try applyMeans(arena, std.mem.trim(u8, text[from..end], " \t"), m, n),
+            );
             if (comma == null) break;
             from = end + 1;
         }
@@ -823,7 +934,9 @@ pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) All
         const body = m.body;
         while (k < body.len) {
             const bc = body[k];
-            if ((std.ascii.isAlphabetic(bc) or bc == '_') and (k == 0 or !isWordChar(body[k - 1]))) {
+            if ((std.ascii.isAlphabetic(bc) or bc == '_') and
+                (k == 0 or !isWordChar(body[k - 1])))
+            {
                 const e = wordEnd(body, k);
                 const w = body[k..e];
                 const at = for (m.args, 0..) |p, pi| {
@@ -835,7 +948,10 @@ pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) All
                     const before = std.mem.trimEnd(u8, body[0..k], " \t");
                     const after = std.mem.trimStart(u8, body[e..], " \t");
                     const whole = before.len > 0 and (before[before.len - 1] == '(' or before[before.len - 1] == ',') and after.len > 0 and (after[0] == ')' or after[0] == ',');
-                    if (whole or atomic(arg)) try out.appendSlice(arena, arg) else try out.print(arena, "({s})", .{arg});
+                    if (whole or atomic(arg))
+                        try out.appendSlice(arena, arg)
+                    else
+                        try out.print(arena, "({s})", .{arg});
                 } else try out.appendSlice(arena, w);
                 k = e;
                 continue;
@@ -862,7 +978,11 @@ pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u
             i = end;
             continue;
         }
-        const word = std.mem.startsWith(u8, text[i..], "if") and (i == 0 or !isWordChar(text[i - 1])) and
+        const word = std.mem.startsWith(
+            u8,
+            text[i..],
+            "if",
+        ) and (i == 0 or !isWordChar(text[i - 1])) and
             (i + 2 == text.len or !isWordChar(text[i + 2])) and nextIsCall(text, i + 2);
         if (!word) {
             try out.append(arena, c);
@@ -936,7 +1056,8 @@ fn minusPow(text: []const u8) bool {
         var i = at + 1;
         while (i < text.len and text[i] == ' ') i += 1;
         while (i < text.len and (isWordChar(text[i]) or text[i] == '.')) i += 1;
-        if (i < text.len and text[i] == '(') i = (topLevel(text, i + 1, ')') orelse return false) + 1;
+        if (i < text.len and text[i] == '(')
+            i = (topLevel(text, i + 1, ')') orelse return false) + 1;
         while (i < text.len and text[i] == ' ') i += 1;
         if (std.mem.startsWith(u8, text[i..], canon_pow)) return true;
     }
@@ -961,7 +1082,14 @@ const Eval = struct {
 
     /// Loosest first; of two spellings that start alike, the longer first.
     const levels = [_][]const []const u8{
-        &.{"||"}, &.{"&&"}, &.{ "==", canon_ne }, &.{ "<=", ">=", "<", ">" }, &.{ "+", "-" }, &.{ "*", "/" },
+        &.{"||"},       &.{"&&"},       &.{ "==", canon_ne },
+        &.{
+            "<=",
+            ">=",
+            "<",
+            ">",
+        },
+        &.{ "+", "-" }, &.{ "*", "/" },
     };
 
     fn fail(e: *Eval, what: []const u8) ?f64 {
@@ -1019,13 +1147,17 @@ const Eval = struct {
         }
         e.at = wordEnd(e.text, from);
         const word = e.text[from..e.at];
-        if (word.len == 0 or nextIsCall(e.text, e.at)) return e.fail(if (word.len == 0) e.text[from .. from + 1] else word);
+        if (word.len == 0 or nextIsCall(e.text, e.at))
+            return e.fail(if (word.len == 0) e.text[from .. from + 1] else word);
         for (e.params) |p| {
             if (!std.ascii.eqlIgnoreCase(p.key, word)) continue;
             return switch (p.val) {
                 .num => |n| n.toFloat(),
                 // Bounded, so a parameter that is its own value ends.
-                .expr, .atom => |t| if (e.depth < 16) eval(t, e.params, e.stop, e.depth + 1) orelse e.fail(word) else e.fail(word),
+                .expr, .atom => |t| if (e.depth < 16)
+                    eval(t, e.params, e.stop, e.depth + 1) orelse e.fail(word)
+                else
+                    e.fail(word),
                 else => e.fail(word),
             };
         }
@@ -1061,8 +1193,17 @@ test "a condition over known parameters" {
     try testing.expectEqual(-5, eval("-(1+2*3) + 4/2", ps, &stop, 0));
     try testing.expectEqual(1, eval("1e-3 != .001 || 2 <= 2", ps, &stop, 0));
     inline for (.{
-        .{ "floor(xd) == 0", "floor" }, .{ "xd > vdd", "vdd" },   .{ "ic>1e9", "ic" },   .{ "xd ? 1 : 2", "?" },
-        .{ "xd**2 > 1", "*" },          .{ "loop == 1", "loop" }, .{ "1/(xd-xd)", "/" }, .{ "(xd", ")" },
+        .{
+            "floor(xd) == 0",
+            "floor",
+        },
+        .{ "xd > vdd", "vdd" },
+        .{ "ic>1e9", "ic" },
+        .{ "xd ? 1 : 2", "?" },
+        .{ "xd**2 > 1", "*" },
+        .{ "loop == 1", "loop" },
+        .{ "1/(xd-xd)", "/" },
+        .{ "(xd", ")" },
         .{ "xd >", "its end" },
     }) |c| {
         stop = "";
@@ -1115,7 +1256,10 @@ test "expressions between two small tables" {
 
     const canon = try read(a, &spice, "2M * LOG(x)^2 + Temper", .{}, &problems);
     try testing.expectEqualStrings("2e-3 * ln(x)**2 + temper", canon);
-    try testing.expectEqualStrings("2m * log(x)**2 + temp", try write(a, &spectre, canon, null, true, &problems));
+    try testing.expectEqualStrings(
+        "2m * log(x)**2 + temp",
+        try write(a, &spectre, canon, null, true, &problems),
+    );
     try testing.expectEqual(0, problems.items.len);
 
     // `^` is exclusive-or in the second dialect, and the first has none.
@@ -1136,17 +1280,43 @@ test "a choice is written in the form the target has" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     try testing.expectEqualStrings("if(x > 1, 3, 4)", try ternaryToIf(a, "x > 1 ? 3 : 4"));
-    try testing.expectEqualStrings("if(0, 1, if(1, 5, 6))", try ternaryToIf(a, "0 ? 1 : 1 ? 5 : 6"));
-    try testing.expectEqualStrings("2 + (if(x > 1, 3, 4))", try ternaryToIf(a, "2 + (x > 1 ? 3 : 4)"));
+    try testing.expectEqualStrings(
+        "if(0, 1, if(1, 5, 6))",
+        try ternaryToIf(a, "0 ? 1 : 1 ? 5 : 6"),
+    );
+    try testing.expectEqualStrings(
+        "2 + (if(x > 1, 3, 4))",
+        try ternaryToIf(a, "2 + (x > 1 ? 3 : 4)"),
+    );
     try testing.expectEqualStrings("max(if(a, b, c),d)", try ternaryToIf(a, "max(a ? b : c,d)"));
     try testing.expectEqualStrings("(x > 1 ? 3 : 4)", try ifToTernary(a, "if(x > 1, 3, 4)"));
-    try testing.expectEqualStrings("2*(a ? (b ? 1 : 2) : 3)", try ifToTernary(a, "2*if(a, if(b,1,2), 3)"));
+    try testing.expectEqualStrings(
+        "2*(a ? (b ? 1 : 2) : 3)",
+        try ifToTernary(a, "2*if(a, if(b,1,2), 3)"),
+    );
     try testing.expectEqualStrings("diff(x)", try ifToTernary(a, "diff(x)"));
     try testing.expect(uses("1+-2**2", "negpow") and uses("2*-x**2", "negpow"));
-    try testing.expect(!uses("-2**2", "negpow") and !uses("2**-1", "negpow") and !uses("max(-2**2,0)", "negpow") and !uses("1-2", "negpow"));
-    try testing.expect(uses("-2**2", "minuspow") and uses("max(-x**2,0)", "minuspow") and uses("1+-f(x, 2)**2", "minuspow") and uses("- (a+b) ** 2", "minuspow"));
-    try testing.expect(!uses("2**-1", "minuspow") and !uses("-a*b**2", "minuspow") and !uses("a-b**2", "minuspow") and !uses("-(a**2)", "minuspow"));
-    try testing.expect(uses("a>1 && b>1", "andor") and uses("a||b", "andor") and !uses("a & b | c", "andor"));
+    try testing.expect(
+        !uses("-2**2", "negpow") and !uses("2**-1", "negpow") and !uses(
+            "max(-2**2,0)",
+            "negpow",
+        ) and !uses("1-2", "negpow"),
+    );
+    try testing.expect(
+        uses("-2**2", "minuspow") and uses("max(-x**2,0)", "minuspow") and uses(
+            "1+-f(x, 2)**2",
+            "minuspow",
+        ) and uses("- (a+b) ** 2", "minuspow"),
+    );
+    try testing.expect(
+        !uses("2**-1", "minuspow") and !uses(
+            "-a*b**2",
+            "minuspow",
+        ) and !uses("a-b**2", "minuspow") and !uses("-(a**2)", "minuspow"),
+    );
+    try testing.expect(
+        uses("a>1 && b>1", "andor") and uses("a||b", "andor") and !uses("a & b | c", "andor"),
+    );
 }
 
 test "convert arithmetic is exact where it can be" {
@@ -1159,6 +1329,12 @@ test "convert arithmetic is exact where it can be" {
     const r = try arith(a, .recip, .{ .num = .init("1", 6) }, .none);
     try testing.expectEqual(-6, r.num.exp10);
     // 1/3 is not a decimal: it stays an expression.
-    try testing.expectEqualStrings("1/(3)", (try arith(a, .recip, .{ .num = .init("3", 0) }, .none)).expr);
-    try testing.expectEqualStrings("w - (1e-9)", (try arith(a, .sub, .{ .expr = "w" }, .{ .num = .init("1", -9) })).expr);
+    try testing.expectEqualStrings(
+        "1/(3)",
+        (try arith(a, .recip, .{ .num = .init("3", 0) }, .none)).expr,
+    );
+    try testing.expectEqualStrings(
+        "w - (1e-9)",
+        (try arith(a, .sub, .{ .expr = "w" }, .{ .num = .init("1", -9) })).expr,
+    );
 }

@@ -26,7 +26,12 @@ const Stmt = ir.Stmt;
 const Value = ir.Value;
 const Param = ir.Param;
 
-pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+pub fn prepare(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []const Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const Stmt {
     for (stmts) |s| {
         if (s.kind == .alter) break;
     } else return stmts;
@@ -34,7 +39,8 @@ pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report:
     var alters: std.ArrayList(Stmt) = .empty;
     for (stmts) |s| try (if (s.kind == .alter) &alters else &rest).append(arena, s);
     if (!g.canWrite(.alter)) {
-        if (g.canWrite(.step) and g.canWrite(.data)) return dataStep(arena, g, rest.items, alters.items, report);
+        if (g.canWrite(.step) and g.canWrite(.data))
+            return dataStep(arena, g, rest.items, alters.items, report);
         // The writer reports each as unsupported; its edits are not the netlist's.
         for (alters.items) |*a| a.body = &.{};
         try rest.appendSlice(arena, alters.items);
@@ -43,7 +49,8 @@ pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report:
     if (writesSlot(g, "keys")) {
         var flat: std.ArrayList(Stmt) = .empty;
         // A dialect that reruns nothing by itself runs the netlist first.
-        if (!g.isRerun(.alter)) try flat.append(arena, .{ .kind = .alter, .line = alters.items[0].line });
+        if (!g.isRerun(.alter))
+            try flat.append(arena, .{ .kind = .alter, .line = alters.items[0].line });
         var temp: Value = .none;
         for (alters.items) |*a| {
             const f = try flatten(arena, g, a, &temp, report) orelse continue;
@@ -105,7 +112,8 @@ fn mentions(nodes: []const grammar.Node, slot: u8) bool {
 
 fn writesSlot(g: *const Grammar, name: []const u8) bool {
     const slot = schema.slotIndex(.alter, name).?;
-    for (g.rules) |*r| if (r.kind == .alter and r.dir != .read and mentions(r.pat, slot)) return true;
+    for (g.rules) |*r|
+        if (r.kind == .alter and r.dir != .read and mentions(r.pat, slot)) return true;
     return false;
 }
 
@@ -127,7 +135,8 @@ fn edits(arena: Allocator, a: *const Stmt) Allocator.Error!Edits {
         .param => if (s.get("params") == .params) try ps.appendSlice(arena, s.get("params").params),
         .options => {
             for (schema.info(.options).slots, 0..) |sl, i| {
-                if (i != ti and s.at(i) != .none and !std.mem.eql(u8, sl.name, "package")) return .{ .params = ps.items, .temp = temp, .other = s };
+                if (i != ti and s.at(i) != .none and !std.mem.eql(u8, sl.name, "package"))
+                    return .{ .params = ps.items, .temp = temp, .other = s };
             }
             if (s.at(ti) != .none) temp = s.at(ti);
         },
@@ -136,15 +145,29 @@ fn edits(arena: Allocator, a: *const Stmt) Allocator.Error!Edits {
     return .{ .params = ps.items, .temp = temp, .other = null };
 }
 
-fn refuse(arena: Allocator, g: *const Grammar, a: *const Stmt, other: *const Stmt, how: []const u8, report: *ir.Report) Allocator.Error!void {
-    report.add(.@"error", .unsupported, other.line, "alter{s} cannot be written for {s}: {s} changes only parameters and the temperature, not a {s}", .{
+fn refuse(
+    arena: Allocator,
+    g: *const Grammar,
+    a: *const Stmt,
+    other: *const Stmt,
+    how: []const u8,
+    report: *ir.Report,
+) Allocator.Error!void {
+    report.add(.@"error", .unsupported, other.line, "alter{s} cannot be written for {s}: {s} " ++
+        "changes only parameters and the temperature, not a {s}", .{
         try label(arena, a), g.name, how, @tagName(other.kind),
     });
 }
 
 /// The alter as `keys`/`vals` and the temperature. The temperature is the
 /// latest set by any alter so far: ngspice's `reset` forgets it.
-fn flatten(arena: Allocator, g: *const Grammar, a: *const Stmt, temp: *Value, report: *ir.Report) Allocator.Error!?Stmt {
+fn flatten(
+    arena: Allocator,
+    g: *const Grammar,
+    a: *const Stmt,
+    temp: *Value,
+    report: *ir.Report,
+) Allocator.Error!?Stmt {
     const e = try edits(arena, a);
     if (e.other) |o| {
         try refuse(arena, g, a, o, "the form this grammar writes", report);
@@ -169,28 +192,67 @@ fn flatten(arena: Allocator, g: *const Grammar, a: *const Stmt, temp: *Value, re
 
 /// An alter block changes instances; it cannot add one (Spectre refuses
 /// it), nor an analysis.
-fn checkNew(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []const Stmt, report: *ir.Report) Allocator.Error!void {
+fn checkNew(
+    arena: Allocator,
+    g: *const Grammar,
+    rest: []const Stmt,
+    alters: []const Stmt,
+    report: *ir.Report,
+) Allocator.Error!void {
     for (alters) |*a| for (a.body) |*s| {
-        if (isAnalysis(s)) report.add(.@"error", .unsupported, s.line, "alter{s}: {s} reruns the netlist's analyses after an alter; one the alter adds has no {s} form", .{ try label(arena, a), g.name, g.name });
+        if (isAnalysis(s))
+            report.add(
+                .@"error",
+                .unsupported,
+                s.line,
+                "alter{s}: {s} reruns the netlist's analyses after an alter; one the alter " ++
+                    "adds has no {s} form",
+                .{ try label(arena, a), g.name, g.name },
+            );
         if (schema.info(s.kind).class != .device or s.get("name") != .atom) continue;
         const name = s.get("name").atom;
         const known = for (rest) |*r| {
-            if (schema.info(r.kind).class == .device and r.get("name") == .atom and std.ascii.eqlIgnoreCase(r.get("name").atom, name)) break true;
+            if (schema.info(r.kind).class == .device and r.get("name") == .atom and
+                std.ascii.eqlIgnoreCase(
+                    r.get("name").atom,
+                    name,
+                )) break true;
         } else false;
-        if (!known) report.add(.@"error", .unsupported, s.line, "alter{s}: {s} '{s}' is not in the netlist, and a {s} alter can only change an instance it has", .{ try label(arena, a), @tagName(s.kind), name, g.name });
+        if (!known)
+            report.add(
+                .@"error",
+                .unsupported,
+                s.line,
+                "alter{s}: {s} '{s}' is not in the netlist, and a {s} alter can only change " ++
+                    "an instance it has",
+                .{ try label(arena, a), @tagName(s.kind), name, g.name },
+            );
     };
 }
 
 /// Xyce: a `.data` table with one row for the netlist and one per alter,
 /// each with every change so far, and a `.step` over it around the analyses.
-fn dataStep(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []const Stmt, report: *ir.Report) Allocator.Error![]const Stmt {
+fn dataStep(
+    arena: Allocator,
+    g: *const Grammar,
+    rest: []const Stmt,
+    alters: []const Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const Stmt {
     var cols: std.ArrayList([]const u8) = .empty;
     var runs: std.ArrayList(Edits) = .empty;
     var with_temp = false;
     for (alters) |*a| {
         const e = try edits(arena, a);
         if (e.other) |o| {
-            try refuse(arena, g, a, o, "the .step over a .data table an alter is written as there", report);
+            try refuse(
+                arena,
+                g,
+                a,
+                o,
+                "the .step over a .data table an alter is written as there",
+                report,
+            );
             continue;
         }
         try runs.append(arena, e);
@@ -203,17 +265,37 @@ fn dataStep(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []c
     }
     if (runs.items.len == 0) return rest;
     if (cols.items.len == 0 and !with_temp) {
-        report.add(.@"error", .unsupported, alters[0].line, "alter: the alters change nothing, and {s} writes alters as the rows of a .data table", .{g.name});
+        report.add(
+            .@"error",
+            .unsupported,
+            alters[0].line,
+            "alter: the alters change nothing, and {s} writes alters as the rows of a .data table",
+            .{g.name},
+        );
         return rest;
     }
     var row: std.ArrayList(Value) = .empty;
     for (cols.items) |c| try row.append(arena, baseValue(rest, c) orelse {
-        report.add(.@"error", .unsupported, alters[0].line, "alter: '{s}' is not a parameter of the netlist, so a {s} .data column cannot change it", .{ c, g.name });
+        report.add(
+            .@"error",
+            .unsupported,
+            alters[0].line,
+            "alter: '{s}' is not a parameter of the netlist, so a {s} .data column cannot " ++
+                "change it",
+            .{ c, g.name },
+        );
         return rest;
     });
     if (with_temp) {
         const t = baseTemp(rest) orelse blk: {
-            report.add(.warning, .caveat, alters[0].line, "alter: the netlist sets no temperature; its run is written at 27 degrees, {s}'s default", .{g.name});
+            report.add(
+                .warning,
+                .caveat,
+                alters[0].line,
+                "alter: the netlist sets no temperature; its run is written at 27 degrees, " ++
+                    "{s}'s default",
+                .{g.name},
+            );
             break :blk Value{ .num = .init("27", 0) };
         };
         try row.append(arena, t);
@@ -230,7 +312,13 @@ fn dataStep(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []c
         try values.appendSlice(arena, row.items);
     }
     for (values.items) |v| if (v != .num) {
-        report.add(.@"error", .unsupported, alters[0].line, "alter: {s} .data rows hold numbers, and a value here is an expression", .{g.name});
+        report.add(
+            .@"error",
+            .unsupported,
+            alters[0].line,
+            "alter: {s} .data rows hold numbers, and a value here is an expression",
+            .{g.name},
+        );
         return rest;
     };
     const table = "alters";
@@ -254,7 +342,14 @@ fn dataStep(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []c
     }
     step.body = body.items;
     try out.insertSlice(arena, at orelse out.items.len, &.{ data, step });
-    report.add(.info, .oneway, alters[0].line, "alter: {s} has no alter; the runs are a .step over the .data table '{s}', one row each, which reads back as a step", .{ g.name, table });
+    report.add(
+        .info,
+        .oneway,
+        alters[0].line,
+        "alter: {s} has no alter; the runs are a .step over the .data table '{s}', one row " ++
+            "each, which reads back as a step",
+        .{ g.name, table },
+    );
     return out.items;
 }
 

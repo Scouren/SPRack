@@ -50,14 +50,28 @@ pub const Options = struct {
 
 pub const Hook = struct {
     ctx: *anyopaque,
-    run: *const fn (ctx: *anyopaque, arena: Allocator, stmts: []Stmt, report: *ir.Report) Allocator.Error!void,
+    run: *const fn (
+        ctx: *anyopaque,
+        arena: Allocator,
+        stmts: []Stmt,
+        report: *ir.Report,
+    ) Allocator.Error!void,
 };
 
 pub const Error = Allocator.Error || std.Io.Writer.Error;
 
 /// Read `src` as `gf` and write it as `gt`, as `reader.read` then
 /// `writer.write` would. Null when it was streamed, else why it was not.
-pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: []const u8, out: *std.Io.Writer, report: *ir.Report, caps: ?*const writer.Caps, opts: Options) Error!?[]const u8 {
+pub fn translate(
+    arena: Allocator,
+    gf: *const Grammar,
+    gt: *const Grammar,
+    src: []const u8,
+    out: *std.Io.Writer,
+    report: *ir.Report,
+    caps: ?*const writer.Caps,
+    opts: Options,
+) Error!?[]const u8 {
     if (opts.whole or (gf.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)) {
         try whole(arena, gf, gt, src, out, report, caps, opts);
         return if (opts.whole) "asked to" else "a change of language";
@@ -65,7 +79,13 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     const keep: ir.Keep = .{ .perm = arena, .src = src };
     const start = report.items.items.len;
     var muted: ir.Report = .{ .arena = arena, .mute = true };
-    const s = try reader.Source.open(gf, arena, src, report, .{ .env = opts.env, .library = opts.library });
+    const s = try reader.Source.open(
+        gf,
+        arena,
+        src,
+        report,
+        .{ .env = opts.env, .library = opts.library },
+    );
     defer s.deinit();
     var scratch: std.heap.ArenaAllocator = .init(ir.big);
     defer scratch.deinit();
@@ -98,7 +118,13 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     }
 
     s.pruneSpelling();
-    const rescan: Rescan = .{ .s = s, .scratch = &scratch, .sv = &sv, .muted = &muted, .hook = opts.hook };
+    const rescan: Rescan = .{
+        .s = s,
+        .scratch = &scratch,
+        .sv = &sv,
+        .muted = &muted,
+        .hook = opts.hook,
+    };
     if (sv.wanted.count() > 0) try rescan.run(Survey.retain, &sv);
     s.r.report = report;
     s.rewind(scratch.allocator(), null);
@@ -127,9 +153,24 @@ pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: 
     return null;
 }
 
-fn whole(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: []const u8, out: *std.Io.Writer, report: *ir.Report, caps: ?*const writer.Caps, opts: Options) Error!void {
+fn whole(
+    arena: Allocator,
+    gf: *const Grammar,
+    gt: *const Grammar,
+    src: []const u8,
+    out: *std.Io.Writer,
+    report: *ir.Report,
+    caps: ?*const writer.Caps,
+    opts: Options,
+) Error!void {
     report.phase = 0;
-    const nl = try reader.read(gf, arena, src, report, .{ .env = opts.env, .library = opts.library });
+    const nl = try reader.read(
+        gf,
+        arena,
+        src,
+        report,
+        .{ .env = opts.env, .library = opts.library },
+    );
     if (opts.hook) |h| try h.run(h.ctx, arena, nl.stmts, report);
     try writer.write(gt, arena, out, &nl, report, caps, opts.env);
 }
@@ -157,7 +198,13 @@ const Rescan = struct {
             if (!try s.next(&list)) break;
             try s.finishGroup(&list, r.muted, r.sv.last);
             if (r.hook) |h| try h.run(h.ctx, r.scratch.allocator(), list.items, r.muted);
-            try reader.resolveGroup(s.r.g, r.scratch.allocator(), list.items, &r.sv.tables, r.muted);
+            try reader.resolveGroup(
+                s.r.g,
+                r.scratch.allocator(),
+                list.items,
+                &r.sv.tables,
+                r.muted,
+            );
             try f(ctx, list.items);
         }
     }
@@ -211,10 +258,25 @@ const Survey = struct {
     /// come (`need`), each until `retain` has kept it.
     wanted: Marks = .empty,
 
-    const Uses = std.HashMapUnmanaged([]const u8, ir.CaselessSet, ir.Caseless, std.hash_map.default_max_load_percentage);
-    const Marks = std.HashMapUnmanaged([]const u8, u8, ir.Caseless, std.hash_map.default_max_load_percentage);
+    const Uses = std.HashMapUnmanaged(
+        []const u8,
+        ir.CaselessSet,
+        ir.Caseless,
+        std.hash_map.default_max_load_percentage,
+    );
+    const Marks = std.HashMapUnmanaged(
+        []const u8,
+        u8,
+        ir.Caseless,
+        std.hash_map.default_max_load_percentage,
+    );
 
-    fn init(keep: ir.Keep, gf: *const Grammar, gt: *const Grammar, opts: Options) Allocator.Error!Survey {
+    fn init(
+        keep: ir.Keep,
+        gf: *const Grammar,
+        gt: *const Grammar,
+        opts: Options,
+    ) Allocator.Error!Survey {
         const arena = keep.perm;
         const from = try arena.alloc(bool, gt.moves.len);
         const to = try arena.alloc(bool, gt.moves.len);
@@ -240,7 +302,12 @@ const Survey = struct {
         if (sv.why == null) sv.why = why;
     }
 
-    fn add(sv: *Survey, s: *const reader.Source, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
+    fn add(
+        sv: *Survey,
+        s: *const reader.Source,
+        k: ir.Keep,
+        stmts: []const Stmt,
+    ) Allocator.Error!void {
         const gf = sv.gf;
         const gt = sv.gt;
         try sv.w.add(gt, gf, k, stmts);
@@ -249,22 +316,27 @@ const Survey = struct {
         for (stmts) |*st| {
             switch (st.kind) {
                 .alter => sv.reason("an alter"),
-                .montecarlo => if (st.body.len == 0) sv.reason("a Monte Carlo analysis of the whole netlist"),
+                .montecarlo => if (st.body.len == 0)
+                    sv.reason("a Monte Carlo analysis of the whole netlist"),
                 .pz => sv.reason("a pole-zero analysis"),
                 // `writer.foldMaxord`: where the target has no maximum order.
-                .options => if (st.get("maxord") != .none) sv.reason("a maximum order of integration"),
-                .model => if (gt.blockOf(.model) != null and st.get("name") == .atom and ir.binBase(st.get("name").atom) != null)
+                .options => if (st.get("maxord") != .none)
+                    sv.reason("a maximum order of integration"),
+                .model => if (gt.blockOf(.model) != null and st.get("name") == .atom and
+                    ir.binBase(st.get("name").atom) != null)
                     sv.reason("a binned model"),
                 else => {},
             }
             for (gf.moves) |mv| {
-                if (!mv.oneway and st.kind == mv.to and isBound(st.at(mv.to_slot))) sv.reason("a value read on one statement that belongs on another");
+                if (!mv.oneway and st.kind == mv.to and isBound(st.at(mv.to_slot)))
+                    sv.reason("a value read on one statement that belongs on another");
             }
             for (gf.merges) |mg| if (st.kind == mg.into) sv.reason("a statement read as two");
             sv.noteMoves(st);
         }
         // `cond.split`: an instance may come before the subcircuit it names.
-        if (!gt.canWrite(.cond_if) and conditional(stmts)) sv.reason("a conditional block in a subcircuit");
+        if (!gt.canWrite(.cond_if) and conditional(stmts))
+            sv.reason("a conditional block in a subcircuit");
         if (ir.hasSweep(stmts)) sv.sweep = true;
         if (stats.changes(gt, stmts)) sv.stats = true;
         try sv.masters(k, stmts);
@@ -279,7 +351,9 @@ const Survey = struct {
 
     /// The top-level option statements of `stmts`, as read.
     fn noteOptions(sv: *Survey, stmts: []const Stmt) Allocator.Error!void {
-        for (stmts) |*st| if (st.kind == .options) try sv.options.append(sv.keep.perm, try ir.cloneStmt(sv.keep, st));
+        for (stmts) |*st|
+            if (st.kind == .options)
+                try sv.options.append(sv.keep.perm, try ir.cloneStmt(sv.keep, st));
     }
 
     /// Several option statements under one heading are one
@@ -326,7 +400,8 @@ const Survey = struct {
         for (sv.gt.moves, 0..) |mv, i| {
             if (st.kind == mv.from and st.at(mv.from_slot) != .none) sv.move_from[i] = true;
             // An options statement is made where there is none (`moveToOptions`).
-            if (mv.to == .options or (st.kind == mv.to and st.at(mv.to_slot) == .none)) sv.move_to[i] = true;
+            if (mv.to == .options or (st.kind == mv.to and st.at(mv.to_slot) == .none))
+                sv.move_to[i] = true;
             if (st.kind == mv.to) sv.move_seen[i] = true;
         }
     }
@@ -334,7 +409,8 @@ const Survey = struct {
     fn masters(sv: *Survey, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             try sv.masters(k, s.body);
-            if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and s.get("name") == .atom)
+            if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and
+                s.get("name") == .atom)
                 try ir.putName(&sv.unlisted, k.perm, k.src, s.get("name").atom);
             if (schema.info(s.kind).class != .device) continue;
             const m = s.get("master");
@@ -354,14 +430,21 @@ const Survey = struct {
 
     fn defs(sv: *Survey, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
         for (stmts) |*s| {
-            if (s.kind == .subckt) if (topology.nodeName(s.get("name"))) |n| try ir.putName(&sv.group_defs, k.perm, k.src, n);
+            if (s.kind == .subckt)
+                if (topology.nodeName(s.get("name"))) |n|
+                    try ir.putName(&sv.group_defs, k.perm, k.src, n);
             try sv.defs(k, s.body);
         }
     }
 
     /// `owner`: what the subcircuit `stmts` are the body of instantiates,
     /// if it is the first of its name.
-    fn uses(sv: *Survey, k: ir.Keep, stmts: []const Stmt, owner: ?*ir.CaselessSet) Allocator.Error!void {
+    fn uses(
+        sv: *Survey,
+        k: ir.Keep,
+        stmts: []const Stmt,
+        owner: ?*ir.CaselessSet,
+    ) Allocator.Error!void {
         for (stmts) |*s| {
             if (s.kind == .subckt) {
                 const name = topology.nodeName(s.get("name"));
@@ -377,7 +460,8 @@ const Survey = struct {
                 continue;
             }
             if (s.kind == .instance) if (topology.nodeName(s.get("master"))) |m| {
-                if (!sv.defined.contains(m) and !sv.group_defs.contains(m)) try ir.putName(&sv.early, k.perm, k.src, m);
+                if (!sv.defined.contains(m) and !sv.group_defs.contains(m))
+                    try ir.putName(&sv.early, k.perm, k.src, m);
                 if (owner) |o| try ir.putName(o, k.perm, k.src, m);
             };
             try sv.uses(k, s.body, owner);
@@ -412,7 +496,8 @@ const Survey = struct {
     fn retain(sv: *Survey, stmts: []const Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             if (s.kind == .subckt) if (topology.nodeName(s.get("name"))) |n| {
-                if (sv.wanted.remove(n)) try sv.w.early.append(sv.keep.perm, try ir.cloneStmt(sv.keep, s));
+                if (sv.wanted.remove(n))
+                    try sv.w.early.append(sv.keep.perm, try ir.cloneStmt(sv.keep, s));
             };
             try sv.retain(s.body);
         }
@@ -425,7 +510,8 @@ const Survey = struct {
         if (sv.stats) sv.reason("a statistics block");
         // `ir.markUnlistedBuiltins`.
         var li = sv.lettered.keyIterator();
-        while (li.next()) |m| if (sv.unlisted.contains(m.*)) sv.reason("a model of an unlisted type");
+        while (li.next()) |m|
+            if (sv.unlisted.contains(m.*)) sv.reason("a model of an unlisted type");
         // `ir.resolveInstances` may retag statements: their kinds and the
         // names they carry are not the survey's.
         var retags = false;
@@ -440,11 +526,16 @@ const Survey = struct {
                 const want = t.models.get(kv.key_ptr.*) orelse continue;
                 var ki = kv.value_ptr.iterator();
                 while (ki.next()) |kind| {
-                    if (want != kind and want != .device and ir.sameSlots(kind, want)) retags = true;
+                    if (want != kind and want != .device and ir.sameSlots(kind, want))
+                        retags = true;
                 }
             }
         }
-        if (retags and gt.needs.len > 0) sv.reason("instances retagged by their model, where the target's boilerplate depends on kinds");
+        if (retags and gt.needs.len > 0)
+            sv.reason(
+                "instances retagged by their model, where the target's boilerplate depends on " ++
+                    "kinds",
+            );
         sv.w.check_case = !sv.canonical or retags or sv.gf.lex.case_sensitive;
         // The topology check summarizes a subcircuit when it comes: one
         // needed sooner is kept beforehand (`retain`). Which of two that
@@ -453,21 +544,29 @@ const Survey = struct {
             var ei = sv.early.keyIterator();
             while (ei.next()) |n| try sv.need(n.*);
             var wi = sv.wanted.keyIterator();
-            while (wi.next()) |n| if (sv.cyclic(n.*)) sv.reason("a subcircuit that holds itself, used before it is defined");
+            while (wi.next()) |n|
+                if (sv.cyclic(n.*))
+                    sv.reason("a subcircuit that holds itself, used before it is defined");
         }
         // `Writer.applyMoves`, with the options the target adds.
-        var opts: ir.Netlist = .{ .dialect = sv.gf.name, .library = sv.w.library, .stmts = sv.w.options };
+        var opts: ir.Netlist = .{
+            .dialect = sv.gf.name,
+            .library = sv.w.library,
+            .stmts = sv.w.options,
+        };
         if (try writer.defaultOptions(arena, gt, &opts)) |d| sv.noteMoves(&d);
         // A value for an analysis the netlist has not is said not written
         // (`Writer.applyMoves`), from the whole netlist too.
-        for (sv.move_from, sv.move_to, sv.move_seen, sv.gt.moves) |f, to, seen, mv| if (f and (to or (!seen and mv.from == .options and schema.info(mv.to).class == .analysis))) sv.reason("a value written on another statement");
+        for (sv.move_from, sv.move_to, sv.move_seen, sv.gt.moves) |f, to, seen, mv|
+            if (f and (to or (!seen and mv.from == .options and schema.info(mv.to).class == .analysis))) sv.reason("a value written on another statement");
         return sv.why != null;
     }
 };
 
 /// A subcircuit of `stmts` holds a conditional block.
 fn conditional(stmts: []const Stmt) bool {
-    for (stmts) |*s| if ((s.kind == .subckt and ir.holdsCond(s)) or conditional(s.body)) return true;
+    for (stmts) |*s|
+        if ((s.kind == .subckt and ir.holdsCond(s)) or conditional(s.body)) return true;
     return false;
 }
 

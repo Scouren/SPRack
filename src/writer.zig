@@ -55,7 +55,8 @@ pub const Caps = struct {
 
     pub fn family(c: *const Caps, fam: []const u8, pol: []const u8) []const u8 {
         for (c.families) |f| {
-            if (std.mem.eql(u8, f.family, fam) and std.mem.eql(u8, f.polarity, pol)) return f.dialects;
+            if (std.mem.eql(u8, f.family, fam) and std.mem.eql(u8, f.polarity, pol))
+                return f.dialects;
         }
         return "";
     }
@@ -207,7 +208,11 @@ const Emit = struct {
                     return if (needs_parens) std.mem.concat(e.arena, u8, &.{ "(", s, ")" }) else s;
                 }
                 if (cfg.expr_delims.len == 0) return s;
-                return std.mem.concat(e.arena, u8, &.{ cfg.expr_delims[0][0], s, cfg.expr_delims[0][1] });
+                return std.mem.concat(
+                    e.arena,
+                    u8,
+                    &.{ cfg.expr_delims[0][0], s, cfg.expr_delims[0][1] },
+                );
             },
             .str => |s| return std.mem.concat(e.arena, u8, &.{ "\"", s, "\"" }),
             .list, .params => {},
@@ -226,7 +231,8 @@ const Emit = struct {
                 e.checkNumber(p);
                 if (p.val == .none) {
                     w.writeAll(p.key) catch return error.OutOfMemory;
-                } else w.print("{s}={s}", .{ p.key, try e.valueText(p.val, false) }) catch return error.OutOfMemory;
+                } else w.print("{s}={s}", .{ p.key, try e.valueText(p.val, false) }) catch
+                    return error.OutOfMemory;
             },
         }
         return aw.written();
@@ -243,16 +249,19 @@ const Emit = struct {
             if (m.kind != null and m.kind.? != e.st.kind) continue;
             // A line for this kind wins over the general one.
             const specific = m.kind != null or for (sg.means) |o| {
-                if (o.kind != null and o.kind.? == e.st.kind and std.mem.eql(u8, o.canon, m.canon)) break false;
+                if (o.kind != null and o.kind.? == e.st.kind and std.mem.eql(u8, o.canon, m.canon))
+                    break false;
             } else true;
             if (!specific) continue;
             if (spellingsOf(e.g.functions, m.canon) != null or !expr.uses(canon, m.canon)) continue;
             var n: usize = 0;
             const out = try expr.applyMeans(e.arena, canon, m, &n);
             if (n == 0) continue;
-            if (!e.quiet) e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}; written as what {s} means by it, {s}; it reads back in that form", .{
-                canon_in, e.g.name, m.canon, sg.name, m.body,
-            });
+            if (!e.quiet)
+                e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}; " ++
+                    "written as what {s} means by it, {s}; it reads back in that form", .{
+                    canon_in, e.g.name, m.canon, sg.name, m.body,
+                });
             canon = out;
         }
         return canon;
@@ -267,17 +276,32 @@ const Emit = struct {
         e.semantics(canon_in, canon);
         if (!e.quiet) for (problems.items) |pb| {
             if (pb.kind == .form) {
-                e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}, so the choice is written {s}; it reads back in that form", .{
-                    canon, e.g.name, if (std.mem.eql(u8, pb.text, "if")) "?: operator" else "if() function", if (std.mem.eql(u8, pb.text, "if")) "if(c, a, b)" else "c ? a : b",
+                e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s} has no {s}, so " ++
+                    "the choice is written {s}; it reads back in that form", .{
+                    canon,                                                              e.g.name,
+                    if (std.mem.eql(u8, pb.text, "if"))
+                        "?: operator"
+                    else
+                        "if() function",
+                    if (std.mem.eql(u8, pb.text, "if")) "if(c, a, b)" else "c ? a : b",
                 });
                 continue;
             }
             if (pb.kind == .shadowed) {
-                e.report.add(.@"error", .invalid, e.st.line, "expression '{s}': the parameter '{s}' is a variable of {s} under that name, which takes the word for the variable; give the parameter another name", .{ canon, pb.text, e.g.name });
+                e.report.add(
+                    .@"error",
+                    .invalid,
+                    e.st.line,
+                    "expression '{s}': the parameter '{s}' is a variable of {s} under that " ++
+                        "name, which takes the word for the variable; give the parameter " ++
+                        "another name",
+                    .{ canon, pb.text, e.g.name },
+                );
                 continue;
             }
             const who = if (e.caps) |c| c.word(pb.text) else "";
-            e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has no spelling in {s}{s}{s}", .{
+            e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has " ++
+                "no spelling in {s}{s}{s}", .{
                 canon,                                                @tagName(pb.kind), pb.text, e.g.name,
                 if (who.len > 0) ". Dialects that have it: " else "", who,
             });
@@ -305,7 +329,13 @@ const Emit = struct {
             else => "",
         };
         if (e.foreign and !e.quiet and e.g.lex.strict_numbers and malformedNumber(raw)) {
-            e.report.add(.@"error", .invalid, e.st.line, "{s}={s} is not a number; {s} does not read it", .{ p.key, raw, e.g.name });
+            e.report.add(
+                .@"error",
+                .invalid,
+                e.st.line,
+                "{s}={s} is not a number; {s} does not read it",
+                .{ p.key, raw, e.g.name },
+            );
         }
     }
 
@@ -320,7 +350,13 @@ const Emit = struct {
             const g = og orelse continue;
             for (g.differs) |d| {
                 if (expr.uses(canon, d.canon) and expr.uses(written, d.canon)) {
-                    e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
+                    e.report.add(
+                        .warning,
+                        .caveat,
+                        e.st.line,
+                        "expression '{s}': {s} in {s}: {s}",
+                        .{ canon, d.canon, g.name, d.text },
+                    );
                 }
             }
         }
@@ -350,7 +386,9 @@ const Emit = struct {
                 }
                 // `%2`: that name, not the next one.
                 var at = k;
-                if (i + 1 < sf.template.len and sf.template[i + 1] >= '1' and sf.template[i + 1] <= '3') {
+                if (i + 1 < sf.template.len and sf.template[i + 1] >= '1' and
+                    sf.template[i + 1] <= '3')
+                {
                     at = sf.template[i + 1] - '1';
                     i += 1;
                 }
@@ -380,7 +418,14 @@ const Emit = struct {
                 };
                 // `bdf=gear`: a spelling that reads back as another value.
                 for (em.pairs) |pr| if (std.mem.eql(u8, pr.spelling, sp)) {
-                    if (!std.mem.eql(u8, pr.canon, v.atom) and !e.quiet) e.report.add(.info, .oneway, e.st.line, "{s}.{s} = {s} is written as {s}, which reads back as {s}", .{ @tagName(e.st.kind), sl.name, v.atom, sp, pr.canon });
+                    if (!std.mem.eql(u8, pr.canon, v.atom) and !e.quiet)
+                        e.report.add(
+                            .info,
+                            .oneway,
+                            e.st.line,
+                            "{s}.{s} = {s} is written as {s}, which reads back as {s}",
+                            .{ @tagName(e.st.kind), sl.name, v.atom, sp, pr.canon },
+                        );
                     break;
                 };
                 return if (quoted) try e.arena.print("\"{s}\"", .{sp}) else sp;
@@ -411,13 +456,24 @@ const Emit = struct {
                         try out.appendSlice(e.arena, try e.valueText(it, false));
                     } else {
                         var problems: std.ArrayList(expr.Problem) = .empty;
-                        const body = try expr.write(e.arena, e.g, it.expr, e.funcs, e.foreign, &problems);
+                        const body = try expr.write(
+                            e.arena,
+                            e.g,
+                            it.expr,
+                            e.funcs,
+                            e.foreign,
+                            &problems,
+                        );
                         if (problems.items.len > 0) {
                             e.why = try e.arena.print("the signal expression {s}", .{it.expr});
                             return null;
                         }
                         const pct = std.mem.indexOfScalar(u8, tmpl, '%').?;
-                        try out.print(e.arena, "{s}{s}{s}", .{ tmpl[0..pct], body, tmpl[pct + 1 ..] });
+                        try out.print(
+                            e.arena,
+                            "{s}{s}{s}",
+                            .{ tmpl[0..pct], body, tmpl[pct + 1 ..] },
+                        );
                     }
                 } else try out.appendSlice(e.arena, try e.valueText(it, false));
             }
@@ -433,7 +489,10 @@ const Emit = struct {
                 var out: std.ArrayList(u8) = .empty;
                 for (ps, 0..) |p, i| {
                     if (i > 0) try out.append(e.arena, ' ');
-                    if (p.val == .none) try out.appendSlice(e.arena, p.key) else try out.print(e.arena, "{s}={s}", .{ p.key, try e.describe(p.val) });
+                    if (p.val == .none)
+                        try out.appendSlice(e.arena, p.key)
+                    else
+                        try out.print(e.arena, "{s}={s}", .{ p.key, try e.describe(p.val) });
                 }
                 break :blk out.items;
             },
@@ -460,8 +519,12 @@ const Emit = struct {
             if (i + 1 < text.len and text[i + 1] == '+') {
                 // `$+values`: how many items the list slot holds.
                 var j = i + 2;
-                while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_')) j += 1;
-                const v = if (schema.slotIndex(e.st.kind, text[i + 2 .. j])) |si| e.st.at(si) else Value.none;
+                while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_'))
+                    j += 1;
+                const v = if (schema.slotIndex(e.st.kind, text[i + 2 .. j])) |si|
+                    e.st.at(si)
+                else
+                    Value.none;
                 try out.print(e.arena, "{d}", .{if (v == .list) v.list.len else 0});
                 i = j;
                 continue;
@@ -474,7 +537,10 @@ const Emit = struct {
                 const raw: []const u8 = switch (v) {
                     .none => "0",
                     .expr => |s| s,
-                    .num => |n| if (n.exp10 == 0) n.digits() else try e.arena.print("{s}e{d}", .{ n.digits(), n.exp10 }),
+                    .num => |n| if (n.exp10 == 0)
+                        n.digits()
+                    else
+                        try e.arena.print("{s}e{d}", .{ n.digits(), n.exp10 }),
                     else => try e.valueText(v, false),
                 };
                 try out.appendSlice(e.arena, raw);
@@ -487,7 +553,8 @@ const Emit = struct {
     fn anyBound(e: *const Emit, items: []const Node) bool {
         for (items) |n| {
             switch (n.tag) {
-                .cap, .rest, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot)) return true,
+                .cap, .rest, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot))
+                    return true,
                 .opt, .alt, .seq, .rep => if (e.anyBound(n.kids)) return true,
                 .bag => for (n.bag) |b| {
                     if (b.form != .fixed and e.bound(b.slot)) return true;
@@ -505,14 +572,20 @@ const Emit = struct {
         if (c == .num and c.num.toFloat() == @as(f64, @floatFromInt(have))) return true;
         // No count given (a dialect that never says it): one item, as `dim?1` writes.
         if (c == .none and have == 1) return true;
-        if (e.why.len == 0) e.why = try e.arena.print("{d} items where '{s}' says {s}", .{ have, e.slot(n.count).name, try e.describe(c) });
+        if (e.why.len == 0)
+            e.why = try e.arena.print(
+                "{d} items where '{s}' says {s}",
+                .{ have, e.slot(n.count).name, try e.describe(c) },
+            );
         return false;
     }
 
     fn passCount(e: *const Emit, items: []const Node, out: *usize) void {
         for (items) |n| {
             switch (n.tag) {
-                .cap, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot) and e.st.at(n.slot) == .list) {
+                .cap, .taglit => if (n.slot != grammar.wild_slot and e.bound(n.slot) and
+                    e.st.at(n.slot) == .list)
+                {
                     out.* = @max(out.*, e.st.at(n.slot).list.len);
                 },
                 else => e.passCount(n.kids, out),
@@ -565,9 +638,14 @@ const Emit = struct {
                 }
                 // On a value slot (`repeat:"endrepeat"=0`) the literal stands
                 // for a number, and a number equal to it is written so.
-                const num_ok = v == .num and if (lexer.parseNumber(e.arena, &e.g.lex, n.atom)) |want| want.toFloat() == v.num.toFloat() else false;
+                const num_ok = v == .num and if (lexer.parseNumber(
+                    e.arena,
+                    &e.g.lex,
+                    n.atom,
+                )) |want| want.toFloat() == v.num.toFloat() else false;
                 if (!num_ok and (v != .atom or !std.mem.eql(u8, v.atom, n.atom))) {
-                    if (v == .atom) e.why = try e.arena.print("{s} = {s}", .{ e.slot(n.slot).name, v.atom });
+                    if (v == .atom)
+                        e.why = try e.arena.print("{s} = {s}", .{ e.slot(n.slot).name, v.atom });
                     return false;
                 }
                 try e.tok(n.text);
@@ -581,44 +659,75 @@ const Emit = struct {
                 if (!e.given(n.slot)) {
                     if (n.star) return true;
                     if (n.default.len == 0) {
-                        if (e.why.len == 0) e.why = try e.arena.print("a statement without '{s}'", .{e.slot(n.slot).name});
+                        if (e.why.len == 0)
+                            e.why = try e.arena.print(
+                                "a statement without '{s}'",
+                                .{e.slot(n.slot).name},
+                            );
                         return false;
                     }
                     var text = try e.expandDefault(n.default);
-                    if (e.slot(n.slot).ty == .value and lexer.parseNumber(e.arena, &e.g.lex, text) == null) {
+                    if (e.slot(n.slot).ty == .value and lexer.parseNumber(
+                        e.arena,
+                        &e.g.lex,
+                        text,
+                    ) == null) {
                         text = try e.valueText(.{ .expr = text }, false);
                     }
                     try e.tok(text);
                     // A node made up for the instance (`tj?dt$name`) is news too.
-                    const made = e.slot(n.slot).ty == .node and std.mem.indexOfScalar(u8, n.default, '$') != null;
+                    const made = e.slot(n.slot).ty == .node and std.mem.indexOfScalar(
+                        u8,
+                        n.default,
+                        '$',
+                    ) != null;
                     if (!e.quiet and (e.slot(n.slot).ty == .value or made)) {
-                        e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' but the source gave none; wrote {s}", .{
+                        e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' " ++
+                            "but the source gave none; wrote {s}", .{
                             @tagName(e.st.kind), e.g.name, e.slot(n.slot).name, text,
                         });
                     }
                     return true;
                 }
-                if (n.count != grammar.no_slot and !try e.counted(n, if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1)) return false;
+                if (n.count != grammar.no_slot and !try e.counted(
+                    n,
+                    if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1,
+                )) return false;
                 if (n.one and (e.st.at(n.slot) != .list or e.st.at(n.slot).list.len != 1)) {
-                    if (e.why.len == 0) e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
+                    if (e.why.len == 0)
+                        e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
                     return false;
                 }
                 var text = (try e.slotText(n.slot, false)) orelse return false;
                 // `path!`: a path with no blank goes out without quotes.
                 const v = e.st.at(n.slot);
-                if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null) text = v.str;
+                if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null)
+                    text = v.str;
                 // A module's letter (Xyce `Y<module>`) is part of the form,
                 // not a new name.
                 if (n.prefix.len > 0 and !std.mem.eql(u8, e.slot(n.slot).name, "name")) {
-                    text = try e.arena.print("{c}{s}{s}", .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text });
+                    text = try e.arena.print(
+                        "{c}{s}{s}",
+                        .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
+                    );
                 } else if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
                     const upper = text.len > 0 and std.ascii.isUpper(text[0]);
                     const renamed = if (upper)
-                        try e.arena.print("{c}{s}{s}", .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text })
+                        try e.arena.print(
+                            "{c}{s}{s}",
+                            .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
+                        )
                     else
                         try e.arena.print("{s}{s}", .{ n.prefix, text });
                     e.renames += 1;
-                    if (!e.quiet) e.report.add(.info, .rename, e.st.line, "renamed '{s}' to '{s}': {s} tells devices apart by the first letter", .{ text, renamed, e.g.name });
+                    if (!e.quiet)
+                        e.report.add(
+                            .info,
+                            .rename,
+                            e.st.line,
+                            "renamed '{s}' to '{s}': {s} tells devices apart by the first letter",
+                            .{ text, renamed, e.g.name },
+                        );
                     text = renamed;
                 }
                 try e.tok(text);
@@ -677,7 +786,11 @@ const Emit = struct {
                             if (b.tag_slot != grammar.no_slot) {
                                 const tv = e.st.at(b.tag_slot);
                                 if (tv != .atom or !std.mem.eql(u8, tv.atom, b.tag_atom)) {
-                                    if (tv == .atom) e.why = try e.arena.print("{s} = {s}", .{ e.slot(b.tag_slot).name, tv.atom });
+                                    if (tv == .atom)
+                                        e.why = try e.arena.print(
+                                            "{s} = {s}",
+                                            .{ e.slot(b.tag_slot).name, tv.atom },
+                                        );
                                     return false;
                                 }
                                 e.mark(b.tag_slot);
@@ -695,11 +808,16 @@ const Emit = struct {
                                 e.checkNumber(p);
                                 // Without a vector syntax, a matrix is the numbers after its key.
                                 const vt = if (p.val == .list)
-                                    if (e.g.lex.bare_expr) try e.arena.print("[{s}]", .{try e.vectorText(p.val)}) else try e.vectorText(p.val)
+                                    if (e.g.lex.bare_expr)
+                                        try e.arena.print("[{s}]", .{try e.vectorText(p.val)})
+                                    else
+                                        try e.vectorText(p.val)
                                 else
                                     try e.valueText(p.val, false);
                                 if (b.form == .call) {
-                                    try e.tok(try e.arena.print("{s}({s})={s}", .{ b.key, p.key, vt }));
+                                    try e.tok(
+                                        try e.arena.print("{s}({s})={s}", .{ b.key, p.key, vt }),
+                                    );
                                 } else try e.tok(try e.arena.print("{s}={s}", .{ p.key, vt }));
                             }
                             e.mark(b.slot);
@@ -713,7 +831,8 @@ const Emit = struct {
                                 if (i > 0) try out.append(e.arena, ',');
                                 var nodes = std.mem.splitScalar(u8, p.key, ',');
                                 while (nodes.next()) |nd| try out.print(e.arena, "\"{s}\",", .{nd});
-                                for (try e.valueText(p.val, false)) |c| if (c != ' ') try out.append(e.arena, c);
+                                for (try e.valueText(p.val, false)) |c|
+                                    if (c != ' ') try out.append(e.arena, c);
                             }
                             try out.append(e.arena, '}');
                             try e.tok(out.items);
@@ -728,31 +847,55 @@ const Emit = struct {
                                 const second = (try e.slotText(b.slot2, true)) orelse continue;
                                 // No blank: the reader takes the vector as one word.
                                 const sep = std.mem.trim(u8, e.g.lex.vector_sep, " ");
-                                try e.tok(try e.arena.print("{s}=[{s}{s}{s}]", .{ b.key, first, if (sep.len > 0) sep else " ", second }));
+                                try e.tok(
+                                    try e.arena.print(
+                                        "{s}=[{s}{s}{s}]",
+                                        .{ b.key, first, if (sep.len > 0) sep else " ", second },
+                                    ),
+                                );
                             } else try e.tok(try e.arena.print("{s}={s}", .{ b.key, first }));
                             e.mark(b.slot);
                             if (e.present(b.slot2)) e.mark(b.slot2);
                         },
                         .plain, .quoted, .vector => {
                             if (b.required and !e.bound(b.slot)) {
-                                if (e.why.len == 0) e.why = try e.arena.print("a statement without '{s}'", .{e.slot(b.slot).name});
+                                if (e.why.len == 0)
+                                    e.why = try e.arena.print(
+                                        "a statement without '{s}'",
+                                        .{e.slot(b.slot).name},
+                                    );
                                 return false;
                             }
                             if (!e.bound(b.slot) and b.default.len > 0 and e.foreign) {
                                 // What the source's simulator assumes and this one does not.
                                 const raw = try e.expandDefault(b.default);
-                                const made: Value = if (lexer.parseNumber(e.arena, &e.g.lex, raw)) |num| .{ .num = num } else .{ .expr = raw };
+                                const made: Value = if (lexer.parseNumber(
+                                    e.arena,
+                                    &e.g.lex,
+                                    raw,
+                                )) |num| .{ .num = num } else .{ .expr = raw };
                                 // Not a ceiling that would be dropped had the source given it.
                                 if (idleCeiling(e.st, b.slot, made)) continue;
                                 const text = try e.valueText(made, false);
                                 try e.tok(try e.arena.print("{s}={s}", .{ b.key, text }));
-                                if (!e.quiet) e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' to behave as {s} does without it; wrote {s}", .{
-                                    @tagName(e.st.kind), e.g.name, e.slot(b.slot).name, e.source, text,
-                                });
+                                if (!e.quiet)
+                                    e.report.add(
+                                        .warning,
+                                        .synthesized,
+                                        e.st.line,
+                                        "{s}: {s} needs '{s}' to behave as {s} does without " ++
+                                            "it; wrote {s}",
+                                        .{
+                                            @tagName(e.st.kind), e.g.name, e.slot(b.slot).name, e.source, text,
+                                        },
+                                    );
                                 continue;
                             }
                             // An earlier line of this statement wrote the slot.
-                            const before = b.also and b.slot < 64 and e.hide & (@as(u64, 1) << @intCast(b.slot)) != 0;
+                            const before = b.also and b.slot < 64 and e.hide & (@as(
+                                u64,
+                                1,
+                            ) << @intCast(b.slot)) != 0;
                             if (b.also and e.foreign) {
                                 // Only after another key wrote it, for another dialect's statement.
                                 if (!before and !(e.bound(b.slot) and e.isUsed(b.slot))) continue;
@@ -769,21 +912,50 @@ const Emit = struct {
                             // Two slots this dialect spells with one key
                             // (`gmin=gmin gmin=gmindc`): one value is said; two are a loss.
                             const twin = for (n.bag[0..bi]) |o| {
-                                if (o.form == .plain and !o.also and o.slot != b.slot and e.isUsed(o.slot) and std.mem.eql(u8, o.key, b.key)) break o.slot;
+                                if (o.form == .plain and !o.also and o.slot != b.slot and
+                                    e.isUsed(o.slot) and std.mem.eql(
+                                    u8,
+                                    o.key,
+                                    b.key,
+                                )) break o.slot;
                             } else null;
                             if (twin) |t| {
-                                if (!e.val(t).eql(e.val(b.slot)) and !e.quiet) e.report.add(.@"error", .loss, e.st.line, "{s}: {s} = {s} and {s} = {s} are both '{s}' in {s}; the first is written", .{
-                                    @tagName(e.st.kind),           e.slot(t).name, try e.describe(e.val(t)), e.slot(b.slot).name,
-                                    try e.describe(e.val(b.slot)), b.key,          e.g.name,
-                                });
+                                if (!e.val(t).eql(e.val(b.slot)) and !e.quiet)
+                                    e.report.add(.@"error", .loss, e.st.line, "{s}: {s} = {s} " ++
+                                        "and {s} = {s} are both '{s}' in {s}; the first is " ++
+                                        "written", .{
+                                        @tagName(e.st.kind),           e.slot(t).name, try e.describe(e.val(t)), e.slot(b.slot).name,
+                                        try e.describe(e.val(b.slot)), b.key,          e.g.name,
+                                    });
                                 e.mark(b.slot);
                                 continue;
                             }
                             // `gmin=gmindc` after `gmin=gmin`: read back, the key fills the other slot.
-                            for (n.bag[0..bi]) |o| if (o.form == .plain and !o.also and o.slot != b.slot and std.mem.eql(u8, o.key, b.key)) {
-                                if (!e.quiet) e.report.add(.info, .oneway, e.st.line, "{s}.{s} is written as '{s}', which reads back as {s}.{s}", .{ @tagName(e.st.kind), e.slot(b.slot).name, b.key, @tagName(e.st.kind), e.slot(o.slot).name });
-                                break;
-                            };
+                            for (n.bag[0..bi]) |o|
+                                if (o.form == .plain and !o.also and o.slot != b.slot and
+                                    std.mem.eql(
+                                        u8,
+                                        o.key,
+                                        b.key,
+                                    ))
+                                {
+                                    if (!e.quiet)
+                                        e.report.add(
+                                            .info,
+                                            .oneway,
+                                            e.st.line,
+                                            "{s}.{s} is written as '{s}', which reads back as " ++
+                                                "{s}.{s}",
+                                            .{
+                                                @tagName(e.st.kind),
+                                                e.slot(b.slot).name,
+                                                b.key,
+                                                @tagName(e.st.kind),
+                                                e.slot(o.slot).name,
+                                            },
+                                        );
+                                    break;
+                                };
                             if (b.tag_slot != grammar.no_slot) {
                                 const tv = e.st.at(b.tag_slot);
                                 if (tv != .atom or !std.mem.eql(u8, tv.atom, b.tag_atom)) continue;
@@ -794,7 +966,10 @@ const Emit = struct {
                             const vt = if (b.form == .vector and e.val(b.slot) == .list)
                                 try e.vectorText(e.val(b.slot))
                             else if (b.suffix.len > 0)
-                                try e.arena.print("\"{s}{s}\"", .{ (try e.slotText(b.slot, false)) orelse continue, b.suffix })
+                                try e.arena.print(
+                                    "\"{s}{s}\"",
+                                    .{ (try e.slotText(b.slot, false)) orelse continue, b.suffix },
+                                )
                             else
                                 (try e.slotText(b.slot, b.form == .quoted)) orelse continue;
                             const text = if (b.form == .vector)
@@ -823,7 +998,8 @@ const Emit = struct {
     /// Why the source dialect's parameter changes no result (`inert`), if it does not.
     fn inert(e: *const Emit, key: []const u8) ?[]const u8 {
         const sg = e.sourceGrammar() orelse return null;
-        for (sg.inerts) |in| if (in.kind == e.st.kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
+        for (sg.inerts) |in|
+            if (in.kind == e.st.kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
         return null;
     }
 
@@ -836,28 +1012,42 @@ const Emit = struct {
     fn reportLosses(e: *Emit) Allocator.Error!void {
         // The target's caveats on writing it, the source's on reading it.
         const src: []const grammar.Caveat = if (e.sourceGrammar()) |sg| sg.caveats else &.{};
-        for ([_][]const grammar.Caveat{ e.g.caveats, src }, [_]bool{ false, true }) |cs, read| for (cs) |c| {
-            if (c.read == read and e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
-                if (c.suffix.len > 0) {
-                    const v = e.st.at(c.slot);
-                    const t: []const u8 = switch (v) {
-                        .str, .atom, .expr => |x| x,
-                        else => "",
-                    };
-                    if (!std.ascii.endsWithIgnoreCase(t, c.suffix)) continue;
+        for ([_][]const grammar.Caveat{ e.g.caveats, src }, [_]bool{ false, true }) |cs, read|
+            for (cs) |c| {
+                if (c.read == read and e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
+                    if (c.suffix.len > 0) {
+                        const v = e.st.at(c.slot);
+                        const t: []const u8 = switch (v) {
+                            .str, .atom, .expr => |x| x,
+                            else => "",
+                        };
+                        if (!std.ascii.endsWithIgnoreCase(t, c.suffix)) continue;
+                    }
+                    // Text carried verbatim is the source's syntax, not the
+                    // target's: an error (a measure's spec that ngspice refuses).
+                    if (e.slot(c.slot).ty == .text) {
+                        e.report.add(
+                            .@"error",
+                            .invalid,
+                            e.st.line,
+                            "{s}.{s}: {s}; it is {s} text, written as it was",
+                            .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text, e.source },
+                        );
+                    } else e.report.add(.warning, .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
                 }
-                // Text carried verbatim is the source's syntax, not the
-                // target's: an error (a measure's spec that ngspice refuses).
-                if (e.slot(c.slot).ty == .text) {
-                    e.report.add(.@"error", .invalid, e.st.line, "{s}.{s}: {s}; it is {s} text, written as it was", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text, e.source });
-                } else e.report.add(.warning, .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
-            }
-        };
+            };
         if (e.lost_flags > 0) {
             for (e.st.values()) |v| {
                 if (v != .params) continue;
                 for (v.params) |p| {
-                    if (p.val == .none) e.report.add(.@"error", .loss, e.st.line, "{s}: the flag '{s}' has no spelling in {s}", .{ @tagName(e.st.kind), p.key, e.g.name });
+                    if (p.val == .none)
+                        e.report.add(
+                            .@"error",
+                            .loss,
+                            e.st.line,
+                            "{s}: the flag '{s}' has no spelling in {s}",
+                            .{ @tagName(e.st.kind), p.key, e.g.name },
+                        );
                 }
             }
         }
@@ -867,25 +1057,44 @@ const Emit = struct {
             if (!try e.lost(idx)) continue;
             const label = schema.info(e.st.kind).class == .analysis and e.slot(idx).ty == .name;
             if (label) {
-                e.report.add(.info, .cosmetic, e.st.line, "{s}: {s} does not name its analyses; the label '{s}' is not written", .{ @tagName(e.st.kind), e.g.name, try e.describe(v) });
+                e.report.add(
+                    .info,
+                    .cosmetic,
+                    e.st.line,
+                    "{s}: {s} does not name its analyses; the label '{s}' is not written",
+                    .{ @tagName(e.st.kind), e.g.name, try e.describe(v) },
+                );
                 continue;
             }
             if (e.slot(idx).ty == .params and v == .params) {
                 // One entry per parameter: each is a separate thing the target cannot say.
                 for (v.params) |p| {
                     if (e.inert(p.key)) |why| {
-                        e.report.add(.info, .loss, e.st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why });
+                        e.report.add(
+                            .info,
+                            .loss,
+                            e.st.line,
+                            "{s}: '{s}' is not written: {s}",
+                            .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why },
+                        );
                         continue;
                     }
-                    e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in {s}", .{
+                    e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in " ++
+                        "{s}", .{
                         @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), e.g.name,
                     });
                 }
                 continue;
             }
             const why = e.g.slotAbsentReason(e.st.kind, idx);
-            e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in {s}{s}{s}", .{
-                @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name, if (why != null) ": " else "", why orelse "",
+            e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in " ++
+                "{s}{s}{s}", .{
+                @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name,
+                if (why != null)
+                    ": "
+                else
+                    "",
+                why orelse "",
             });
         }
     }
@@ -929,13 +1138,18 @@ const Writer = struct {
     env: ?*const ir.Env = null,
     /// Model cards whose parameters were copied by name: one caveat per
     /// file, naming the first, not one per card (sky130 has thousands).
-    copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 = "", source: []const u8 = "", line: u32 = 0 } = .{},
+    copied: struct { n: usize = 0, name: []const u8 = "", family: []const u8 =
+        "",
+    source: []const u8 = "", line: u32 = 0 } = .{},
     /// Written as a stream, the instances that references name (`Refs`).
     refs: ?*Refs = null,
     /// Model parameters not written with a warning (`noparam ... warning`),
     /// per rule: one report per file, naming the first card (sky130 has a
     /// version on every bin). An error is reported card by card.
-    refused: std.AutoArrayHashMapUnmanaged(*const grammar.NoParam, struct { n: usize, name: []const u8, line: u32 }) = .empty,
+    refused: std.AutoArrayHashMapUnmanaged(
+        *const grammar.NoParam,
+        struct { n: usize, name: []const u8, line: u32 },
+    ) = .empty,
     /// Subcircuits whose inner parameters went to the header (`hoist
     /// param`), and those whose stayed inside because their dialect is not
     /// measured: one entry a file each, naming the first (a PDK has hundreds).
@@ -962,7 +1176,9 @@ const Writer = struct {
     /// The terminals of the instances of each model (`collectTerminals`).
     terminals: TerminalMap = .empty,
 
-    const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 = "", line: u32 = 0 };
+    const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 =
+        "",
+        line: u32 = 0 };
 
     const Error = Allocator.Error || std.Io.Writer.Error;
 
@@ -981,7 +1197,11 @@ const Writer = struct {
         w.last_blank = false;
         const cfg = &w.g.lex;
         const can_wrap = cfg.cont_lead.len > 0 or cfg.cont_trail.len > 0;
-        if (text.len <= wrap_at or !can_wrap or w.nowrap or std.mem.indexOfScalar(u8, text, '\n') != null) {
+        if (text.len <= wrap_at or !can_wrap or w.nowrap or std.mem.indexOfScalar(
+            u8,
+            text,
+            '\n',
+        ) != null) {
             try w.out.writeAll(text);
             return w.out.writeByte('\n');
         }
@@ -1022,7 +1242,10 @@ const Writer = struct {
         const marker = if (w.g.lex.line_comments.len > 0) w.g.lex.line_comments[0] else "*";
         var it = std.mem.splitScalar(u8, text, '\n');
         while (it.next()) |l| {
-            if (l.len == 0) try w.out.print("{s}\n", .{marker}) else try w.out.print("{s} {s}\n", .{ marker, l });
+            if (l.len == 0)
+                try w.out.print("{s}\n", .{marker})
+            else
+                try w.out.print("{s} {s}\n", .{ marker, l });
         }
         w.last_blank = false;
     }
@@ -1070,8 +1293,19 @@ const Writer = struct {
                 if (w.caps) |c| for (c.grammars) |*sg| {
                     if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
                     if (sg.ownModelReason(ty)) |why| {
-                        w.report.add(.@"error", .unsupported, st.line, "model '{s}' of type '{s}' cannot be written for {s}: {s}", .{ st.get("name").atom, ty, w.g.name, why });
-                        try w.comment(try a.print("[sprack] not written: model '{s}' ({s})", .{ st.get("name").atom, ty }));
+                        w.report.add(
+                            .@"error",
+                            .unsupported,
+                            st.line,
+                            "model '{s}' of type '{s}' cannot be written for {s}: {s}",
+                            .{ st.get("name").atom, ty, w.g.name, why },
+                        );
+                        try w.comment(
+                            try a.print(
+                                "[sprack] not written: model '{s}' ({s})",
+                                .{ st.get("name").atom, ty },
+                            ),
+                        );
                         return error.Skip;
                     }
                     for (sg.models) |*m| for (m.spellings) |*sp| {
@@ -1079,30 +1313,71 @@ const Writer = struct {
                     };
                 };
                 if (builtin) {
-                    w.report.add(.@"error", .unsupported, st.line, "model '{s}': type '{s}' with these parameters is not in the {s} models table, so its {s} name is unknown; written as it was", .{
+                    w.report.add(.@"error", .unsupported, st.line, "model '{s}': type '{s}' " ++
+                        "with these parameters is not in the {s} models table, so its {s} " ++
+                        "name is unknown; written as it was", .{
                         st.get("name").atom, ty, w.sourceOf(st), w.g.name,
                     });
                 } else if (w.needsPlugin(ty)) {
-                    w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from a plugin of the module; build one with buildxyceplugin and name it with --provide {s}=FILE", .{ st.get("name").atom, ty, w.g.name, ty });
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from " ++
+                            "a plugin of the module; build one with buildxyceplugin and name " ++
+                            "it with --provide {s}=FILE",
+                        .{ st.get("name").atom, ty, w.g.name, ty },
+                    );
                 } else if (w.namesModule() and st.get("params") == .params) {
                     // Xyce finds a card's device by type and level, and a
                     // plugin is level 1: IHP's `mosvar level=1000` card is
                     // "no valid model card" for its Y line, and the same
                     // card without it gives ngspice's current (#52).
-                    w.report.add(.warning, .caveat, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} must load the same module", .{ st.get("name").atom, ty, w.g.name });
+                    w.report.add(
+                        .warning,
+                        .caveat,
+                        st.line,
+                        "model '{s}' is of the Verilog-A module '{s}': {s} must load the same " ++
+                            "module",
+                        .{ st.get("name").atom, ty, w.g.name },
+                    );
                     const ps = st.get("params").params;
                     for (ps, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "level")) {
-                        w.report.add(.warning, .loss, st.line, "model '{s}': level not written: {s} takes a plugin's card only at the plugin's own level, so the module runs at its default level", .{ st.get("name").atom, w.g.name });
+                        w.report.add(
+                            .warning,
+                            .loss,
+                            st.line,
+                            "model '{s}': level not written: {s} takes a plugin's card only " ++
+                                "at the plugin's own level, so the module runs at its default " ++
+                                "level",
+                            .{ st.get("name").atom, w.g.name },
+                        );
                         var out = st.*;
                         try out.own(a);
                         const rest = try std.mem.concat(a, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
-                        try out.set(a, schema.slot(.model, "params"), if (rest.len > 0) .{ .params = rest } else .none);
+                        try out.set(a, schema.slot(.model, "params"), if (rest.len > 0)
+                            .{ .params = rest }
+                        else
+                            .none);
                         return out;
                     };
                 } else if (w.g.absentReason(.device)) |why| {
-                    w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s}", .{ st.get("name").atom, ty, why });
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "model '{s}' is of the Verilog-A module '{s}': {s}",
+                        .{ st.get("name").atom, ty, why },
+                    );
                 } else {
-                    w.report.add(.warning, .caveat, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} must load the same module", .{ st.get("name").atom, ty, w.g.name });
+                    w.report.add(
+                        .warning,
+                        .caveat,
+                        st.line,
+                        "model '{s}' is of the Verilog-A module '{s}': {s} must load the same " ++
+                            "module",
+                        .{ st.get("name").atom, ty, w.g.name },
+                    );
                 }
             }
             return st.*;
@@ -1111,9 +1386,12 @@ const Writer = struct {
             var plain = st.*;
             try plain.own(a);
             try plain.set(a, schema.slot(.model, "family"), .none);
-            if (!same) w.report.add(.@"error", .unsupported, st.line, "model '{s}': '{s}' is a built-in {s} model type that the {s} models table does not list, so its {s} name is unknown; written as it was", .{
-                st.get("name").atom, st.get("type").atom, w.sourceOf(st), w.sourceOf(st), w.g.name,
-            });
+            if (!same)
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}': '{s}' is a " ++
+                    "built-in {s} model type that the {s} models table does not list, so its " ++
+                    "{s} name is unknown; written as it was", .{
+                    st.get("name").atom, st.get("type").atom, w.sourceOf(st), w.sourceOf(st), w.g.name,
+                });
             return plain;
         }
         const pol: []const u8 = if (st.get("polarity") == .atom) st.get("polarity").atom else "";
@@ -1125,7 +1403,13 @@ const Writer = struct {
                     // Only a kind whose instances name no model can do without
                     // the card; a MESFET still points at its (HFET) model.
                     if (w.g.canWrite(k) and schema.slotOf(k, "master") == null) {
-                        w.report.add(.info, .cosmetic, st.line, "model '{s}' only names a built-in {s}; {s} needs no such line", .{ st.get("name").atom, fam.atom, w.g.name });
+                        w.report.add(
+                            .info,
+                            .cosmetic,
+                            st.line,
+                            "model '{s}' only names a built-in {s}; {s} needs no such line",
+                            .{ st.get("name").atom, fam.atom, w.g.name },
+                        );
                         return error.Skip;
                     }
                 }
@@ -1133,26 +1417,41 @@ const Writer = struct {
             const who = if (w.caps) |c| c.family(fam.atom, pol) else "";
             // No model cards at all here (CDL): the grammar's reason, not a gap in its table.
             if (w.g.absentReason(.model)) |why| {
-                w.report.add(.@"error", .unsupported, st.line, "model '{s}' cannot be written for {s}: {s}. Dialects that define the family: {s}", .{
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' cannot be written " ++
+                    "for {s}: {s}. Dialects that define the family: {s}", .{
                     st.get("name").atom, w.g.name, why, if (who.len > 0) who else "none",
                 });
                 return null;
             }
             if (w.g.noFamilyReason(fam.atom)) |why| {
-                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}{s}{s}) cannot be written for {s}: {s}. Defined by: {s}", .{
-                    st.get("name").atom, fam.atom, if (pol.len > 0) " " else "", pol, w.g.name, why, if (who.len > 0) who else "none",
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}{s}{s}) " ++
+                    "cannot be written for {s}: {s}. Defined by: {s}", .{
+                    st.get("name").atom, fam.atom,
+                    if (pol.len > 0)
+                        " "
+                    else
+                        "",
+                    pol,                 w.g.name,
+                    why,                 if (who.len > 0) who else "none",
                 });
                 return null;
             }
-            w.report.add(.@"error", .unsupported, st.line, "model '{s}': {s}.spgrammar has no spelling for model family '{s}{s}{s}'. Defined by: {s}", .{
-                st.get("name").atom,              w.g.name, fam.atom, if (pol.len > 0) " " else "", pol,
-                if (who.len > 0) who else "none",
+            w.report.add(.@"error", .unsupported, st.line, "model '{s}': {s}.spgrammar has no " ++
+                "spelling for model family '{s}{s}{s}'. Defined by: {s}", .{
+                st.get("name").atom, w.g.name,                         fam.atom,
+                if (pol.len > 0)
+                    " "
+                else
+                    "",
+                pol,                 if (who.len > 0) who else "none",
             });
             return null;
         };
         if (entry.provided) {
             const file = w.providedFile(fam.atom) orelse {
-                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}): {s} has no built-in {s}; it runs one as a compiled module given to the translation: --provide {s}=FILE", .{
+                w.report.add(.@"error", .unsupported, st.line, "model '{s}' ({s}): {s} has no " ++
+                    "built-in {s}; it runs one as a compiled module given to the translation: " ++
+                    "--provide {s}=FILE", .{
                     st.get("name").atom, fam.atom, w.g.name, fam.atom, fam.atom,
                 });
                 return null;
@@ -1160,7 +1459,14 @@ const Writer = struct {
             if (w.plugins_said.get(fam.atom) == null) {
                 // Kept for the file: w.arena is the statement's when streamed.
                 try w.plugins_said.put(w.perm, try w.perm.dupe(u8, fam.atom), {});
-                w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): written for the module {s} given to the translation; {s} has no built-in one", .{ st.get("name").atom, fam.atom, file, w.g.name });
+                w.report.add(
+                    .warning,
+                    .caveat,
+                    st.line,
+                    "model '{s}' ({s}): written for the module {s} given to the translation; " ++
+                        "{s} has no built-in one",
+                    .{ st.get("name").atom, fam.atom, file, w.g.name },
+                );
             }
         }
         const sp = try w.chooseSpelling(a, st, entry, fam.atom);
@@ -1175,7 +1481,10 @@ const Writer = struct {
         var ps: std.ArrayList(ir.Param) = .empty;
         for (sp.kv) |kv| {
             if (kv.absent or kv.min) continue;
-            const v: Value = if (lexer.parseNumber(a, &w.g.lex, kv.val)) |n| .{ .num = n } else .{ .atom = kv.val };
+            const v: Value = if (lexer.parseNumber(a, &w.g.lex, kv.val)) |n|
+                .{ .num = n }
+            else
+                .{ .atom = kv.val };
             try ps.append(a, .{ .key = kv.key, .val = v });
         }
         const selectors = ps.items.len;
@@ -1185,8 +1494,16 @@ const Writer = struct {
                 if (!c.isNodes() and std.ascii.eqlIgnoreCase(c.key, p.key)) break true;
             } else false;
             if (said) {
-                w.report.add(.info, .oneway, st.line, "model '{s}': {s}={s} is said by the {s} {s} spelling and is not written: {s} has no such parameter; it reads back without it", .{
-                    st.get("name").atom, p.key, try expr.canonText(a, p.val), w.g.name, try spellingText(a, sp), w.g.name,
+                w.report.add(.info, .oneway, st.line, "model '{s}': {s}={s} is said by the " ++
+                    "{s} {s} spelling and is not written: {s} has no such parameter; it reads " ++
+                    "back without it", .{
+                    st.get("name").atom, p.key,
+                    try expr.canonText(
+                        a,
+                        p.val,
+                    ),
+                    w.g.name,            try spellingText(a, sp),
+                    w.g.name,
                 });
                 continue;
             }
@@ -1201,16 +1518,30 @@ const Writer = struct {
             while (i > 0) {
                 i -= 1;
                 const k = ps.items[i].key;
-                for (ps.items[i + 1 ..], i + 1..) |later, j| if (std.ascii.eqlIgnoreCase(later.key, k)) {
-                    if (i < selectors) {
-                        w.report.add(.warning, .loss, st.line, "model '{s}': its own '{s}' is not written: in {s} that parameter names the model", .{ st.get("name").atom, later.key, w.g.name });
-                        _ = ps.orderedRemove(j);
-                    } else {
-                        w.report.add(.warning, .invalid, st.line, "model '{s}': '{s}' is given twice; the last value is kept", .{ st.get("name").atom, k });
-                        _ = ps.orderedRemove(i);
-                    }
-                    break;
-                };
+                for (ps.items[i + 1 ..], i + 1..) |later, j|
+                    if (std.ascii.eqlIgnoreCase(later.key, k)) {
+                        if (i < selectors) {
+                            w.report.add(
+                                .warning,
+                                .loss,
+                                st.line,
+                                "model '{s}': its own '{s}' is not written: in {s} that " ++
+                                    "parameter names the model",
+                                .{ st.get("name").atom, later.key, w.g.name },
+                            );
+                            _ = ps.orderedRemove(j);
+                        } else {
+                            w.report.add(
+                                .warning,
+                                .invalid,
+                                st.line,
+                                "model '{s}': '{s}' is given twice; the last value is kept",
+                                .{ st.get("name").atom, k },
+                            );
+                            _ = ps.orderedRemove(i);
+                        }
+                        break;
+                    };
             }
             // Parameters this dialect's module for the family refuses.
             for (w.g.noparams) |*np| {
@@ -1222,10 +1553,23 @@ const Writer = struct {
                     if (np.value.len > 0 and (p.val != .num or p.val.num.toFloat() != (std.fmt.parseFloat(f64, np.value) catch unreachable))) continue;
                     const name = st.get("name").atom;
                     if (np.err) {
-                        w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s}", .{ name, p.key, np.text });
+                        w.report.add(
+                            .@"error",
+                            .loss,
+                            st.line,
+                            "model '{s}': {s} not written: {s}",
+                            .{ name, p.key, np.text },
+                        );
                     } else {
                         const r = try w.refused.getOrPut(w.perm, np);
-                        if (r.found_existing) r.value_ptr.n += 1 else r.value_ptr.* = .{ .n = 1, .name = try w.perm.dupe(u8, name), .line = st.line };
+                        if (r.found_existing)
+                            r.value_ptr.n += 1
+                        else
+                            r.value_ptr.* = .{
+                                .n = 1,
+                                .name = try w.perm.dupe(u8, name),
+                                .line = st.line,
+                            };
                     }
                     _ = ps.orderedRemove(j);
                     break;
@@ -1233,15 +1577,47 @@ const Writer = struct {
             }
         }
         const th = try expr.thresholds(a, w.g, fam.atom, ps.items, true);
-        if (th.changed and !th.no_half) w.report.add(.warning, .caveat, st.line, "model '{s}': the threshold and hysteresis are written as on and off levels; {s} moves smoothly between them where SPICE switches with hysteresis", .{ st.get("name").atom, w.g.name });
+        if (th.changed and !th.no_half)
+            w.report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "model '{s}': the threshold and hysteresis are written as on and off levels; " ++
+                    "{s} moves smoothly between them where SPICE switches with hysteresis",
+                .{ st.get("name").atom, w.g.name },
+            );
         if (th.changed) for (th.params) |p| if (p.val == .expr and isLevel(w.g, p.key)) {
-            w.report.add(.info, .oneway, st.line, "model '{s}': levels computed from expressions read back as equal expressions of another shape", .{st.get("name").atom});
+            w.report.add(
+                .info,
+                .oneway,
+                st.line,
+                "model '{s}': levels computed from expressions read back as equal expressions " ++
+                    "of another shape",
+                .{st.get("name").atom},
+            );
             break;
         };
-        if (th.no_half) w.report.add(.@"error", .loss, st.line, "model '{s}': a switch with no hysteresis has no {s} form; its on and off levels would be equal", .{ st.get("name").atom, w.g.name });
-        try out.set(a, schema.slot(.model, "params"), if (th.params.len > 0) .{ .params = th.params } else .none);
+        if (th.no_half)
+            w.report.add(
+                .@"error",
+                .loss,
+                st.line,
+                "model '{s}': a switch with no hysteresis has no {s} form; its on and off " ++
+                    "levels would be equal",
+                .{ st.get("name").atom, w.g.name },
+            );
+        try out.set(a, schema.slot(.model, "params"), if (th.params.len > 0)
+            .{ .params = th.params }
+        else
+            .none);
         if (!same and st.get("params") == .params) {
-            if (w.copied.n == 0) w.copied = .{ .name = try w.perm.dupe(u8, st.get("name").atom), .family = fam.atom, .source = w.sourceOf(st), .line = st.line };
+            if (w.copied.n == 0)
+                w.copied = .{
+                    .name = try w.perm.dupe(u8, st.get("name").atom),
+                    .family = fam.atom,
+                    .source = w.sourceOf(st),
+                    .line = st.line,
+                };
             w.copied.n += 1;
         }
         return out;
@@ -1251,9 +1627,18 @@ const Writer = struct {
     /// whose `when` conditions hold, on the card's own parameters or on the
     /// terminals of the instances that name it. A condition that cannot be
     /// told, or instances of more than one count, is said.
-    fn chooseSpelling(w: *Writer, a: Allocator, st: *const ir.Stmt, entry: *const grammar.ModelEntry, fam: []const u8) Allocator.Error!grammar.ModelSpelling {
+    fn chooseSpelling(
+        w: *Writer,
+        a: Allocator,
+        st: *const ir.Stmt,
+        entry: *const grammar.ModelEntry,
+        fam: []const u8,
+    ) Allocator.Error!grammar.ModelSpelling {
         const name = st.get("name").atom;
-        const ps: []const ir.Param = if (st.get("params") == .params) st.get("params").params else &.{};
+        const ps: []const ir.Param = if (st.get("params") == .params)
+            st.get("params").params
+        else
+            &.{};
         const used = w.terminals.get(name);
         var unknown: ?[]const u8 = null;
         var mixed = false;
@@ -1265,7 +1650,10 @@ const Writer = struct {
                         unknown = unknown orelse "no instance in this file names it";
                         break false;
                     };
-                    if (t.min < @as(u32, @intFromFloat(want)) and t.max >= @as(u32, @intFromFloat(want))) mixed = true;
+                    if (t.min < @as(
+                        u32,
+                        @intFromFloat(want),
+                    ) and t.max >= @as(u32, @intFromFloat(want))) mixed = true;
                     if (@as(f64, @floatFromInt(t.min)) < want) break false;
                     continue;
                 }
@@ -1280,17 +1668,27 @@ const Writer = struct {
                     break false;
                 }
                 if (v.num.toFloat() != want) {
-                    unknown = unknown orelse try a.print("{s}={s} is none of the values the spellings name", .{ c.key, try expr.canonText(a, v) });
+                    unknown = unknown orelse try a.print(
+                        "{s}={s} is none of the values the spellings name",
+                        .{ c.key, try expr.canonText(a, v) },
+                    );
                     break false;
                 }
             } else true;
             if (!holds) continue;
             if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return sp;
-            if (mixed) w.report.add(.warning, .ambiguous, st.line, "model '{s}' ({s}): instances with {d} and with {d} terminals name it, and {s} has a model of its own for each; it is written as {s}", .{
-                name, fam, used.?.min, used.?.max, w.g.name, try spellingText(a, sp),
-            }) else if (unknown) |why| if (sp.when.len == 0) w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} writes another model by its conditions, and {s}; it is written as {s}", .{
-                name, fam, w.g.name, why, try spellingText(a, sp),
-            });
+            if (mixed)
+                w.report.add(.warning, .ambiguous, st.line, "model '{s}' ({s}): instances " ++
+                    "with {d} and with {d} terminals name it, and {s} has a model of its own " ++
+                    "for each; it is written as {s}", .{
+                    name, fam, used.?.min, used.?.max, w.g.name, try spellingText(a, sp),
+                })
+            else if (unknown) |why|
+                if (sp.when.len == 0)
+                    w.report.add(.warning, .caveat, st.line, "model '{s}' ({s}): {s} writes " ++
+                        "another model by its conditions, and {s}; it is written as {s}", .{
+                        name, fam, w.g.name, why, try spellingText(a, sp),
+                    });
             return sp;
         }
         return entry.spellings[0];
@@ -1301,7 +1699,14 @@ const Writer = struct {
     /// have one: each gets the target's spelling and number. One the
     /// source's model does not take by the name written is not written, and
     /// neither are those the target has one parameter for when they differ.
-    fn cardParams(w: *Writer, a: Allocator, st: *const ir.Stmt, family: []const u8, ps: *std.ArrayList(ir.Param), own: usize) Allocator.Error!void {
+    fn cardParams(
+        w: *Writer,
+        a: Allocator,
+        st: *const ir.Stmt,
+        family: []const u8,
+        ps: *std.ArrayList(ir.Param),
+        own: usize,
+    ) Allocator.Error!void {
         const to = w.g.modelParamsOf(family) orelse return;
         const only = w.g.modelParamsOnly(family);
         const sg = w.sourceGrammar(st) orelse return;
@@ -1312,7 +1717,10 @@ const Writer = struct {
             if (!np.err or np.value.len == 0 or !std.mem.eql(u8, np.family, family)) continue;
             const want = std.fmt.parseFloat(f64, np.value) catch continue;
             for (ps.items[own..]) |p| {
-                if (std.ascii.eqlIgnoreCase(p.key, np.key) and p.val == .num and p.val.num.toFloat() == want) break;
+                if (std.ascii.eqlIgnoreCase(
+                    p.key,
+                    np.key,
+                ) and p.val == .num and p.val.num.toFloat() == want) break;
             } else continue;
             break true;
         } else false;
@@ -1324,7 +1732,8 @@ const Writer = struct {
         var em = w.emitter(a, st);
         // Canonical names and values; `wrote` is the key each was written by.
         // `as_is`: the source's table does not list it, so it is copied.
-        const Canon = struct { p: ir.Param, wrote: []const u8, as_is: bool = false, done: bool = false };
+        const Canon = struct { p: ir.Param, wrote: []const u8, as_is: bool = false, done: bool =
+            false };
         var cs: std.ArrayList(Canon) = .empty;
         for (ps.items[own..]) |p| {
             var halves: std.ArrayList(ir.Param) = .empty;
@@ -1335,17 +1744,31 @@ const Writer = struct {
                 } else continue;
                 taken = true;
                 // A number at an exponent a scale suffix can spell (500n).
-                const half: Value = if (!e.halved) p.val else if (p.val == .num) try expr.arith(a, .mul, p.val, .{ .num = .init("5", -1) }) else try expr.halve(a, p.val);
+                const half: Value = if (!e.halved)
+                    p.val
+                else if (p.val == .num)
+                    try expr.arith(a, .mul, p.val, .{ .num = .init("5", -1) })
+                else
+                    try expr.halve(a, p.val);
                 const c: ir.Param = .{ .key = e.canon, .val = half };
                 try cs.append(a, .{ .p = c, .wrote = if (e.halved) e.canon else p.key });
                 if (e.halved) try halves.append(a, c);
             }
-            if (halves.items.len > 0) w.report.add(.info, .rename, st.line, "model '{s}': {s} of {s} is {s}, each half its value", .{
-                name, try em.describe(.{ .params = &.{p} }), sg.name, try em.describe(.{ .params = halves.items }),
-            });
+            if (halves.items.len > 0)
+                w.report.add(.info, .rename, st.line, "model '{s}': {s} of {s} is {s}, each " ++
+                    "half its value", .{
+                    name, try em.describe(.{ .params = &.{p} }), sg.name, try em.describe(.{ .params = halves.items }),
+                });
             if (taken) continue;
             if (spellingsOf(from, p.key)) |e| {
-                w.report.add(.warning, .loss, st.line, "model '{s}': {s} not written: the {s} model of {s} does not take it; that parameter is '{s}' there", .{ name, p.key, family, sg.name, e.spellings[0] });
+                w.report.add(
+                    .warning,
+                    .loss,
+                    st.line,
+                    "model '{s}': {s} not written: the {s} model of {s} does not take it; " ++
+                        "that parameter is '{s}' there",
+                    .{ name, p.key, family, sg.name, e.spellings[0] },
+                );
                 continue;
             }
             try cs.append(a, .{ .p = p, .wrote = p.key, .as_is = true });
@@ -1354,8 +1777,17 @@ const Writer = struct {
         // A corner where one of the two computes something else, once a card.
         if (sg != w.g) for (cs.items) |c| {
             if (c.as_is) continue;
-            const text = w.g.edgeText(family, c.p.key) orelse sg.edgeText(family, c.p.key) orelse continue;
-            w.report.add(.warning, .caveat, st.line, "model '{s}': {s}: {s}", .{ name, c.p.key, text });
+            const text = w.g.edgeText(
+                family,
+                c.p.key,
+            ) orelse sg.edgeText(family, c.p.key) orelse continue;
+            w.report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "model '{s}': {s}: {s}",
+                .{ name, c.p.key, text },
+            );
             break;
         };
         for (cs.items, 0..) |*c, i| {
@@ -1374,10 +1806,21 @@ const Writer = struct {
                         const dup = for (to[0..k]) |u| {
                             if (std.ascii.eqlIgnoreCase(u.spellings[0], t.spellings[0])) break true;
                         } else false;
-                        if (!dup) try takes_list.print(a, "{s}{s}", .{ if (takes_list.items.len > 0) ", " else "", t.spellings[0] });
+                        if (!dup)
+                            try takes_list.print(a, "{s}{s}", .{ if (takes_list.items.len > 0)
+                                ", "
+                            else
+                                "", t.spellings[0] });
                     }
-                    w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: the {s} card of {s} takes no such parameter; it takes {s}", .{
-                        name, try em.describe(.{ .params = &.{.{ .key = c.wrote, .val = c.p.val }} }), family, w.g.name, takes_list.items,
+                    w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: " ++
+                        "the {s} card of {s} takes no such parameter; it takes {s}", .{
+                        name,
+                        try em.describe(
+                            .{ .params = &.{.{ .key = c.wrote, .val = c.p.val }} },
+                        ),
+                        family,
+                        w.g.name,
+                        takes_list.items,
                     });
                     continue;
                 }
@@ -1385,14 +1828,28 @@ const Writer = struct {
                 // mean something else to a target that does not list it,
                 // unless a `noparam` line of the target names it.
                 const refused = for (w.g.noparams) |np| {
-                    if (std.mem.eql(u8, np.family, family) and std.ascii.eqlIgnoreCase(np.key, c.p.key)) break true;
+                    if (std.mem.eql(
+                        u8,
+                        np.family,
+                        family,
+                    ) and std.ascii.eqlIgnoreCase(np.key, c.p.key)) break true;
                 } else false;
                 try ps.append(a, .{ .key = if (refused) c.p.key else c.wrote, .val = c.p.val });
                 continue;
             };
             if (!e.halved) {
-                if (!std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote)) w.report.add(.info, .rename, st.line, "model '{s}': the parameter '{s}' is spelled '{s}' in {s}", .{ name, c.wrote, e.spellings[0], w.g.name });
-                try ps.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote)) c.wrote else e.spellings[0], .val = c.p.val });
+                if (!std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote))
+                    w.report.add(
+                        .info,
+                        .rename,
+                        st.line,
+                        "model '{s}': the parameter '{s}' is spelled '{s}' in {s}",
+                        .{ name, c.wrote, e.spellings[0], w.g.name },
+                    );
+                try ps.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(e.spellings[0], c.wrote))
+                    c.wrote
+                else
+                    e.spellings[0], .val = c.p.val });
                 continue;
             }
             // One parameter here for every canonical name of this spelling:
@@ -1403,28 +1860,47 @@ const Writer = struct {
             var shown: std.ArrayList(ir.Param) = .empty;
             for (to) |*t| {
                 if (!t.halved or !std.mem.eql(u8, t.spellings[0], e.spellings[0])) continue;
-                try names.print(a, "{s}{s}", .{ if (names.items.len > 0) " and " else "", t.canon });
+                try names.print(a, "{s}{s}", .{ if (names.items.len > 0)
+                    " and "
+                else
+                    "", t.canon });
                 var v: Value = .{ .num = .init("0", 0) };
                 // The last of a name, as the simulators take a card.
-                for (cs.items[i..]) |*o| if (!o.as_is and std.ascii.eqlIgnoreCase(o.p.key, t.canon)) {
-                    v = o.p.val;
-                    o.done = true;
-                    try shown.append(a, .{ .key = o.wrote, .val = v });
-                };
+                for (cs.items[i..]) |*o|
+                    if (!o.as_is and std.ascii.eqlIgnoreCase(o.p.key, t.canon)) {
+                        v = o.p.val;
+                        o.done = true;
+                        try shown.append(a, .{ .key = o.wrote, .val = v });
+                    };
                 if (value) |first| same = same and v.eql(first) else value = v;
             }
             const was = try em.describe(.{ .params = shown.items });
             if (same) {
-                const twice: ir.Param = .{ .key = e.spellings[0], .val = try expr.arith(a, .mul, value.?, .{ .num = .init("2", 0) }) };
+                const twice: ir.Param = .{
+                    .key = e.spellings[0],
+                    .val = try expr.arith(a, .mul, value.?, .{ .num = .init("2", 0) }),
+                };
                 const now = try em.describe(.{ .params = &.{twice} });
-                if (!std.mem.eql(u8, was, now)) w.report.add(.info, .rename, st.line, "model '{s}': {s} is written {s}, twice the value: {s} has the one parameter for {s}", .{ name, was, now, w.g.name, names.items });
+                if (!std.mem.eql(u8, was, now))
+                    w.report.add(
+                        .info,
+                        .rename,
+                        st.line,
+                        "model '{s}': {s} is written {s}, twice the value: {s} has the one " ++
+                            "parameter for {s}",
+                        .{ name, was, now, w.g.name, names.items },
+                    );
                 try ps.append(a, twice);
                 continue;
             }
             var why: std.ArrayList(u8) = .empty;
-            if (w.g.computesText(family, e.canon)) |t| try why.print(a, ": {s} computes {s}", .{ w.g.name, t });
-            if (sg.computesText(family, e.canon)) |t| try why.print(a, "; {s} computes {s}", .{ sg.name, t });
-            w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s} has the one parameter '{s}' for {s}, and they are not equal here (one left out is 0){s}", .{
+            if (w.g.computesText(family, e.canon)) |t|
+                try why.print(a, ": {s} computes {s}", .{ w.g.name, t });
+            if (sg.computesText(family, e.canon)) |t|
+                try why.print(a, "; {s} computes {s}", .{ sg.name, t });
+            w.report.add(.@"error", .loss, st.line, "model '{s}': {s} not written: {s} has " ++
+                "the one parameter '{s}' for {s}, and they are not equal here (one left out " ++
+                "is 0){s}", .{
                 name, was, w.g.name, e.spellings[0], names.items, why.items,
             });
         }
@@ -1434,7 +1910,11 @@ const Writer = struct {
     /// written once for each branch in its own file, said once.
     fn foreignNote(w: *Writer) void {
         const x = w.foreign_inst orelse return;
-        w.report.add(.warning, .ambiguous, x.line, "instance '{s}' gives parameters to subcircuit '{s}', which is not in this file; {s} has no conditional blocks, so a subcircuit that holds one is written once for each branch, and which one this instance names can only be told with the library: translate the two together (`sprack project`, or a PDK)", .{
+        w.report.add(.warning, .ambiguous, x.line, "instance '{s}' gives parameters to " ++
+            "subcircuit '{s}', which is not in this file; {s} has no conditional blocks, so a " ++
+            "subcircuit that holds one is written once for each branch, and which one this " ++
+            "instance names can only be told with the library: translate the two together " ++
+            "(`sprack project`, or a PDK)", .{
             x.name, x.master, w.g.name,
         });
     }
@@ -1442,8 +1922,19 @@ const Writer = struct {
     /// After the last statement: the lines written back as text, said once.
     fn keptNote(w: *Writer) void {
         if (w.kept.n == 0) return;
-        w.report.add(.info, .oneway, w.kept.line, "{d} statement{s} no {s} rule understood {s} written back as {s}, from this line on; {s} itself may refuse {s}, and they read back as text (`sprack audit` counts them)", .{
-            w.kept.n, if (w.kept.n == 1) "" else "s", w.g.name, if (w.kept.n == 1) "is" else "are", if (w.kept.n == 1) "it was" else "they were", w.g.name, if (w.kept.n == 1) "it" else "them",
+        w.report.add(.info, .oneway, w.kept.line, "{d} statement{s} no {s} rule understood " ++
+            "{s} written back as {s}, from this line on; {s} itself may refuse {s}, and they " ++
+            "read back as text (`sprack audit` counts them)", .{
+            w.kept.n,
+            if (w.kept.n == 1)
+                ""
+            else
+                "s",
+            w.g.name,
+            if (w.kept.n == 1) "is" else "are",
+            if (w.kept.n == 1) "it was" else "they were",
+            w.g.name,
+            if (w.kept.n == 1) "it" else "them",
         });
     }
 
@@ -1452,20 +1943,58 @@ const Writer = struct {
     fn refusals(w: *Writer) void {
         for (w.refused.keys(), w.refused.values()) |np, r| {
             if (r.n == 1) {
-                w.report.add(.warning, .loss, r.line, "model '{s}': {s} not written: {s}", .{ r.name, np.key, np.text });
+                w.report.add(
+                    .warning,
+                    .loss,
+                    r.line,
+                    "model '{s}': {s} not written: {s}",
+                    .{ r.name, np.key, np.text },
+                );
             } else {
-                w.report.add(.warning, .loss, r.line, "model '{s}' and {d} more card{s} in this file: {s} not written: {s}", .{ r.name, r.n - 1, if (r.n == 2) "" else "s", np.key, np.text });
+                w.report.add(
+                    .warning,
+                    .loss,
+                    r.line,
+                    "model '{s}' and {d} more card{s} in this file: {s} not written: {s}",
+                    .{ r.name, r.n - 1, if (r.n == 2) "" else "s", np.key, np.text },
+                );
             }
         }
         var buf: [48]u8 = undefined;
         const hs = w.hoisted;
-        if (hs.n > 0) w.report.add(.info, .oneway, hs.line, "subckt '{s}'{s}: the parameters defined inside are written on the header, which reads back there; {s} gives an instance's value to that instance alone only for a parameter of the header", .{
-            hs.name, if (hs.n > 1) std.fmt.bufPrint(&buf, " and {d} more in this file", .{hs.n - 1}) catch unreachable else "", w.g.name,
-        });
+        if (hs.n > 0)
+            w.report.add(.info, .oneway, hs.line, "subckt '{s}'{s}: the parameters defined " ++
+                "inside are written on the header, which reads back there; {s} gives an " ++
+                "instance's value to that instance alone only for a parameter of the header", .{
+                hs.name,
+                if (hs.n > 1)
+                    std.fmt.bufPrint(
+                        &buf,
+                        " and {d} more in this file",
+                        .{hs.n - 1},
+                    ) catch unreachable
+                else
+                    "",
+                w.g.name,
+            });
         const us = w.unhoisted;
-        if (us.n > 0) w.report.add(.warning, .ambiguous, us.line, "subckt '{s}'{s}: the parameters defined inside are written as they were; {s} gives an instance's value to that instance alone only for a parameter of the header, and what {s} does with one defined inside is not measured", .{
-            us.name, if (us.n > 1) std.fmt.bufPrint(&buf, " and {d} more in this file", .{us.n - 1}) catch unreachable else "", w.g.name, us.source,
-        });
+        if (us.n > 0)
+            w.report.add(.warning, .ambiguous, us.line, "subckt '{s}'{s}: the parameters " ++
+                "defined inside are written as they were; {s} gives an instance's value to " ++
+                "that instance alone only for a parameter of the header, and what {s} does " ++
+                "with one defined inside is not measured", .{
+                us.name,
+                if (us.n > 1)
+                    std.fmt.bufPrint(
+                        &buf,
+                        " and {d} more in this file",
+                        .{us.n - 1},
+                    ) catch unreachable
+                else
+                    "",
+                w.g.name,
+                us.source,
+            });
     }
 
     /// A parameter statement of a dialect the grammar's `hoist param` lists.
@@ -1487,11 +2016,18 @@ const Writer = struct {
         var any = false;
         var unmeasured: ?[]const u8 = null;
         for (st.body) |*c| {
-            if (w.hoists(c)) any = true else if (c.kind == .param and !std.mem.eql(u8, w.sourceOf(c), w.g.name)) unmeasured = w.sourceOf(c);
+            if (w.hoists(c))
+                any = true
+            else if (c.kind == .param and !std.mem.eql(u8, w.sourceOf(c), w.g.name))
+                unmeasured = w.sourceOf(c);
         }
         const h = if (any) &w.hoisted else &w.unhoisted;
         if (any or unmeasured != null) {
-            if (h.n == 0) h.* = .{ .name = if (st.get("name") == .atom) try w.perm.dupe(u8, st.get("name").atom) else "", .source = unmeasured orelse "", .line = st.line };
+            if (h.n == 0)
+                h.* = .{ .name = if (st.get("name") == .atom)
+                    try w.perm.dupe(u8, st.get("name").atom)
+                else
+                    "", .source = unmeasured orelse "", .line = st.line };
             h.n += 1;
         }
         if (!any) return null;
@@ -1512,7 +2048,8 @@ const Writer = struct {
                 };
                 try ps.append(a, p);
             }
-            if (c.tail.len > 0) body.appendAssumeCapacity(.{ .kind = .comment, .raw = c.tail, .line = c.line });
+            if (c.tail.len > 0)
+                body.appendAssumeCapacity(.{ .kind = .comment, .raw = c.tail, .line = c.line });
         }
         var out = st.*;
         try out.own(a);
@@ -1553,25 +2090,49 @@ const Writer = struct {
                 // `same ...`: the table renames; what it does not list passes as written.
                 // In the canonical spelling, when the source's table had its own.
                 if (grammar.paramsOpen(table)) {
-                    try out.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(canon, p.key)) p.key else canon, .val = p.val });
+                    try out.append(a, .{ .key = if (std.ascii.eqlIgnoreCase(canon, p.key))
+                        p.key
+                    else
+                        canon, .val = p.val });
                     if (!std.ascii.eqlIgnoreCase(canon, p.key)) {
-                        w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, canon, w.g.name });
+                        w.report.add(
+                            .info,
+                            .rename,
+                            st.line,
+                            "{s}: the instance parameter '{s}' is spelled '{s}' in {s}",
+                            .{ @tagName(st.kind), p.key, canon, w.g.name },
+                        );
                         changed = true;
                     }
                     continue;
                 }
-                const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
+                const shown = if (p.val == .none)
+                    p.key
+                else
+                    try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
                 if (em.inert(p.key)) |why| {
                     // A loss all the same: the statement reads back without it.
-                    w.report.add(.info, .loss, st.line, "{s}: '{s}' is not written: {s}", .{ @tagName(st.kind), shown, why });
-                } else w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in {s}, whose {s} takes no such {s}", .{
-                    @tagName(st.kind), shown, w.g.name, @tagName(st.kind), if (schema.info(st.kind).class == .device) "instance parameter" else "parameter",
+                    w.report.add(
+                        .info,
+                        .loss,
+                        st.line,
+                        "{s}: '{s}' is not written: {s}",
+                        .{ @tagName(st.kind), shown, why },
+                    );
+                } else w.report.add(.@"error", .loss, st.line, "{s}: '{s}' has no spelling in " ++
+                    "{s}, whose {s} takes no such {s}", .{
+                    @tagName(st.kind), shown, w.g.name, @tagName(st.kind),
+                    if (schema.info(st.kind).class == .device)
+                        "instance parameter"
+                    else
+                        "parameter",
                 });
                 changed = true;
                 continue;
             };
             if (entry.positive and p.val == .num and p.val.num.toFloat() <= 0) {
-                w.report.add(.@"error", .invalid, st.line, "{s}: {s}={s}: {s} refuses {s} of zero or less", .{
+                w.report.add(.@"error", .invalid, st.line, "{s}: {s}={s}: {s} refuses {s} of " ++
+                    "zero or less", .{
                     @tagName(st.kind), p.key, try em.describe(p.val), w.g.name, entry.canon,
                 });
             }
@@ -1587,12 +2148,24 @@ const Writer = struct {
                 if (std.ascii.eqlIgnoreCase(o.key, key)) break true;
             } else false;
             if (clash) {
-                w.report.add(.@"error", .loss, st.line, "{s}: '{s}={s}' is '{s}' in {s}, which the instance gives as well", .{ @tagName(st.kind), p.key, try em.describe(p.val), key, w.g.name });
+                w.report.add(
+                    .@"error",
+                    .loss,
+                    st.line,
+                    "{s}: '{s}={s}' is '{s}' in {s}, which the instance gives as well",
+                    .{ @tagName(st.kind), p.key, try em.describe(p.val), key, w.g.name },
+                );
                 changed = true;
                 continue;
             }
             if (!same) {
-                w.report.add(.info, .rename, st.line, "{s}: the instance parameter '{s}' is spelled '{s}' in {s}", .{ @tagName(st.kind), p.key, key, w.g.name });
+                w.report.add(
+                    .info,
+                    .rename,
+                    st.line,
+                    "{s}: the instance parameter '{s}' is spelled '{s}' in {s}",
+                    .{ @tagName(st.kind), p.key, key, w.g.name },
+                );
                 try renamed.append(a, key);
                 changed = true;
             }
@@ -1636,16 +2209,45 @@ const Writer = struct {
         }
         if (parts.q) |q| {
             // Whatever else the capacitor gives has no place on the source.
-            if (st.get("c") != .none) w.report.add(.@"error", .loss, st.line, "capacitor '{s}': 'c={s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, try em.describe(st.get("c")), w.g.name });
-            if (st.get("master") != .none) w.report.add(.@"error", .loss, st.line, "capacitor '{s}': the model '{s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, try em.describe(st.get("master")), w.g.name });
+            if (st.get("c") != .none)
+                w.report.add(
+                    .@"error",
+                    .loss,
+                    st.line,
+                    "capacitor '{s}': 'c={s}' has no place on the behavioural source a " ++
+                        "capacitor given by its charge is written as for {s}",
+                    .{ name, try em.describe(st.get("c")), w.g.name },
+                );
+            if (st.get("master") != .none)
+                w.report.add(
+                    .@"error",
+                    .loss,
+                    st.line,
+                    "capacitor '{s}': the model '{s}' has no place on the behavioural source " ++
+                        "a capacitor given by its charge is written as for {s}",
+                    .{ name, try em.describe(st.get("master")), w.g.name },
+                );
             for (rest.items) |p| {
-                const shown = if (p.val == .none) p.key else try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
-                w.report.add(.@"error", .loss, st.line, "capacitor '{s}': '{s}' has no place on the behavioural source a capacitor given by its charge is written as for {s}", .{ name, shown, w.g.name });
+                const shown = if (p.val == .none)
+                    p.key
+                else
+                    try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
+                w.report.add(
+                    .@"error",
+                    .loss,
+                    st.line,
+                    "capacitor '{s}': '{s}' has no place on the behavioural source a " ++
+                        "capacitor given by its charge is written as for {s}",
+                    .{ name, shown, w.g.name },
+                );
             }
             const charge = try expr.canonText(a, q);
             const current = if (m) |mv| blk: {
                 const mt = try expr.canonText(a, mv);
-                break :blk if (mv == .expr) try a.print("({s})*ddt({s})", .{ mt, charge }) else try a.print("{s}*ddt({s})", .{ mt, charge });
+                break :blk if (mv == .expr)
+                    try a.print("({s})*ddt({s})", .{ mt, charge })
+                else
+                    try a.print("{s}*ddt({s})", .{ mt, charge });
             } else try a.print("ddt({s})", .{charge});
             var b = try ir.newStmt(a, .bsource, st.line);
             b.dialect = st.dialect;
@@ -1654,7 +2256,14 @@ const Writer = struct {
             try b.set(a, schema.slot(.bsource, "pos"), st.get("pos"));
             try b.set(a, schema.slot(.bsource, "neg"), st.get("neg"));
             try b.set(a, schema.slot(.bsource, "i"), .{ .expr = current });
-            w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no charge (q=); it is written as a behavioural source whose current is {s}, which reads back as that source", .{ name, w.g.name, current });
+            w.report.add(
+                .info,
+                .oneway,
+                st.line,
+                "capacitor '{s}': {s}'s capacitor takes no charge (q=); it is written as a " ++
+                    "behavioural source whose current is {s}, which reads back as that source",
+                .{ name, w.g.name, current },
+            );
             try w.leaf(a, &b);
             return true;
         }
@@ -1672,22 +2281,30 @@ const Writer = struct {
                 }
                 break :blk false;
             };
-            if (hit) w.report.add(.@"error", .invalid, st.line, "capacitor '{s}': ic={s}, and an .ic sets node {s} too; {s} takes the capacitor's, and the source in series that says it for {s} adds the two", .{
-                name, try em.describe(ic), n.atom, w.sourceOf(st), w.g.name,
-            });
+            if (hit)
+                w.report.add(.@"error", .invalid, st.line, "capacitor '{s}': ic={s}, and an " ++
+                    ".ic sets node {s} too; {s} takes the capacitor's, and the source in " ++
+                    "series that says it for {s} adds the two", .{
+                    name, try em.describe(ic), n.atom, w.sourceOf(st), w.g.name,
+                });
         }
         const node: Value = .{ .atom = try a.print("{s}__ic", .{name}) };
         var cap = st.*;
         try cap.own(a);
         try cap.set(a, schema.slot(.capacitor, "neg"), node);
-        try cap.set(a, schema.slot(.capacitor, "params"), if (rest.items.len > 0) .{ .params = rest.items } else .none);
+        try cap.set(a, schema.slot(.capacitor, "params"), if (rest.items.len > 0)
+            .{ .params = rest.items }
+        else
+            .none);
         var v = try ir.newStmt(a, .vsource, st.line);
         v.dialect = st.dialect;
         try v.set(a, schema.slot(.vsource, "name"), .{ .atom = try a.print("V{s}__ic", .{name}) });
         try v.set(a, schema.slot(.vsource, "pos"), node);
         try v.set(a, schema.slot(.vsource, "neg"), neg);
         try v.set(a, schema.slot(.vsource, "dc"), ic);
-        w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no initial voltage (ic={s}); it is written to node {s}, with a DC source of {s} from there to {s}, which reads back as the two", .{
+        w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no " ++
+            "initial voltage (ic={s}); it is written to node {s}, with a DC source of {s} " ++
+            "from there to {s}, which reads back as the two", .{
             name, w.g.name, try em.describe(ic), node.atom, try em.describe(ic), try em.describe(neg),
         });
         try w.leaf(a, &cap);
@@ -1733,11 +2350,24 @@ const Writer = struct {
                         .atom, .str, .expr => |x| x,
                         else => "",
                     };
-                    try w.comment(try a.print("[sprack] not written: {s}{s}{s}", .{ if (s.get("cmd") == .atom) s.get("cmd").atom else "", if (args.len > 0) " " else "", args }));
+                    try w.comment(
+                        try a.print("[sprack] not written: {s}{s}{s}", .{ if (s.get("cmd") == .atom)
+                            s.get("cmd").atom
+                        else
+                            "", if (args.len > 0) " " else "", args }),
+                    );
                     continue;
                 }
                 const name = s.get("name");
-                try w.comment(try a.print("[sprack] not written: {s}{s}{s}", .{ @tagName(s.kind), if (name == .atom) " " else "", if (name == .atom) name.atom else "" }));
+                try w.comment(
+                    try a.print(
+                        "[sprack] not written: {s}{s}{s}",
+                        .{ @tagName(s.kind), if (name == .atom)
+                            " "
+                        else
+                            "", if (name == .atom) name.atom else "" },
+                    ),
+                );
             }
             try w.bodyComments(a, s.body);
         }
@@ -1745,9 +2375,19 @@ const Writer = struct {
 
     fn unsupported(w: *Writer, a: Allocator, st: *const ir.Stmt, also: []const u8) Error!void {
         const held = bodyCount(st.body);
-        const after = if (held == 0) "" else try a.print(". The {d} statement{s} it holds {s} not written either, and {s} in the output as comments", .{
-            held, if (held == 1) "" else "s", if (held == 1) "is" else "are", if (held == 1) "is" else "are",
-        });
+        const after = if (held == 0)
+            ""
+        else
+            try a.print(". The {d} statement{s} it holds {s} not written either, and {s} in " ++
+                "the output as comments", .{
+                held,
+                if (held == 1)
+                    ""
+                else
+                    "s",
+                if (held == 1) "is" else "are",
+                if (held == 1) "is" else "are",
+            });
         const who = w.supporters(st.kind);
         const what = switch (schema.info(st.kind).class) {
             .analysis => "analysis",
@@ -1760,10 +2400,21 @@ const Writer = struct {
             })
         else
             try a.print("{s}.spgrammar defines no rule for it", .{w.g.name});
-        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: {s}{s}. Dialects that define it: {s}{s}", .{
-            what, @tagName(st.kind), w.g.name, reason, also, if (who.len > 0) who else "none", after,
+        w.report.add(.@"error", .unsupported, st.line, "{s} '{s}' cannot be written for {s}: " ++
+            "{s}{s}. Dialects that define it: {s}{s}", .{
+            what,  @tagName(st.kind), w.g.name, reason, also,
+            if (who.len > 0)
+                who
+            else
+                "none",
+            after,
         });
-        try w.comment(try a.print("[sprack] not written: {s} '{s}' has no {s} form", .{ what, @tagName(st.kind), w.g.name }));
+        try w.comment(
+            try a.print(
+                "[sprack] not written: {s} '{s}' has no {s} form",
+                .{ what, @tagName(st.kind), w.g.name },
+            ),
+        );
         try w.bodyComments(a, st.body);
     }
 
@@ -1792,7 +2443,8 @@ const Writer = struct {
     /// Does this dialect name the Verilog-A module on the instance (Xyce `Y<module>`)?
     fn namesModule(w: *const Writer) bool {
         const mi = schema.slot(.device, "module");
-        for (w.g.rules) |*r| if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) return true;
+        for (w.g.rules) |*r|
+            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) return true;
         return false;
     }
 
@@ -1800,18 +2452,39 @@ const Writer = struct {
         const mi = schema.slot(.device, "module");
         if (!w.namesModule()) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
-        const module = w.modules.get(master) orelse (if (w.env) |e| e.modules.get(master) else null) orelse return .keep;
+        const module = w.modules.get(master) orelse (if (w.env) |e|
+            e.modules.get(master)
+        else
+            null) orelse return .keep;
         const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
         const file = for (plugins) |p| {
             if (std.ascii.eqlIgnoreCase(p[0], module)) break p[1];
         } else {
-            w.report.add(.@"error", .unsupported, st.line, "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of it: build one with buildxyceplugin and name it with --provide {s}=FILE", .{ w.g.name, module, module });
-            try w.comment(try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom) st.get("name").atom else "device"}));
+            w.report.add(
+                .@"error",
+                .unsupported,
+                st.line,
+                "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of " ++
+                    "it: build one with buildxyceplugin and name it with --provide {s}=FILE",
+                .{ w.g.name, module, module },
+            );
+            try w.comment(
+                try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom)
+                    st.get("name").atom
+                else
+                    "device"}),
+            );
             return .done;
         };
         if (w.plugins_said.get(module) == null) {
             try w.plugins_said.put(w.perm, try w.perm.dupe(u8, module), {});
-            w.report.add(.warning, .caveat, st.line, "device: the Verilog-A module '{s}' is the plugin {s}: run {s} with -plugin {s}", .{ module, file, w.g.name, file });
+            w.report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "device: the Verilog-A module '{s}' is the plugin {s}: run {s} with -plugin {s}",
+                .{ module, file, w.g.name, file },
+            );
         }
         var d = st.*;
         try d.own(w.arena);
@@ -1822,16 +2495,24 @@ const Writer = struct {
         // mismatch) changes the current of IHP's rsil (#52). At 1 it is the
         // same device.
         const pi = schema.slot(.device, "params");
-        if (d.at(pi) == .params) for (d.at(pi).params, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "m")) {
-            if (p.val != .num or p.val.num.toFloat() != 1) {
-                var em = w.emitter(w.arena, st);
-                w.report.add(.@"error", .loss, st.line, "device: 'm={s}' not written: a {s} plugin has no device multiplier ($mfactor), so the module '{s}' is simulated as one device", .{ try em.describe(p.val), w.g.name, module });
-            }
-            const ps = d.at(pi).params;
-            const rest = try std.mem.concat(w.arena, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
-            try d.set(w.arena, pi, if (rest.len > 0) .{ .params = rest } else .none);
-            break;
-        };
+        if (d.at(pi) == .params)
+            for (d.at(pi).params, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "m")) {
+                if (p.val != .num or p.val.num.toFloat() != 1) {
+                    var em = w.emitter(w.arena, st);
+                    w.report.add(
+                        .@"error",
+                        .loss,
+                        st.line,
+                        "device: 'm={s}' not written: a {s} plugin has no device multiplier " ++
+                            "($mfactor), so the module '{s}' is simulated as one device",
+                        .{ try em.describe(p.val), w.g.name, module },
+                    );
+                }
+                const ps = d.at(pi).params;
+                const rest = try std.mem.concat(w.arena, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
+                try d.set(w.arena, pi, if (rest.len > 0) .{ .params = rest } else .none);
+                break;
+            };
         return .{ .stmt = d };
     }
 
@@ -1858,8 +2539,17 @@ const Writer = struct {
         const sg: ?*const Grammar = if (w.caps) |c| for (c.grammars) |*g| {
             if (std.mem.eql(u8, g.name, dialect)) break g;
         } else null else null;
-        const why = (if (sg) |g| g.ownReason(said.items) else null) orelse w.g.absentReason(.native) orelse "no other dialect has it";
-        w.report.add(.@"error", .unsupported, st.line, "'{s}' is a {s} statement and cannot be written for {s}: {s}", .{ said.items, dialect, w.g.name, why });
+        const why = (if (sg) |g|
+            g.ownReason(said.items)
+        else
+            null) orelse w.g.absentReason(.native) orelse "no other dialect has it";
+        w.report.add(
+            .@"error",
+            .unsupported,
+            st.line,
+            "'{s}' is a {s} statement and cannot be written for {s}: {s}",
+            .{ said.items, dialect, w.g.name, why },
+        );
         try w.comment(try w.arena.print("[sprack] not written: {s}", .{said.items}));
     }
 
@@ -1870,7 +2560,14 @@ const Writer = struct {
         if (st.kind == .script and !w.g.canWrite(.script) and for (st.body) |c| {
             if (c.kind != .simctl and c.kind != .comment) break true;
         } else false) {
-            w.report.add(.info, .oneway, st.line, "script: {s} has no control script; the {s} script's analyses and outputs are written as the netlist's own, in order", .{ w.g.name, w.sourceOf(st) });
+            w.report.add(
+                .info,
+                .oneway,
+                st.line,
+                "script: {s} has no control script; the {s} script's analyses and outputs are " ++
+                    "written as the netlist's own, in order",
+                .{ w.g.name, w.sourceOf(st) },
+            );
             for (st.body) |*child| try w.stmt(child);
             return;
         }
@@ -1900,16 +2597,26 @@ const Writer = struct {
         } else {
             // Elsewhere: this grammar's reason, or the embedding dialect's.
             var why: ?[]const u8 = w.g.absentReason(.embed);
-            if (why == null) if (w.caps) |c| for (c.grammars) |*sg| if (sg.rawOf(.embed)) |rb| if (rb.reason.len > 0) {
-                why = rb.reason;
-            };
+            if (why == null)
+                if (w.caps) |c|
+                    for (c.grammars) |*sg| if (sg.rawOf(.embed)) |rb| if (rb.reason.len > 0) {
+                        why = rb.reason;
+                    };
             if (why) |reason| {
                 const path: []const u8 = switch (st.get("path")) {
                     .str, .atom => |x| x,
                     else => "",
                 };
-                w.report.add(.@"error", .unsupported, st.line, "embed: the file '{s}' cannot be written for {s}: {s}", .{ path, w.g.name, reason });
-                return w.comment(try w.arena.print("[sprack] not written: the embedded file {s}", .{path}));
+                w.report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "embed: the file '{s}' cannot be written for {s}: {s}",
+                    .{ path, w.g.name, reason },
+                );
+                return w.comment(
+                    try w.arena.print("[sprack] not written: the embedded file {s}", .{path}),
+                );
             }
         };
         // A command of one simulator's control language is no command of
@@ -1921,14 +2628,34 @@ const Writer = struct {
                 .atom, .str, .expr => |x| x,
                 else => "",
             };
-            const said = try w.arena.print("{s}{s}{s}", .{ cmd, if (args.len > 0) " " else "", args });
-            for ([_][]const u8{ "run", "quit", "exit", "reset", "destroy", "remcirc" }) |q| if (std.ascii.eqlIgnoreCase(cmd, q)) {
-                w.report.add(.info, .loss, st.line, "simctl: '{s}' is not written: a netlist for {s} runs its analyses without it", .{ said, w.g.name });
-                return;
-            };
+            const said = try w.arena.print("{s}{s}{s}", .{ cmd, if (args.len > 0)
+                " "
+            else
+                "", args });
+            for ([_][]const u8{ "run", "quit", "exit", "reset", "destroy", "remcirc" }) |q|
+                if (std.ascii.eqlIgnoreCase(cmd, q)) {
+                    w.report.add(
+                        .info,
+                        .loss,
+                        st.line,
+                        "simctl: '{s}' is not written: a netlist for {s} runs its analyses " ++
+                            "without it",
+                        .{ said, w.g.name },
+                    );
+                    return;
+                };
             if (w.g.absentReason(.simctl)) |why| {
-                w.report.add(.@"error", .unsupported, st.line, "simctl: '{s}' is a command of {s}'s control language and cannot be written for {s}: {s}", .{ said, w.sourceOf(st), w.g.name, why });
-            } else w.report.add(.@"error", .unsupported, st.line, "simctl: '{s}' is a command of {s}'s control language; {s} has no form for it (post-processing stays with {s})", .{ said, w.sourceOf(st), w.g.name, w.sourceOf(st) });
+                w.report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "simctl: '{s}' is a command of {s}'s control language and cannot be " ++
+                        "written for {s}: {s}",
+                    .{ said, w.sourceOf(st), w.g.name, why },
+                );
+            } else w.report.add(.@"error", .unsupported, st.line, "simctl: '{s}' is a command " ++
+                "of {s}'s control language; {s} has no form for it (post-processing stays " ++
+                "with {s})", .{ said, w.sourceOf(st), w.g.name, w.sourceOf(st) });
             return w.comment(try w.arena.print("[sprack] not written: {s}", .{said}));
         }
         if (try w.hoistParams(st)) |h| return w.stmt(&h);
@@ -1948,23 +2675,53 @@ const Writer = struct {
         // One of the subcircuits `split` writes: written as it is.
         const variant = w.variant;
         w.variant = false;
-        if (st.kind == .subckt and !w.g.canWrite(.cond_if) and !variant) switch (try cond.split(w.arena, st, expr.choiceForm(w.g), &w.declared, try w.knownSplits(w.arena))) {
-            .none => {},
-            .refused => |why| w.unsplit = why,
-            .clash => |name| w.unsplit = try std.fmt.allocPrint(w.arena, "'{s}', the name one of them would take, is already declared", .{name}),
-            .variants => |v| return w.split(st, &v),
-        };
+        if (st.kind == .subckt and !w.g.canWrite(.cond_if) and !variant)
+            switch (try cond.split(
+                w.arena,
+                st,
+                expr.choiceForm(w.g),
+                &w.declared,
+                try w.knownSplits(w.arena),
+            )) {
+                .none => {},
+                .refused => |why| w.unsplit = why,
+                .clash => |name| w.unsplit = try std.fmt.allocPrint(
+                    w.arena,
+                    "'{s}', the name one of them would take, is already declared",
+                    .{name},
+                ),
+                .variants => |v| return w.split(st, &v),
+            };
         if (st.kind == .cond_if and !w.g.canWrite(.cond_if)) {
             var also: []const u8 = "";
             if (expr.choiceForm(w.g)) |form| switch (try cond.merge(w.arena, st, form)) {
                 .merged => |stmts| {
-                    w.report.add(.info, .oneway, st.line, "cond_if: {s} has no conditional blocks; every branch holds the same statements, so they are written once, each value that differs as a choice between the branches' values by their conditions; it reads back as those statements, not as a block", .{w.g.name});
+                    w.report.add(
+                        .info,
+                        .oneway,
+                        st.line,
+                        "cond_if: {s} has no conditional blocks; every branch holds the same " ++
+                            "statements, so they are written once, each value that differs as " ++
+                            "a choice between the branches' values by their conditions; it " ++
+                            "reads back as those statements, not as a block",
+                        .{w.g.name},
+                    );
                     for (stmts) |*s| try w.stmt(s);
                     return;
                 },
-                .refused => |why| also = try std.fmt.allocPrint(w.arena, ", and this block is not the same statements with other values in every branch: {s}", .{why}),
+                .refused => |why| also = try std.fmt.allocPrint(
+                    w.arena,
+                    ", and this block is not the same statements with other values in every " ++
+                        "branch: {s}",
+                    .{why},
+                ),
             };
-            if (w.unsplit.len > 0) also = try std.fmt.allocPrint(w.arena, "{s}; nor is its subcircuit written once for each branch: {s}", .{ also, w.unsplit });
+            if (w.unsplit.len > 0)
+                also = try std.fmt.allocPrint(
+                    w.arena,
+                    "{s}; nor is its subcircuit written once for each branch: {s}",
+                    .{ also, w.unsplit },
+                );
             return w.unsupported(w.arena, st, also);
         }
         // A block kind this dialect has only a rule for: the rule says the
@@ -1974,7 +2731,9 @@ const Writer = struct {
         if (st.body.len > 0 and w.g.blockOf(st.kind) == null and w.g.canWrite(st.kind)) {
             // Only a kind with lines of its own (a word starts its endings:
             // `.temp`) may be such a line; HSPICE's Monte Carlo has none.
-            if (w.g.isSpread(st.kind) and !(st == w.sole and w.g.spreadWord(st.kind) != null and try w.fits(st))) return w.spread(st);
+            if (w.g.isSpread(st.kind) and
+                !(st == w.sole and w.g.spreadWord(st.kind) != null and try w.fits(st)))
+                return w.spread(st);
             var head = st.*;
             head.body = &.{};
             try w.stmt(&head);
@@ -1997,17 +2756,39 @@ const Writer = struct {
                     const v = st.at(k);
                     if (sl.ty != .atom or v != .atom) continue;
                     const why = for (w.g.caveats) |c| {
-                        if (c.kind == st.kind and c.slot == k and c.suffix.len > 0 and std.ascii.endsWithIgnoreCase(v.atom, c.suffix)) break c.text;
+                        if (c.kind == st.kind and c.slot == k and c.suffix.len > 0 and
+                            std.ascii.endsWithIgnoreCase(
+                                v.atom,
+                                c.suffix,
+                            )) break c.text;
                     } else continue;
                     const held = bodyCount(st.body);
-                    w.report.add(.@"error", .unsupported, st.line, "{s} {s}={s} cannot be written for {s}: {s}. The {d} statement{s} it holds {s} not written either, and {s} in the output as comments", .{
-                        @tagName(st.kind), sl.name, v.atom, w.g.name, why, held, if (held == 1) "" else "s", if (held == 1) "is" else "are", if (held == 1) "is" else "are",
+                    w.report.add(.@"error", .unsupported, st.line, "{s} {s}={s} cannot be " ++
+                        "written for {s}: {s}. The {d} statement{s} it holds {s} not written " ++
+                        "either, and {s} in the output as comments", .{
+                        @tagName(st.kind),              sl.name,                        v.atom, w.g.name, why, held,
+                        if (held == 1)
+                            ""
+                        else
+                            "s",
+                        if (held == 1) "is" else "are", if (held == 1) "is" else "are",
                     });
-                    try w.comment(try w.arena.print("[sprack] not written: {s} {s}={s}", .{ @tagName(st.kind), sl.name, v.atom }));
+                    try w.comment(
+                        try w.arena.print(
+                            "[sprack] not written: {s} {s}={s}",
+                            .{ @tagName(st.kind), sl.name, v.atom },
+                        ),
+                    );
                     try w.bodyComments(w.arena, st.body);
                     return;
                 }
-                w.report.add(.@"error", .invalid, st.line, "{s}: required values missing for the {s} form", .{ @tagName(st.kind), w.g.name });
+                w.report.add(
+                    .@"error",
+                    .invalid,
+                    st.line,
+                    "{s}: required values missing for the {s} form",
+                    .{ @tagName(st.kind), w.g.name },
+                );
                 return;
             }
             try w.lineTail(e.buf.items, st.tail);
@@ -2035,7 +2816,8 @@ const Writer = struct {
         // (`.step`): what it sweeps follows it.
         // Not where the sweep itself has no form: its statements were said
         // to be left out with it.
-        if (schema.info(st.kind).class == .analysis and w.g.canWrite(st.kind)) for (st.body) |*child| try w.stmt(child);
+        if (schema.info(st.kind).class == .analysis and w.g.canWrite(st.kind))
+            for (st.body) |*child| try w.stmt(child);
     }
 
     /// The subcircuit `st` once for each of `v`, a comment above each
@@ -2043,16 +2825,30 @@ const Writer = struct {
     fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void {
         const name = st.get("name").atom;
         var listed: std.ArrayList(u8) = .empty;
-        for (v.list, 0..) |x, i| try listed.print(w.arena, "{s}'{s}' where {s}", .{ if (i > 0) ", " else "", x.name, x.cond });
-        w.report.add(.info, .oneway, v.line, "subckt '{s}': {s} has no conditional blocks, so the subcircuit is written once for each branch of the {s} {d}: {s}; an instance is written with the one its parameters select; it reads back as {d} subcircuits", .{
-            name, w.g.name, if (v.more) "blocks from line" else "block at line", v.line, listed.items, v.list.len,
+        for (v.list, 0..) |x, i|
+            try listed.print(w.arena, "{s}'{s}' where {s}", .{ if (i > 0)
+                ", "
+            else
+                "", x.name, x.cond });
+        w.report.add(.info, .oneway, v.line, "subckt '{s}': {s} has no conditional blocks, so " ++
+            "the subcircuit is written once for each branch of the {s} {d}: {s}; an instance " ++
+            "is written with the one its parameters select; it reads back as {d} subcircuits", .{
+            name,       w.g.name,
+            if (v.more)
+                "blocks from line"
+            else
+                "block at line",
+            v.line,     listed.items,
+            v.list.len,
         });
         // A statement outside the blocks is in every one of them: what it
         // reports is said once.
         var said: std.StringHashMapUnmanaged(void) = .empty;
         var new: std.ArrayList([]const u8) = .empty;
         for (v.list) |x| {
-            try w.comment(try std.fmt.allocPrint(w.arena, "[sprack] '{s}' where {s}", .{ name, x.cond }));
+            try w.comment(
+                try std.fmt.allocPrint(w.arena, "[sprack] '{s}' where {s}", .{ name, x.cond }),
+            );
             var one = st.*;
             try one.own(w.arena);
             try one.set(w.arena, schema.slot(.subckt, "name"), .{ .atom = x.name });
@@ -2062,7 +2858,11 @@ const Writer = struct {
             try w.stmt(&one);
             var kept = from;
             for (w.report.items.items[from..]) |d| {
-                const key = try std.fmt.allocPrint(w.arena, "{d} {s} {s}", .{ d.line, @tagName(d.code), d.msg });
+                const key = try std.fmt.allocPrint(
+                    w.arena,
+                    "{d} {s} {s}",
+                    .{ d.line, @tagName(d.code), d.msg },
+                );
                 if (said.contains(key)) continue;
                 try new.append(w.arena, key);
                 w.report.items.items[kept] = d;
@@ -2078,8 +2878,12 @@ const Writer = struct {
     /// read declares.
     fn foreignInstance(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!?*const ir.Stmt {
         for (stmts) |*s| {
-            if (s.kind == .instance and s.get("master") == .atom and s.get("params") == .params and s.get("name") == .atom) {
-                if (!w.declared.contains(try std.ascii.allocLowerString(w.arena, s.get("master").atom))) return s;
+            if (s.kind == .instance and s.get("master") == .atom and s.get("params") == .params and
+                s.get("name") == .atom)
+            {
+                if (!w.declared.contains(
+                    try std.ascii.allocLowerString(w.arena, s.get("master").atom),
+                )) return s;
             }
             if (try w.foreignInstance(s.body)) |x| return x;
         }
@@ -2089,7 +2893,9 @@ const Writer = struct {
     /// The subcircuits noted so far as written once for each branch.
     fn knownSplits(w: *Writer, a: Allocator) Allocator.Error![]const cond.Known {
         var out: std.ArrayList(cond.Known) = .empty;
-        for (w.splits.items) |*sp| if (sp.split == .variants) try out.append(a, .{ .name = sp.name, .variants = &sp.split.variants });
+        for (w.splits.items) |*sp|
+            if (sp.split == .variants)
+                try out.append(a, .{ .name = sp.name, .variants = &sp.split.variants });
         return out.items;
     }
 
@@ -2101,8 +2907,15 @@ const Writer = struct {
         var n: usize = 0;
         for (stmts) |*s| {
             if (s.kind == .subckt and s.get("name") == .atom) noted: {
-                for (w.splits.items) |sp| if (std.ascii.eqlIgnoreCase(sp.name, s.get("name").atom)) break :noted;
-                const sp = try cond.split(w.perm, s, expr.choiceForm(w.g), &w.declared, try w.knownSplits(w.perm));
+                for (w.splits.items) |sp|
+                    if (std.ascii.eqlIgnoreCase(sp.name, s.get("name").atom)) break :noted;
+                const sp = try cond.split(
+                    w.perm,
+                    s,
+                    expr.choiceForm(w.g),
+                    &w.declared,
+                    try w.knownSplits(w.perm),
+                );
                 if (sp == .variants or sp == .clash) {
                     try w.splits.append(w.perm, .{ .name = s.get("name").atom, .split = sp });
                     n += 1;
@@ -2134,18 +2947,44 @@ const Writer = struct {
             if (!std.ascii.eqlIgnoreCase(sp.name, master)) continue;
             var stop: []const u8 = "";
             const pick = switch (sp.split) {
-                .variants => |*v| try cond.choose(a, v, if (st.get("params") == .params) st.get("params").params else &.{}, &stop) orelse {
-                    w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' is written once for each branch of its conditional block, and which of them this instance is depends on parameter '{s}', which is not a number here", .{ st.get("name").atom, master, stop });
+                .variants => |*v| try cond.choose(a, v, if (st.get("params") == .params)
+                    st.get("params").params
+                else
+                    &.{}, &stop) orelse {
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "instance '{s}': subcircuit '{s}' is written once for each branch of " ++
+                            "its conditional block, and which of them this instance is " ++
+                            "depends on parameter '{s}', which is not a number here",
+                        .{ st.get("name").atom, master, stop },
+                    );
                     return null;
                 },
                 .clash => |taken| {
-                    w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' holds a conditional block, which {s} has not, and is not written once for each branch: '{s}', the name one of them would take, is already declared", .{ st.get("name").atom, master, w.g.name, taken });
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "instance '{s}': subcircuit '{s}' holds a conditional block, which " ++
+                            "{s} has not, and is not written once for each branch: '{s}', the " ++
+                            "name one of them would take, is already declared",
+                        .{ st.get("name").atom, master, w.g.name, taken },
+                    );
                     return null;
                 },
                 else => unreachable,
             };
             if (name) |other| if (!std.mem.eql(u8, other, pick)) {
-                w.report.add(.@"error", .unsupported, st.line, "instance '{s}': subcircuit '{s}' is declared more than once, and this instance is '{s}' by one declaration, '{s}' by another", .{ st.get("name").atom, master, other, pick });
+                w.report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "instance '{s}': subcircuit '{s}' is declared more than once, and this " ++
+                        "instance is '{s}' by one declaration, '{s}' by another",
+                    .{ st.get("name").atom, master, other, pick },
+                );
                 return null;
             };
             name = pick;
@@ -2168,8 +3007,22 @@ const Writer = struct {
         const st = step orelse return;
         // HSPICE's .TEMP list in a deck with no analysis: nothing to repeat.
         if (st.body.len == 0 and !std.mem.eql(u8, w.sourceOf(st), w.g.name))
-            w.report.add(.@"error", .invalid, st.line, "step: the netlist has no analysis for the {s} sweep to repeat", .{w.g.name});
-        if (outside and !w.g.isSpread(.step)) w.report.add(.@"error", .invalid, st.line, "step: a {s} sweep applies to every analysis of the netlist; this one leaves some out", .{w.g.name});
+            w.report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "step: the netlist has no analysis for the {s} sweep to repeat",
+                .{w.g.name},
+            );
+        if (outside and !w.g.isSpread(.step))
+            w.report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "step: a {s} sweep applies to every analysis of the netlist; this one leaves " ++
+                    "some out",
+                .{w.g.name},
+            );
     }
 
     /// What `stmt` writes for `st`, as text.
@@ -2203,7 +3056,8 @@ const Writer = struct {
     /// A rule for the kind where the writer is (inside a block whose lines
     /// have rules of their own, those).
     fn canWriteHere(w: *const Writer, kind: Kind) bool {
-        for (w.g.rules) |*r| if (r.kind == kind and r.dir != .read and w.g.ruleHere(r, w.within)) return true;
+        for (w.g.rules) |*r|
+            if (r.kind == kind and r.dir != .read and w.g.ruleHere(r, w.within)) return true;
         return w.g.blockOf(kind) != null;
     }
 
@@ -2252,7 +3106,13 @@ const Writer = struct {
         }
         var e = w.emitter(a, &head);
         if (!try e.seq(b.open)) {
-            w.report.add(.@"error", .invalid, st.line, "model: required values missing for the {s} form", .{w.g.name});
+            w.report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "model: required values missing for the {s} form",
+                .{w.g.name},
+            );
             return;
         }
         try w.lineTail(e.buf.items, st.tail);
@@ -2285,21 +3145,55 @@ const Writer = struct {
                 if (!std.mem.eql(u8, sg.name, w.sourceOf(st))) continue;
                 if (sg.ownReason(st.raw)) |why| {
                     const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
-                    w.report.add(.@"error", .unsupported, st.line, "'{s}'{s} cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" and the {d} line{s} after it", .{ more, if (more == 1) "" else "s" }), w.g.name, why });
-                    return w.comment(try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}));
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "'{s}'{s} cannot be written for {s}: {s}",
+                        .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0)
+                            ""
+                        else
+                            try a.print(" and the {d} line{s} after " ++
+                                "it", .{ more, if (more == 1) "" else "s" }), w.g.name, why },
+                    );
+                    return w.comment(
+                        try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}),
+                    );
                 }
                 for (sg.raws) |rb| {
                     if (rb.reason.len == 0 or !std.mem.startsWith(u8, st.raw, rb.open)) continue;
                     const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
-                    w.report.add(.@"error", .unsupported, st.line, "'{s}'{s} cannot be written for {s}: {s}", .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" and the {d} line{s} after it", .{ more, if (more == 1) "" else "s" }), w.g.name, rb.reason });
-                    return w.comment(try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}));
+                    w.report.add(
+                        .@"error",
+                        .unsupported,
+                        st.line,
+                        "'{s}'{s} cannot be written for {s}: {s}",
+                        .{ std.mem.sliceTo(st.raw, '\n'), if (more == 0)
+                            ""
+                        else
+                            try a.print(" and the {d} line{s} after " ++
+                                "it", .{ more, if (more == 1) "" else "s" }), w.g.name, rb.reason },
+                    );
+                    return w.comment(
+                        try a.print("[sprack] not written: {s}", .{std.mem.sliceTo(st.raw, '\n')}),
+                    );
                 }
             };
             const more = std.mem.count(u8, std.mem.trimEnd(u8, st.raw, "\n"), "\n");
-            w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this line; it is in the output only as a comment: {s}{s}", .{
-                w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'), if (more == 0) "" else try a.print(" (and {d} more line{s} of it)", .{ more, if (more == 1) "" else "s" }),
+            w.report.add(.@"error", .untranslated, st.line, "no {s} rule understood this " ++
+                "line; it is in the output only as a comment: {s}{s}", .{
+                w.sourceOf(st), std.mem.sliceTo(st.raw, '\n'),
+                if (more == 0)
+                    ""
+                else
+                    try a.print(" (and {d} more line{s} of it)", .{ more, if (more == 1)
+                        ""
+                    else
+                        "s" }),
             });
-            return w.comment(try a.print("[sprack] untranslated {s}: {s}", .{ w.sourceOf(st), st.raw }));
+            return w.comment(
+                try a.print("[sprack] untranslated {s}: {s}", .{ w.sourceOf(st), st.raw }),
+            );
         }
         const class = schema.info(st.kind).class;
         if (class == .control) {
@@ -2319,12 +3213,22 @@ const Writer = struct {
         // A grammar loaded at run time, or JSON, can give a model or a
         // device no name; everything below names it in its messages.
         if ((class == .device or st.kind == .model) and st.get("name") != .atom) {
-            w.report.add(.@"error", .invalid, st.line, "{s}: a statement without a name cannot be written", .{@tagName(st.kind)});
+            w.report.add(
+                .@"error",
+                .invalid,
+                st.line,
+                "{s}: a statement without a name cannot be written",
+                .{@tagName(st.kind)},
+            );
             return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
         }
         var chosen: ir.Stmt = undefined;
-        if (st.kind == .instance and w.splits.items.len > 0 and st.get("master") == .atom and st.raw.ptr != cond.chosen.ptr) {
-            const name = try w.variantOf(a, st) orelse return w.comment(try a.print("[sprack] not written: instance '{s}'", .{st.get("name").atom}));
+        if (st.kind == .instance and w.splits.items.len > 0 and st.get("master") == .atom and
+            st.raw.ptr != cond.chosen.ptr)
+        {
+            const name = try w.variantOf(a, st) orelse return w.comment(
+                try a.print("[sprack] not written: instance '{s}'", .{st.get("name").atom}),
+            );
             if (!std.ascii.eqlIgnoreCase(name, st.get("master").atom)) {
                 chosen = st.*;
                 try chosen.own(a);
@@ -2341,7 +3245,9 @@ const Writer = struct {
                 error.Skip => return,
                 else => |e| return e,
             };
-            mapped = m orelse return w.comment(try a.print("[sprack] not written: model '{s}'", .{st.get("name").atom}));
+            mapped = m orelse return w.comment(
+                try a.print("[sprack] not written: model '{s}'", .{st.get("name").atom}),
+            );
             st = &mapped;
         }
         var checked: ir.Stmt = undefined;
@@ -2356,12 +3262,23 @@ const Writer = struct {
                     if (w.g.canWrite(.instance)) {
                         // Written as an instance of its model: with no card for
                         // it in any file read, it reads back as a subcircuit's.
-                        if (st.get("master") == .atom and !std.mem.eql(u8, w.sourceOf(st), w.g.name)) {
+                        if (st.get("master") == .atom and !std.mem.eql(
+                            u8,
+                            w.sourceOf(st),
+                            w.g.name,
+                        )) {
                             const m = st.get("master").atom;
-                            const known = w.declared.contains(try std.ascii.allocLowerString(a, m)) or w.families.contains(m);
-                            if (!known) w.report.add(.warning, .ambiguous, st.line, "{s} '{s}': its model '{s}' is declared in no file read; {s} tells a {s} from a subcircuit instance only by its model, so it reads back as an instance of '{s}'", .{
-                                @tagName(st.kind), st.get("name").atom, m, w.g.name, @tagName(st.kind), m,
-                            });
+                            const known = w.declared.contains(try std.ascii.allocLowerString(
+                                a,
+                                m,
+                            )) or w.families.contains(m);
+                            if (!known)
+                                w.report.add(.warning, .ambiguous, st.line, "{s} '{s}': its " ++
+                                    "model '{s}' is declared in no file read; {s} tells a {s} " ++
+                                    "from a subcircuit instance only by its model, so it " ++
+                                    "reads back as an instance of '{s}'", .{
+                                    @tagName(st.kind), st.get("name").atom, m, w.g.name, @tagName(st.kind), m,
+                                });
                         }
                         w.ordinals[@backingInt(st.kind)] -= 1;
                         return w.leaf(a, &inst);
@@ -2375,7 +3292,10 @@ const Writer = struct {
         var best_loss: usize = std.math.maxInt(usize);
         var best_renames: usize = 0;
         var why: []const u8 = "";
-        const fam: []const u8 = if (st.get("master") == .atom) w.familyOf(st.get("master").atom) else "";
+        const fam: []const u8 = if (st.get("master") == .atom)
+            w.familyOf(st.get("master").atom)
+        else
+            "";
         // A model this file does not declare: the plain forms first, then
         // any form at all rather than none.
         // The first form tried is written for real, what it reports
@@ -2394,7 +3314,8 @@ const Writer = struct {
                 if (!w.g.ruleHere(rule, w.within)) continue;
                 if (spreads and w.g.isEnding(rule) != w.ending) continue;
                 if (rule.family.len > 0 and !std.mem.eql(u8, rule.family, fam) and !loose) {
-                    if (why.len == 0 and fam.len > 0) why = try a.print("a model of family '{s}'", .{fam});
+                    if (why.len == 0 and fam.len > 0)
+                        why = try a.print("a model of family '{s}'", .{fam});
                     continue;
                 }
                 var e = w.emitter(a, st);
@@ -2432,13 +3353,31 @@ const Writer = struct {
             for (0..schema.info(st.kind).slots.len) |i| {
                 if (st.at(i) == .none) continue;
                 const absent = w.g.slotAbsentReason(st.kind, @intCast(i)) orelse continue;
-                w.report.add(.@"error", .unsupported, st.line, "{s}.{s}: {s}", .{ @tagName(st.kind), schema.info(st.kind).slots[i].name, absent });
+                w.report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "{s}.{s}: {s}",
+                    .{ @tagName(st.kind), schema.info(st.kind).slots[i].name, absent },
+                );
                 return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
             }
             if (why.len > 0) {
-                w.report.add(.@"error", .unsupported, st.line, "{s}: no {s} form of this statement can say {s}", .{ @tagName(st.kind), w.g.name, why });
+                w.report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "{s}: no {s} form of this statement can say {s}",
+                    .{ @tagName(st.kind), w.g.name, why },
+                );
             } else {
-                w.report.add(.@"error", .invalid, st.line, "{s}: the values given do not fit any {s} form of this statement", .{ @tagName(st.kind), w.g.name });
+                w.report.add(
+                    .@"error",
+                    .invalid,
+                    st.line,
+                    "{s}: the values given do not fit any {s} form of this statement",
+                    .{ @tagName(st.kind), w.g.name },
+                );
             }
             return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
         };
@@ -2455,13 +3394,26 @@ const Writer = struct {
         if (st.kind == .options and e.used == 0) return e.reportLosses();
         try w.lineTail(std.mem.trimEnd(u8, e.buf.items, "\n"), st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
-            w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });
+            w.report.add(
+                .info,
+                .oneway,
+                st.line,
+                "{s}: written in a form the {s} grammar does not read back as a {s}",
+                .{ @tagName(st.kind), w.g.name, @tagName(st.kind) },
+            );
         } else if (e.dropped != 0 and (rule.dir != .write or w.g.canRead(st.kind))) {
             // Left out on purpose (`-slot`, its caveat says why): it reads
             // back without it.
-            for (0..@min(schema.info(st.kind).slots.len, 64)) |i| if (e.dropped & (@as(u64, 1) << @intCast(i)) != 0) {
-                w.report.add(.info, .loss, st.line, "{s}.{s} is not written, so it reads back without it", .{ @tagName(st.kind), schema.info(st.kind).slots[i].name });
-            };
+            for (0..@min(schema.info(st.kind).slots.len, 64)) |i|
+                if (e.dropped & (@as(u64, 1) << @intCast(i)) != 0) {
+                    w.report.add(
+                        .info,
+                        .loss,
+                        st.line,
+                        "{s}.{s} is not written, so it reads back without it",
+                        .{ @tagName(st.kind), schema.info(st.kind).slots[i].name },
+                    );
+                };
         }
         if (class == .control) {
             // What one statement cannot hold, further statements may:
@@ -2500,24 +3452,44 @@ const Writer = struct {
                 if (w.refs) |r| {
                     if (r.found.contains(st.at(i).atom)) continue;
                 } else if (w.instances.contains(st.at(i).atom)) continue;
-                w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a device in this netlist; if {s} means a parameter by it, {s} has to be told so in its own way", .{
+                w.report.add(.@"error", .invalid, st.line, "{s}.{s} = {s} does not name a " ++
+                    "device in this netlist; if {s} means a parameter by it, {s} has to be " ++
+                    "told so in its own way", .{
                     @tagName(st.kind), sl.name, st.at(i).atom, w.sourceOf(st), w.g.name,
                 });
                 // A device of the name may still come.
-                if (w.refs) |r| try r.pending.append(w.perm, .{ .at = w.report.items.items.len - 1, .name = try w.perm.dupe(u8, st.at(i).atom) });
+                if (w.refs) |r|
+                    try r.pending.append(
+                        w.perm,
+                        .{
+                            .at = w.report.items.items.len - 1,
+                            .name = try w.perm.dupe(u8, st.at(i).atom),
+                        },
+                    );
             }
         }
         if (e.foreign and w.g.lex.ident_values and (st.kind == .resistor or st.kind == .capacitor)) {
             const master = st.get("master");
             const value = st.at(3);
-            if (master == .atom and value == .none and !w.declared.contains(try std.ascii.allocLowerString(a, master.atom))) {
-                w.report.add(.warning, .ambiguous, st.line, "'{s}' on {s} is a model name in {s}, but no model of that name is declared here; {s} will read it as a parameter", .{
+            if (master == .atom and value == .none and !w.declared.contains(
+                try std.ascii.allocLowerString(a, master.atom),
+            )) {
+                w.report.add(.warning, .ambiguous, st.line, "'{s}' on {s} is a model name in " ++
+                    "{s}, but no model of that name is declared here; {s} will read it as a " ++
+                    "parameter", .{
                     master.atom, st.get("name").atom, w.sourceOf(st), w.g.name,
                 });
             }
         }
         if (e.foreign and (st.kind == .include or st.kind == .lib or st.kind == .hdl)) {
-            w.report.add(.warning, .caveat, st.line, "{s} is still {s} syntax; translate that file too (`sprack project` follows includes)", .{ try e.describe(st.get("path")), w.sourceOf(st) });
+            w.report.add(
+                .warning,
+                .caveat,
+                st.line,
+                "{s} is still {s} syntax; translate that file too (`sprack project` follows " ++
+                    "includes)",
+                .{ try e.describe(st.get("path")), w.sourceOf(st) },
+            );
         }
     }
 
@@ -2527,7 +3499,11 @@ const Writer = struct {
     /// analysis: it acts on nothing.
     fn actsOnNothing(w: *const Writer, mv: grammar.Move, stmts: []const ir.Stmt) bool {
         if (mv.from != .options or schema.info(mv.to).class != .analysis) return false;
-        for (w.g.moves) |o| if (o.from == mv.from and o.from_slot == mv.from_slot and ir.countStmts(stmts, o.to) > 0) return false;
+        for (w.g.moves) |o|
+            if (o.from == mv.from and o.from_slot == mv.from_slot and ir.countStmts(
+                stmts,
+                o.to,
+            ) > 0) return false;
         return true;
     }
 
@@ -2551,7 +3527,12 @@ const Writer = struct {
     /// something else there. A slot `before`'s own line already says
     /// something about (the source dialect's, checked after) is said once,
     /// in the source's words.
-    fn check(w: *Writer, g: *const Grammar, stmts: []const ir.Stmt, before: ?*const Grammar) Allocator.Error!void {
+    fn check(
+        w: *Writer,
+        g: *const Grammar,
+        stmts: []const ir.Stmt,
+        before: ?*const Grammar,
+    ) Allocator.Error!void {
         for (stmts) |*st| {
             try w.check(g, st.body, before);
             next: for (g.checks) |ck| {
@@ -2562,7 +3543,12 @@ const Writer = struct {
                 const v = st.at(ck.slot);
                 const zero = v == .num and v.num.toFloat() == 0;
                 w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s}", .{
-                    @tagName(st.kind), schema.info(st.kind).slots[ck.slot].name, if (zero) "is 0" else "is not given", ck.text,
+                    @tagName(st.kind), schema.info(st.kind).slots[ck.slot].name,
+                    if (zero)
+                        "is 0"
+                    else
+                        "is not given",
+                    ck.text,
                 });
             }
         }
@@ -2616,7 +3602,8 @@ const Writer = struct {
                 try cur.set(w.arena, f.slot, from);
                 changed = true;
                 var em = w.emitter(w.arena, st);
-                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means the {s}.{s} by that, and {s} needs it said; wrote {s}", .{
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means the " ++
+                    "{s}.{s} by that, and {s} needs it said; wrote {s}", .{
                     @tagName(f.kind),                           sl[f.slot].name,
                     if (v != .none) "is 0" else "is not given", w.sourceOf(st),
                     @tagName(f.from),                           schema.info(f.from).slots[f.from_slot].name,
@@ -2636,7 +3623,13 @@ const Writer = struct {
     /// out where this dialect means another by leaving it out (or says
     /// nothing), and a zero this dialect reads as left out is written as
     /// the line's `zero` value, or cannot be said.
-    fn omitted(w: *Writer, sg: ?*const Grammar, st: *const ir.Stmt, cur: *ir.Stmt, all: []const ir.Stmt) Allocator.Error!bool {
+    fn omitted(
+        w: *Writer,
+        sg: ?*const Grammar,
+        st: *const ir.Stmt,
+        cur: *ir.Stmt,
+        all: []const ir.Stmt,
+    ) Allocator.Error!bool {
         var changed = false;
         const sl = schema.info(st.kind).slots;
         if (sg) |s| for (s.omitted) |*o| {
@@ -2644,7 +3637,11 @@ const Writer = struct {
             const v = st.at(o.slot);
             if (v != .none and !(o.zero and isZero(v))) continue;
             if (omittedLine(w.g, st, o.slot)) |t| {
-                if (std.mem.eql(u8, t.text, o.text) and t.given == o.given and (v == .none or t.zero)) continue;
+                if (std.mem.eql(
+                    u8,
+                    t.text,
+                    o.text,
+                ) and t.given == o.given and (v == .none or t.zero)) continue;
             }
             // Without the slot the formula holds for, the value plays no
             // part (no fall within the run). A target that cannot leave it
@@ -2654,12 +3651,19 @@ const Writer = struct {
                 if (!w.g.checksSlot(st.kind, o.slot)) continue;
                 // A run with no step (Spectre's `tran stop=`): a hundredth of it.
                 const step = firstValue(all, .tran, schema.slot(.tran, "step")) orelse
-                    try expr.arith(w.arena, .div, firstValue(all, .tran, schema.slot(.tran, "stop")) orelse continue, .{ .num = .init("100", 0) });
+                    try expr.arith(
+                        w.arena,
+                        .div,
+                        firstValue(all, .tran, schema.slot(.tran, "stop")) orelse continue,
+                        .{ .num = .init("100", 0) },
+                    );
                 try cur.own(w.arena);
                 try cur.set(w.arena, o.slot, step);
                 changed = true;
                 var em = w.emitter(w.arena, st);
-                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is not given: without {s}.{s} {s} means it plays no part within the run, and {s} needs it said; wrote {s}, which changes nothing before the stop", .{
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is not given: without " ++
+                    "{s}.{s} {s} means it plays no part within the run, and {s} needs it " ++
+                    "said; wrote {s}, which changes nothing before the stop", .{
                     @tagName(st.kind), sl[o.slot].name, @tagName(st.kind), sl[o.given].name, s.name, w.g.name, try em.describe(step),
                 });
                 continue;
@@ -2667,17 +3671,32 @@ const Writer = struct {
             const what = try omittedPhrase(w.arena, o);
             var missing: ?Kind = null;
             const val = (try w.omittedValue(s, st, o, all, &missing, 0)) orelse {
-                if (missing) |k| w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s} means {s} by that and {s} does not, and this netlist has no {s} to take it from", .{
-                    @tagName(st.kind), sl[o.slot].name, if (v != .none) "is 0" else "is not given", s.name, what, w.g.name, @tagName(k),
-                });
+                if (missing) |k|
+                    w.report.add(.@"error", .invalid, st.line, "{s}.{s} {s}: {s} means {s} by " ++
+                        "that and {s} does not, and this netlist has no {s} to take it from", .{
+                        @tagName(st.kind), sl[o.slot].name,
+                        if (v != .none)
+                            "is 0"
+                        else
+                            "is not given",
+                        s.name,            what,
+                        w.g.name,          @tagName(k),
+                    });
                 continue;
             };
             try cur.own(w.arena);
             try cur.set(w.arena, o.slot, val);
             changed = true;
             var em = w.emitter(w.arena, st);
-            w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means {s} by that, and {s} needs it said; wrote {s}", .{
-                @tagName(st.kind), sl[o.slot].name, if (v != .none) "is 0" else "is not given", s.name, what, w.g.name, try em.describe(val),
+            w.report.add(.warning, .synthesized, st.line, "{s}.{s} {s}: {s} means {s} by " ++
+                "that, and {s} needs it said; wrote {s}", .{
+                @tagName(st.kind), sl[o.slot].name,
+                if (v != .none)
+                    "is 0"
+                else
+                    "is not given",
+                s.name,            what,
+                w.g.name,          try em.describe(val),
             });
         };
         for (w.g.omitted) |*t| {
@@ -2687,22 +3706,31 @@ const Writer = struct {
             if (t.zero and isZero(v) and !(theirs != null and theirs.?.zero)) {
                 const what = try omittedPhrase(w.arena, t);
                 if (t.zero_as.len == 0) {
-                    w.report.add(.@"error", .invalid, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and takes {s} for it; a 0 cannot be said", .{
+                    w.report.add(.@"error", .invalid, st.line, "{s}.{s} is 0: {s} reads a 0 " ++
+                        "there as not given and takes {s} for it; a 0 cannot be said", .{
                         @tagName(st.kind), sl[t.slot].name, w.g.name, what,
                     });
                     continue;
                 }
-                const tiny: Value = if (lexer.parseNumber(w.arena, &w.g.lex, t.zero_as)) |n| .{ .num = n } else .{ .expr = t.zero_as };
+                const tiny: Value = if (lexer.parseNumber(w.arena, &w.g.lex, t.zero_as)) |n|
+                    .{ .num = n }
+                else
+                    .{ .expr = t.zero_as };
                 try cur.own(w.arena);
                 try cur.set(w.arena, t.slot, tiny);
                 changed = true;
                 var em = w.emitter(w.arena, st);
-                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is 0: {s} reads a 0 there as not given and would take {s}; wrote {s}, which it takes as given", .{
+                w.report.add(.warning, .synthesized, st.line, "{s}.{s} is 0: {s} reads a 0 " ++
+                    "there as not given and would take {s}; wrote {s}, which it takes as given", .{
                     @tagName(st.kind), sl[t.slot].name, w.g.name, what, try em.describe(tiny),
                 });
-            } else if (v == .none and theirs == null and !(sg != null and sg.?.checksSlot(st.kind, t.slot))) {
+            } else if (v == .none and theirs == null and
+                !(sg != null and sg.?.checksSlot(st.kind, t.slot)))
+            {
                 // Nothing is assumed of a dialect that does not say.
-                w.report.add(.warning, .ambiguous, st.line, "{s}.{s} is not given: {s} takes its own default for it, and what {s} takes is not measured; written as it was", .{
+                w.report.add(.warning, .ambiguous, st.line, "{s}.{s} is not given: {s} takes " ++
+                    "its own default for it, and what {s} takes is not measured; written as " ++
+                    "it was", .{
                     @tagName(st.kind), sl[t.slot].name, w.g.name, w.sourceOf(st),
                 });
             }
@@ -2713,7 +3741,15 @@ const Writer = struct {
     /// What the `omitted` line `o` of `sg` gives for `st`. Null where the
     /// netlist has no statement of a kind it counts from (`missing` names
     /// it) or the statement no value for a slot it counts from.
-    fn omittedValue(w: *Writer, sg: *const Grammar, st: *const ir.Stmt, o: *const grammar.Omitted, all: []const ir.Stmt, missing: *?Kind, depth: u8) Allocator.Error!?Value {
+    fn omittedValue(
+        w: *Writer,
+        sg: *const Grammar,
+        st: *const ir.Stmt,
+        o: *const grammar.Omitted,
+        all: []const ir.Stmt,
+        missing: *?Kind,
+        depth: u8,
+    ) Allocator.Error!?Value {
         var stack: [3]Value = undefined;
         var n: usize = 0;
         for (o.terms) |t| switch (t) {
@@ -2732,7 +3768,9 @@ const Writer = struct {
                 const v = st.at(slot);
                 const its = omittedLine(sg, st, slot);
                 // Left out as well: what the dialect means by that.
-                stack[n] = if (v != .none and !(its != null and its.?.zero and isZero(v))) v else if (its != null and depth < 4)
+                stack[n] = if (v != .none and !(its != null and its.?.zero and isZero(v)))
+                    v
+                else if (its != null and depth < 4)
                     (try w.omittedValue(sg, st, its.?, all, missing, depth + 1)) orelse return null
                 else
                     return null;
@@ -2770,8 +3808,15 @@ const Writer = struct {
             for (list) |*src| {
                 if (src.kind != mv.from or src.at(mv.from_slot) == .none) continue;
                 if (absent) {
-                    w.report.add(.info, .loss, src.line, "{s}.{s} = {s} is not written: {s} says it on {s}.{s}, and this netlist has no {s} for it to act on", .{
-                        @tagName(mv.from), schema.info(mv.from).slots[mv.from_slot].name, try describeValue(w.arena, src.at(mv.from_slot)), w.g.name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name, @tagName(mv.to),
+                    w.report.add(.info, .loss, src.line, "{s}.{s} = {s} is not written: {s} " ++
+                        "says it on {s}.{s}, and this netlist has no {s} for it to act on", .{
+                        @tagName(mv.from),                         schema.info(mv.from).slots[mv.from_slot].name,
+                        try describeValue(
+                            w.arena,
+                            src.at(mv.from_slot),
+                        ),
+                        w.g.name,                                  @tagName(mv.to),
+                        schema.info(mv.to).slots[mv.to_slot].name, @tagName(mv.to),
                     });
                     try emptied.append(w.arena, .{ src, mv.from_slot });
                     continue;
@@ -2784,9 +3829,11 @@ const Writer = struct {
                     moved = true;
                 }
                 if (moved) try emptied.append(w.arena, .{ src, mv.from_slot });
-                if (moved and mv.oneway) w.report.add(.info, .oneway, src.line, "{s}.{s} is written as {s}.{s}, which reads back there", .{
-                    @tagName(mv.from), schema.info(mv.from).slots[mv.from_slot].name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name,
-                });
+                if (moved and mv.oneway)
+                    w.report.add(.info, .oneway, src.line, "{s}.{s} is written as {s}.{s}, " ++
+                        "which reads back there", .{
+                        @tagName(mv.from), schema.info(mv.from).slots[mv.from_slot].name, @tagName(mv.to), schema.info(mv.to).slots[mv.to_slot].name,
+                    });
             }
         }
         for (emptied.items) |em| {
@@ -2823,12 +3870,21 @@ const Writer = struct {
         try list[at].set(w.arena, mv.to_slot, v);
         const from = schema.info(mv.from).slots[mv.from_slot].name;
         const to = schema.info(mv.to).slots[mv.to_slot].name;
-        if (mv.oneway) w.report.add(.info, .oneway, said, "{s}.{s} is written as {s}.{s}, which reads back there", .{ @tagName(mv.from), from, @tagName(mv.to), to });
+        if (mv.oneway)
+            w.report.add(
+                .info,
+                .oneway,
+                said,
+                "{s}.{s} is written as {s}.{s}, which reads back there",
+                .{ @tagName(mv.from), from, @tagName(mv.to), to },
+            );
         for (list) |*s| {
             if (s.kind != mv.from) continue;
             if (s.at(mv.from_slot) == .none) {
                 var em = w.emitter(w.arena, s);
-                w.report.add(.warning, .caveat, s.line, "{s}.{s} is not given: {s} says it once for the whole netlist ({s}.{s}), so the {s} another {s} gives holds here too", .{
+                w.report.add(.warning, .caveat, s.line, "{s}.{s} is not given: {s} says it " ++
+                    "once for the whole netlist ({s}.{s}), so the {s} another {s} gives holds " ++
+                    "here too", .{
                     @tagName(mv.from), from, w.g.name, @tagName(mv.to), to, try em.describe(v), @tagName(mv.from),
                 });
             } else if (s.at(mv.from_slot).eql(v)) {
@@ -2893,15 +3949,34 @@ fn omittedPhrase(arena: Allocator, o: *const grammar.Omitted) Allocator.Error![]
     const t = o.terms;
     const sl = schema.info(o.kind).slots;
     if (t.len == 1 and t[0] == .first)
-        return std.fmt.allocPrint(arena, "the {s}.{s}", .{ @tagName(t[0].first.kind), schema.info(t[0].first.kind).slots[t[0].first.slot].name });
+        return std.fmt.allocPrint(
+            arena,
+            "the {s}.{s}",
+            .{
+                @tagName(t[0].first.kind),
+                schema.info(t[0].first.kind).slots[t[0].first.slot].name,
+            },
+        );
     if (t.len == 3 and t[0] == .slot and t[1] == .first and t[2].op == .add)
-        return std.fmt.allocPrint(arena, "{s} plus the {s}.{s}", .{ sl[t[0].slot].name, @tagName(t[1].first.kind), schema.info(t[1].first.kind).slots[t[1].first.slot].name });
+        return std.fmt.allocPrint(
+            arena,
+            "{s} plus the {s}.{s}",
+            .{
+                sl[t[0].slot].name,
+                @tagName(t[1].first.kind),
+                schema.info(t[1].first.kind).slots[t[1].first.slot].name,
+            },
+        );
     return o.text;
 }
 
 /// `unique param`: a parameter defined twice in one scope. Each body
 /// (subcircuit, library section, branch) is a scope of its own.
-fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+fn uniqueParams(
+    stmts: []const ir.Stmt,
+    report: *ir.Report,
+    g: *const Grammar,
+) Allocator.Error!void {
     var seen: ir.CaselessSet = .empty;
     defer seen.deinit(ir.big);
     try uniqueParamsIn(stmts, &seen, null, report, g);
@@ -2909,7 +3984,13 @@ fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report, g: *const Grammar) A
 
 /// `seen`: the names the scope defined before `stmts`; with `keep`, each
 /// new one is kept, as `stmts` go away before the scope ends.
-fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+fn uniqueParamsIn(
+    stmts: []const ir.Stmt,
+    seen: *ir.CaselessSet,
+    keep: ?ir.Keep,
+    report: *ir.Report,
+    g: *const Grammar,
+) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.body.len > 0) try uniqueParams(s.body, report, g);
         if (s.kind != .param or s.get("params") != .params) continue;
@@ -2917,7 +3998,15 @@ fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep,
             // The variation of the parameter before it, not a parameter.
             if (stats.devLotKey(p.key) != null) continue;
             const gop = try seen.getOrPut(ir.big, p.key);
-            if (gop.found_existing) report.add(.@"error", .invalid, s.line, "parameter '{s}' is defined twice in one scope; {s}", .{ p.key, g.unique_param }) else if (keep) |k| {
+            if (gop.found_existing)
+                report.add(
+                    .@"error",
+                    .invalid,
+                    s.line,
+                    "parameter '{s}' is defined twice in one scope; {s}",
+                    .{ p.key, g.unique_param },
+                )
+            else if (keep) |k| {
                 gop.key_ptr.* = try k.text(p.key);
             }
         }
@@ -2928,11 +4017,17 @@ const Analysis = struct { kind: ir.Kind, line: u32 };
 
 /// `unique analysis`: the statements of `stmts` that count as an analysis
 /// in `g`, outside subcircuits, in the order written.
-fn collectAnalyses(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt, found: *std.ArrayList(Analysis)) Allocator.Error!void {
+fn collectAnalyses(
+    a: Allocator,
+    g: *const Grammar,
+    stmts: []const ir.Stmt,
+    found: *std.ArrayList(Analysis),
+) Allocator.Error!void {
     const u = g.unique_analysis orelse return;
     for (stmts) |*s| {
         if (s.kind == .subckt) continue;
-        if (std.mem.indexOfScalar(ir.Kind, u.kinds, s.kind) != null) try found.append(a, .{ .kind = s.kind, .line = s.line });
+        if (std.mem.indexOfScalar(ir.Kind, u.kinds, s.kind) != null)
+            try found.append(a, .{ .kind = s.kind, .line = s.line });
         try collectAnalyses(a, g, s.body, found);
     }
 }
@@ -2941,7 +4036,12 @@ fn collectAnalyses(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt, foun
 /// are an error on each; two it loads, running one, a caveat on the other.
 /// The lines are the entries': a message is the same for a netlist built
 /// in Python, whose statements have other lines.
-fn uniqueAnalyses(a: Allocator, g: *const Grammar, found: []const Analysis, report: *ir.Report) Allocator.Error!void {
+fn uniqueAnalyses(
+    a: Allocator,
+    g: *const Grammar,
+    found: []const Analysis,
+    report: *ir.Report,
+) Allocator.Error!void {
     const u = g.unique_analysis orelse return;
     if (found.len < 2) return;
     var besides: usize = 0;
@@ -2950,18 +4050,38 @@ fn uniqueAnalyses(a: Allocator, g: *const Grammar, found: []const Analysis, repo
         // Two of the kind are the same analysis twice: nothing is left out.
         if (besides == 2) return;
         const op: usize = @intFromBool(found[1].kind == u.beside);
-        report.add(.warning, .caveat, found[op].line, "{s} beside {s}; {s}", .{ @tagName(found[op].kind), @tagName(found[op ^ 1].kind), u.reason });
+        report.add(
+            .warning,
+            .caveat,
+            found[op].line,
+            "{s} beside {s}; {s}",
+            .{ @tagName(found[op].kind), @tagName(found[op ^ 1].kind), u.reason },
+        );
         return;
     }
     var names: std.ArrayList(u8) = .empty;
-    for (found, 0..) |f, i| try names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", @tagName(f.kind) });
-    for (found) |f| report.add(.@"error", .invalid, f.line, "{s}: one of {d} analyses in this netlist ({s}); {s}", .{ @tagName(f.kind), found.len, names.items, u.reason });
+    for (found, 0..) |f, i|
+        try names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", @tagName(f.kind) });
+    for (found) |f|
+        report.add(
+            .@"error",
+            .invalid,
+            f.line,
+            "{s}: one of {d} analyses in this netlist ({s}); {s}",
+            .{ @tagName(f.kind), found.len, names.items, u.reason },
+        );
 }
 
 /// The parameter names `stmts` define that start with a name the dialect
 /// keeps for itself (`reserved`): those `reservedRenames` renames, and the
 /// names a new one could clash with. With `src`, a name not in it is copied.
-pub fn collectReserved(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, out: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
+pub fn collectReserved(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []const ir.Stmt,
+    out: *ir.CaselessSet,
+    src: ?[]const u8,
+) Allocator.Error!void {
     if (g.reserved.len == 0) return;
     for (stmts) |*s| {
         try collectReserved(arena, g, s.body, out, src);
@@ -2977,7 +4097,12 @@ pub fn collectReserved(arena: Allocator, g: *const Grammar, stmts: []const ir.St
 /// written under: `vt__p`, or `vt__p2` and so on when that is taken. Every
 /// file of a project gets the same map. A name that is a variable in every
 /// dialect (`time`) is left: in an expression the word is the variable.
-fn reservedRenames(arena: Allocator, g: *const Grammar, defined: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap {
+fn reservedRenames(
+    arena: Allocator,
+    g: *const Grammar,
+    defined: *const ir.CaselessSet,
+    env: ?*const ir.Env,
+) Allocator.Error!CaselessMap {
     var out: CaselessMap = .empty;
     for (g.reserved) |r| for (r.names) |n| {
         // `time` is the variable in every expression; a variable this
@@ -2997,7 +4122,12 @@ fn reservedRenames(arena: Allocator, g: *const Grammar, defined: *const ir.Casel
 /// The parameters `renames` names under their new names: where they are
 /// defined (`.param`, a subcircuit's header), given to a subcircuit, and
 /// used in an expression. Each is reported once.
-fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told: *ir.CaselessSet) Allocator.Error![]ir.Stmt {
+fn renameParams(
+    w: *Writer,
+    stmts: []ir.Stmt,
+    renames: *const CaselessMap,
+    told: *ir.CaselessSet,
+) Allocator.Error![]ir.Stmt {
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, i| {
         var cur = st.*;
@@ -3018,7 +4148,14 @@ fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told:
                 ((st.kind == .dc or st.kind == .step) and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "param2"))) or
                 (st.kind == .data and std.mem.eql(u8, sl.name, "cols")) or
                 (st.kind == .alter and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "keys")));
-            const v = try renamedValue(w.arena, st.at(@intCast(si)), renames, keys, words, &hit) orelse continue;
+            const v = try renamedValue(
+                w.arena,
+                st.at(@intCast(si)),
+                renames,
+                keys,
+                words,
+                &hit,
+            ) orelse continue;
             if (!changed or cur.body.ptr != st.body.ptr) try cur.own(w.arena);
             try cur.set(w.arena, @intCast(si), v);
             changed = true;
@@ -3030,7 +4167,14 @@ fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told:
             const why = why: for (w.g.reserved) |r| {
                 for (r.names) |n| if (std.ascii.eqlIgnoreCase(n, old)) break :why r.reason;
             } else "";
-            w.report.add(.info, .rename, st.line, "parameter '{s}' is written as '{s}', where it is defined and wherever it is used: {s}", .{ old, renames.get(old).?, why });
+            w.report.add(
+                .info,
+                .rename,
+                st.line,
+                "parameter '{s}' is written as '{s}', where it is defined and wherever it is " ++
+                    "used: {s}",
+                .{ old, renames.get(old).?, why },
+            );
         }
         if (changed) {
             if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
@@ -3042,7 +4186,14 @@ fn renameParams(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told:
 
 /// `v` for `renameParams`, or null when nothing in it is renamed. `keys`:
 /// the keys of a parameter list are parameters; `words`: so are bare words.
-fn renamedValue(arena: Allocator, v: Value, renames: *const CaselessMap, keys: bool, words: bool, hit: *std.ArrayList([]const u8)) Allocator.Error!?Value {
+fn renamedValue(
+    arena: Allocator,
+    v: Value,
+    renames: *const CaselessMap,
+    keys: bool,
+    words: bool,
+    hit: *std.ArrayList([]const u8),
+) Allocator.Error!?Value {
     switch (v) {
         .expr => |e| {
             const t = try expr.rename(arena, e, renames, hit);
@@ -3082,13 +4233,22 @@ fn renamedValue(arena: Allocator, v: Value, renames: *const CaselessMap, keys: b
 }
 
 /// A map from names, ignoring case.
-const CaselessMap = std.HashMapUnmanaged([]const u8, []const u8, ir.Caseless, std.hash_map.default_max_load_percentage);
+const CaselessMap = std.HashMapUnmanaged(
+    []const u8,
+    []const u8,
+    ir.Caseless,
+    std.hash_map.default_max_load_percentage,
+);
 
 /// `unique master`: names both a model (or its bins, `nch.1`) and a
 /// subcircuit define, here or in another file of the project, each to the
 /// name its model is written under: `nch__m`, or `nch__m2` and so on when
 /// that is taken. Every file of a project gets the same map.
-pub fn masterRenames(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env) Allocator.Error!CaselessMap {
+pub fn masterRenames(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    env: ?*const ir.Env,
+) Allocator.Error!CaselessMap {
     var models: ir.CaselessSet = .empty;
     var subckts: ir.CaselessSet = .empty;
     try collectMasters(arena, stmts, &models, &subckts, null);
@@ -3096,7 +4256,12 @@ pub fn masterRenames(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.E
 }
 
 /// `masterRenames` for the models and subcircuits `collectMasters` found.
-fn renamesOf(arena: Allocator, models_in: *const ir.CaselessSet, subckts_in: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap {
+fn renamesOf(
+    arena: Allocator,
+    models_in: *const ir.CaselessSet,
+    subckts_in: *const ir.CaselessSet,
+    env: ?*const ir.Env,
+) Allocator.Error!CaselessMap {
     var models = try models_in.clone(arena);
     var subckts = try subckts_in.clone(arena);
     var taken: ir.CaselessSet = .empty;
@@ -3124,13 +4289,20 @@ fn renamesOf(arena: Allocator, models_in: *const ir.CaselessSet, subckts_in: *co
 }
 
 /// With `src`, a name not in it is copied (the statements go away).
-fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
+fn collectMasters(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    models: *ir.CaselessSet,
+    subckts: *ir.CaselessSet,
+    src: ?[]const u8,
+) Allocator.Error!void {
     for (stmts) |*s| {
         const n = s.get("name");
         if (n == .atom) {
             if (s.kind == .subckt) try ir.putName(subckts, arena, src, n.atom);
             // `nch.1`, `nch.2`: bins of the model `nch`.
-            if (s.kind == .model) try ir.putName(models, arena, src, ir.binBase(n.atom) orelse n.atom);
+            if (s.kind == .model)
+                try ir.putName(models, arena, src, ir.binBase(n.atom) orelse n.atom);
         }
         try collectMasters(arena, s.body, models, subckts, src);
     }
@@ -3139,7 +4311,12 @@ fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.Caseless
 /// The model cards `renames` names, and the devices that use them as a
 /// model (by their SPICE letter), under their new names; subcircuit
 /// instances keep theirs. Each name is reported once.
-fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told: *ir.CaselessSet) Allocator.Error![]ir.Stmt {
+fn renameMasters(
+    w: *Writer,
+    stmts: []ir.Stmt,
+    renames: *const CaselessMap,
+    told: *ir.CaselessSet,
+) Allocator.Error![]ir.Stmt {
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, i| {
         var cur = st.*;
@@ -3152,18 +4329,34 @@ fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told
             }
         }
         const class = schema.info(st.kind).class;
-        const slot: ?u8 = if (st.kind == .model) (comptime schema.slotOf(.model, "name")) else if (class == .device and st.kind != .instance) schema.slotOf(st.kind, "master") else null;
+        const slot: ?u8 = if (st.kind == .model)
+            (comptime schema.slotOf(.model, "name"))
+        else if (class == .device and st.kind != .instance)
+            schema.slotOf(st.kind, "master")
+        else
+            null;
         if (slot) |si| if (cur.at(si) == .atom) {
             const old = cur.at(si).atom;
             const base = if (st.kind == .model) ir.binBase(old) orelse old else old;
             if (renames.get(base)) |new| {
                 try cur.own(w.arena);
-                try cur.set(w.arena, si, .{ .atom = try std.mem.concat(w.arena, u8, &.{ new, old[base.len..] }) });
+                try cur.set(
+                    w.arena,
+                    si,
+                    .{ .atom = try std.mem.concat(w.arena, u8, &.{ new, old[base.len..] }) },
+                );
                 changed = true;
                 const gop = try told.getOrPut(w.perm, base);
                 if (!gop.found_existing) {
                     gop.key_ptr.* = try w.perm.dupe(u8, base);
-                    w.report.add(.info, .rename, st.line, "'{s}' names both a model and a subcircuit: the model is written as '{s}', and so is every device that uses it as a model; {s}", .{ base, new, w.g.unique_master });
+                    w.report.add(
+                        .info,
+                        .rename,
+                        st.line,
+                        "'{s}' names both a model and a subcircuit: the model is written as " ++
+                            "'{s}', and so is every device that uses it as a model; {s}",
+                        .{ base, new, w.g.unique_master },
+                    );
                 }
             }
         };
@@ -3177,7 +4370,13 @@ fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told
 
 /// A device still using a name both a model and a subcircuit define after
 /// `renameMasters` (one it could not reach): an error.
-fn uniqueMasters(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+fn uniqueMasters(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    env: ?*const ir.Env,
+    report: *ir.Report,
+    g: *const Grammar,
+) Allocator.Error!void {
     var models: ir.CaselessSet = .empty;
     var subckts: ir.CaselessSet = .empty;
     var told: ir.CaselessSet = .empty;
@@ -3191,7 +4390,15 @@ fn uniqueMasters(arena: Allocator, stmts: []const ir.Stmt, env: ?*const ir.Env, 
     try clashes(arena, stmts, &models, &subckts, &told, report, g);
 }
 
-fn clashes(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, subckts: *ir.CaselessSet, told: *ir.CaselessSet, report: *ir.Report, g: *const Grammar) Allocator.Error!void {
+fn clashes(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    models: *ir.CaselessSet,
+    subckts: *ir.CaselessSet,
+    told: *ir.CaselessSet,
+    report: *ir.Report,
+    g: *const Grammar,
+) Allocator.Error!void {
     for (stmts) |*s| {
         try clashes(arena, s.body, models, subckts, told, report, g);
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
@@ -3200,7 +4407,13 @@ fn clashes(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet, su
         const gop = try told.getOrPut(arena, m.atom);
         if (gop.found_existing) continue;
         gop.key_ptr.* = try arena.dupe(u8, m.atom);
-        report.add(.@"error", .invalid, s.line, "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}", .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master });
+        report.add(
+            .@"error",
+            .invalid,
+            s.line,
+            "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}",
+            .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master },
+        );
     }
 }
 
@@ -3242,16 +4455,22 @@ fn groupBins(arena: Allocator, stmts: []const ir.Stmt) Allocator.Error![]const i
     return out.items;
 }
 
-fn collectDeclared(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged(void)) Allocator.Error!void {
+fn collectDeclared(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    out: *std.StringHashMapUnmanaged(void),
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if ((s.kind == .model or s.kind == .subckt) and s.get("name") == .atom) try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
+        if ((s.kind == .model or s.kind == .subckt) and s.get("name") == .atom)
+            try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
         try collectDeclared(arena, s.body, out);
     }
 }
 
 /// A switch on or off level named by one of the grammar's `threshold` lines.
 fn isLevel(g: *const Grammar, key: []const u8) bool {
-    for (g.thresholds) |t| if (std.ascii.eqlIgnoreCase(key, t.on) or std.ascii.eqlIgnoreCase(key, t.off)) return true;
+    for (g.thresholds) |t|
+        if (std.ascii.eqlIgnoreCase(key, t.on) or std.ascii.eqlIgnoreCase(key, t.off)) return true;
     return false;
 }
 
@@ -3292,8 +4511,15 @@ fn capParts(g: *const Grammar, sg: ?*const Grammar, st: *const ir.Stmt) CapParts
     var out: CapParts = .{};
     for (v.params) |p| {
         const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
-        if (std.ascii.eqlIgnoreCase(canon, "q") and !takes(table, "q") and g.canWrite(.bsource) and spellingsOf(g.functions, "ddt") != null) out.q = p.val;
-        if (std.ascii.eqlIgnoreCase(canon, "ic") and !takes(table, "ic") and g.canWrite(.vsource)) out.ic = p.val;
+        if (std.ascii.eqlIgnoreCase(
+            canon,
+            "q",
+        ) and !takes(table, "q") and g.canWrite(.bsource) and spellingsOf(
+            g.functions,
+            "ddt",
+        ) != null) out.q = p.val;
+        if (std.ascii.eqlIgnoreCase(canon, "ic") and !takes(table, "ic") and g.canWrite(.vsource))
+            out.ic = p.val;
     }
     // A charge has no initial voltage of its own to put in series: that
     // stays the loss it was.
@@ -3309,7 +4535,12 @@ fn readIn(dialect: []const u8, st: *const ir.Stmt) ?*const Grammar {
 /// The kinds a capacitor is written as where `capParts` applies: a
 /// voltage source or a behavioural one, whose boilerplate (`needs`) the
 /// netlist then needs.
-fn markCapParts(g: *const Grammar, dialect: []const u8, stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {
+fn markCapParts(
+    g: *const Grammar,
+    dialect: []const u8,
+    stmts: []const ir.Stmt,
+    used: *[schema.kind_count]bool,
+) void {
     for (stmts) |*s| {
         const c = capParts(g, readIn(dialect, s), s);
         if (c.ic != null) used[@backingInt(Kind.vsource)] = true;
@@ -3319,7 +4550,12 @@ fn markCapParts(g: *const Grammar, dialect: []const u8, stmts: []const ir.Stmt, 
 }
 
 /// The nodes an `.ic` statement sets, anywhere in `stmts`.
-fn collectIcNodes(a: Allocator, stmts: []const ir.Stmt, out: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void {
+fn collectIcNodes(
+    a: Allocator,
+    stmts: []const ir.Stmt,
+    out: *ir.CaselessSet,
+    src: ?[]const u8,
+) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .ic and s.get("values") == .params) {
             for (s.get("values").params) |p| try ir.putName(out, a, src, p.key);
@@ -3330,7 +4566,12 @@ fn collectIcNodes(a: Allocator, stmts: []const ir.Stmt, out: *ir.CaselessSet, sr
 
 /// The fewest and the most terminals of the instances that name a model.
 pub const Terminals = struct { min: u32, max: u32 };
-pub const TerminalMap = std.HashMapUnmanaged([]const u8, Terminals, ir.Caseless, std.hash_map.default_max_load_percentage);
+pub const TerminalMap = std.HashMapUnmanaged(
+    []const u8,
+    Terminals,
+    ir.Caseless,
+    std.hash_map.default_max_load_percentage,
+);
 
 /// How many terminals a device statement connects.
 fn terminalCount(st: *const ir.Stmt) u32 {
@@ -3356,19 +4597,25 @@ fn spellingText(a: Allocator, sp: grammar.ModelSpelling) Allocator.Error![]const
 
 /// For every model an instance of `stmts` names, the fewest and the most
 /// terminals of those instances (`when nodes>=n`).
-fn collectTerminals(a: Allocator, stmts: []const ir.Stmt, out: *TerminalMap, src: ?[]const u8) Allocator.Error!void {
+fn collectTerminals(
+    a: Allocator,
+    stmts: []const ir.Stmt,
+    out: *TerminalMap,
+    src: ?[]const u8,
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device) if (schema.slotOf(s.kind, "master")) |mi| if (s.at(mi) == .atom) {
-            const n = terminalCount(s);
-            const gop = try out.getOrPut(a, s.at(mi).atom);
-            if (gop.found_existing) {
-                gop.value_ptr.min = @min(gop.value_ptr.min, n);
-                gop.value_ptr.max = @max(gop.value_ptr.max, n);
-            } else {
-                if (src) |t| gop.key_ptr.* = try ir.keepText(a, t, s.at(mi).atom);
-                gop.value_ptr.* = .{ .min = n, .max = n };
-            }
-        };
+        if (schema.info(s.kind).class == .device)
+            if (schema.slotOf(s.kind, "master")) |mi| if (s.at(mi) == .atom) {
+                const n = terminalCount(s);
+                const gop = try out.getOrPut(a, s.at(mi).atom);
+                if (gop.found_existing) {
+                    gop.value_ptr.min = @min(gop.value_ptr.min, n);
+                    gop.value_ptr.max = @max(gop.value_ptr.max, n);
+                } else {
+                    if (src) |t| gop.key_ptr.* = try ir.keepText(a, t, s.at(mi).atom);
+                    gop.value_ptr.* = .{ .min = n, .max = n };
+                }
+            };
         try collectTerminals(a, s.body, out, src);
     }
 }
@@ -3396,7 +4643,13 @@ const CaseMaps = struct {
 /// subcircuit's ports, nodes and instances are its own scope; definitions
 /// and parameters are shared by all scopes.
 /// With `keep`, names are kept: the statements go away first.
-fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target: []const u8, keep: ?ir.Keep) Allocator.Error!void {
+fn checkCase(
+    stmts: []const ir.Stmt,
+    seen: *CaseMaps,
+    report: *ir.Report,
+    target: []const u8,
+    keep: ?ir.Keep,
+) Allocator.Error!void {
     for (stmts) |*s| {
         const scoped = s.kind == .subckt;
         var inner: CaseMaps = .{ .definitions = seen.definitions, .params = seen.params };
@@ -3427,7 +4680,8 @@ fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report, target
                 if (v != .atom) continue;
                 const gop = try map.getOrPut(ir.big, v.atom);
                 if (gop.found_existing and !std.mem.eql(u8, gop.key_ptr.*, v.atom)) {
-                    report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different names in the source but the same name in {s}, which ignores case", .{
+                    report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different " ++
+                        "names in the source but the same name in {s}, which ignores case", .{
                         gop.key_ptr.*, v.atom, target,
                     });
                     gop.key_ptr.* = if (keep) |k| try k.text(v.atom) else v.atom;
@@ -3452,20 +4706,27 @@ fn anyConverted(g: *const Grammar, stmts: []const ir.Stmt) bool {
 
 fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device and s.get("name") == .atom) try out.put(ir.big, s.get("name").atom, {});
+        if (schema.info(s.kind).class == .device and s.get("name") == .atom)
+            try out.put(ir.big, s.get("name").atom, {});
         try collectInstances(s.body, out);
     }
 }
 
 fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allocator.Error!void {
     for (stmts) |*s| {
-        if (s.kind == .func and s.get("name") == .atom) try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
+        if (s.kind == .func and s.get("name") == .atom)
+            try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
         try collectFuncs(arena, s.body, out);
     }
 }
 
 /// A `needs` line with `{file}`: the file given for the family.
-fn needLine(arena: Allocator, l: []const u8, family: []const u8, env: ?*const ir.Env) Allocator.Error![]const u8 {
+fn needLine(
+    arena: Allocator,
+    l: []const u8,
+    family: []const u8,
+    env: ?*const ir.Env,
+) Allocator.Error![]const u8 {
     const at = std.mem.indexOf(u8, l, "{file}") orelse return l;
     const given: []const [2][]const u8 = if (env) |e| e.provided else &.{};
     const file = for (given) |p| {
@@ -3474,9 +4735,14 @@ fn needLine(arena: Allocator, l: []const u8, family: []const u8, env: ?*const ir
     return std.fmt.allocPrint(arena, "{s}{s}{s}", .{ l[0..at], file, l[at + 6 ..] });
 }
 
-fn collectModules(arena: Allocator, stmts: []const ir.Stmt, out: *std.StringHashMapUnmanaged([]const u8)) Allocator.Error!void {
+fn collectModules(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    out: *std.StringHashMapUnmanaged([]const u8),
+) Allocator.Error!void {
     for (stmts) |*s| {
-        if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and s.get("name") == .atom)
+        if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and
+            s.get("name") == .atom)
             try out.put(arena, s.get("name").atom, s.get("type").atom);
         try collectModules(arena, s.body, out);
     }
@@ -3514,7 +4780,12 @@ fn pzForm(g: *const Grammar) PzForm {
 /// current source; a node pair is the one source of that kind across it.
 /// A signal-form dialect (HSPICE) takes the poles and zeros of the first
 /// node of v(a,b) only: measured, docs/verification.md.
-fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+fn pzPorts(
+    arena: Allocator,
+    w: *const Writer,
+    stmts: []const ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const ir.Stmt {
     const g = w.g;
     const src_i = schema.slot(.pz, "src");
     const out_i = schema.slot(.pz, "out");
@@ -3543,18 +4814,34 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
         if (move_in and has_src) {
             const name = st.at(src_i).atom;
             dev = for (stmts) |*d| {
-                if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and std.ascii.eqlIgnoreCase(d.get("name").atom, name)) break d;
+                if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and
+                    std.ascii.eqlIgnoreCase(
+                        d.get("name").atom,
+                        name,
+                    )) break d;
             } else {
-                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its nodes, and no voltage or current source '{s}' is in this file to take them from", .{ g.name, name });
+                report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "pz: {s} names the input by its nodes, and no voltage or current source " ++
+                        "'{s}' is in this file to take them from",
+                    .{ g.name, name },
+                );
                 continue;
             };
         } else if (move_in) {
             const p, const n = .{ st.at(ip_i).atom, st.at(in_i).atom };
             const tr = st.at(tr_i).atom;
-            const want: schema.Kind = if (std.ascii.eqlIgnoreCase(tr, "cur")) .isource else .vsource;
+            const want: schema.Kind = if (std.ascii.eqlIgnoreCase(tr, "cur"))
+                .isource
+            else
+                .vsource;
             var hits: usize = 0;
             for (stmts) |*d| {
-                if (d.kind != want or d.get("name") != .atom or d.get("pos") != .atom or d.get("neg") != .atom) continue;
+                if (d.kind != want or d.get("name") != .atom or d.get("pos") != .atom or
+                    d.get("neg") != .atom)
+                    continue;
                 const dp, const dn = .{ d.get("pos").atom, d.get("neg").atom };
                 const fwd = std.ascii.eqlIgnoreCase(dp, p) and std.ascii.eqlIgnoreCase(dn, n);
                 const rev = std.ascii.eqlIgnoreCase(dp, n) and std.ascii.eqlIgnoreCase(dn, p);
@@ -3563,8 +4850,18 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
                 dev = d;
             }
             if (hits != 1) {
-                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its source, and {s} {s} sources connect nodes {s} and {s} ({s} input); it takes exactly one", .{
-                    g.name, if (hits == 0) "no" else "several", if (want == .vsource) "voltage" else "current", p, n, tr,
+                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its " ++
+                    "source, and {s} {s} sources connect nodes {s} and {s} ({s} input); it " ++
+                    "takes exactly one", .{
+                    g.name,
+                    if (hits == 0)
+                        "no"
+                    else
+                        "several",
+                    if (want == .vsource) "voltage" else "current",
+                    p,
+                    n,
+                    tr,
                 });
                 continue;
             }
@@ -3578,22 +4875,34 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
                 else => null,
             };
             out_text = text orelse "";
-            const sform, n_args = (if (text) |t| reader.signalParts(t, &args) else null) orelse .{ "", 0 };
+            const sform, n_args = (if (text) |t|
+                reader.signalParts(t, &args)
+            else
+                null) orelse .{ "", 0 };
             if (!(std.mem.eql(u8, sform, "v") or std.mem.eql(u8, sform, "vdiff")) or n_args == 0) {
-                report.add(.@"error", .unsupported, st.line, "pz: {s} names the output by its nodes; the output here is not a node voltage", .{g.name});
+                report.add(
+                    .@"error",
+                    .unsupported,
+                    st.line,
+                    "pz: {s} names the output by its nodes; the output here is not a node voltage",
+                    .{g.name},
+                );
                 continue;
             }
         } else if (move_out and !std.mem.eql(u8, st.at(on_i).atom, "0")) {
-            report.add(.@"error", .unsupported, st.line, "pz: {s} takes the poles and zeros of v({s}) alone for v({s},{s}), so the differential output has no {s} form", .{
+            report.add(.@"error", .unsupported, st.line, "pz: {s} takes the poles and zeros " ++
+                "of v({s}) alone for v({s},{s}), so the differential output has no {s} form", .{
                 g.name, st.at(op_i).atom, st.at(op_i).atom, st.at(on_i).atom, g.name,
             });
             continue;
         }
-        if (n_args == 2 and !std.mem.eql(u8, args[1], "0")) if (w.sourceGrammar(st)) |sg| if (pzForm(sg).by_sig) {
-            report.add(.warning, .caveat, st.line, "pz: {s} took the poles and zeros of v({s}) alone for v({s},{s}); {s} finds those of the difference", .{
-                sg.name, args[0], args[0], args[1], g.name,
-            });
-        };
+        if (n_args == 2 and !std.mem.eql(u8, args[1], "0"))
+            if (w.sourceGrammar(st)) |sg| if (pzForm(sg).by_sig) {
+                report.add(.warning, .caveat, st.line, "pz: {s} took the poles and zeros of " ++
+                    "v({s}) alone for v({s},{s}); {s} finds those of the difference", .{
+                    sg.name, args[0], args[0], args[1], g.name,
+                });
+            };
 
         const l = list orelse blk: {
             list = try arena.dupe(ir.Stmt, stmts);
@@ -3608,36 +4917,69 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
             try p.set(arena, tr_i, .{ .atom = if (d.kind == .vsource) "vol" else "cur" });
             try p.set(arena, fi_i, .{ .atom = "pz" });
             try p.set(arena, src_i, .none);
-            report.add(.info, .oneway, st.line, "pz: the input is source {s}'s nodes, as {s} names it", .{ d.get("name").atom, g.name });
+            report.add(
+                .info,
+                .oneway,
+                st.line,
+                "pz: the input is source {s}'s nodes, as {s} names it",
+                .{ d.get("name").atom, g.name },
+            );
         } else if (move_in) {
             const d = dev.?;
             const find = st.at(fi_i);
             if (find == .atom and !std.ascii.eqlIgnoreCase(find.atom, "pz")) {
-                report.add(.warning, .caveat, st.line, "pz: {s} finds both poles and zeros; only the {s} were asked for", .{
+                report.add(.warning, .caveat, st.line, "pz: {s} finds both poles and zeros; " ++
+                    "only the {s} were asked for", .{
                     g.name, if (std.ascii.eqlIgnoreCase(find.atom, "pol")) "poles" else "zeros",
                 });
             }
-            if (std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(in_i).atom) and !std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(ip_i).atom)) {
-                report.add(.info, .oneway, st.line, "pz: source {s} is connected from {s} to {s}, the reverse of the input pair; the transfer function changes sign, its poles and zeros do not", .{
+            if (std.ascii.eqlIgnoreCase(
+                d.get("pos").atom,
+                st.at(in_i).atom,
+            ) and !std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(ip_i).atom)) {
+                report.add(.info, .oneway, st.line, "pz: source {s} is connected from {s} to " ++
+                    "{s}, the reverse of the input pair; the transfer function changes sign, " ++
+                    "its poles and zeros do not", .{
                     d.get("name").atom, d.get("pos").atom, d.get("neg").atom,
                 });
             }
             try p.set(arena, src_i, d.get("name"));
             inline for (.{ ip_i, in_i, tr_i, fi_i }) |i| try p.set(arena, i, .none);
-            report.add(.info, .oneway, st.line, "pz: the input nodes {s} {s} are source {s}, as {s} names it", .{ st.at(ip_i).atom, st.at(in_i).atom, d.get("name").atom, g.name });
+            report.add(
+                .info,
+                .oneway,
+                st.line,
+                "pz: the input nodes {s} {s} are source {s}, as {s} names it",
+                .{ st.at(ip_i).atom, st.at(in_i).atom, d.get("name").atom, g.name },
+            );
         }
         if (move_out and has_sig) {
             try p.set(arena, op_i, .{ .atom = args[0] });
             try p.set(arena, on_i, .{ .atom = if (n_args > 1) args[1] else "0" });
             try p.set(arena, out_i, .none);
-            report.add(.info, .oneway, st.line, "pz: the output {s} is the node pair {s} {s}, as {s} names it", .{ out_text, args[0], if (n_args > 1) args[1] else "0", g.name });
+            report.add(
+                .info,
+                .oneway,
+                st.line,
+                "pz: the output {s} is the node pair {s} {s}, as {s} names it",
+                .{ out_text, args[0], if (n_args > 1) args[1] else "0", g.name },
+            );
         } else if (move_out) {
             const pos, const neg = .{ st.at(op_i).atom, st.at(on_i).atom };
-            const sig = if (std.mem.eql(u8, neg, "0")) try std.fmt.allocPrint(arena, "v({s})", .{pos}) else try std.fmt.allocPrint(arena, "v({s},{s})", .{ pos, neg });
+            const sig = if (std.mem.eql(u8, neg, "0"))
+                try std.fmt.allocPrint(arena, "v({s})", .{pos})
+            else
+                try std.fmt.allocPrint(arena, "v({s},{s})", .{ pos, neg });
             try p.set(arena, out_i, .{ .atom = sig });
             try p.set(arena, op_i, .none);
             try p.set(arena, on_i, .none);
-            report.add(.info, .oneway, st.line, "pz: the output nodes {s} {s} are the signal {s}, as {s} names it", .{ pos, neg, sig, g.name });
+            report.add(
+                .info,
+                .oneway,
+                st.line,
+                "pz: the output nodes {s} {s} are the signal {s}, as {s} names it",
+                .{ pos, neg, sig, g.name },
+            );
         }
     }
     return list orelse stmts;
@@ -3648,10 +4990,16 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
 /// nothing beside the methods the target has (gear is order 2 there, and
 /// ngspice's gear of order 3 to 6 is measured to change nothing,
 /// docs/verification.md). Said as an info either way.
-fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+fn foldMaxord(
+    arena: Allocator,
+    g: *const Grammar,
+    stmts: []const ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const ir.Stmt {
     const mo = schema.slot(.options, "maxord");
     const me = schema.slot(.options, "method");
-    for (g.rules) |r| if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
+    for (g.rules) |r|
+        if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
         if (st.kind != .options or st.at(mo) != .num) continue;
@@ -3665,8 +5013,17 @@ fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, repor
         try l[k].set(arena, mo, .none);
         if (n == 1) {
             try l[k].set(arena, me, .{ .atom = "euler" });
-            report.add(.info, .oneway, st.line, "options.maxord = 1 is backward Euler: {s} has no maximum order, so it is written as the method euler", .{g.name});
-        } else report.add(.info, .loss, st.line, "options.maxord = {d} is not written: {s} has no maximum order, and its methods are of order 2 at most, which a maximum of 2 or more leaves as they are", .{ @as(u32, @intFromFloat(n)), g.name });
+            report.add(
+                .info,
+                .oneway,
+                st.line,
+                "options.maxord = 1 is backward Euler: {s} has no maximum order, so it is " ++
+                    "written as the method euler",
+                .{g.name},
+            );
+        } else report.add(.info, .loss, st.line, "options.maxord = {d} is not written: {s} " ++
+            "has no maximum order, and its methods are of order 2 at most, which a maximum of " ++
+            "2 or more leaves as they are", .{ @as(u32, @intFromFloat(n)), g.name });
     }
     return list orelse stmts;
 }
@@ -3675,12 +5032,17 @@ fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, repor
 /// time, which limits nothing.
 fn idleCeiling(st: *const ir.Stmt, slot: usize, v: Value) bool {
     if (st.kind != .tran or slot != schema.slot(.tran, "maxstep")) return false;
-    return v == .num and st.get("stop") == .num and !(v.num.toFloat() < st.get("stop").num.toFloat());
+    return v == .num and st.get("stop") == .num and
+        !(v.num.toFloat() < st.get("stop").num.toFloat());
 }
 
 /// A `.tran` step ceiling at or above the stop time limits nothing, and in
 /// HSPICE a fourth number above the stop is a second segment: not written.
-fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
+fn idleCeilings(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    report: *ir.Report,
+) Allocator.Error![]const ir.Stmt {
     const mi = schema.slot(.tran, "maxstep");
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
@@ -3691,7 +5053,14 @@ fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Al
         };
         try l[k].own(arena);
         try l[k].set(arena, mi, .none);
-        report.add(.info, .oneway, st.line, "tran.maxstep at or above the stop time limits nothing and is not written; it reads back without one", .{});
+        report.add(
+            .info,
+            .oneway,
+            st.line,
+            "tran.maxstep at or above the stop time limits nothing and is not written; it " ++
+                "reads back without one",
+            .{},
+        );
     }
     return list orelse stmts;
 }
@@ -3699,7 +5068,13 @@ fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Al
 /// An option's value in a netlist of dialect `sg`: the one it sets, else
 /// the one `sg` assumes (`implied options tnom = 25`; `$temp` is another
 /// option's value).
-fn optionValue(arena: Allocator, sg: *const Grammar, stmts: []const ir.Stmt, slot: u8, depth: u8) ?Value {
+fn optionValue(
+    arena: Allocator,
+    sg: *const Grammar,
+    stmts: []const ir.Stmt,
+    slot: u8,
+    depth: u8,
+) ?Value {
     if (topValue(stmts, slot)) |v| return v;
     return impliedValue(arena, sg, sg, stmts, slot, depth);
 }
@@ -3712,7 +5087,14 @@ fn topValue(stmts: []const ir.Stmt, slot: u8) ?Value {
 }
 
 /// What `g` assumes for an option, with a `$other` read in the netlist of `sg`.
-fn impliedValue(arena: Allocator, g: *const Grammar, sg: *const Grammar, stmts: []const ir.Stmt, slot: u8, depth: u8) ?Value {
+fn impliedValue(
+    arena: Allocator,
+    g: *const Grammar,
+    sg: *const Grammar,
+    stmts: []const ir.Stmt,
+    slot: u8,
+    depth: u8,
+) ?Value {
     const text = g.impliedOf(.options, slot) orelse return null;
     if (text.len > 1 and text[0] == '$') {
         const other = schema.slotIndex(.options, text[1..]) orelse return null;
@@ -3727,7 +5109,11 @@ fn impliedValue(arena: Allocator, g: *const Grammar, sg: *const Grammar, stmts: 
 /// null when there are none. An option set anywhere in the netlist is left
 /// to that statement.
 // ponytail: an option set only in an included file is not seen here; pass it via ir.Env if that matters.
-pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist) Allocator.Error!?ir.Stmt {
+pub fn defaultOptions(
+    arena: Allocator,
+    g: *const Grammar,
+    nl: *const ir.Netlist,
+) Allocator.Error!?ir.Stmt {
     if (nl.library or std.mem.eql(u8, nl.dialect, g.name) or !g.canWrite(.options)) return null;
     const sg = dialects.find(nl.dialect) orelse return null;
     var st = try ir.newStmt(arena, .options, 0);
@@ -3748,7 +5134,12 @@ pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist
 /// since the result then depends on the simulator that runs it. Nothing is
 /// written for it. A netlist read in a dialect gets that dialect's defaults
 /// written instead (`defaultOptions`).
-fn reportDefaults(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist, report: *ir.Report) Allocator.Error!void {
+fn reportDefaults(
+    arena: Allocator,
+    g: *const Grammar,
+    nl: *const ir.Netlist,
+    report: *ir.Report,
+) Allocator.Error!void {
     if (nl.defaults.len == 0) return;
     var as = nl.*;
     as.dialect = nl.defaults;
@@ -3760,11 +5151,19 @@ fn reportDefaults(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist, re
     for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
         const first = said.items.len == 0;
         try keys.print(arena, "{s}{s}", .{ if (first) "" else " or ", sl.name });
-        try said.print(arena, "{s}{s}={s}", .{ if (first) "" else ", ", sl.name, try describeValue(arena, d.at(i)) });
+        try said.print(arena, "{s}{s}={s}", .{ if (first)
+            ""
+        else
+            ", ", sl.name, try describeValue(arena, d.at(i)) });
         const have = impliedValue(arena, g, sg, nl.stmts, @intCast(i), 0);
-        try theirs.print(arena, "{s}{s}={s}", .{ if (first) "" else ", ", sl.name, if (have) |h| try describeValue(arena, h) else "its own" });
+        try theirs.print(arena, "{s}{s}={s}", .{ if (first)
+            ""
+        else
+            ", ", sl.name, if (have) |h| try describeValue(arena, h) else "its own" });
     };
-    report.add(.@"error", .ambiguous, 0, "options: the circuit sets no {s}; its PDK's simulator ({s}) assumes {s} and {s} assumes {s}, so the result depends on the simulator that runs it: set them in the circuit", .{
+    report.add(.@"error", .ambiguous, 0, "options: the circuit sets no {s}; its PDK's " ++
+        "simulator ({s}) assumes {s} and {s} assumes {s}, so the result depends on the " ++
+        "simulator that runs it: set them in the circuit", .{
         keys.items, nl.defaults, said.items, g.name, theirs.items,
     });
 }
@@ -3824,7 +5223,8 @@ pub fn write(
     try collectTerminals(arena, nl.stmts, &w.terminals, null);
     if (env) |e| {
         var it = e.declared.keyIterator();
-        while (it.next()) |k| try w.declared.put(arena, try std.ascii.allocLowerString(arena, k.*), {});
+        while (it.next()) |k|
+            try w.declared.put(arena, try std.ascii.allocLowerString(arena, k.*), {});
         var fi = e.funcs.keyIterator();
         while (fi.next()) |k| try w.funcs.put(arena, k.*, {});
     }
@@ -3840,7 +5240,10 @@ pub fn write(
     // An included file is not a netlist: it has no title of its own, must
     // not end the simulation, and leaves the boilerplate to the top file.
     if (g.lex.title and !nl.library) {
-        try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0) nl.title else "untitled" });
+        try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0)
+            nl.title
+        else
+            "untitled" });
     }
     for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
     if (!nl.library) {
@@ -3874,7 +5277,8 @@ pub fn write(
             var renames = try masterRenames(arena, nl.stmts, env);
             // A renamed model is declared under the name it is written as.
             var ri = renames.valueIterator();
-            while (ri.next()) |v| try w.declared.put(arena, try std.ascii.allocLowerString(arena, v.*), {});
+            while (ri.next()) |v|
+                try w.declared.put(arena, try std.ascii.allocLowerString(arena, v.*), {});
             if (renames.count() > 0) {
                 var told: ir.CaselessSet = .empty;
                 nl_own.stmts = try renameMasters(&w, nl.stmts, &renames, &told);
@@ -3911,13 +5315,21 @@ pub fn write(
         for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
             try names.print(arena, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
         };
-        report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
+        report.add(
+            .warning,
+            .caveat,
+            0,
+            "options: {s} assumes other defaults for {s} than {s} does; they are written out",
+            .{ nl.dialect, names.items, g.name },
+        );
         const list = try arena.alloc(ir.Stmt, gathered.len + 1);
         list[0] = d;
         @memcpy(list[1..], gathered);
         gathered = list;
     }
-    var stmts = try w.applyMoves(try foldMaxord(arena, g, try alter.prepare(arena, g, gathered, report), report));
+    var stmts = try w.applyMoves(
+        try foldMaxord(arena, g, try alter.prepare(arena, g, gathered, report), report),
+    );
     if (g.converts.len > 0 and anyConverted(g, stmts)) {
         const list = try arena.dupe(ir.Stmt, stmts);
         try expr.convert(arena, g, list, true);
@@ -3934,7 +5346,12 @@ pub fn write(
     };
     if (n_analyses != 1) w.sole = null;
     if (!g.canWrite(.cond_if) and env == null and !std.mem.eql(u8, nl.dialect, g.name)) {
-        if (try w.foreignInstance(stmts)) |x| w.foreign_inst = .{ .line = x.line, .name = x.get("name").atom, .master = x.get("master").atom };
+        if (try w.foreignInstance(stmts)) |x|
+            w.foreign_inst = .{
+                .line = x.line,
+                .name = x.get("name").atom,
+                .master = x.get("master").atom,
+            };
     }
     if (!g.canWrite(.cond_if)) {
         // ponytail: each file of a project works the environment's out again; once a project if a PDK has thousands.
@@ -3948,7 +5365,8 @@ pub fn write(
         // every analysis: SPICE applies them wherever they stand.
         var any = false;
         for ([_]bool{ false, true }) |analyses| for (stmts) |*s| {
-            if (g.wrapOf(s.kind) != wr or (schema.info(s.kind).class == .analysis) != analyses) continue;
+            if (g.wrapOf(s.kind) != wr or (schema.info(s.kind).class == .analysis) != analyses)
+                continue;
             if (!any) try w.line(wr.open);
             any = true;
             try w.stmt(s);
@@ -3961,11 +5379,15 @@ pub fn write(
     w.foreignNote();
     const cp = w.copied;
     if (cp.n == 1) {
-        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
+        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different " ++
+            "implementations and versions of this model; parameters were copied as written, " ++
+            "check them against {s}", .{
             cp.name, cp.family, cp.source, g.name, g.name,
         });
     } else if (cp.n > 1) {
-        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: {s} and {s} ship different implementations and versions of these models; parameters were copied as written, check them against {s}", .{
+        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: " ++
+            "{s} and {s} ship different implementations and versions of these models; " ++
+            "parameters were copied as written, check them against {s}", .{
             cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
         });
     }
@@ -3987,7 +5409,8 @@ pub const Refs = struct {
     pub fn want(r: *Refs, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             for (schema.info(s.kind).slots, 0..) |sl, i| {
-                if (sl.ty == .ref and s.at(i) == .atom) try ir.putName(&r.wanted, k.perm, k.src, s.at(i).atom);
+                if (sl.ty == .ref and s.at(i) == .atom)
+                    try ir.putName(&r.wanted, k.perm, k.src, s.at(i).atom);
             }
             try r.want(k, s.body);
         }
@@ -3997,7 +5420,8 @@ pub const Refs = struct {
     fn add(r: *Refs, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
         if (r.wanted.count() == 0) return;
         for (stmts) |*s| {
-            if (schema.info(s.kind).class == .device and s.get("name") == .atom and r.wanted.contains(s.get("name").atom))
+            if (schema.info(s.kind).class == .device and s.get("name") == .atom and
+                r.wanted.contains(s.get("name").atom))
                 try ir.putName(&r.found, k.perm, k.src, s.get("name").atom);
             try r.add(k, s.body);
         }
@@ -4063,7 +5487,13 @@ pub const Survey = struct {
     /// Learn what `stmts`, the next top-level statements, hold.
     /// Keeps the value of `slot` on the netlist's first statement of `kind`
     /// that has one, for `fill`.
-    fn takeFirst(sv: *Survey, k: ir.Keep, stmts: []const ir.Stmt, kind: Kind, slot: u8) Allocator.Error!void {
+    fn takeFirst(
+        sv: *Survey,
+        k: ir.Keep,
+        stmts: []const ir.Stmt,
+        kind: Kind,
+        slot: u8,
+    ) Allocator.Error!void {
         for (sv.fill_from.items) |*s| {
             if (s.kind == kind and s.at(slot) != .none) return;
         }
@@ -4074,7 +5504,13 @@ pub const Survey = struct {
     }
 
     /// `gf`: the grammar the netlist is read with.
-    pub fn add(sv: *Survey, g: *const Grammar, gf: *const Grammar, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
+    pub fn add(
+        sv: *Survey,
+        g: *const Grammar,
+        gf: *const Grammar,
+        k: ir.Keep,
+        stmts: []const ir.Stmt,
+    ) Allocator.Error!void {
         const a = k.perm;
         try collectDeclared(a, stmts, &sv.declared);
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
@@ -4103,7 +5539,8 @@ pub const Survey = struct {
     fn addGlobals(sv: *Survey, k: ir.Keep, stmts: []const ir.Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             if (s.kind == .global and s.get("nodes") == .list) {
-                for (s.get("nodes").list) |v| if (v == .atom) try sv.globals.append(k.perm, try k.text(v.atom));
+                for (s.get("nodes").list) |v|
+                    if (v == .atom) try sv.globals.append(k.perm, try k.text(v.atom));
             }
             try sv.addGlobals(k, s.body);
         }
@@ -4145,11 +5582,34 @@ pub const Stream = struct {
     /// Everything before the first statement: title, header, boilerplate
     /// and the options the source's dialect assumes. In place: the writer
     /// points into it.
-    pub fn begin(s: *Stream, g: *const Grammar, k: ir.Keep, out: *std.Io.Writer, sv: *Survey, report: *ir.Report, caps: ?*const Caps, env: ?*const ir.Env) Writer.Error!void {
+    pub fn begin(
+        s: *Stream,
+        g: *const Grammar,
+        k: ir.Keep,
+        out: *std.Io.Writer,
+        sv: *Survey,
+        report: *ir.Report,
+        caps: ?*const Caps,
+        env: ?*const ir.Env,
+    ) Writer.Error!void {
         const perm = k.perm;
         s.* = .{
-            .w = .{ .g = g, .arena = perm, .perm = perm, .out = out, .report = report, .caps = caps, .source = sv.dialect, .scratch = .init(ir.big) },
-            .nl = .{ .title = sv.title, .dialect = sv.dialect, .library = sv.library, .folds_case = sv.folds_case },
+            .w = .{
+                .g = g,
+                .arena = perm,
+                .perm = perm,
+                .out = out,
+                .report = report,
+                .caps = caps,
+                .source = sv.dialect,
+                .scratch = .init(ir.big),
+            },
+            .nl = .{
+                .title = sv.title,
+                .dialect = sv.dialect,
+                .library = sv.library,
+                .folds_case = sv.folds_case,
+            },
             .keep = k,
             .foreign = !std.mem.eql(u8, sv.dialect, g.name),
             .fill_from = sv.fill_from.items,
@@ -4170,7 +5630,8 @@ pub const Stream = struct {
         w.terminals = sv.terminals;
         if (env) |e| {
             var it = e.declared.keyIterator();
-            while (it.next()) |n| try w.declared.put(perm, try std.ascii.allocLowerString(perm, n.*), {});
+            while (it.next()) |n|
+                try w.declared.put(perm, try std.ascii.allocLowerString(perm, n.*), {});
             var fi = e.funcs.keyIterator();
             while (fi.next()) |n| try w.funcs.put(perm, n.*, {});
         }
@@ -4180,7 +5641,10 @@ pub const Stream = struct {
             if (dialects.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
         s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;
         if (g.lex.title and !nl.library) {
-            try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0) nl.title else "untitled" });
+            try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0)
+                nl.title
+            else
+                "untitled" });
         }
         for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
         if (!nl.library) {
@@ -4208,7 +5672,8 @@ pub const Stream = struct {
             s.renames = try renamesOf(perm, &sv.models, &sv.subckts, env);
             // A renamed model is declared under the name it is written as.
             var ri = s.renames.valueIterator();
-            while (ri.next()) |v| try w.declared.put(perm, try std.ascii.allocLowerString(perm, v.*), {});
+            while (ri.next()) |v|
+                try w.declared.put(perm, try std.ascii.allocLowerString(perm, v.*), {});
             // What `uniqueMasters` finds after the renames.
             var it = sv.models.keyIterator();
             while (it.next()) |m| try s.models.put(perm, s.renames.get(m.*) orelse m.*, {});
@@ -4228,7 +5693,17 @@ pub const Stream = struct {
             s.param_renames = try reservedRenames(perm, g, &sv.reserved, env);
         }
         if (!std.mem.eql(u8, nl.dialect, g.name))
-            s.topo = try topology.Stream.init(ir.big, perm, g, report, k.src, nl.library, sv.facts, sv.globals.items, sv.early.items);
+            s.topo = try topology.Stream.init(
+                ir.big,
+                perm,
+                g,
+                report,
+                k.src,
+                nl.library,
+                sv.facts,
+                sv.globals.items,
+                sv.early.items,
+            );
         if (caps) |c| for (c.grammars) |*sg| {
             if (std.mem.eql(u8, sg.name, nl.dialect)) s.source = sg;
         };
@@ -4239,9 +5714,18 @@ pub const Stream = struct {
         if (try defaultOptions(perm, g, &opts)) |d| {
             var names: std.ArrayList(u8) = .empty;
             for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
-                try names.print(perm, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
+                try names.print(perm, "{s}{s}", .{ if (names.items.len > 0)
+                    ", "
+                else
+                    "", sl.name });
             };
-            report.add(.warning, .caveat, 0, "options: {s} assumes other defaults for {s} than {s} does; they are written out", .{ nl.dialect, names.items, g.name });
+            report.add(
+                .warning,
+                .caveat,
+                0,
+                "options: {s} assumes other defaults for {s} than {s} does; they are written out",
+                .{ nl.dialect, names.items, g.name },
+            );
             const one = try perm.dupe(ir.Stmt, &.{d});
             try s.tail(one);
         }
@@ -4257,7 +5741,12 @@ pub const Stream = struct {
         defer w.arena = s.keep.perm;
         var stmts = stmts_in;
         if (s.foreign and w.foreign_inst == null and !g.canWrite(.cond_if) and w.env == null) {
-            if (try w.foreignInstance(stmts)) |x| w.foreign_inst = .{ .line = x.line, .name = try s.keep.text(x.get("name").atom), .master = try s.keep.text(x.get("master").atom) };
+            if (try w.foreignInstance(stmts)) |x|
+                w.foreign_inst = .{
+                    .line = x.line,
+                    .name = try s.keep.text(x.get("name").atom),
+                    .master = try s.keep.text(x.get("master").atom),
+                };
         }
         try s.refs.add(s.keep, stmts);
         report.phase = ir.Phase.case;
@@ -4271,7 +5760,8 @@ pub const Stream = struct {
                 report.phase = ir.Phase.masters;
                 try clashes(s.keep.perm, stmts, &s.models, &s.subckts, &s.clashed, report, g);
             }
-            if (s.param_renames.count() > 0) stmts = try renameParams(w, stmts, &s.param_renames, &s.param_told);
+            if (s.param_renames.count() > 0)
+                stmts = try renameParams(w, stmts, &s.param_renames, &s.param_told);
         }
         report.phase = ir.Phase.topology;
         if (s.topo) |*t| try t.group(stmts);
@@ -4302,7 +5792,8 @@ pub const Stream = struct {
         // `pzPorts`: what those would change makes the netlist be written
         // whole (`stream.zig`).
         w.report.phase = ir.Phase.devlot;
-        if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts)) stmts = try stats.devLot(a, stmts, w.report, &s.functions);
+        if (stats.devLots(g, s.nl.dialect) and stats.usesDevLot(stmts))
+            stmts = try stats.devLot(a, stmts, w.report, &s.functions);
         w.report.phase = ir.Phase.stats;
         stats.checkReserved(g, stmts, w.report);
         if (s.lower) |*l| stmts = try l.group(a, stmts);
@@ -4327,7 +5818,8 @@ pub const Stream = struct {
     }
 
     fn sole(s: *Stream, st: *const ir.Stmt) void {
-        if (s.analyses == 1 and schema.info(st.kind).class == .analysis and st.kind != .alter) s.w.sole = st;
+        if (s.analyses == 1 and schema.info(st.kind).class == .analysis and st.kind != .alter)
+            s.w.sole = st;
     }
 
     /// Everything after the last statement. `rescan` gives the topology
@@ -4346,7 +5838,9 @@ pub const Stream = struct {
             // every analysis: SPICE applies them wherever they stand.
             var any = false;
             for ([_]bool{ false, true }) |analyses| for (s.wrapped.items) |*st| {
-                if (g.wrapOf(st.kind) != wr or (schema.info(st.kind).class == .analysis) != analyses) continue;
+                if (g.wrapOf(st.kind) != wr or
+                    (schema.info(st.kind).class == .analysis) != analyses)
+                    continue;
                 if (!any) try w.line(wr.open);
                 any = true;
                 s.sole(st);
@@ -4361,11 +5855,15 @@ pub const Stream = struct {
         w.foreignNote();
         const cp = w.copied;
         if (cp.n == 1) {
-            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different implementations and versions of this model; parameters were copied as written, check them against {s}", .{
+            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship " ++
+                "different implementations and versions of this model; parameters were copied " ++
+                "as written, check them against {s}", .{
                 cp.name, cp.family, cp.source, g.name, g.name,
             });
         } else if (cp.n > 1) {
-            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: {s} and {s} ship different implementations and versions of these models; parameters were copied as written, check them against {s}", .{
+            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model " ++
+                "cards: {s} and {s} ship different implementations and versions of these " ++
+                "models; parameters were copied as written, check them against {s}", .{
                 cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
             });
         }

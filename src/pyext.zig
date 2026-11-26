@@ -86,11 +86,15 @@ fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
         switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             error.UnknownDialect => {
-                w.print("unknown dialect '{s}'. Built in:", .{name[0..@min(name.len, 40)]}) catch {};
+                w.print(
+                    "unknown dialect '{s}'. Built in:",
+                    .{name[0..@min(name.len, 40)]},
+                ) catch {};
                 for (sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
                 w.writeAll("; or a path to a .spgrammar file") catch {};
             },
-            error.CannotRead, error.BadGrammar, error.TooManyDialects => w.writeAll(diag.msg) catch {},
+            error.CannotRead, error.BadGrammar, error.TooManyDialects => w.writeAll(diag.msg) catch
+                {},
         }
         buf[w.end] = 0;
         PyErr_SetString(valueError(), @ptrCast(&buf));
@@ -138,7 +142,16 @@ fn translateBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     // A statement at a time, as the command does (issue 67): the same
     // output, without the whole netlist held at once.
     var aw: std.Io.Writer.Allocating = .init(arena);
-    _ = sprack.stream.translate(arena, gf, gt, try arg(args, 2), &aw.writer, &report, &sprack.caps, .{}) catch return error.OutOfMemory;
+    _ = sprack.stream.translate(
+        arena,
+        gf,
+        gt,
+        try arg(args, 2),
+        &aw.writer,
+        &report,
+        &sprack.caps,
+        .{},
+    ) catch return error.OutOfMemory;
     return pair(aw.written(), try reportJson(arena, &report));
 }
 
@@ -146,8 +159,17 @@ fn readBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     const gf = try dialect(arena, try arg(args, 0));
     var report: ir.Report = .init(arena);
     // Optional: a netlist's JSON form whose `env` says what other files declare.
-    const env = if (args != null and PyTuple_Size(args.?) > 3) (try sprack.json.parseNetlist(arena, try arg(args, 3), &report)).env else null;
-    const nl = try sprack.reader.read(gf, arena, try arg(args, 1), &report, .{ .env = env, .library = flag(args, 2) });
+    const env = if (args != null and PyTuple_Size(args.?) > 3)
+        (try sprack.json.parseNetlist(arena, try arg(args, 3), &report)).env
+    else
+        null;
+    const nl = try sprack.reader.read(
+        gf,
+        arena,
+        try arg(args, 1),
+        &report,
+        .{ .env = env, .library = flag(args, 2) },
+    );
     var aw: std.Io.Writer.Allocating = .init(arena);
     try sprack.json.writeNetlist(&aw.writer, &nl);
     return pair(aw.written(), try reportJson(arena, &report));
@@ -200,26 +222,44 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
         .vars = try vars(arena, try arg(args, 4)),
         .library = flag(args, 5),
         // Optional: the library sections to follow, one per line.
-        .sections = if (args != null and PyTuple_Size(args.?) > 6) try lines(arena, try arg(args, 6)) else &.{},
+        .sections = if (args != null and PyTuple_Size(args.?) > 6)
+            try lines(arena, try arg(args, 6))
+        else
+            &.{},
         // Optional: a manifest's errata, as JSON.
-        .errata = if (args != null and PyTuple_Size(args.?) > 7) sprack.project.parseErrata(arena, try arg(args, 7)) catch |e| switch (e) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.BadErrata => {
-                PyErr_SetString(valueError(), "errata: a list of {file, was, read, why}");
-                return error.Raised;
-            },
-        } else &.{},
+        .errata = if (args != null and PyTuple_Size(args.?) > 7)
+            sprack.project.parseErrata(arena, try arg(args, 7)) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.BadErrata => {
+                    PyErr_SetString(valueError(), "errata: a list of {file, was, read, why}");
+                    return error.Raised;
+                },
+            }
+        else
+            &.{},
         // Optional: files given by name (`--provide`), NAME=FILE lines.
-        .provided = if (args != null and PyTuple_Size(args.?) > 8) try vars(arena, try arg(args, 8)) else &.{},
+        .provided = if (args != null and PyTuple_Size(args.?) > 8)
+            try vars(arena, try arg(args, 8))
+        else
+            &.{},
         .log = &log.writer,
         .catalog = if (gt == null) &cat.writer else null,
         .expanded = &expanded.writer,
         .caps = &sprack.caps,
     }) catch return error.OutOfMemory;
     if (gt == null) return pair(cat.written(), log.written());
-    const summary = try std.fmt.allocPrint(arena, "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d},\"root\":{f},\"vars\":{s}}}", .{
-        sum.files, sum.errors, sum.warnings, sum.missing, std.json.fmt(sum.root(), .{}), expanded.written(),
-    });
+    const summary = try std.fmt.allocPrint(
+        arena,
+        "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d},\"root\":{f},\"vars\":{s}}}",
+        .{
+            sum.files,          sum.errors, sum.warnings, sum.missing,
+            std.json.fmt(
+                sum.root(),
+                .{},
+            ),
+            expanded.written(),
+        },
+    );
     return pair(summary, log.written());
 }
 
@@ -240,11 +280,37 @@ fn pyProject(_: ?*PyObject, a: ?*PyObject) callconv(.c) ?*PyObject {
 }
 
 var methods = [_]PyMethodDef{
-    .{ .name = "info", .meth = pyInfo, .flags = METH_VARARGS, .doc = "info() -> JSON: dialects, statement kinds and their slots, who can write what." },
-    .{ .name = "translate", .meth = pyTranslate, .flags = METH_VARARGS, .doc = "translate(from, to, source) -> (netlist, report JSON)" },
-    .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)" },
-    .{ .name = "write", .meth = pyWrite, .flags = METH_VARARGS, .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)" },
-    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata[, provided]]]) -> (summary or catalogue JSON, log)" },
+    .{
+        .name = "info",
+        .meth = pyInfo,
+        .flags = METH_VARARGS,
+        .doc = "info() -> JSON: dialects, statement kinds and their slots, who can write what.",
+    },
+    .{
+        .name = "translate",
+        .meth = pyTranslate,
+        .flags = METH_VARARGS,
+        .doc = "translate(from, to, source) -> (netlist, report JSON)",
+    },
+    .{
+        .name = "read",
+        .meth = pyRead,
+        .flags = METH_VARARGS,
+        .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)",
+    },
+    .{
+        .name = "write",
+        .meth = pyWrite,
+        .flags = METH_VARARGS,
+        .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)",
+    },
+    .{
+        .name = "project",
+        .meth = pyProject,
+        .flags = METH_VARARGS,
+        .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata[, " ++
+            "provided]]]) -> (summary or catalogue JSON, log)",
+    },
     .{ .name = null, .meth = null, .flags = 0, .doc = null },
 };
 
