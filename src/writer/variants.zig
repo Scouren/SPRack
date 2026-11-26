@@ -1,6 +1,15 @@
 //! A subcircuit for each branch: where the target has no conditional
 //! blocks, a subcircuit that holds one is written once for each branch it
 //! can take, and each instance names the one its parameters select.
+//!
+//! Contents:
+//! - `pub fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!usize`
+//! - `pub fn foreignInstance(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!?*const ir.Stmt`
+//! - `pub fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void`
+//! - `pub fn variantOf(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?[]const u8`
+//! - `pub fn knownSplits(w: *Writer, a: Allocator) Allocator.Error![]const cond.Known`
+//! - `pub fn noteAllSplits(w: *Writer, stmts: []const ir.Stmt,
+//!   env: ?*const ir.Env) Allocator.Error!void`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -8,8 +17,8 @@ const ir = @import("ir");
 const expr = @import("expr");
 const cond = @import("cond");
 const statement = @import("statement.zig");
-
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Writer = statement.Writer;
 const Error = Writer.Error;
 
@@ -17,7 +26,9 @@ const Error = Writer.Error;
 /// subcircuit that holds an instance of one, decided by its own
 /// parameters, is one too: noted once the other is (`cond.passDown`).
 /// Returns how many were noted.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!usize {
+    const before = w.splits.items.len;
     var n: usize = 0;
     for (stmts) |*s| {
         if (s.kind == .subckt and s.get("name") == .atom) noted: {
@@ -37,11 +48,14 @@ pub fn noteSplits(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!usize {
         }
         n += try noteSplits(w, s.body);
     }
+    // Each one noted is one more of `w.splits`, those of the bodies too.
+    assert(w.splits.items.len == before + n);
     return n;
 }
 
 /// The first instance that gives parameters to a subcircuit no file
 /// read declares.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn foreignInstance(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!?*const ir.Stmt {
     for (stmts) |*s| {
         if (s.kind == .instance and s.get("master") == .atom and s.get("params") == .params and
@@ -59,6 +73,9 @@ pub fn foreignInstance(w: *Writer, stmts: []const ir.Stmt) Allocator.Error!?*con
 /// The subcircuit `st` once for each of `v`, a comment above each
 /// saying where it is the one.
 pub fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void {
+    assert(st.kind == .subckt);
+    // `noteSplits` notes only a subcircuit that has a name.
+    assert(st.get("name") == .atom);
     const name = st.get("name").atom;
     var listed: std.ArrayList(u8) = .empty;
     for (v.list, 0..) |x, i|
@@ -114,6 +131,7 @@ pub fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void
 /// written as several, the one its parameters select. Null, reported,
 /// when that cannot be told.
 pub fn variantOf(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?[]const u8 {
+    assert(st.get("master") == .atom);
     const master = st.get("master").atom;
     var name: ?[]const u8 = null;
     for (w.splits.items) |*sp| {

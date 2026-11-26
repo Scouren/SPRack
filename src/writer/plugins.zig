@@ -3,6 +3,15 @@
 //! the instance are written as the plugin has them, with what it has no
 //! place for left out and said; without a plugin given to the translation,
 //! the error says how to get one.
+//!
+//! Contents:
+//! - `pub const WithModule = union(enum)`
+//! - `pub fn pluginText(w: *const Writer, a: Allocator, comptime which: enum`
+//! - `pub fn needsPlugin(w: *const Writer, module: []const u8) bool`
+//! - `pub fn providedFile(w: *const Writer, name: []const u8) ?[]const u8`
+//! - `pub fn pluginDrops(w: *Writer, a: Allocator, st: *const ir.Stmt, module: []const u8,
+//!   card: bool) Allocator.Error!?ir.Stmt`
+//! - `pub fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -10,8 +19,8 @@ const schema = @import("schema");
 const ir = @import("ir");
 const tables = @import("tables.zig");
 const statement = @import("statement.zig");
-
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Value = ir.Value;
 const Writer = statement.Writer;
 const Error = Writer.Error;
@@ -44,14 +53,6 @@ pub fn needsPlugin(w: *const Writer, module: []const u8) bool {
     return providedFile(w, module) == null;
 }
 
-/// Is `v` the value a plugin behaves as having for `drop`'s parameter?
-pub fn neutral(drop: grammar.Plugin.Drop, v: Value) bool {
-    if (drop.neutral.len == 0 or v != .num) return false;
-    // The grammar compiler took only a number.
-    const same = std.fmt.parseFloat(f64, drop.neutral) catch unreachable;
-    return v.num.toFloat() == same;
-}
-
 /// The file given to the translation under this name (`--provide`).
 pub fn providedFile(w: *const Writer, name: []const u8) ?[]const u8 {
     const given: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
@@ -70,6 +71,7 @@ pub fn pluginDrops(
     module: []const u8,
     card: bool,
 ) Allocator.Error!?ir.Stmt {
+    assert(module.len > 0);
     const pl = w.g.plugin.?;
     const pi = schema.slotOf(st.kind, "params").?;
     var out: ?ir.Stmt = null;
@@ -91,29 +93,6 @@ pub fn pluginDrops(
     return out;
 }
 
-pub fn reportDrop(
-    w: *Writer,
-    a: Allocator,
-    st: *const ir.Stmt,
-    drop: grammar.Plugin.Drop,
-    v: Value,
-    module: []const u8,
-) Allocator.Error!void {
-    const vars = [_][2][]const u8{ .{ "{to}", w.g.name }, .{ "{module}", module } };
-    const why = try tables.filled(a, drop.text, &vars);
-    const sev: ir.Severity = if (drop.err) .@"error" else .warning;
-    if (drop.card) {
-        w.report.add(sev, .loss, st.line, "model '{s}': {s} not written: {s}", .{
-            st.get("name").atom, drop.key, why,
-        });
-    } else {
-        var em = w.emitter(a, st);
-        w.report.add(sev, .loss, st.line, "device: '{s}={s}' not written: {s}", .{
-            drop.key, try em.describe(v), why,
-        });
-    }
-}
-
 /// A Verilog-A instance where the target takes its module as a plugin
 /// and names it on the instance (`plugin`): the instance with the
 /// module of its model card, if a plugin of it was given to the
@@ -121,6 +100,9 @@ pub fn reportDrop(
 /// one. `keep`: written as it is.
 pub fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
     const mi = schema.slot(.device, "module");
+    assert(st.kind == .device);
+    // An instance that names its module is written as it is.
+    assert(st.at(mi) == .none);
     if (w.g.plugin == null) return .keep;
     const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
     const module = w.modules.get(master) orelse (if (w.env) |e|
@@ -159,4 +141,38 @@ pub fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
     try d.set(w.arena, mi, .{ .atom = module });
     if (try pluginDrops(w, w.arena, &d, module, false)) |without| return .{ .stmt = without };
     return .{ .stmt = d };
+}
+
+// ---- private ----
+
+/// Is `v` the value a plugin behaves as having for `drop`'s parameter?
+fn neutral(drop: grammar.Plugin.Drop, v: Value) bool {
+    if (drop.neutral.len == 0 or v != .num) return false;
+    // The grammar compiler took only a number; a text that is none is
+    // the value of no parameter.
+    const same = std.fmt.parseFloat(f64, drop.neutral) catch return false;
+    return v.num.toFloat() == same;
+}
+
+fn reportDrop(
+    w: *Writer,
+    a: Allocator,
+    st: *const ir.Stmt,
+    drop: grammar.Plugin.Drop,
+    v: Value,
+    module: []const u8,
+) Allocator.Error!void {
+    const vars = [_][2][]const u8{ .{ "{to}", w.g.name }, .{ "{module}", module } };
+    const why = try tables.filled(a, drop.text, &vars);
+    const sev: ir.Severity = if (drop.err) .@"error" else .warning;
+    if (drop.card) {
+        w.report.add(sev, .loss, st.line, "model '{s}': {s} not written: {s}", .{
+            st.get("name").atom, drop.key, why,
+        });
+    } else {
+        var em = w.emitter(a, st);
+        w.report.add(sev, .loss, st.line, "device: '{s}={s}' not written: {s}", .{
+            drop.key, try em.describe(v), why,
+        });
+    }
 }
