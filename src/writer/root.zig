@@ -23,9 +23,39 @@ const Grammar = grammar.Grammar;
 const Node = grammar.Node;
 const Kind = schema.Kind;
 const Value = ir.Value;
+const pzPorts = analysis_passes.pzPorts;
+const foldMaxord = analysis_passes.foldMaxord;
+const idleCeilings = analysis_passes.idleCeilings;
+pub const defaultOptions = analysis_passes.defaultOptions;
+const reportDefaults = analysis_passes.reportDefaults;
+const sameDialect = analysis_passes.sameDialect;
+const mentions = analysis_passes.mentions;
+const anyConverted = analysis_passes.anyConverted;
+const uniqueParams = name_passes.uniqueParams;
+const uniqueParamsIn = name_passes.uniqueParamsIn;
+const Analysis = name_passes.Analysis;
+const collectAnalyses = name_passes.collectAnalyses;
+const uniqueAnalyses = name_passes.uniqueAnalyses;
+pub const collectReserved = name_passes.collectReserved;
+const reservedRenames = name_passes.reservedRenames;
+const renameParams = name_passes.renameParams;
+const CaselessMap = name_passes.CaselessMap;
+pub const masterRenames = name_passes.masterRenames;
+const renamesOf = name_passes.renamesOf;
+const collectMasters = name_passes.collectMasters;
+const renameMasters = name_passes.renameMasters;
+const uniqueMasters = name_passes.uniqueMasters;
+const clashes = name_passes.clashes;
+const collectDeclared = name_passes.collectDeclared;
+const CaseMaps = name_passes.CaseMaps;
+const checkCase = name_passes.checkCase;
+const collectInstances = name_passes.collectInstances;
+const collectFuncs = name_passes.collectFuncs;
 
 const emit = @import("emit.zig");
 const tables = @import("tables.zig");
+const analysis_passes = @import("analyses.zig");
+const name_passes = @import("names.zig");
 const rewrite = @import("rewrite.zig");
 pub const Caps = emit.Caps;
 const Emit = emit.Emit;
@@ -34,6 +64,7 @@ const spellingsOf = tables.spellingsOf;
 const spellingCanon = tables.spellingCanon;
 const takes = tables.takes;
 const idleCeiling = tables.idleCeiling;
+const describeValue = tables.describeValue;
 
 const Writer = struct {
     g: *const Grammar,
@@ -1145,6 +1176,16 @@ const Writer = struct {
         } else null;
         const text = why orelse return null;
         return try reasonFor(w.arena, text, w.g.name);
+    }
+
+    /// Where the statements being written come from (`tables.Origin`).
+    fn origin(w: *const Writer) tables.Origin {
+        return .{ .source = w.source, .grammars = if (w.caps) |c| c.grammars else &.{} };
+    }
+
+    /// What the name passes take of the writer (`names.Pass`).
+    fn pass(w: *const Writer) name_passes.Pass {
+        return .{ .arena = w.arena, .perm = w.perm, .g = w.g, .report = w.report };
     }
 
     fn emitter(w: *Writer, a: Allocator, st: *const ir.Stmt) Emit {
@@ -2731,17 +2772,6 @@ const Writer = struct {
     }
 };
 
-/// The canonical name a dialect's `params` table gives a spelling.
-/// The entry of a spellings table for a canonical name.
-/// A value as a message shows it.
-fn describeValue(a: Allocator, v: Value) Allocator.Error![]const u8 {
-    return switch (v) {
-        .atom, .expr, .str => |x| x,
-        .num => try expr.canonText(a, v),
-        else => "...",
-    };
-}
-
 /// The value of `slot` on the first statement of `kind` that has one.
 fn firstValue(stmts: []const ir.Stmt, kind: Kind, slot: u8) ?Value {
     for (stmts) |*s| {
@@ -2795,453 +2825,6 @@ fn omittedPhrase(arena: Allocator, o: *const grammar.Omitted) Allocator.Error![]
     return o.text;
 }
 
-/// `unique param`: a parameter defined twice in one scope. Each body
-/// (subcircuit, library section, branch) is a scope of its own.
-fn uniqueParams(
-    stmts: []const ir.Stmt,
-    report: *ir.Report,
-    g: *const Grammar,
-) Allocator.Error!void {
-    var seen: ir.CaselessSet = .empty;
-    defer seen.deinit(ir.big);
-    try uniqueParamsIn(stmts, &seen, null, report, g);
-}
-
-/// `seen`: the names the scope defined before `stmts`; with `keep`, each
-/// new one is kept, as `stmts` go away before the scope ends.
-fn uniqueParamsIn(
-    stmts: []const ir.Stmt,
-    seen: *ir.CaselessSet,
-    keep: ?ir.Keep,
-    report: *ir.Report,
-    g: *const Grammar,
-) Allocator.Error!void {
-    for (stmts) |*s| {
-        if (s.body.len > 0) try uniqueParams(s.body, report, g);
-        if (s.kind != .param or s.get("params") != .params) continue;
-        for (s.get("params").params) |p| {
-            // The variation of the parameter before it, not a parameter.
-            if (stats.devLotKey(p.key) != null) continue;
-            const gop = try seen.getOrPut(ir.big, p.key);
-            if (gop.found_existing)
-                report.add(
-                    .@"error",
-                    .invalid,
-                    s.line,
-                    "parameter '{s}' is defined twice in one scope; {s}",
-                    .{ p.key, g.unique_param },
-                )
-            else if (keep) |k| {
-                gop.key_ptr.* = try k.text(p.key);
-            }
-        }
-    }
-}
-
-const Analysis = struct { kind: ir.Kind, line: u32 };
-
-/// `unique analysis`: the statements of `stmts` that count as an analysis
-/// in `g`, outside subcircuits, in the order written.
-fn collectAnalyses(
-    a: Allocator,
-    g: *const Grammar,
-    stmts: []const ir.Stmt,
-    found: *std.ArrayList(Analysis),
-) Allocator.Error!void {
-    const u = g.unique_analysis orelse return;
-    for (stmts) |*s| {
-        if (s.kind == .subckt) continue;
-        if (std.mem.indexOfScalar(ir.Kind, u.kinds, s.kind) != null)
-            try found.append(a, .{ .kind = s.kind, .line = s.line });
-        try collectAnalyses(a, g, s.body, found);
-    }
-}
-
-/// `unique analysis`: more analyses than the simulator loads in one netlist
-/// are an error on each; two it loads, running one, a caveat on the other.
-/// The lines are the entries': a message is the same for a netlist built
-/// in Python, whose statements have other lines.
-fn uniqueAnalyses(
-    a: Allocator,
-    g: *const Grammar,
-    found: []const Analysis,
-    report: *ir.Report,
-) Allocator.Error!void {
-    const u = g.unique_analysis orelse return;
-    if (found.len < 2) return;
-    var besides: usize = 0;
-    for (found) |f| besides += @intFromBool(f.kind == u.beside);
-    if (found.len == 2 and besides > 0) {
-        // Two of the kind are the same analysis twice: nothing is left out.
-        if (besides == 2) return;
-        const op: usize = @intFromBool(found[1].kind == u.beside);
-        report.add(
-            .warning,
-            .caveat,
-            found[op].line,
-            "{s} beside {s}; {s}",
-            .{ @tagName(found[op].kind), @tagName(found[op ^ 1].kind), u.reason },
-        );
-        return;
-    }
-    var names: std.ArrayList(u8) = .empty;
-    for (found, 0..) |f, i|
-        try names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", @tagName(f.kind) });
-    for (found) |f|
-        report.add(
-            .@"error",
-            .invalid,
-            f.line,
-            "{s}: one of {d} analyses in this netlist ({s}); {s}",
-            .{ @tagName(f.kind), found.len, names.items, u.reason },
-        );
-}
-
-/// The parameter names `stmts` define that start with a name the dialect
-/// keeps for itself (`reserved`): those `reservedRenames` renames, and the
-/// names a new one could clash with. With `src`, a name not in it is copied.
-pub fn collectReserved(
-    arena: Allocator,
-    g: *const Grammar,
-    stmts: []const ir.Stmt,
-    out: *ir.CaselessSet,
-    src: ?[]const u8,
-) Allocator.Error!void {
-    if (g.reserved.len == 0) return;
-    for (stmts) |*s| {
-        try collectReserved(arena, g, s.body, out, src);
-        if ((s.kind != .param and s.kind != .subckt) or s.get("params") != .params) continue;
-        for (s.get("params").params) |p| for (g.reserved) |r| for (r.names) |n| {
-            if (std.ascii.startsWithIgnoreCase(p.key, n)) try ir.putName(out, arena, src, p.key);
-        };
-    }
-}
-
-/// `reserved`: each parameter `defined` (here or in another file of the
-/// project) under a name the dialect keeps for itself, to the name it is
-/// written under: `vt__p`, or `vt__p2` and so on when that is taken. Every
-/// file of a project gets the same map. A name that is a variable in every
-/// dialect (`time`) is left: in an expression the word is the variable.
-fn reservedRenames(
-    arena: Allocator,
-    g: *const Grammar,
-    defined: *const ir.CaselessSet,
-    env: ?*const ir.Env,
-) Allocator.Error!CaselessMap {
-    var out: CaselessMap = .empty;
-    for (g.reserved) |r| for (r.names) |n| {
-        // `time` is the variable in every expression; a variable this
-        // dialect takes before a parameter of its name (`shadowed`) is not.
-        if (schema.isVariable(n) and !r.shadowed) continue;
-        if (!defined.contains(n) and !(if (env) |e| e.params.contains(n) else false)) continue;
-        var name = try std.fmt.allocPrint(arena, "{s}__p", .{n});
-        var i: usize = 2;
-        while (defined.contains(name) or (if (env) |e| e.params.contains(name) else false)) : (i += 1) {
-            name = try std.fmt.allocPrint(arena, "{s}__p{d}", .{ n, i });
-        }
-        try out.put(arena, n, name);
-    };
-    return out;
-}
-
-/// The parameters `renames` names under their new names: where they are
-/// defined (`.param`, a subcircuit's header), given to a subcircuit, and
-/// used in an expression. Each is reported once.
-fn renameParams(
-    w: *Writer,
-    stmts: []ir.Stmt,
-    renames: *const CaselessMap,
-    told: *ir.CaselessSet,
-) Allocator.Error![]ir.Stmt {
-    var list: ?[]ir.Stmt = null;
-    for (stmts, 0..) |*st, i| {
-        var cur = st.*;
-        var changed = false;
-        if (st.body.len > 0) {
-            const b = try renameParams(w, st.body, renames, told);
-            if (b.ptr != st.body.ptr) {
-                cur.body = b;
-                changed = true;
-            }
-        }
-        var hit: std.ArrayList([]const u8) = .empty;
-        const keys = st.kind == .param or st.kind == .subckt or st.kind == .instance;
-        for (schema.info(st.kind).slots, 0..) |sl, si| {
-            // Slots that name a parameter: a function's arguments, what a
-            // sweep sweeps, a data table's columns, what an alter sets.
-            const words = (st.kind == .func and std.mem.eql(u8, sl.name, "args")) or
-                ((st.kind == .dc or st.kind == .step) and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "param2"))) or
-                (st.kind == .data and std.mem.eql(u8, sl.name, "cols")) or
-                (st.kind == .alter and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "keys")));
-            const v = try renamedValue(
-                w.arena,
-                st.at(@intCast(si)),
-                renames,
-                keys,
-                words,
-                &hit,
-            ) orelse continue;
-            if (!changed or cur.body.ptr != st.body.ptr) try cur.own(w.arena);
-            try cur.set(w.arena, @intCast(si), v);
-            changed = true;
-        }
-        for (hit.items) |old| {
-            const gop = try told.getOrPut(w.perm, old);
-            if (gop.found_existing) continue;
-            gop.key_ptr.* = try w.perm.dupe(u8, old);
-            const why = why: for (w.g.reserved) |r| {
-                for (r.names) |n| if (std.ascii.eqlIgnoreCase(n, old)) break :why r.reason;
-            } else "";
-            w.report.add(
-                .info,
-                .rename,
-                st.line,
-                "parameter '{s}' is written as '{s}', where it is defined and wherever it is " ++
-                    "used: {s}",
-                .{ old, renames.get(old).?, why },
-            );
-        }
-        if (changed) {
-            if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
-            list.?[i] = cur;
-        }
-    }
-    return list orelse stmts;
-}
-
-/// `v` for `renameParams`, or null when nothing in it is renamed. `keys`:
-/// the keys of a parameter list are parameters; `words`: so are bare words.
-fn renamedValue(
-    arena: Allocator,
-    v: Value,
-    renames: *const CaselessMap,
-    keys: bool,
-    words: bool,
-    hit: *std.ArrayList([]const u8),
-) Allocator.Error!?Value {
-    switch (v) {
-        .expr => |e| {
-            const t = try expr.rename(arena, e, renames, hit);
-            return if (t.ptr == e.ptr) null else .{ .expr = t };
-        },
-        .atom => |a| {
-            const to = renames.get(a) orelse return null;
-            if (!words) return null;
-            try hit.append(arena, a);
-            return .{ .atom = to };
-        },
-        .list => |l| {
-            var out: ?[]Value = null;
-            for (l, 0..) |x, i| if (try renamedValue(arena, x, renames, keys, words, hit)) |n| {
-                if (out == null) out = try arena.dupe(Value, l);
-                out.?[i] = n;
-            };
-            return if (out) |o| .{ .list = o } else null;
-        },
-        .params => |ps| {
-            var out: ?[]ir.Param = null;
-            for (ps, 0..) |p, i| {
-                var n = p;
-                if (keys) if (renames.get(p.key)) |to| {
-                    try hit.append(arena, p.key);
-                    n.key = to;
-                };
-                if (try renamedValue(arena, p.val, renames, false, false, hit)) |val| n.val = val;
-                if (n.key.ptr == p.key.ptr and n.val.eql(p.val)) continue;
-                if (out == null) out = try arena.dupe(ir.Param, ps);
-                out.?[i] = n;
-            }
-            return if (out) |o| .{ .params = o } else null;
-        },
-        else => return null,
-    }
-}
-
-/// A map from names, ignoring case.
-const CaselessMap = std.HashMapUnmanaged(
-    []const u8,
-    []const u8,
-    ir.Caseless,
-    std.hash_map.default_max_load_percentage,
-);
-
-/// `unique master`: names both a model (or its bins, `nch.1`) and a
-/// subcircuit define, here or in another file of the project, each to the
-/// name its model is written under: `nch__m`, or `nch__m2` and so on when
-/// that is taken. Every file of a project gets the same map.
-pub fn masterRenames(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    env: ?*const ir.Env,
-) Allocator.Error!CaselessMap {
-    var models: ir.CaselessSet = .empty;
-    var subckts: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts, null);
-    return renamesOf(arena, &models, &subckts, env);
-}
-
-/// `masterRenames` for the models and subcircuits `collectMasters` found.
-fn renamesOf(
-    arena: Allocator,
-    models_in: *const ir.CaselessSet,
-    subckts_in: *const ir.CaselessSet,
-    env: ?*const ir.Env,
-) Allocator.Error!CaselessMap {
-    var models = try models_in.clone(arena);
-    var subckts = try subckts_in.clone(arena);
-    var taken: ir.CaselessSet = .empty;
-    if (env) |e| {
-        var it = e.models.keyIterator();
-        while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
-        var si = e.subckts.keyIterator();
-        while (si.next()) |k| try subckts.put(arena, k.*, {});
-        var di = e.declared.keyIterator();
-        while (di.next()) |k| try taken.put(arena, k.*, {});
-    }
-    var out: CaselessMap = .empty;
-    var it = models.keyIterator();
-    while (it.next()) |k| {
-        try taken.put(arena, k.*, {});
-        if (!subckts.contains(k.*)) continue;
-        var name = try std.fmt.allocPrint(arena, "{s}__m", .{k.*});
-        var n: usize = 2;
-        while (taken.contains(name) or subckts.contains(name) or models.contains(name)) : (n += 1) {
-            name = try std.fmt.allocPrint(arena, "{s}__m{d}", .{ k.*, n });
-        }
-        try out.put(arena, k.*, name);
-    }
-    return out;
-}
-
-/// With `src`, a name not in it is copied (the statements go away).
-fn collectMasters(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    models: *ir.CaselessSet,
-    subckts: *ir.CaselessSet,
-    src: ?[]const u8,
-) Allocator.Error!void {
-    for (stmts) |*s| {
-        const n = s.get("name");
-        if (n == .atom) {
-            if (s.kind == .subckt) try ir.putName(subckts, arena, src, n.atom);
-            // `nch.1`, `nch.2`: bins of the model `nch`.
-            if (s.kind == .model)
-                try ir.putName(models, arena, src, ir.binBase(n.atom) orelse n.atom);
-        }
-        try collectMasters(arena, s.body, models, subckts, src);
-    }
-}
-
-/// The model cards `renames` names, and the devices that use them as a
-/// model (by their SPICE letter), under their new names; subcircuit
-/// instances keep theirs. Each name is reported once.
-fn renameMasters(
-    w: *Writer,
-    stmts: []ir.Stmt,
-    renames: *const CaselessMap,
-    told: *ir.CaselessSet,
-) Allocator.Error![]ir.Stmt {
-    var list: ?[]ir.Stmt = null;
-    for (stmts, 0..) |*st, i| {
-        var cur = st.*;
-        var changed = false;
-        if (st.body.len > 0) {
-            const b = try renameMasters(w, st.body, renames, told);
-            if (b.ptr != st.body.ptr) {
-                cur.body = b;
-                changed = true;
-            }
-        }
-        const class = schema.info(st.kind).class;
-        const slot: ?u8 = if (st.kind == .model)
-            (comptime schema.slotOf(.model, "name"))
-        else if (class == .device and st.kind != .instance)
-            schema.slotOf(st.kind, "master")
-        else
-            null;
-        if (slot) |si| if (cur.at(si) == .atom) {
-            const old = cur.at(si).atom;
-            const base = if (st.kind == .model) ir.binBase(old) orelse old else old;
-            if (renames.get(base)) |new| {
-                try cur.own(w.arena);
-                try cur.set(
-                    w.arena,
-                    si,
-                    .{ .atom = try std.mem.concat(w.arena, u8, &.{ new, old[base.len..] }) },
-                );
-                changed = true;
-                const gop = try told.getOrPut(w.perm, base);
-                if (!gop.found_existing) {
-                    gop.key_ptr.* = try w.perm.dupe(u8, base);
-                    w.report.add(
-                        .info,
-                        .rename,
-                        st.line,
-                        "'{s}' names both a model and a subcircuit: the model is written as " ++
-                            "'{s}', and so is every device that uses it as a model; {s}",
-                        .{ base, new, w.g.unique_master },
-                    );
-                }
-            }
-        };
-        if (changed) {
-            if (list == null) list = try w.arena.dupe(ir.Stmt, stmts);
-            list.?[i] = cur;
-        }
-    }
-    return list orelse stmts;
-}
-
-/// A device still using a name both a model and a subcircuit define after
-/// `renameMasters` (one it could not reach): an error.
-fn uniqueMasters(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    env: ?*const ir.Env,
-    report: *ir.Report,
-    g: *const Grammar,
-) Allocator.Error!void {
-    var models: ir.CaselessSet = .empty;
-    var subckts: ir.CaselessSet = .empty;
-    var told: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts, null);
-    if (env) |e| {
-        var it = e.models.keyIterator();
-        while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
-        var si = e.subckts.keyIterator();
-        while (si.next()) |k| try subckts.put(arena, k.*, {});
-    }
-    try clashes(arena, stmts, &models, &subckts, &told, report, g);
-}
-
-fn clashes(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    models: *ir.CaselessSet,
-    subckts: *ir.CaselessSet,
-    told: *ir.CaselessSet,
-    report: *ir.Report,
-    g: *const Grammar,
-) Allocator.Error!void {
-    for (stmts) |*s| {
-        try clashes(arena, s.body, models, subckts, told, report, g);
-        if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
-        const m = s.get("master");
-        if (m != .atom or !models.contains(m.atom) or !subckts.contains(m.atom)) continue;
-        const gop = try told.getOrPut(arena, m.atom);
-        if (gop.found_existing) continue;
-        gop.key_ptr.* = try arena.dupe(u8, m.atom);
-        report.add(
-            .@"error",
-            .invalid,
-            s.line,
-            "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}",
-            .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master },
-        );
-    }
-}
-
 /// `nch` of the model card `nch.12`, or null.
 fn binBase(st: *const ir.Stmt) ?[]const u8 {
     if (st.kind != .model or st.get("name") != .atom) return null;
@@ -3278,18 +2861,6 @@ fn groupBins(arena: Allocator, stmts: []const ir.Stmt) Allocator.Error![]const i
         try out.append(arena, copy);
     }
     return out.items;
-}
-
-fn collectDeclared(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    out: *std.StringHashMapUnmanaged(void),
-) Allocator.Error!void {
-    for (stmts) |*s| {
-        if ((s.kind == .model or s.kind == .subckt) and s.get("name") == .atom)
-            try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
-        try collectDeclared(arena, s.body, out);
-    }
 }
 
 /// A switch on or off level named by one of the grammar's `threshold` lines.
@@ -3362,106 +2933,6 @@ fn collectTerminals(
     }
 }
 
-/// Two names that differ only by case are one name in a case-folding dialect.
-/// Each key is the spelling last seen. The tables hold every node and
-/// instance name, so they live outside the arena and are freed when done.
-const CaseMaps = struct {
-    nodes: ir.CaselessSet = .empty,
-    instances: ir.CaselessSet = .empty,
-    definitions: ir.CaselessSet = .empty,
-    params: ir.CaselessSet = .empty,
-
-    fn deinit(m: *CaseMaps) void {
-        m.nodes.deinit(ir.big);
-        m.instances.deinit(ir.big);
-        m.definitions.deinit(ir.big);
-        m.params.deinit(ir.big);
-    }
-};
-
-/// Names that differ only by case collide in a dialect that ignores case.
-/// Nodes, instances, definitions and parameters are separate name spaces
-/// (`schema.Space`): a source `Vdd` on a node `vdd` is no collision. A
-/// subcircuit's ports, nodes and instances are its own scope; definitions
-/// and parameters are shared by all scopes.
-/// With `keep`, names are kept: the statements go away first.
-fn checkCase(
-    stmts: []const ir.Stmt,
-    seen: *CaseMaps,
-    report: *ir.Report,
-    target: []const u8,
-    keep: ?ir.Keep,
-) Allocator.Error!void {
-    for (stmts) |*s| {
-        const scoped = s.kind == .subckt;
-        var inner: CaseMaps = .{ .definitions = seen.definitions, .params = seen.params };
-        const maps = if (scoped) &inner else seen;
-        defer if (scoped) {
-            seen.definitions = inner.definitions;
-            seen.params = inner.params;
-            inner.nodes.deinit(ir.big);
-            inner.instances.deinit(ir.big);
-        };
-        for (schema.info(s.kind).slots, 0..) |sl, i| {
-            const map = switch (sl.ty) {
-                .node, .name, .ident => switch (sl.space orelse continue) {
-                    .node => &maps.nodes,
-                    .instance => &maps.instances,
-                    .definition => &maps.definitions,
-                    .param => &maps.params,
-                },
-                else => continue,
-            };
-            const one = [1]Value{s.at(i)};
-            const items: []const Value = switch (one[0]) {
-                .atom => &one,
-                .list => |l| l,
-                else => &.{},
-            };
-            for (items) |v| {
-                if (v != .atom) continue;
-                const gop = try map.getOrPut(ir.big, v.atom);
-                if (gop.found_existing and !std.mem.eql(u8, gop.key_ptr.*, v.atom)) {
-                    report.add(.@"error", .invalid, s.line, "'{s}' and '{s}' are different " ++
-                        "names in the source but the same name in {s}, which ignores case", .{
-                        gop.key_ptr.*, v.atom, target,
-                    });
-                    gop.key_ptr.* = if (keep) |k| try k.text(v.atom) else v.atom;
-                } else if (!gop.found_existing) if (keep) |k| {
-                    gop.key_ptr.* = try k.text(v.atom);
-                };
-            }
-        }
-        try checkCase(s.body, maps, report, target, keep);
-    }
-}
-
-/// Is there a statement a `convert` line applies to? Copying a large
-/// netlist's statement list to convert none of it costs its size again.
-fn anyConverted(g: *const Grammar, stmts: []const ir.Stmt) bool {
-    for (stmts) |*s| {
-        for (g.converts) |cv| if (cv.kind == s.kind) return true;
-        if (anyConverted(g, s.body)) return true;
-    }
-    return false;
-}
-
-fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
-    for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device and s.get("name") == .atom)
-            try out.put(ir.big, s.get("name").atom, {});
-        try collectInstances(s.body, out);
-    }
-}
-
-fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allocator.Error!void {
-    for (stmts) |*s| {
-        if (s.kind == .func and s.get("name") == .atom)
-            try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
-        try collectFuncs(arena, s.body, out);
-    }
-}
-
 /// A `needs` line with `{file}`: the file given for the family.
 fn needLine(
     arena: Allocator,
@@ -3488,438 +2959,6 @@ fn collectModules(
             try out.put(arena, s.get("name").atom, s.get("type").atom);
         try collectModules(arena, s.body, out);
     }
-}
-
-fn mentions(nodes: []const Node, slot: u8) bool {
-    for (nodes) |n| {
-        if (n.slot == slot or mentions(n.kids, slot)) return true;
-        for (n.bag) |b| if (b.slot == slot or b.slot2 == slot) return true;
-    }
-    return false;
-}
-
-const PzForm = struct { writes: bool = false, by_src: bool = false, by_sig: bool = false };
-
-/// Whether `g` writes a pole-zero analysis, and does with a source for the
-/// input and a signal for the output.
-fn pzForm(g: *const Grammar) PzForm {
-    const src_i = schema.slot(.pz, "src");
-    const out_i = schema.slot(.pz, "out");
-    var f: PzForm = .{};
-    for (g.rules) |r| if (r.kind == .pz and r.dir != .read) {
-        f.writes = true;
-        f.by_src = f.by_src or mentions(r.pat, src_i);
-        f.by_sig = f.by_sig or mentions(r.pat, out_i);
-    };
-    return f;
-}
-
-/// A pole-zero analysis names its input either as a source (HSPICE `.pz
-/// v(out) vin`, Spectre's iprobe=) or as a node pair with `vol` or `cur`
-/// (SPICE), and its output either as a signal (HSPICE) or as a node pair
-/// (SPICE, Spectre). Each half is put in the form `g` writes. A source's
-/// nodes are the input pair, `vol` for a voltage source and `cur` for a
-/// current source; a node pair is the one source of that kind across it.
-/// A signal-form dialect (HSPICE) takes the poles and zeros of the first
-/// node of v(a,b) only: measured, docs/verification.md.
-fn pzPorts(
-    arena: Allocator,
-    w: *const Writer,
-    stmts: []const ir.Stmt,
-    report: *ir.Report,
-) Allocator.Error![]const ir.Stmt {
-    const g = w.g;
-    const src_i = schema.slot(.pz, "src");
-    const out_i = schema.slot(.pz, "out");
-    const ip_i = schema.slot(.pz, "in_pos");
-    const in_i = schema.slot(.pz, "in_neg");
-    const op_i = schema.slot(.pz, "out_pos");
-    const on_i = schema.slot(.pz, "out_neg");
-    const tr_i = schema.slot(.pz, "transfer");
-    const fi_i = schema.slot(.pz, "find");
-    const form = pzForm(g);
-    if (!form.writes) return stmts;
-    const by_src, const by_sig = .{ form.by_src, form.by_sig };
-    var list: ?[]ir.Stmt = null;
-    for (stmts, 0..) |*st, k| {
-        if (st.kind != .pz) continue;
-        const has_src = st.at(src_i) == .atom;
-        const has_sig = st.at(out_i) != .none;
-        const in_nodes = st.at(ip_i) == .atom and st.at(in_i) == .atom and st.at(tr_i) == .atom;
-        const out_nodes = st.at(op_i) == .atom and st.at(on_i) == .atom;
-        const move_in = (has_src and !by_src) or (!has_src and by_src and in_nodes);
-        const move_out = (has_sig and !by_sig) or (!has_sig and by_sig and out_nodes);
-        if (!move_in and !move_out) continue;
-
-        // The source for a node pair, or the node pair of a source.
-        var dev: ?*const ir.Stmt = null;
-        if (move_in and has_src) {
-            const name = st.at(src_i).atom;
-            dev = for (stmts) |*d| {
-                if ((d.kind == .vsource or d.kind == .isource) and d.get("name") == .atom and
-                    std.ascii.eqlIgnoreCase(
-                        d.get("name").atom,
-                        name,
-                    )) break d;
-            } else {
-                report.add(
-                    .@"error",
-                    .unsupported,
-                    st.line,
-                    "pz: {s} names the input by its nodes, and no voltage or current source " ++
-                        "'{s}' is in this file to take them from",
-                    .{ g.name, name },
-                );
-                continue;
-            };
-        } else if (move_in) {
-            const p, const n = .{ st.at(ip_i).atom, st.at(in_i).atom };
-            const tr = st.at(tr_i).atom;
-            const want: schema.Kind = if (std.ascii.eqlIgnoreCase(tr, "cur"))
-                .isource
-            else
-                .vsource;
-            var hits: usize = 0;
-            for (stmts) |*d| {
-                if (d.kind != want or d.get("name") != .atom or d.get("pos") != .atom or
-                    d.get("neg") != .atom)
-                    continue;
-                const dp, const dn = .{ d.get("pos").atom, d.get("neg").atom };
-                const fwd = std.ascii.eqlIgnoreCase(dp, p) and std.ascii.eqlIgnoreCase(dn, n);
-                const rev = std.ascii.eqlIgnoreCase(dp, n) and std.ascii.eqlIgnoreCase(dn, p);
-                if (!fwd and !rev) continue;
-                hits += 1;
-                dev = d;
-            }
-            if (hits != 1) {
-                report.add(.@"error", .unsupported, st.line, "pz: {s} names the input by its " ++
-                    "source, and {s} {s} sources connect nodes {s} and {s} ({s} input); it " ++
-                    "takes exactly one", .{
-                    g.name,
-                    if (hits == 0)
-                        "no"
-                    else
-                        "several",
-                    if (want == .vsource) "voltage" else "current",
-                    p,
-                    n,
-                    tr,
-                });
-                continue;
-            }
-        }
-        var args: [3][]const u8 = undefined;
-        var n_args: usize = 0;
-        var out_text: []const u8 = "";
-        if (move_out and has_sig) {
-            const text: ?[]const u8 = switch (st.at(out_i)) {
-                .expr, .atom, .str => |x| x,
-                else => null,
-            };
-            out_text = text orelse "";
-            const sform, n_args = (if (text) |t|
-                reader.signalParts(t, &args)
-            else
-                null) orelse .{ "", 0 };
-            if (!(std.mem.eql(u8, sform, "v") or std.mem.eql(u8, sform, "vdiff")) or n_args == 0) {
-                report.add(
-                    .@"error",
-                    .unsupported,
-                    st.line,
-                    "pz: {s} names the output by its nodes; the output here is not a node voltage",
-                    .{g.name},
-                );
-                continue;
-            }
-        } else if (move_out and !std.mem.eql(u8, st.at(on_i).atom, "0")) {
-            report.add(.@"error", .unsupported, st.line, "pz: {s} takes the poles and zeros " ++
-                "of v({s}) alone for v({s},{s}), so the differential output has no {s} form", .{
-                g.name, st.at(op_i).atom, st.at(op_i).atom, st.at(on_i).atom, g.name,
-            });
-            continue;
-        }
-        if (n_args == 2 and !std.mem.eql(u8, args[1], "0"))
-            if (w.sourceGrammar(st)) |sg| if (pzForm(sg).by_sig) {
-                report.add(.warning, .caveat, st.line, "pz: {s} took the poles and zeros of " ++
-                    "v({s}) alone for v({s},{s}); {s} finds those of the difference", .{
-                    sg.name, args[0], args[0], args[1], g.name,
-                });
-            };
-
-        const l = list orelse blk: {
-            list = try arena.dupe(ir.Stmt, stmts);
-            break :blk list.?;
-        };
-        const p = &l[k];
-        try p.own(arena);
-        if (move_in and has_src) {
-            const d = dev.?;
-            try p.set(arena, ip_i, d.get("pos"));
-            try p.set(arena, in_i, d.get("neg"));
-            try p.set(arena, tr_i, .{ .atom = if (d.kind == .vsource) "vol" else "cur" });
-            try p.set(arena, fi_i, .{ .atom = "pz" });
-            try p.set(arena, src_i, .none);
-            report.add(
-                .info,
-                .oneway,
-                st.line,
-                "pz: the input is source {s}'s nodes, as {s} names it",
-                .{ d.get("name").atom, g.name },
-            );
-        } else if (move_in) {
-            const d = dev.?;
-            const find = st.at(fi_i);
-            if (find == .atom and !std.ascii.eqlIgnoreCase(find.atom, "pz")) {
-                report.add(.warning, .caveat, st.line, "pz: {s} finds both poles and zeros; " ++
-                    "only the {s} were asked for", .{
-                    g.name, if (std.ascii.eqlIgnoreCase(find.atom, "pol")) "poles" else "zeros",
-                });
-            }
-            if (std.ascii.eqlIgnoreCase(
-                d.get("pos").atom,
-                st.at(in_i).atom,
-            ) and !std.ascii.eqlIgnoreCase(d.get("pos").atom, st.at(ip_i).atom)) {
-                report.add(.info, .oneway, st.line, "pz: source {s} is connected from {s} to " ++
-                    "{s}, the reverse of the input pair; the transfer function changes sign, " ++
-                    "its poles and zeros do not", .{
-                    d.get("name").atom, d.get("pos").atom, d.get("neg").atom,
-                });
-            }
-            try p.set(arena, src_i, d.get("name"));
-            inline for (.{ ip_i, in_i, tr_i, fi_i }) |i| try p.set(arena, i, .none);
-            report.add(
-                .info,
-                .oneway,
-                st.line,
-                "pz: the input nodes {s} {s} are source {s}, as {s} names it",
-                .{ st.at(ip_i).atom, st.at(in_i).atom, d.get("name").atom, g.name },
-            );
-        }
-        if (move_out and has_sig) {
-            try p.set(arena, op_i, .{ .atom = args[0] });
-            try p.set(arena, on_i, .{ .atom = if (n_args > 1) args[1] else "0" });
-            try p.set(arena, out_i, .none);
-            report.add(
-                .info,
-                .oneway,
-                st.line,
-                "pz: the output {s} is the node pair {s} {s}, as {s} names it",
-                .{ out_text, args[0], if (n_args > 1) args[1] else "0", g.name },
-            );
-        } else if (move_out) {
-            const pos, const neg = .{ st.at(op_i).atom, st.at(on_i).atom };
-            const sig = if (std.mem.eql(u8, neg, "0"))
-                try std.fmt.allocPrint(arena, "v({s})", .{pos})
-            else
-                try std.fmt.allocPrint(arena, "v({s},{s})", .{ pos, neg });
-            try p.set(arena, out_i, .{ .atom = sig });
-            try p.set(arena, op_i, .none);
-            try p.set(arena, on_i, .none);
-            report.add(
-                .info,
-                .oneway,
-                st.line,
-                "pz: the output nodes {s} {s} are the signal {s}, as {s} names it",
-                .{ pos, neg, sig, g.name },
-            );
-        }
-    }
-    return list orelse stmts;
-}
-
-/// A maximum order of integration where the target has no option for it
-/// (Spectre): 1 is backward Euler, the method `euler`; 2 or more changes
-/// nothing beside the methods the target has (gear is order 2 there, and
-/// ngspice's gear of order 3 to 6 is measured to change nothing,
-/// docs/verification.md). Said as an info either way.
-fn foldMaxord(
-    arena: Allocator,
-    g: *const Grammar,
-    stmts: []const ir.Stmt,
-    report: *ir.Report,
-) Allocator.Error![]const ir.Stmt {
-    const mo = schema.slot(.options, "maxord");
-    const me = schema.slot(.options, "method");
-    for (g.rules) |r|
-        if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
-    var list: ?[]ir.Stmt = null;
-    for (stmts, 0..) |*st, k| {
-        if (st.kind != .options or st.at(mo) != .num) continue;
-        const n = st.at(mo).num.toFloat();
-        if (n != @floor(n) or n < 1) continue;
-        const l = list orelse blk: {
-            list = try arena.dupe(ir.Stmt, stmts);
-            break :blk list.?;
-        };
-        try l[k].own(arena);
-        try l[k].set(arena, mo, .none);
-        if (n == 1) {
-            try l[k].set(arena, me, .{ .atom = "euler" });
-            report.add(
-                .info,
-                .oneway,
-                st.line,
-                "options.maxord = 1 is backward Euler: {s} has no maximum order, so it is " ++
-                    "written as the method euler",
-                .{g.name},
-            );
-        } else report.add(.info, .loss, st.line, "options.maxord = {d} is not written: {s} " ++
-            "has no maximum order, and its methods are of order 2 at most, which a maximum of " ++
-            "2 or more leaves as they are", .{ @as(u32, @intFromFloat(n)), g.name });
-    }
-    return list orelse stmts;
-}
-
-/// A `.tran` step ceiling at or above the stop time limits nothing, and in
-/// HSPICE a fourth number above the stop is a second segment: not written.
-fn idleCeilings(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    report: *ir.Report,
-) Allocator.Error![]const ir.Stmt {
-    const mi = schema.slot(.tran, "maxstep");
-    var list: ?[]ir.Stmt = null;
-    for (stmts, 0..) |*st, k| {
-        if (!idleCeiling(st, mi, st.at(mi))) continue;
-        const l = list orelse blk: {
-            list = try arena.dupe(ir.Stmt, stmts);
-            break :blk list.?;
-        };
-        try l[k].own(arena);
-        try l[k].set(arena, mi, .none);
-        report.add(
-            .info,
-            .oneway,
-            st.line,
-            "tran.maxstep at or above the stop time limits nothing and is not written; it " ++
-                "reads back without one",
-            .{},
-        );
-    }
-    return list orelse stmts;
-}
-
-/// An option's value in a netlist of dialect `sg`: the one it sets, else
-/// the one `sg` assumes (`implied options tnom = 25`; `$temp` is another
-/// option's value).
-fn optionValue(
-    arena: Allocator,
-    sg: *const Grammar,
-    stmts: []const ir.Stmt,
-    slot: u8,
-    depth: u8,
-) ?Value {
-    if (topValue(stmts, slot)) |v| return v;
-    return impliedValue(arena, sg, sg, stmts, slot, depth);
-}
-
-/// An option the netlist itself sets: not one in a body (an `.alter`
-/// changes it for its own run only).
-fn topValue(stmts: []const ir.Stmt, slot: u8) ?Value {
-    for (stmts) |*s| if (s.kind == .options and s.at(slot) != .none) return s.at(slot);
-    return null;
-}
-
-/// What `g` assumes for an option, with a `$other` read in the netlist of `sg`.
-fn impliedValue(
-    arena: Allocator,
-    g: *const Grammar,
-    sg: *const Grammar,
-    stmts: []const ir.Stmt,
-    slot: u8,
-    depth: u8,
-) ?Value {
-    const text = g.impliedOf(.options, slot) orelse return null;
-    if (text.len > 1 and text[0] == '$') {
-        const other = schema.slotIndex(.options, text[1..]) orelse return null;
-        return if (depth < 4) optionValue(arena, sg, stmts, @intCast(other), depth + 1) else null;
-    }
-    const n = lexer.parseNumber(arena, &g.lex, text) orelse return .{ .atom = text };
-    return .{ .num = n };
-}
-
-/// The options the netlist's own dialect assumes and `g` does not (HSPICE's
-/// TNOM of 25 against ngspice's 27), as one statement to write at the top;
-/// null when there are none. An option set anywhere in the netlist is left
-/// to that statement.
-// ponytail: an option set only in an included file is not seen here; pass it via ir.Env if that matters.
-pub fn defaultOptions(
-    arena: Allocator,
-    g: *const Grammar,
-    nl: *const ir.Netlist,
-) Allocator.Error!?ir.Stmt {
-    if (nl.library or std.mem.eql(u8, nl.dialect, g.name) or !g.canWrite(.options)) return null;
-    const sg = dialects.find(nl.dialect) orelse return null;
-    var st = try ir.newStmt(arena, .options, 0);
-    var any = false;
-    for (sg.implied) |im| {
-        if (im.kind != .options or topValue(nl.stmts, im.slot) != null) continue;
-        const want = optionValue(arena, sg, nl.stmts, im.slot, 0) orelse continue;
-        if (impliedValue(arena, g, sg, nl.stmts, im.slot, 0)) |have| if (have.eql(want)) continue;
-        try st.set(arena, im.slot, want);
-        any = true;
-    }
-    return if (any) st else null;
-}
-
-/// A netlist built with no dialect of its own on a PDK (`ir.Netlist.defaults`)
-/// that sets no temperature, written for a target whose defaults differ
-/// from the PDK simulator's (HSPICE's 25 against 27 elsewhere): an error,
-/// since the result then depends on the simulator that runs it. Nothing is
-/// written for it. A netlist read in a dialect gets that dialect's defaults
-/// written instead (`defaultOptions`).
-fn reportDefaults(
-    arena: Allocator,
-    g: *const Grammar,
-    nl: *const ir.Netlist,
-    report: *ir.Report,
-) Allocator.Error!void {
-    if (nl.defaults.len == 0) return;
-    var as = nl.*;
-    as.dialect = nl.defaults;
-    const d = try defaultOptions(arena, g, &as) orelse return;
-    const sg = dialects.find(nl.defaults) orelse return;
-    var keys: std.ArrayList(u8) = .empty;
-    var said: std.ArrayList(u8) = .empty;
-    var theirs: std.ArrayList(u8) = .empty;
-    for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
-        const first = said.items.len == 0;
-        try keys.print(arena, "{s}{s}", .{ if (first) "" else " or ", sl.name });
-        try said.print(arena, "{s}{s}={s}", .{ if (first)
-            ""
-        else
-            ", ", sl.name, try describeValue(arena, d.at(i)) });
-        const have = impliedValue(arena, g, sg, nl.stmts, @intCast(i), 0);
-        try theirs.print(arena, "{s}{s}={s}", .{ if (first)
-            ""
-        else
-            ", ", sl.name, if (have) |h| try describeValue(arena, h) else "its own" });
-    };
-    report.add(.@"error", .ambiguous, 0, "options: the circuit sets no {s}; its PDK's " ++
-        "simulator ({s}) assumes {s} and {s} assumes {s}, so the result depends on the " ++
-        "simulator that runs it: set them in the circuit", .{
-        keys.items, nl.defaults, said.items, g.name, theirs.items,
-    });
-}
-
-/// Whether `nl` is written back in its own dialect: read in `g`, or built
-/// (Python, JSON) from statements read in `g` (`Stmt.dialect`) and others
-/// that name no dialect, such as a subcircuit built around them.
-fn sameDialect(nl: *const ir.Netlist, g: *const grammar.Grammar) bool {
-    if (std.mem.eql(u8, nl.dialect, g.name)) return true;
-    var tagged = false;
-    return allFrom(nl.stmts, g.name, &tagged) and tagged;
-}
-
-fn allFrom(stmts: []const ir.Stmt, name: []const u8, tagged: *bool) bool {
-    for (stmts) |*s| {
-        if (s.dialect != 0) {
-            if (!std.ascii.eqlIgnoreCase(dialects.nameOf(s.dialect), name)) return false;
-            tagged.* = true;
-        }
-        if (!allFrom(s.body, name, tagged)) return false;
-    }
-    return true;
 }
 
 pub fn write(
@@ -4015,7 +3054,7 @@ pub fn write(
                 try w.declared.put(arena, try std.ascii.allocLowerString(arena, v.*), {});
             if (renames.count() > 0) {
                 var told: ir.CaselessSet = .empty;
-                nl_own.stmts = try renameMasters(&w, nl.stmts, &renames, &told);
+                nl_own.stmts = try renameMasters(w.pass(), nl.stmts, &renames, &told);
             }
             try uniqueMasters(arena, nl.stmts, env, report, g);
         }
@@ -4025,7 +3064,7 @@ pub fn write(
             const renames = try reservedRenames(arena, g, &defined, env);
             if (renames.count() > 0) {
                 var told: ir.CaselessSet = .empty;
-                nl_own.stmts = try renameParams(&w, nl.stmts, &renames, &told);
+                nl_own.stmts = try renameParams(w.pass(), nl.stmts, &renames, &told);
             }
         }
     }
@@ -4071,7 +3110,7 @@ pub fn write(
     }
     if (g.blockOf(.model) != null) stmts = try groupBins(arena, stmts);
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
-    stmts = try pzPorts(arena, &w, stmts, report);
+    stmts = try pzPorts(arena, g, w.origin(), stmts, report);
     stmts = try idleCeilings(arena, stmts, report);
     var n_analyses: usize = 0;
     for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {
@@ -4490,12 +3529,12 @@ pub const Stream = struct {
             if (g.unique_param.len > 0) try uniqueParamsIn(stmts, &s.params, s.keep, report, g);
             if (g.unique_master.len > 0) {
                 report.phase = ir.Phase.renames;
-                if (s.renames.count() > 0) stmts = try renameMasters(w, stmts, &s.renames, &s.told);
+                if (s.renames.count() > 0) stmts = try renameMasters(w.pass(), stmts, &s.renames, &s.told);
                 report.phase = ir.Phase.masters;
                 try clashes(s.keep.perm, stmts, &s.models, &s.subckts, &s.clashed, report, g);
             }
             if (s.param_renames.count() > 0)
-                stmts = try renameParams(w, stmts, &s.param_renames, &s.param_told);
+                stmts = try renameParams(w.pass(), stmts, &s.param_renames, &s.param_told);
         }
         report.phase = ir.Phase.topology;
         if (s.topo) |*t| try t.group(stmts);
