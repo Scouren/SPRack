@@ -1493,7 +1493,8 @@ const Reader = struct {
                 try out.append(self.arena, st);
                 return .more;
             }
-            for (self.g.rules) |*rule| {
+            for (self.g.readCandidates(if (first.tag == .word) first.text else null)) |ri| {
+                const rule = &self.g.rules[ri];
                 if (rule.dir == .write or self.g.isEnding(rule)) continue;
                 if (!self.g.ruleHere(rule, if (block) |b| b.kind else null)) continue;
                 if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
@@ -1632,7 +1633,9 @@ const Reader = struct {
 
     /// The statement a rule reads from `ti` to the end of its line.
     fn ruleAt(self: *Reader, ti: usize, line_no: u32) Allocator.Error!?ir.Stmt {
-        for (self.g.rules) |*rule| {
+        const head = self.toks()[ti];
+        for (self.g.readCandidates(if (head.tag == .word) head.text else null)) |ri| {
+            const rule = &self.g.rules[ri];
             if (rule.dir == .write or rule.within != null) continue;
             if (!try self.m.run(rule.kind, rule.pat, ti)) continue;
             if (rule.kind == .@"opaque") return null;
@@ -1822,7 +1825,9 @@ const Reader = struct {
                 }
             }
             var found: ?ir.Stmt = null;
-            for (self.g.rules) |*rule| {
+            const head = self.toks()[ti];
+            for (self.g.readCandidates(if (head.tag == .word) head.text else null)) |ri| {
+                const rule = &self.g.rules[ri];
                 if (rule.dir == .write or rule.within != null) continue;
                 if (!caps and rule.kind != .model and rule.kind != .param) continue;
                 if (try self.m.run(rule.kind, rule.pat, ti)) {

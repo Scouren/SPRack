@@ -182,7 +182,41 @@ pub const Dir = enum { both, read, write };
 /// `within`: `rule tran@script = ...`, a rule only for lines inside that
 /// block (ngspice's control language inside .control); rules without it are
 /// not used there.
-pub const Rule = struct { kind: Kind, dir: Dir, pat: []const Node, family: []const u8 = "", within: ?Kind = null };
+/// `ending`: the rule is one of its kind's `spread` endings (`sweep ...`),
+/// read only at the end of another statement's line; `compile` sets it.
+pub const Rule = struct {
+    kind: Kind,
+    dir: Dir,
+    pat: []const Node,
+    family: []const u8 = "",
+    within: ?Kind = null,
+    ending: bool = false,
+};
+
+/// Which rules can read a line, from how the line starts: a reader offers a
+/// line these, in file order, instead of every rule of the grammar. A rule
+/// is left out of a list only where its first item refuses the line's first
+/// word outright (a keyword that is another word, a name that must start
+/// with another letter), so the first rule that reads a line is the same.
+pub const ReadIndex = struct {
+    /// For each first byte of a word: indices into `Grammar.rules`.
+    by_byte: [256][]const u16 = @splat(&.{}),
+    /// Every rule, for a line whose first token is not a word.
+    all: []const u16 = &.{},
+    /// Bit `k` is set when some rule is `@k`: for lines inside a block of
+    /// kind `k` only, where the rules without `@` are then not used.
+    own_rules: KindSet = 0,
+
+    pub const KindSet = u128;
+
+    comptime {
+        std.debug.assert(schema.kind_count <= @bitSizeOf(KindSet));
+    }
+
+    pub fn kindBit(kind: Kind) KindSet {
+        return @as(KindSet, 1) << @intCast(@backingInt(kind));
+    }
+};
 pub const Block = struct {
     kind: Kind,
     open: []const Node,
@@ -517,6 +551,15 @@ pub const Grammar = struct {
     computes: []const Computes = &.{},
     edges: []const Edge = &.{},
     inerts: []const Inert = &.{},
+    read_index: ReadIndex = .{},
+
+    /// The rules that may read a line whose first token is a word of this
+    /// text (`null`: the first token is not a word), as indices into `rules`.
+    pub fn readCandidates(g: *const Grammar, first_word: ?[]const u8) []const u16 {
+        const word = first_word orelse return g.read_index.all;
+        if (word.len == 0) return g.read_index.all;
+        return g.read_index.by_byte[word[0]];
+    }
 
     /// Does this dialect give the slot a meaning of its own when it is
     /// missing (an `invalid` line)? Then a missing value is not SPICE's
@@ -604,8 +647,8 @@ pub const Grammar = struct {
 
     /// Is the rule one of its kind's `spread` endings (`sweep ...`)?
     pub fn isEnding(g: *const Grammar, rule: *const Rule) bool {
-        const word = g.spreadWord(rule.kind) orelse return false;
-        return rule.pat.len > 0 and rule.pat[0].tag == .lit and std.mem.eql(u8, rule.pat[0].text, word);
+        _ = g;
+        return rule.ending;
     }
 
     pub fn isRerun(g: *const Grammar, kind: Kind) bool {
@@ -637,7 +680,7 @@ pub const Grammar = struct {
     /// own, only those.
     pub fn ruleHere(g: *const Grammar, r: *const Rule, in: ?Kind) bool {
         if (r.within) |k| return in != null and in.? == k;
-        if (in) |k| for (g.rules) |o| if (o.within != null and o.within.? == k) return false;
+        if (in) |k| return g.read_index.own_rules & ReadIndex.kindBit(k) == 0;
         return true;
     }
 
@@ -1961,7 +2004,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else return c.fail(no, "unknown directive `{s}`", .{head});
     }
     if (std.mem.eql(u8, c.name, "?")) return c.fail(1, "missing `dialect <name>`", .{});
+    rules = try markEndings(c, rules, spreads);
     return .{
+        .read_index = try readIndex(c, rules),
         .name = c.name,
         .lex = lex,
         .preamble = preamble,
@@ -2010,6 +2055,64 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .edges = edges,
         .inerts = inerts,
     };
+}
+
+/// `rules` with `ending` set on each rule that starts with its kind's
+/// `spread` word. Done last: a `spread` line may follow the rules it marks.
+fn markEndings(c: *C, rules: []const Rule, spreads: []const Spread) Error![]const Rule {
+    const out = try c.gpa.dupe(Rule, rules);
+    for (out) |*rule| {
+        const word = for (spreads) |sp| {
+            if (sp.kind == rule.kind and sp.word.len > 0) break sp.word;
+        } else continue;
+        if (rule.pat.len == 0 or rule.pat[0].tag != .lit) continue;
+        rule.ending = std.mem.eql(u8, rule.pat[0].text, word);
+    }
+    return out;
+}
+
+/// The `ReadIndex` of `rules`: for every first byte, the rules that
+/// `startsWith` does not rule out, in file order.
+fn readIndex(c: *C, rules: []const Rule) Error!ReadIndex {
+    std.debug.assert(rules.len <= std.math.maxInt(u16));
+    var index: ReadIndex = .{};
+    const all = try c.gpa.alloc(u16, rules.len);
+    for (all, 0..) |*slot, i| slot.* = @intCast(i);
+    index.all = all;
+    for (rules) |rule| {
+        if (rule.within) |kind| index.own_rules |= ReadIndex.kindBit(kind);
+    }
+    var scratch = try c.gpa.alloc(u16, rules.len);
+    for (&index.by_byte, 0..) |*list, byte| {
+        var n: usize = 0;
+        for (rules, 0..) |*rule, i| {
+            if (!startsWith(rule, @intCast(byte))) continue;
+            scratch[n] = @intCast(i);
+            n += 1;
+        }
+        list.* = try c.gpa.dupe(u16, scratch[0..n]);
+    }
+    return index;
+}
+
+/// Can a line whose first word starts with `byte` be read by `rule`, as far
+/// as the rule's first item tells? A keyword must be that word; a name with
+/// a required first letter must start with it (a value or a signal may
+/// start otherwise); anything else is not decided here.
+fn startsWith(rule: *const Rule, byte: u8) bool {
+    if (rule.pat.len == 0) return true;
+    const first = rule.pat[0];
+    switch (first.tag) {
+        .lit => return first.text.len > 0 and first.text[0] == byte,
+        .cap => {
+            if (first.prefix.len == 0 or first.star or first.plus) return true;
+            if (first.count != no_slot or first.slot == wild_slot) return true;
+            const ty = schema.info(rule.kind).slots[first.slot].ty;
+            if (ty == .value or ty == .signal) return true;
+            return first.prefix[0] == byte;
+        },
+        else => return true,
+    }
 }
 
 fn slotNamed(c: *C, line: u32, kind: Kind, s: []const u8) Error!u8 {
