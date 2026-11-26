@@ -26,6 +26,9 @@ pub const clean_paths = [_][]const u8{
     "src/schema.zig",
     "src/writer/rewrite.zig",
     "src/writer/tables.zig",
+    "src/writer/frame.zig",
+    "src/writer/refs.zig",
+    "src/writer/root.zig",
     "tools/grammar_gen.zig",
 };
 

@@ -2494,7 +2494,7 @@ fn gatherAlters(
     // Where in `rest` the analyses since the last alter are.
     var run: std.ArrayList(usize) = .empty;
     for (list.items, 0..) |st, i| {
-        const analysis = schema.info(st.kind).class == .analysis and st.kind != .alter;
+        const analysis = schema.runs(st.kind);
         if (i < at) {
             if (analysis) try base.append(arena, st);
             try rest.append(arena, st);

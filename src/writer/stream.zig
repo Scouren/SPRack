@@ -46,6 +46,7 @@ const Writer = statement.Writer;
 const analysis_passes = @import("analyses.zig");
 const name_passes = @import("names.zig");
 const rewrite = @import("rewrite.zig");
+const frame = @import("frame.zig");
 pub const Caps = emit.Caps;
 
 const firstValue = statement.firstValue;
@@ -139,7 +140,7 @@ pub const Survey = struct {
             if (t == .first) try sv.takeFirst(k, stmts, t.first.kind, t.first.slot);
         };
         for (stmts) |*s| {
-            if (schema.info(s.kind).class == .analysis and s.kind != .alter) sv.analyses += 1;
+            sv.analyses += @intFromBool(schema.runs(s.kind));
         }
         try collectAnalyses(a, g, stmts, &sv.counted);
         sv.facts.add(stmts);
@@ -248,37 +249,19 @@ pub const Stream = struct {
         }
         // The netlist's own make it be written whole (`stream.zig`).
         if (env) |e| if (!g.canWrite(.cond_if)) try w.noteAllSplits(e.conditional.items, null);
-        const fold_header = g.header_folded.len > 0 and (nl.folds_case or
-            if (dialects.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
+        const fold_header = frame.foldsHeader(g, nl.dialect, nl.folds_case);
         s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;
-        if (g.lex.title and !nl.library) {
-            try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0)
-                nl.title
-            else
-                "untitled" });
-        }
-        for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
-        if (!nl.library) {
-            var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
-            for (&used, sv.used) |*u, x| u.* = u.* or x;
-            const said = if (g.preamble_unless) |pk| used[@backingInt(pk)] else false;
-            if (!said) for (g.preamble) |l| try w.line(l);
-            var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
-            for (&fams, sv.fams) |*f, x| f.* = f.* or x;
-            for (g.needs) |n| {
-                if (n.family.len > 0) {
-                    const fi = for (schema.families, 0..) |f, i| {
-                        if (std.mem.eql(u8, f.name, n.family)) break i;
-                    } else unreachable;
-                    if (!fams[fi]) continue;
-                } else if (!used[@backingInt(n.kind)]) continue;
-                // A needs line stays whole: ngspice lowercases a continuation
-                // line inside .control, and so a path given with --provide (4.43).
-                w.nowrap = true;
-                for (n.lines) |l| try w.line(try needLine(perm, l, n.family, env));
-                w.nowrap = false;
-            }
-        }
+        var facts: frame.Facts = .{
+            .title = nl.title,
+            .dialect = nl.dialect,
+            .library = nl.library,
+            .folds_case = nl.folds_case,
+            .used = if (env) |e| e.used else @splat(false),
+            .families = if (env) |e| e.families else @splat(false),
+        };
+        for (&facts.used, sv.used) |*u, x| u.* = u.* or x;
+        for (&facts.families, sv.fams) |*f, x| f.* = f.* or x;
+        try frame.open(w, &facts);
         if (s.foreign and g.unique_master.len > 0) {
             s.renames = try renamesOf(perm, &sv.models, &sv.subckts, env);
             // A renamed model is declared under the name it is written as.
@@ -321,25 +304,7 @@ pub const Stream = struct {
         var opts = nl.*;
         opts.stmts = sv.options;
         report.phase = ir.Phase.options;
-        try reportDefaults(perm, g, &opts, report);
-        if (try defaultOptions(perm, g, &opts)) |d| {
-            var names: std.ArrayList(u8) = .empty;
-            for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
-                try names.print(perm, "{s}{s}", .{ if (names.items.len > 0)
-                    ", "
-                else
-                    "", sl.name });
-            };
-            report.add(
-                .warning,
-                .caveat,
-                0,
-                "options: {s} assumes other defaults for {s} than {s} does; they are written out",
-                .{ nl.dialect, names.items, g.name },
-            );
-            const one = try perm.dupe(ir.Stmt, &.{d});
-            try s.tail(one);
-        }
+        if (try frame.assumedOptions(w, &opts)) |d| try s.tail(try perm.dupe(ir.Stmt, &.{d}));
     }
 
     /// The next top-level statements, read and resolved; made in `arena`,
@@ -423,14 +388,9 @@ pub const Stream = struct {
                 try s.wrapped.append(s.keep.perm, try ir.cloneStmt(s.keep, st));
                 continue;
             }
-            s.sole(st);
+            frame.markSole(w, st, s.analyses);
             try w.stmt(st);
         }
-    }
-
-    fn sole(s: *Stream, st: *const ir.Stmt) void {
-        if (s.analyses == 1 and schema.info(st.kind).class == .analysis and st.kind != .alter)
-            s.w.sole = st;
     }
 
     /// Everything after the last statement. `rescan` gives the topology
@@ -444,40 +404,9 @@ pub const Stream = struct {
         stats.asFunctions(g, s.functions, report);
         if (s.lower) |*l| try s.last(try l.end(w.arena));
         report.phase = ir.Phase.write;
-        for (g.wraps) |*wr| {
-            // A control block runs in order (VACASK), so settings come before
-            // every analysis: SPICE applies them wherever they stand.
-            var any = false;
-            for ([_]bool{ false, true }) |analyses| for (s.wrapped.items) |*st| {
-                if (g.wrapOf(st.kind) != wr or
-                    (schema.info(st.kind).class == .analysis) != analyses)
-                    continue;
-                if (!any) try w.line(wr.open);
-                any = true;
-                s.sole(st);
-                try w.stmt(st);
-            };
-            if (any) try w.line(wr.close);
-        }
-        if (g.lex.end_marker.len > 0 and !s.nl.library) try w.line(g.lex.end_marker);
+        try frame.wrapped(w, s.wrapped.items, s.analyses);
         report.phase = ir.Phase.caveat;
-        w.refusals();
-        w.keptNote();
-        w.foreignNote();
-        const cp = w.copied;
-        if (cp.n == 1) {
-            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship " ++
-                "different implementations and versions of this model; parameters were copied " ++
-                "as written, check them against {s}", .{
-                cp.name, cp.family, cp.source, g.name, g.name,
-            });
-        } else if (cp.n > 1) {
-            report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model " ++
-                "cards: {s} and {s} ship different implementations and versions of these " ++
-                "models; parameters were copied as written, check them against {s}", .{
-                cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
-            });
-        }
+        try frame.close(w, s.nl.library);
         if (s.topo) |*t| {
             report.phase = ir.Phase.topology;
             if (try t.islands()) try rescan.run(topology.Stream.cross, t);

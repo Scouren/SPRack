@@ -21,6 +21,7 @@
 //! - `pub const operators`
 //! - `pub const signal_forms`
 //! - `pub fn info(kind: Kind) *const KindInfo`
+//! - `pub fn runs(kind: Kind) bool`
 //! - `pub fn slotIndex(kind: Kind, name: []const u8) ?u8`
 //! - `pub inline fn slot(comptime kind: Kind, comptime name: []const u8) u8`
 //! - `pub fn slotOf(kind: Kind, comptime name: []const u8) ?u8`
@@ -621,6 +622,12 @@ const defs = [_]Def{
 
 pub fn info(kind: Kind) *const KindInfo {
     return &table[@backingInt(kind)];
+}
+
+/// Is `kind` an analysis the simulator runs? Every kind of class analysis
+/// but `alter`, which changes the circuit between two runs.
+pub fn runs(kind: Kind) bool {
+    return info(kind).class == .analysis and kind != .alter;
 }
 
 pub fn slotIndex(kind: Kind, name: []const u8) ?u8 {

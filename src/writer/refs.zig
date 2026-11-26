@@ -2,6 +2,10 @@
 //! statements at a time meets a name in a reference slot before the device
 //! of that name. `Refs` holds the names wanted and the devices found, and
 //! withdraws the entries a device met later answers.
+//!
+//! Contents:
+//! - `pub const Refs = struct`, with `want(r, k, stmts)`, `add(r, k, stmts)`
+//!   and `settle(r, report)`
 
 const std = @import("std");
 const schema = @import("schema");

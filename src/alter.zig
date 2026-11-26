@@ -79,7 +79,7 @@ pub fn prepare(
 }
 
 fn isAnalysis(s: *const Stmt) bool {
-    return schema.info(s.kind).class == .analysis and s.kind != .alter;
+    return schema.runs(s.kind);
 }
 
 fn isIdent(s: []const u8) bool {

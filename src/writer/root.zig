@@ -4,7 +4,8 @@
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
 //! `statement.zig` chooses the pattern and writes the statement; the passes
 //! (`names.zig`, `analyses.zig`, `rewrite.zig`) change the statements
-//! before that; `whole.zig` and `stream.zig` run the passes in order, over
+//! before that; `frame.zig` writes what stands around them; `whole.zig`
+//! and `stream.zig` run the passes in order, over
 //! a netlist held in memory or a group of statements at a time (`refs.zig`
 //! holds the names a streamed netlist meets before what they name).
 //!
@@ -25,6 +26,7 @@ const statement = @import("statement.zig");
 const whole = @import("whole.zig");
 const stream = @import("stream.zig");
 const refs = @import("refs.zig");
+const frame = @import("frame.zig");
 
 pub const Caps = emit.Caps;
 pub const write = whole.write;
@@ -48,4 +50,5 @@ test {
     _ = whole;
     _ = stream;
     _ = refs;
+    _ = frame;
 }

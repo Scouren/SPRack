@@ -1277,8 +1277,7 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
     var analyses: usize = 0;
     for (stmts, 0..) |*s, i| {
         if (s.kind == .step and s.body.len == 0 and first == null) first = i;
-        if (s.kind != .step and s.kind != .alter and schema.info(s.kind).class == .analysis)
-            analyses += 1;
+        if (s.kind != .step and schema.runs(s.kind)) analyses += 1;
     }
     if (first == null or analyses == 0) return stmts;
     var out: std.ArrayList(Stmt) = .empty;
@@ -1290,9 +1289,7 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
             if (chain.items.len == 0) slot = out.items.len;
             if (chain.items.len == 0) try out.append(arena, s);
             try chain.append(arena, s);
-        } else if (schema.info(s.kind).class == .analysis and s.kind != .step and
-            s.kind != .alter)
-        {
+        } else if (s.kind != .step and schema.runs(s.kind)) {
             try inner.append(arena, s);
         } else try out.append(arena, s);
     }

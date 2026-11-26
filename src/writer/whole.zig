@@ -43,6 +43,7 @@ const Writer = statement.Writer;
 const analysis_passes = @import("analyses.zig");
 const name_passes = @import("names.zig");
 const rewrite = @import("rewrite.zig");
+const frame = @import("frame.zig");
 pub const Caps = emit.Caps;
 
 const groupBins = statement.groupBins;
@@ -91,46 +92,25 @@ pub fn write(
         var fi = e.funcs.keyIterator();
         while (fi.next()) |k| try w.funcs.put(arena, k.*, {});
     }
-    // A case-sensitive target told to fold case (`header folded`) merges
-    // names the way a case-insensitive one does.
-    const fold_header = g.header_folded.len > 0 and (nl.folds_case or
-        if (dialects.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
-    if (!g.lex.case_sensitive or fold_header) {
+    if (!g.lex.case_sensitive or frame.foldsHeader(g, nl.dialect, nl.folds_case)) {
         var seen: CaseMaps = .{};
         defer seen.deinit();
         try checkCase(nl.stmts, &seen, report, g.name, null);
     }
-    // An included file is not a netlist: it has no title of its own, must
-    // not end the simulation, and leaves the boilerplate to the top file.
-    if (g.lex.title and !nl.library) {
-        try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0)
-            nl.title
-        else
-            "untitled" });
-    }
-    for (if (fold_header) g.header_folded else g.header) |l| try w.line(l);
+    var facts: frame.Facts = .{
+        .title = nl.title,
+        .dialect = nl.dialect,
+        .library = nl.library,
+        .folds_case = nl.folds_case,
+        .used = if (env) |e| e.used else @splat(false),
+        .families = if (env) |e| e.families else @splat(false),
+    };
     if (!nl.library) {
-        var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
-        markUsed(nl.stmts, &used);
-        rewrite.markUsed(g, nl.dialect, nl.stmts, &used);
-        const said = if (g.preamble_unless) |k| used[@backingInt(k)] else false;
-        if (!said) for (g.preamble) |l| try w.line(l);
-        var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
-        ir.markFamilies(nl.stmts, &fams);
-        for (g.needs) |n| {
-            if (n.family.len > 0) {
-                const fi = for (schema.families, 0..) |f, i| {
-                    if (std.mem.eql(u8, f.name, n.family)) break i;
-                } else unreachable;
-                if (!fams[fi]) continue;
-            } else if (!used[@backingInt(n.kind)]) continue;
-            // A needs line stays whole: ngspice lowercases a continuation
-            // line inside .control, and so a path given with --provide (4.43).
-            w.nowrap = true;
-            for (n.lines) |l| try w.line(try needLine(arena, l, n.family, env));
-            w.nowrap = false;
-        }
+        markUsed(nl.stmts, &facts.used);
+        rewrite.markUsed(g, nl.dialect, nl.stmts, &facts.used);
+        ir.markFamilies(nl.stmts, &facts.families);
     }
+    try frame.open(&w, &facts);
     if (!std.mem.eql(u8, nl.dialect, g.name)) {
         var found: std.ArrayList(Analysis) = .empty;
         try collectAnalyses(arena, g, nl.stmts, &found);
@@ -170,21 +150,9 @@ pub fn write(
     }
     var gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
-    try reportDefaults(arena, g, nl, report);
     // Before the alters are laid out, so a run that changes no temperature
     // is at the source's.
-    if (try defaultOptions(arena, g, nl)) |d| {
-        var names: std.ArrayList(u8) = .empty;
-        for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
-            try names.print(arena, "{s}{s}", .{ if (names.items.len > 0) ", " else "", sl.name });
-        };
-        report.add(
-            .warning,
-            .caveat,
-            0,
-            "options: {s} assumes other defaults for {s} than {s} does; they are written out",
-            .{ nl.dialect, names.items, g.name },
-        );
+    if (try frame.assumedOptions(&w, nl)) |d| {
         const list = try arena.alloc(ir.Stmt, gathered.len + 1);
         list[0] = d;
         @memcpy(list[1..], gathered);
@@ -202,12 +170,8 @@ pub fn write(
     stmts = try stats.prepare(arena, g, nl.dialect, stmts, report);
     stmts = try pzPorts(arena, g, w.origin(), stmts, report);
     stmts = try idleCeilings(arena, stmts, report);
-    var n_analyses: usize = 0;
-    for (stmts) |*s| if (schema.info(s.kind).class == .analysis and s.kind != .alter) {
-        n_analyses += 1;
-        w.sole = s;
-    };
-    if (n_analyses != 1) w.sole = null;
+    var analyses: usize = 0;
+    for (stmts) |*s| analyses += @intFromBool(schema.runs(s.kind));
     if (!g.canWrite(.cond_if) and env == null and !std.mem.eql(u8, nl.dialect, g.name)) {
         if (try w.foreignInstance(stmts)) |x|
             w.foreign_inst = .{
@@ -221,40 +185,11 @@ pub fn write(
         try w.noteAllSplits(stmts, env);
     }
     for (stmts) |*s| {
-        if (g.wrapOf(s.kind) == null) try w.stmt(s);
+        if (g.wrapOf(s.kind) != null) continue;
+        frame.markSole(&w, s, analyses);
+        try w.stmt(s);
     }
-    for (g.wraps) |*wr| {
-        // A control block runs in order (VACASK), so settings come before
-        // every analysis: SPICE applies them wherever they stand.
-        var any = false;
-        for ([_]bool{ false, true }) |analyses| for (stmts) |*s| {
-            if (g.wrapOf(s.kind) != wr or (schema.info(s.kind).class == .analysis) != analyses)
-                continue;
-            if (!any) try w.line(wr.open);
-            any = true;
-            try w.stmt(s);
-        };
-        if (any) try w.line(wr.close);
-    }
-    if (g.lex.end_marker.len > 0 and !nl.library) try w.line(g.lex.end_marker);
-    w.refusals();
-    w.keptNote();
-    w.foreignNote();
-    const cp = w.copied;
-    if (cp.n == 1) {
-        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship different " ++
-            "implementations and versions of this model; parameters were copied as written, " ++
-            "check them against {s}", .{
-            cp.name, cp.family, cp.source, g.name, g.name,
-        });
-    } else if (cp.n > 1) {
-        report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model cards: " ++
-            "{s} and {s} ship different implementations and versions of these models; " ++
-            "parameters were copied as written, check them against {s}", .{
-            cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
-        });
-    }
+    try frame.wrapped(&w, stmts, analyses);
+    try frame.close(&w, nl.library);
     if (report.lost) return error.OutOfMemory;
 }
-
-// ------------------------------------------------------------- streaming

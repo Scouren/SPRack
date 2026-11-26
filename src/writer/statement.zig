@@ -883,6 +883,26 @@ pub const Writer = struct {
         });
     }
 
+    /// After the last statement: the model cards whose parameters were
+    /// copied by name, said once, naming the first.
+    pub fn copiedNote(w: *Writer) void {
+        const cp = w.copied;
+        const g = w.g;
+        if (cp.n == 1) {
+            w.report.add(.warning, .caveat, cp.line, "model '{s}' ({s}): {s} and {s} ship " ++
+                "different implementations and versions of this model; parameters were copied " ++
+                "as written, check them against {s}", .{
+                cp.name, cp.family, cp.source, g.name, g.name,
+            });
+        } else if (cp.n > 1) {
+            w.report.add(.warning, .caveat, cp.line, "model '{s}' ({s}) and {d} more model " ++
+                "cards: {s} and {s} ship different implementations and versions of these " ++
+                "models; parameters were copied as written, check them against {s}", .{
+                cp.name, cp.family, cp.n - 1, cp.source, g.name, g.name,
+            });
+        }
+    }
+
     /// After the last statement: the lines written back as text, said once.
     pub fn keptNote(w: *Writer) void {
         if (w.kept.n == 0) return;
