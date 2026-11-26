@@ -17,6 +17,9 @@ const grammar = @import("grammar");
 const schema = @import("schema");
 const ir = @import("ir");
 const dialects = @import("dialects");
+const blocks = @import("blocks.zig");
+const notes = @import("notes.zig");
+const output = @import("output.zig");
 const analysis_passes = @import("analyses.zig");
 const statement = @import("statement.zig");
 
@@ -61,17 +64,17 @@ pub fn open(w: *Writer, f: *const Facts) Writer.Error!void {
         try w.out.print("{s}{s}\n", .{ g.lex.title_prefix, title });
     }
     const folded = foldsHeader(g, f.dialect, f.folds_case);
-    for (if (folded) g.header_folded else g.header) |l| try w.line(l);
+    for (if (folded) g.header_folded else g.header) |l| try output.line(w, l);
     if (f.library) return;
     const said = if (g.preamble_unless) |k| f.used[@backingInt(k)] else false;
-    if (!said) for (g.preamble) |l| try w.line(l);
+    if (!said) for (g.preamble) |l| try output.line(w, l);
     for (g.needs) |n| {
         if (!needed(f, n)) continue;
         // A needs line stays whole: ngspice lowercases a continuation
         // line inside .control, and so a path given with --provide (4.43).
         w.nowrap = true;
         defer w.nowrap = false;
-        for (n.lines) |l| try w.line(try statement.needLine(w.arena, l, n.family, w.env));
+        for (n.lines) |l| try output.line(w, try statement.needLine(w.arena, l, n.family, w.env));
     }
 }
 
@@ -116,12 +119,12 @@ pub fn wrapped(w: *Writer, stmts: []const ir.Stmt, analyses: usize) Writer.Error
         for ([_]bool{ false, true }) |runs| for (stmts) |*st| {
             if (g.wrapOf(st.kind) != wr) continue;
             if ((schema.info(st.kind).class == .analysis) != runs) continue;
-            if (!any) try w.line(wr.open);
+            if (!any) try output.line(w, wr.open);
             any = true;
             markSole(w, st, analyses);
-            try w.stmt(st);
+            try blocks.stmt(w, st);
         };
-        if (any) try w.line(wr.close);
+        if (any) try output.line(w, wr.close);
     }
 }
 
@@ -129,11 +132,11 @@ pub fn wrapped(w: *Writer, stmts: []const ir.Stmt, analyses: usize) Writer.Error
 /// simulation), and the notes said once a file.
 pub fn close(w: *Writer, library: bool) Writer.Error!void {
     const g = w.g;
-    if (g.lex.end_marker.len > 0 and !library) try w.line(g.lex.end_marker);
-    w.refusals();
-    w.keptNote();
-    w.foreignNote();
-    w.copiedNote();
+    if (g.lex.end_marker.len > 0 and !library) try output.line(w, g.lex.end_marker);
+    notes.refusals(w);
+    notes.keptNote(w);
+    notes.foreignNote(w);
+    notes.copiedNote(w);
 }
 
 // ---- private ----

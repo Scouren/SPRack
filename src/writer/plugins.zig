@@ -17,6 +17,7 @@ const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
 const ir = @import("ir");
+const output = @import("output.zig");
 const tables = @import("tables.zig");
 const statement = @import("statement.zig");
 const Allocator = std.mem.Allocator;
@@ -118,7 +119,8 @@ pub fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
                 "it: {s}",
             .{ w.g.name, module, try pluginText(w, w.arena, .missing, module, "") },
         );
-        try w.comment(
+        try output.comment(
+            w,
             try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom)
                 st.get("name").atom
             else

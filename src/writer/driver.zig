@@ -30,6 +30,8 @@ const expr = @import("expr");
 const stats = @import("stats");
 const alter = @import("alter");
 const topology = @import("topology");
+const spread = @import("spread.zig");
+const blocks = @import("blocks.zig");
 const variants = @import("variants.zig");
 const defaults = @import("defaults.zig");
 const bins = @import("bins.zig");
@@ -403,7 +405,7 @@ pub const Driver = struct {
     }
 
     /// The first instance that gives parameters to a subcircuit of another
-    /// file, for `Writer.foreignNote`.
+    /// file, for `notes.foreignNote`.
     fn noteForeign(s: *Driver, stmts: []const ir.Stmt) Allocator.Error!void {
         const w = &s.w;
         if (!s.foreign or w.foreign_inst != null or w.g.canWrite(.cond_if) or w.env != null)
@@ -483,7 +485,7 @@ pub const Driver = struct {
         const g = w.g;
         const a = w.arena;
         var stmts: []const ir.Stmt = try ir.gatherSteps(a, filled);
-        if (g.canWrite(.step)) w.checkSteps(stmts);
+        if (g.canWrite(.step)) spread.checkSteps(w, stmts);
         // Before the alters are laid out, so a run that changes no
         // temperature is at the source's.
         var nl = s.nl;
@@ -556,7 +558,7 @@ pub const Driver = struct {
                 continue;
             }
             frame.markSole(w, st, s.analyses);
-            try w.stmt(st);
+            try blocks.stmt(w, st);
         }
     }
 };

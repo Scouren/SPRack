@@ -2,8 +2,11 @@
 //! text and the report of what did not cross.
 //!
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
-//! `statement.zig` chooses the pattern and writes the statement; what a
-//! statement is turned into first is a file a subject (`cards.zig`,
+//! `statement.zig` holds the writer's state; `blocks.zig` writes a statement
+//! and what it holds, `leaf.zig` chooses the pattern of one without a body,
+//! `spread.zig` writes the sweeps over analyses, `unwritten.zig` what the
+//! target cannot write, `output.zig` the lines, `notes.zig` what is said once
+//! a file; what a statement is turned into first is a file a subject (`cards.zig`,
 //! `cardparams.zig`, `bins.zig`, `instparams.zig`, `plugins.zig`, `variants.zig`,
 //! `rewrite.zig`; `facts.zig` what a card's spelling learns of the netlist); the
 //! passes over a netlist (`names.zig`, `analyses.zig`, `defaults.zig`)
@@ -30,6 +33,12 @@ const rewrite = @import("rewrite.zig");
 const names = @import("names.zig");
 const analyses = @import("analyses.zig");
 const statement = @import("statement.zig");
+const blocks = @import("blocks.zig");
+const leaf = @import("leaf.zig");
+const spread = @import("spread.zig");
+const unwritten = @import("unwritten.zig");
+const output = @import("output.zig");
+const notes = @import("notes.zig");
 const plugins = @import("plugins.zig");
 const instparams = @import("instparams.zig");
 const variants = @import("variants.zig");
@@ -58,6 +67,12 @@ test {
     _ = names;
     _ = analyses;
     _ = statement;
+    _ = blocks;
+    _ = leaf;
+    _ = spread;
+    _ = unwritten;
+    _ = output;
+    _ = notes;
     _ = plugins;
     _ = instparams;
     _ = variants;

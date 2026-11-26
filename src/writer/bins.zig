@@ -10,6 +10,8 @@
 const std = @import("std");
 const schema = @import("schema");
 const ir = @import("ir");
+const blocks = @import("blocks.zig");
+const output = @import("output.zig");
 const cards = @import("cards.zig");
 const statement = @import("statement.zig");
 
@@ -59,10 +61,10 @@ pub fn binnedModel(w: *Writer, st: *const ir.Stmt) Error!void {
         );
         return;
     }
-    try w.lineTail(e.buf.items, st.tail);
-    for (bins.items) |*bin| try w.stmt(bin);
+    try output.lineTail(w, e.buf.items, st.tail);
+    for (bins.items) |*bin| try blocks.stmt(w, bin);
     e.buf.clearRetainingCapacity();
-    if (try e.seq(b.close)) try w.line(e.buf.items);
+    if (try e.seq(b.close)) try output.line(w, e.buf.items);
 }
 
 /// For a dialect that writes binned models as one block (Spectre), the

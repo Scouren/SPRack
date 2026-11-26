@@ -16,6 +16,8 @@ const schema = @import("schema");
 const ir = @import("ir");
 const expr = @import("expr");
 const cond = @import("cond");
+const blocks = @import("blocks.zig");
+const output = @import("output.zig");
 const statement = @import("statement.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -99,7 +101,8 @@ pub fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void
     var said: std.StringHashMapUnmanaged(void) = .empty;
     var new: std.ArrayList([]const u8) = .empty;
     for (v.list) |x| {
-        try w.comment(
+        try output.comment(
+            w,
             try std.fmt.allocPrint(w.arena, "[sprack] '{s}' where {s}", .{ name, x.cond }),
         );
         var one = st.*;
@@ -108,7 +111,7 @@ pub fn split(w: *Writer, st: *const ir.Stmt, v: *const cond.Variants) Error!void
         one.body = x.body;
         const from = w.report.items.items.len;
         w.variant = true;
-        try w.stmt(&one);
+        try blocks.stmt(w, &one);
         var kept = from;
         for (w.report.items.items[from..]) |d| {
             const key = try std.fmt.allocPrint(

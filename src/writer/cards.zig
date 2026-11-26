@@ -14,6 +14,7 @@ const schema = @import("schema");
 const ir = @import("ir");
 const lexer = @import("lexer");
 const expr = @import("expr");
+const output = @import("output.zig");
 const plugins = @import("plugins.zig");
 const cardparams = @import("cardparams.zig");
 const statement = @import("statement.zig");
@@ -143,7 +144,8 @@ fn sourceLists(
                 "model '{s}' of type '{s}' cannot be written for {s}: {s}",
                 .{ st.get("name").atom, ty, w.g.name, why },
             );
-            try w.comment(
+            try output.comment(
+                w,
                 try a.print(
                     "[sprack] not written: model '{s}' ({s})",
                     .{ st.get("name").atom, ty },
