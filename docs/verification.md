@@ -1200,6 +1200,17 @@ So TD1 left out is 0, TAU1 left out is (stop - TD1) / 2, without a TD2 the
 source does not fall within the run, and TAU2 left out is (stop - TD2) / 2.
 The print step plays no part.
 
+**Translated to LTspice 26.0.2.** An HSPICE source with no TD2 is written
+with TD2 = the tran stop and a TAU2 that cannot act before it (#75).
+
+| deck | source written | read | so |
+|---|---|---|---|
+| HSPICE `V1 a 0 EXP(0 1 3n 0.5n)`, `.tran 2n 50n`, 1k load | `exp(0 1 3n 0.5n 50n 2n)` | v(3.25n) = 0.392782, v(3.5n) = 0.631778, v(4n) = 0.864652, v(10n) = 0.999999, 1 at 49n and 50n, max 1 | the HSPICE wave: the rise with TAU1 = 0.5n (analytic 0.393469, 0.632121, 0.864665) and no fall within the run |
+| the same with `.tran 2n 50n 0 0.05n` | the same | v(3.25n) = 0.392711, v(3.5n) = 0.631661, v(4n) = 0.864496, 1 at 49n and 50n, max 1 | the same |
+
+LTspice reads 0.02 to 0.2 % below the analytic values (its interpolation and
+.raw compression); VACASK gives 0.631787 at 3.5n.
+
 **Spectre 25.10.** `vsource type=exp val0=0 val1=1` with `td1=3n`,
 `tau1=0.5n`, `td2=6n`, `tau2=0.25n` added one by one, the solver points of
 the raw file interpolated at the sample times.
