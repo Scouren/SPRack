@@ -1,0 +1,17 @@
+file	lines_covered_percent
+src/alter.zig	95.4
+src/cond.zig	95.2
+src/expr.zig	96.4
+src/grammar.zig	98.3
+src/ir.zig	98.5
+src/json.zig	97.5
+src/lexer.zig	99.4
+src/project.zig	91.9
+src/reader.zig	96.5
+src/root.zig	98.1
+src/schema.zig	100.0
+src/stats.zig	98.2
+src/stream.zig	99.6
+src/tests.zig	99.0
+src/topology.zig	98.4
+src/writer.zig	98.5

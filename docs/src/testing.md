@@ -157,9 +157,40 @@ floor in `tools/coverage-floor-zig.tsv` or `tools/coverage-floor-py.tsv`.
 
 | file | lines covered | measured |
 |---|---|---|
+| `src/alter.zig` | 95.4 % (185 of 194) | 2026-11-26, at f2d3eb02 |
+| `src/cond.zig` | 95.2 % (278 of 292) | 2026-11-26, at f2d3eb02 |
+| `src/expr.zig` | 96.4 % (719 of 746) | 2026-11-26, at f2d3eb02 |
+| `src/grammar.zig` | 98.3 % (1115 of 1134) | 2026-11-26, at f2d3eb02 |
+| `src/ir.zig` | 98.5 % (600 of 609) | 2026-11-26, at f2d3eb02 |
+| `src/json.zig` | 97.5 % (433 of 444) | 2026-11-26, at f2d3eb02 |
+| `src/lexer.zig` | 99.4 % (659 of 663) | 2026-11-26, at f2d3eb02 |
+| `src/project.zig` | 91.9 % (582 of 633) | 2026-11-26, at f2d3eb02 |
+| `src/reader.zig` | 96.5 % (1811 of 1877) | 2026-11-26, at f2d3eb02 |
+| `src/root.zig` | 98.1 % (52 of 53) | 2026-11-26, at f2d3eb02 |
+| `src/schema.zig` | 100.0 % (23 of 23) | 2026-11-26, at f2d3eb02 |
+| `src/stats.zig` | 98.2 % (383 of 390) | 2026-11-26, at f2d3eb02 |
+| `src/stream.zig` | 99.6 % (274 of 275) | 2026-11-26, at f2d3eb02 |
+| `src/tests.zig` | 99.0 % (4476 of 4523) | 2026-11-26, at f2d3eb02 |
+| `src/topology.zig` | 98.4 % (440 of 447) | 2026-11-26, at f2d3eb02 |
+| `src/writer.zig` | 98.5 % (2765 of 2808) | 2026-11-26, at f2d3eb02 |
+| `src/` in all | 97.9 % (14795 of 15111) | 2026-11-26, at f2d3eb02 |
 | `python/sprack/__init__.py` | 92.8 % (827 of 891) | 2026-11-24, with the five PDKs, the installed trees skipped |
 
-The per-file numbers of `src/` are written by the first run of the job
-that has kcov (none was available where the Python ones were taken), and
-the floor file is committed from it; until then the Zig side gates
-nothing.
+The `src/` rows are kcov's over the test binary of the `sprack` module,
+and `tools/coverage-floor-zig.tsv` holds them. kcov counts only the lines
+the binary has: a function nothing calls is not compiled, so it is not
+counted, and `main.zig`, `pyext.zig` and `capi.zig` are not in the
+binary (the command runs of `test-cli` and the Python tests reach them,
+and are not measured). The least covered, and what their tests miss:
+`project.zig`, a catalogue entry for a subcircuit (its ports and
+parameters; the tests catalogue models only), a section asked for that
+no file defines, a file it cannot write, and an input over the size
+limit; `cond.zig`, a branch that holds a subcircuit and a conditional
+of three or more variants (its `elif`); `alter.zig`, a `.data` sweep
+over a parameter the netlist does not have, or with an expression in
+it, and a netlist with no temperature; `expr.zig`, `^` and `**` where
+the dialect has no power operator, exact division by a negative number
+or a multiple of 5, and `applyMeans`/`ifToTernary` on quoted text and
+on an `if` inside parentheses; `reader.zig`, an opaque block read
+whole, `.alter` on a name or parameter the netlist lacks, and a
+multi-segment `.tran` with an expression in it.
