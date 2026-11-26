@@ -59,7 +59,7 @@ const Matcher = struct {
         // A pattern whose first item cannot take this token fails at once,
         // as `m` would find (most rules start with a keyword or a letter).
         if (pat.len > 0) {
-            const n = pat[0];
+            const n = &pat[0];
             const t = self.toks()[ti];
             switch (n.tag) {
                 .lit => if (!litMatches(n, t)) return false,
@@ -333,7 +333,7 @@ const Matcher = struct {
         return false;
     }
 
-    fn litMatches(node: Node, t: Tok) bool {
+    fn litMatches(node: *const Node, t: Tok) bool {
         return switch (t.tag) {
             .word => std.mem.eql(u8, t.text, node.text),
             .lparen => std.mem.eql(u8, node.text, "("),
@@ -349,13 +349,13 @@ const Matcher = struct {
     /// A mandatory literal is no reason to refuse (`ac ac start=1` is an
     /// analysis named ac).
     fn followLit(items: []const Node, t: Tok) bool {
-        for (items) |n| {
+        for (items) |*n| {
             switch (n.tag) {
                 .glue, .drop => continue,
                 .opt => if (startsWithLit(n.kids, t)) return true,
                 .rep => if (startsWithLit(n.kids, t)) return true else if (n.plus) return false,
                 .alt => {
-                    for (n.kids) |alt| if (startsWithLit(alt.kids, t)) return true;
+                    for (n.kids) |*alt| if (startsWithLit(alt.kids, t)) return true;
                     return false;
                 },
                 else => return false,
@@ -365,7 +365,7 @@ const Matcher = struct {
     }
 
     fn beforeEq(items: []const Node) bool {
-        for (items) |n| {
+        for (items) |*n| {
             switch (n.tag) {
                 .glue => if (std.mem.eql(u8, n.text, "=")) return true else continue,
                 .drop => continue,
@@ -377,14 +377,14 @@ const Matcher = struct {
     }
 
     fn startsWithLit(items: []const Node, t: Tok) bool {
-        for (items) |n| {
+        for (items) |*n| {
             switch (n.tag) {
                 .lit, .taglit => return litMatches(n, t),
                 .glue, .drop => continue,
                 .opt => if (startsWithLit(n.kids, t)) return true,
                 .rep => if (startsWithLit(n.kids, t)) return true else if (n.plus) return false,
                 .alt => {
-                    for (n.kids) |alt| if (startsWithLit(alt.kids, t)) return true;
+                    for (n.kids) |*alt| if (startsWithLit(alt.kids, t)) return true;
                     return false;
                 },
                 else => return false,
@@ -401,7 +401,7 @@ const Matcher = struct {
             self.end = ti;
             return true;
         }
-        const node = items[0];
+        const node = &items[0];
         const rest = items[1..];
         const t = self.toks()[ti];
         const mark = self.log.items.len;
@@ -586,7 +586,7 @@ const Matcher = struct {
                 // Greedy: one more pass, then this node again; else stop
                 // here. `star` on the node marks a pass already taken, so
                 // the next one starts with the separator.
-                var again = node;
+                var again = node.*;
                 again.star = true;
                 again.plus = false;
                 const tail = [1]Node{again};
@@ -811,7 +811,7 @@ const Matcher = struct {
         return out.toOwnedSlice(self.arena);
     }
 
-    fn capOne(self: *const Matcher, node: Node, t: Tok) Allocator.Error!?Value {
+    fn capOne(self: *const Matcher, node: *const Node, t: Tok) Allocator.Error!?Value {
         if (node.slot == grammar.wild_slot)
             return if (t.tag == .word and !t.f.key) .{ .atom = t.text } else null;
         const v = (try self.toValue(self.slot(node.slot).ty, t)) orelse return null;
@@ -822,7 +822,7 @@ const Matcher = struct {
     /// Bind one `key=value` pair. False means the pair does not belong to this bag.
     fn bagEntry(
         self: *Matcher,
-        node: Node,
+        node: *const Node,
         key: []const u8,
         key_raw: []const u8,
         vt: Tok,
@@ -1407,23 +1407,26 @@ const Spelling = struct {
     fn statement(sp: *Spelling, arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
         const defines_params = st.kind == .param or st.kind == .subckt;
         const node_keys = st.kind == .ic or st.kind == .nodeset;
-        var buf: [schema.max_slots]Value = undefined;
-        const vals = st.unpack(&buf);
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             switch (sl.ty) {
                 .name, .node, .ident => {
+                    const was = st.at(i);
                     // Functions are called in any case, and a model's type
                     // word is a keyword, not a name: their one spelling is
                     // the lower-case one.
-                    if (st.kind == .func or sl.space == null) {
-                        if (vals[i] == .atom)
-                            vals[i] = .{ .atom = try lowered(arena, vals[i].atom) };
-                    } else vals[i] = try sp.atom(arena, sl.space.?, vals[i]);
+                    const now: Value = if (st.kind == .func or sl.space == null)
+                        (if (was == .atom) .{ .atom = try lowered(arena, was.atom) } else was)
+                    else
+                        try sp.atom(arena, sl.space.?, was);
+                    // A list is respelled where it stands; most atoms are
+                    // spelled as they were, and the statement is left alone.
+                    if (now == .atom and (was != .atom or now.atom.ptr != was.atom.ptr or
+                        now.atom.len != was.atom.len)) try st.set(arena, i, now);
                 },
                 .params => {
-                    if (vals[i] != .params) continue;
+                    if (st.at(i) != .params) continue;
                     // The statement owns its parameter list: edit it in place.
-                    const out: []ir.Param = @constCast(vals[i].params);
+                    const out: []ir.Param = @constCast(st.at(i).params);
                     for (out) |*p| {
                         if (defines_params) {
                             // A parameter is spelled the way its first definition spells it.
@@ -1445,7 +1448,6 @@ const Spelling = struct {
                 else => {},
             }
         }
-        try st.store(arena, vals);
     }
 
     /// A word of an expression: a call (`space` null), or a name of `space`.

@@ -216,6 +216,13 @@ pub const ReadIndex = struct {
     own_rules: KindSet = 0,
     /// For each kind, its rules, read or write: indices into `Grammar.rules`.
     by_kind: [schema.kind_count][]const u16 = @splat(&.{}),
+    /// The kinds a rule that stands anywhere writes; those written at all
+    /// (by such a rule, a raw region or a block); those read (by a rule or
+    /// a block); those with a block.
+    write_rules: KindSet = 0,
+    writes: KindSet = 0,
+    reads: KindSet = 0,
+    blocks: KindSet = 0,
 
     pub const KindSet = u128;
 
@@ -803,26 +810,21 @@ pub const Grammar = struct {
     }
 
     pub fn canWrite(g: *const Grammar, kind: Kind) bool {
-        for (g.rules) |r| if (r.kind == kind and r.dir != .read and r.within == null) return true;
-        for (g.raws) |r| if (r.kind != null and r.kind.? == kind) return true;
-        for (g.blocks) |b| if (b.kind == kind) return true;
-        return false;
+        return g.read_index.writes & ReadIndex.kindBit(kind) != 0;
     }
 
     pub fn canWriteRule(g: *const Grammar, kind: Kind) bool {
-        for (g.rules) |r| if (r.kind == kind and r.dir != .read and r.within == null) return true;
-        return false;
+        return g.read_index.write_rules & ReadIndex.kindBit(kind) != 0;
     }
 
     pub fn blockOf(g: *const Grammar, kind: Kind) ?*const Block {
+        if (g.read_index.blocks & ReadIndex.kindBit(kind) == 0) return null;
         for (g.blocks) |*b| if (b.kind == kind) return b;
-        return null;
+        unreachable; // the index says a block of the kind is there
     }
 
     pub fn canRead(g: *const Grammar, kind: Kind) bool {
-        for (g.rules) |r| if (r.kind == kind and r.dir != .write) return true;
-        for (g.blocks) |b| if (b.kind == kind) return true;
-        return false;
+        return g.read_index.reads & ReadIndex.kindBit(kind) != 0;
     }
 
     pub fn hasModel(g: *const Grammar, family: []const u8, polarity: []const u8) bool {
@@ -2666,7 +2668,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             .{},
         );
     return .{
-        .read_index = try readIndex(c, rules),
+        .read_index = try readIndex(c, rules, blocks, raws),
         .name = c.name,
         .lex = lex,
         .preamble = preamble,
@@ -2938,9 +2940,25 @@ fn markEndings(c: *C, rules: []const Rule, spreads: []const Spread) Error![]cons
 
 /// The `ReadIndex` of `rules`: for every first byte, the rules that
 /// `startsWith` does not rule out, in file order.
-fn readIndex(c: *C, rules: []const Rule) Error!ReadIndex {
+fn readIndex(
+    c: *C,
+    rules: []const Rule,
+    blocks: []const Block,
+    raws: []const RawBlock,
+) Error!ReadIndex {
     std.debug.assert(rules.len <= std.math.maxInt(u16));
     var index: ReadIndex = .{};
+    for (rules) |rule| {
+        const bit = ReadIndex.kindBit(rule.kind);
+        if (rule.dir != .read and rule.within == null) index.write_rules |= bit;
+        if (rule.dir != .write) index.reads |= bit;
+    }
+    for (blocks) |b| index.blocks |= ReadIndex.kindBit(b.kind);
+    index.writes = index.write_rules | index.blocks;
+    for (raws) |r| if (r.kind) |kind| {
+        index.writes |= ReadIndex.kindBit(kind);
+    };
+    index.reads |= index.blocks;
     const all = try c.gpa.alloc(u16, rules.len);
     for (all, 0..) |*slot, i| slot.* = @intCast(i);
     index.all = all;
