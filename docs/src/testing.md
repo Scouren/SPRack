@@ -206,6 +206,27 @@ includes) under `zig build test --fuzz`, and the 20,000 damaged netlists
 from a seed of the night's own, printed when they fail
 (`SPRACK_FUZZ_SEED`; `zig build test` keeps a fixed one).
 
+## Threads
+
+`sprack project` works on several files at once, and three things hold
+that they share nothing while they do. A test of `src/project.zig`
+translates a tree of thirteen files one at a time and four at once and
+compares the copies, the logs and the names expanded. The goldens take
+every PDK as a project at the default of eight. And `zig build -Dtsan`
+builds the command with the thread sanitizer, which stops at the first
+write two threads make to one place unguarded:
+
+```sh
+zig build -Doptimize=ReleaseSafe -Dtsan
+zig-out/bin/sprack project -j 8 --from ngspice --to spectre --lib --out out sky130.lib.spice
+```
+
+No `WARNING: ThreadSanitizer` is the result to hold (sky130, IHP and
+gf180 give none). Under the sanitizer the large tables come from libc's
+allocator: the page allocator grows them with `mremap`, which the
+sanitizer does not follow, and a page one thread gave back and another
+was given then reads as a race between the two.
+
 ## Coverage
 
 `zig build coverage` runs the Zig tests built with the LLVM backend under

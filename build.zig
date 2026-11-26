@@ -74,6 +74,13 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, name, "registry")) continue;
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
     }
+    // `-Dtsan`: every module watched by the thread sanitizer, which stops
+    // the run at the first write two threads make to one place unguarded
+    // (`sprack project` translates its files at once).
+    const tsan = b.option(bool, "tsan", "Build with the thread sanitizer") orelse false;
+    if (tsan) for (modules.values()) |module| {
+        module.sanitize_thread = true;
+    };
     const sprack = modules.get("sprack").?;
     b.modules.put(b.graph.arena, "sprack", sprack) catch @panic("OOM");
 
@@ -90,6 +97,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "sprack", .module = sprack }},
+            .sanitize_thread = tsan,
         }),
     });
     b.installArtifact(exe);

@@ -35,6 +35,9 @@ const usage =
     \\        not followed. --errata FILE reads the lines a
     \\        PDK's own simulator refuses as the JSON file says (a list of
     \\        {file, was, read, why}, or a manifest's "errata").
+    \\        -j N (project): how many files are translated at once; as
+    \\        many as the machine has processors, up to 8, when not given.
+    \\        The result is the same for any N.
     \\        --provide NAME=FILE (translate and project, repeatable): a
     \\        file given by name: a Xyce plugin of a Verilog-A module (built
     \\        with buildxyceplugin; its instances become Y<module> lines;
@@ -56,6 +59,10 @@ const usage =
     \\
 ;
 
+/// The files of a project translated at once when `-j` does not say: each
+/// holds its own text in memory, so more processors than this are left idle.
+const max_jobs = 8;
+
 /// What the options of a command line say, whatever the subcommand.
 const Args = struct {
     from: ?[]const u8 = null,
@@ -67,6 +74,8 @@ const Args = struct {
     sections: std.ArrayList([]const u8) = .empty,
     errata: ?[]const u8 = null,
     provided: std.ArrayList([2][]const u8) = .empty,
+    /// Files of a project translated at once; null: as the machine allows.
+    jobs: ?usize = null,
 
     /// The input's name in messages: the first file, or `-` for standard input.
     fn inputName(args: *const Args) []const u8 {
@@ -266,6 +275,9 @@ fn parseArgs(io: std.Io, arena: Allocator, argv: []const []const u8) !Args {
             try args.provided.append(arena, .{ value.?[0..eq], value.?[eq + 1 ..] });
         } else if (flag(arg, "--errata", "--errata") and value != null) {
             args.errata = value;
+        } else if (flag(arg, "-j", "--jobs") and value != null) {
+            args.jobs = std.fmt.parseInt(usize, value.?, 10) catch 0;
+            if (args.jobs.? == 0) die(io, "{s} takes a number of files, 1 or more\n", .{arg});
         } else if (flag(arg, "--section", "--section") and value != null) {
             try args.sections.append(arena, value.?);
         } else if (flag(arg, "-D", "--define") and value != null) {
@@ -408,6 +420,7 @@ fn runProject(cli: *const Cli, gpa: Allocator, args: *Args, cmd: []const u8) !vo
         .sections = args.sections.items,
         .provided = args.provided.items,
         .errata = if (args.errata) |path| try readErrata(io, arena, path) else &.{},
+        .jobs = args.jobs orelse @min(std.Thread.getCpuCount() catch 1, max_jobs),
     });
     try cli.out.flush();
     try printSummary(cli.err, sum);

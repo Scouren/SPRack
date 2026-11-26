@@ -481,3 +481,13 @@ ngspice 45 and Xyce 7.10:
 | sky130A | 27 | 0.8551763 V | 0.8551763 V |
 | FreePDK45 | 25 | 0.5216142 V | 0.5216143 V |
 | ASAP7 | 25 | (BSIM-CMG: OSDI only) | 0.3422805 V |
+
+## Many files at once
+
+`sprack project` reads and translates several files at once: as many as the
+machine has processors, up to 8, or the number `-j N` gives. The copy and
+the log are the same for any number, byte for byte: each file's entries are
+written when the files before it have given theirs. sky130's 319 files
+into Spectre take 0.9 s where one file at a time takes 3.9 s (16 threads,
+and other work on the machine), in 103 MB where one at a time holds 29 MB.
+`-j 1` is one file at a time, for a machine short of memory.

@@ -201,7 +201,15 @@ pub const max_depth: usize = 100;
 /// list, the token window, name sets): outside the arena, so that they are
 /// freed as soon as they are done with. A variable so that a test can count
 /// what they take.
-pub var big: Allocator = std.heap.page_allocator;
+///
+/// Under the thread sanitizer (`zig build -Dtsan`) it is libc's: the page
+/// allocator grows a table with mremap, which the sanitizer does not
+/// follow, so a page one thread gave back and another was given reads as
+/// a race between the two (111 such reports on sky130, none after).
+pub var big: Allocator = if (@import("builtin").sanitize_thread)
+    std.heap.c_allocator
+else
+    std.heap.page_allocator;
 
 /// `s` copied into `perm`, unless it is part of `src`, which outlives it.
 /// A name read from a line that goes away is kept so.

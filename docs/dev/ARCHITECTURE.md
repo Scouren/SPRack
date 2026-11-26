@@ -100,6 +100,10 @@ These are contracts other people's files and scripts hold:
 - Text points into the source; what must outlive a line is copied once.
 - Names are compared as their dialect compares them. (Planned: interned once
   per space, an id from then on; today each table hashes the text again.)
+- Threads share nothing while they work: a file of a project is read,
+  parsed and translated by one worker into a slot of its own, and the run
+  takes the slots in the order of the files. The one table every thread
+  reads, the dialect names, is added to under a flag.
 - Compiled grammars are constant tables in the binary. (Planned: indexed by
   kind and first token, so a line is offered only the rules that can read it.)
 
@@ -139,6 +143,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | goldens | `python3 -I tools/golden.py snapshot` then `diff`; again with `SPRACK_WHOLE=1` set for both snapshots | IDENTICAL for a refactor, read as a stream and read whole; a behaviour change names the cases it moved |
 | format | `zig fmt --check build.zig src tools` | clean |
 | speed | `python3 -I tools/bench.py <sprack> [<other>]`, with `perf` on PATH | instructions a line no higher than the last recorded |
+| threads | `zig build -Doptimize=ReleaseSafe -Dtsan`, then `sprack project -j 8` on a PDK | no `WARNING: ThreadSanitizer`; the tree and the log those of `-j 1` |
 | lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths`; and in every source file, no string that is a dialect's name outside a test |
 
 ## Where a change goes
@@ -168,5 +173,6 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 6 | one driver for whole and streamed netlists | done in the writer: a netlist held in memory is one group holding all of it; the reasons a netlist is read whole are still listed apart from the passes they are for | two drivers of 760 lines were one of 617 and a frame of 149; both ways of writing byte-identical over the 31,034 cases, before and after |
 | 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
 | 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`), compiled Verilog-A modules (`plugin`) | 81 hard-coded at the start; 18 moved to grammar lines |
+| 5b | a project's files worked on at once, results taken in file order (`project.Ahead`) | done | sky130 into Spectre 3.9 s to 0.9 s, into Xyce 3.5 s to 1.0 s (8 workers; 29 MB to 103 MB); 408K page faults a run to 302K by keeping each slot's memory |
 | 9 | the special cases of the reader and the passes, by mechanism | | |
 | 10 | tests by module, a fixture a fix, fuzz targets a stage | | 55 fixes not fully pinned today |

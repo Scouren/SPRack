@@ -37,14 +37,16 @@ comptime {
 }
 
 /// 0 is "the netlist's"; the built-ins take 1..count in registry order.
-// ponytail: one process-wide table, not locked; a host that reads from
-// several threads at once needs a mutex around `intern`.
+/// One table a process, read from any thread: a name is written before
+/// `names_len` counts it, and two threads adding at once take `adding` in
+/// turn.
 var names: [names_max][]const u8 = blk: {
     var table: [names_max][]const u8 = @splat("");
     for (grammars, 1..) |g, i| table[i] = g.name;
     break :blk table;
 };
-var names_len: usize = count + 1;
+var names_len: std.atomic.Value(usize) = .init(count + 1);
+var adding: std.atomic.Value(bool) = .init(false);
 
 /// The built-in grammar of that name, case ignored.
 pub fn find(name: []const u8) ?*const Grammar {
@@ -56,20 +58,35 @@ pub fn find(name: []const u8) ?*const Grammar {
 /// Null when the table is full. A new name is copied and never freed.
 pub fn intern(name: []const u8) Allocator.Error!?u8 {
     assert(name.len > 0);
-    for (names[1..names_len], 1..) |known, i| {
-        if (std.ascii.eqlIgnoreCase(known, name)) return @intCast(i);
-    }
-    if (names_len == names.len) return null;
+    if (known(name, names_len.load(.acquire))) |index| return index;
+    // A name new to the table is rare (a grammar loaded from a file that a
+    // netlist switches to): the few who add wait for one another here.
+    while (adding.cmpxchgWeak(false, true, .acquire, .monotonic) != null)
+        std.atomic.spinLoopHint();
+    defer adding.store(false, .release);
+    const len = names_len.load(.acquire);
+    if (known(name, len)) |index| return index;
+    if (len == names.len) return null;
     // tidy: allow(global-allocator-in-library) the table outlives every caller's arena
-    names[names_len] = try std.heap.page_allocator.dupe(u8, name);
-    names_len += 1;
-    return @intCast(names_len - 1);
+    names[len] = try std.heap.page_allocator.dupe(u8, name);
+    names_len.store(len + 1, .release);
+    return @intCast(len);
 }
 
 /// The name behind an index from `intern`; "" for 0.
 pub fn nameOf(index: u8) []const u8 {
-    assert(index < names_len);
+    assert(index < names_len.load(.acquire));
     return names[index];
+}
+
+// ---- private ----
+
+/// The index of `name` among the first `len` names of the table.
+fn known(name: []const u8, len: usize) ?u8 {
+    for (names[1..len], 1..) |have, i| {
+        if (std.ascii.eqlIgnoreCase(have, name)) return @intCast(i);
+    }
+    return null;
 }
 
 test "the built-ins are found by name and hold the first indices" {

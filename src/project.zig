@@ -23,6 +23,7 @@ const json = @import("json");
 const dialects = @import("dialects");
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;
 const windows = @import("builtin").os.tag == .windows;
@@ -75,6 +76,10 @@ pub const Options = struct {
     errata: []const Erratum = &.{},
     /// Files given to the translation by name (`ir.Env.provided`).
     provided: []const [2][]const u8 = &.{},
+    /// How many files are translated at once, each by a task of `io`. The
+    /// result is the same for any number: the log and the names read are
+    /// taken a file after the other, in the order of the files.
+    jobs: usize = 1,
 };
 
 /// `was`, whole lines of a file whose path ends in `file`, is read as
@@ -310,6 +315,8 @@ const Run = struct {
     sum: Summary = .{},
     first_device: bool = true,
     cwd: []const u8 = ".",
+    /// The directory every file is under, once the first pass knows them.
+    root_dir: []const u8 = "",
     /// How each file spells its sections, by `path NUL lower-case name`:
     /// a reference spelled `typ` to a section `Typ` is written `Typ`.
     spellings: std.StringHashMapUnmanaged([]const u8) = .empty,
@@ -341,22 +348,62 @@ const Run = struct {
     const Skipped = struct { path: []const u8, name: []const u8, refs: []const Ref, released: bool = false };
     const Ref = struct { path: []const u8, section: []const u8 };
 
-    fn logLine(r: *Run, full: []const u8, d: ir.Diag) void {
-        if (d.sev == .@"error") r.sum.errors += 1;
-        if (d.sev == .warning) r.sum.warnings += 1;
-        const w = r.opts.log orelse return;
-        const under = full.len > r.cwd.len + 1 and std.mem.startsWith(
-            u8,
-            full,
-            r.cwd,
-        ) and full[r.cwd.len] == '/';
-        const path = if (under) full[r.cwd.len + 1 ..] else full;
-        if (d.line > 0) {
-            w.print(
-                "{s}:{d}: {s}[{s}]: {s}\n",
-                .{ path, d.line, @tagName(d.sev), @tagName(d.code), d.msg },
+    /// Report entries as lines of the log, and how many are errors and
+    /// warnings: the run's own, or those of one file translated beside
+    /// others, which the run takes when the files before have given theirs.
+    const Lines = struct {
+        out: ?*Writer,
+        cwd: []const u8,
+        errors: usize = 0,
+        warnings: usize = 0,
+
+        fn add(l: *Lines, full: []const u8, d: ir.Diag) void {
+            if (d.sev == .@"error") l.errors += 1;
+            if (d.sev == .warning) l.warnings += 1;
+            const w = l.out orelse return;
+            const under = full.len > l.cwd.len + 1 and std.mem.startsWith(
+                u8,
+                full,
+                l.cwd,
+            ) and full[l.cwd.len] == '/';
+            const path = if (under) full[l.cwd.len + 1 ..] else full;
+            if (d.line > 0) {
+                w.print(
+                    "{s}:{d}: {s}[{s}]: {s}\n",
+                    .{ path, d.line, @tagName(d.sev), @tagName(d.code), d.msg },
+                ) catch {};
+            } else w.print(
+                "{s}: {s}[{s}]: {s}\n",
+                .{ path, @tagName(d.sev), @tagName(d.code), d.msg },
             ) catch {};
-        } else w.print("{s}: {s}[{s}]: {s}\n", .{ path, @tagName(d.sev), @tagName(d.code), d.msg }) catch {};
+        }
+    };
+
+    /// The `$NAME`s include paths named that the run had not met, in the
+    /// order met. `Run.expanded` takes them a file after the other
+    /// (`absorb`), so its order is the files', whichever is worked first.
+    const Fresh = struct {
+        arena: Allocator,
+        names: std.ArrayList(struct { []const u8, ?[]const u8 }) = .empty,
+
+        fn note(f: *Fresh, name: []const u8, value: ?[]const u8) Allocator.Error!void {
+            for (f.names.items) |nv| if (std.mem.eql(u8, nv[0], name)) return;
+            try f.names.append(f.arena, .{ try f.arena.dupe(u8, name), value });
+        }
+    };
+
+    fn logLine(r: *Run, full: []const u8, d: ir.Diag) void {
+        var lines: Lines = .{ .out = r.opts.log, .cwd = r.cwd };
+        lines.add(full, d);
+        r.sum.errors += lines.errors;
+        r.sum.warnings += lines.warnings;
+    }
+
+    fn absorb(r: *Run, fresh: *const Fresh) Allocator.Error!void {
+        for (fresh.names.items) |nv| {
+            if (r.expanded.contains(nv[0])) continue;
+            try r.expanded.put(r.arena, try r.arena.dupe(u8, nv[0]), nv[1]);
+        }
     }
 
     fn enqueue(r: *Run, path: []const u8) Allocator.Error!void {
@@ -372,7 +419,14 @@ const Run = struct {
         return if (v == .str) v.str else null;
     }
 
-    fn expand(r: *Run, a: Allocator, path: []const u8) Allocator.Error![]const u8 {
+    /// `path` with its `$NAME`s replaced, each noted in `fresh`. It reads
+    /// nothing of the run that changes: files worked on at once call it.
+    fn expand(
+        r: *const Run,
+        a: Allocator,
+        path: []const u8,
+        fresh: *Fresh,
+    ) Allocator.Error![]const u8 {
         if (std.mem.indexOfScalar(u8, path, '$') == null) return path;
         var out: std.ArrayList(u8) = .empty;
         var i: usize = 0;
@@ -388,8 +442,7 @@ const Run = struct {
             while (j < path.len and (std.ascii.isAlphanumeric(path[j]) or path[j] == '_')) j += 1;
             const name = path[start..j];
             const value = varValue(r.opts.vars, name, windows);
-            if (name.len > 0 and !r.expanded.contains(name))
-                try r.expanded.put(r.arena, try r.arena.dupe(u8, name), value);
+            if (name.len > 0) try fresh.note(name, value);
             if (braced and j < path.len and path[j] == '}') j += 1;
             try out.appendSlice(a, value orelse path[i..j]);
             i = j;
@@ -399,13 +452,27 @@ const Run = struct {
 
     /// The file an include names: beside the including file, else in the
     /// first search directory that has it.
-    fn locate(
+    /// As `locate`, for the run itself: what is fresh is taken at once.
+    fn locateNow(
         r: *Run,
+        scratch: Allocator,
+        dir: []const u8,
+        path: []const u8,
+    ) Allocator.Error![]const u8 {
+        var fresh: Fresh = .{ .arena = scratch };
+        const found = try r.locate(scratch, dir, path, &fresh);
+        try r.absorb(&fresh);
+        return found;
+    }
+
+    fn locate(
+        r: *const Run,
         scratch: Allocator,
         dir_in: []const u8,
         path: []const u8,
+        fresh: *Fresh,
     ) Allocator.Error![]const u8 {
-        const p = try r.expand(scratch, path);
+        const p = try r.expand(scratch, path, fresh);
         // `$PDK/corners.lib` with `-D PDK=pdk`: the variable's value is a
         // path of its own, from where SPRack runs, whichever file names it.
         const dir = if (r.leadsWithDefined(path)) r.cwd else dir_in;
@@ -437,16 +504,18 @@ const Run = struct {
         try w.writeByte('}');
     }
 
-    fn exists(r: *Run, path: []const u8) bool {
+    fn exists(r: *const Run, path: []const u8) bool {
         return if (std.Io.Dir.cwd().access(r.io, path, .{})) |_| true else |_| false;
     }
 
     fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void {
         if (st.kind != .options or st.get("search") != .str) return;
+        var fresh: Fresh = .{ .arena = r.arena };
         const sd = try resolve(r.arena, if (r.leadsWithDefined(st.get("search").str))
             r.cwd
         else
-            dir, try r.expand(r.arena, st.get("search").str));
+            dir, try r.expand(r.arena, st.get("search").str, &fresh));
+        try r.absorb(&fresh);
         for (r.search.items) |x| if (std.mem.eql(u8, x, sd)) return;
         try r.search.append(r.arena, sd);
     }
@@ -491,11 +560,11 @@ const Run = struct {
             }
             try r.noteSearch(dir, st);
             if (pathOf(st)) |p| {
-                try r.enqueue(try r.locate(scratch, dir, p));
+                try r.enqueue(try r.locateNow(scratch, dir, p));
                 if (st.kind == .lib) try r.want(sectionOf(st));
             }
             if (st.kind == .hdl and st.get("path") == .str) {
-                const target = try r.locate(scratch, dir, st.get("path").str);
+                const target = try r.locateNow(scratch, dir, st.get("path").str);
                 for (r.hdls.items) |h| {
                     if (std.mem.eql(u8, h, target)) break;
                 } else try r.hdls.append(r.arena, try r.arena.dupe(u8, target));
@@ -514,7 +583,7 @@ const Run = struct {
     ) Allocator.Error!void {
         for (stmts) |*st| {
             if (pathOf(st)) |p| try out.append(r.arena, .{
-                .path = try r.arena.dupe(u8, try r.locate(scratch, dir, p)),
+                .path = try r.arena.dupe(u8, try r.locateNow(scratch, dir, p)),
                 .section = try r.arena.dupe(u8, if (st.kind == .lib) sectionOf(st) else ""),
             });
             try r.collectRefs(dir, st.body, scratch, out);
@@ -571,12 +640,13 @@ const Run = struct {
     }
 
     fn rewriteIncludes(
-        r: *Run,
+        r: *const Run,
         path_of_file: []const u8,
         dir: []const u8,
         stmts: []ir.Stmt,
         scratch: Allocator,
         report: *ir.Report,
+        fresh: *Fresh,
     ) Allocator.Error!void {
         for (stmts) |*st| {
             if (r.emptied(path_of_file, st)) {
@@ -610,7 +680,7 @@ const Run = struct {
             else
                 null;
             if (p) |path| {
-                const target = try r.locate(scratch, dir, path);
+                const target = try r.locate(scratch, dir, path, fresh);
                 try st.own(scratch);
                 try st.set(
                     scratch,
@@ -625,7 +695,7 @@ const Run = struct {
                     }
                 }
             }
-            try r.rewriteIncludes(path_of_file, dir, st.body, scratch, report);
+            try r.rewriteIncludes(path_of_file, dir, st.body, scratch, report, fresh);
         }
     }
 
@@ -734,7 +804,7 @@ const Run = struct {
 
     /// Where the copy of `path` goes; its directory is made.
     fn outPath(
-        r: *Run,
+        r: *const Run,
         a: Allocator,
         root_dir: []const u8,
         path: []const u8,
@@ -745,7 +815,7 @@ const Run = struct {
         return out_path;
     }
 
-    const Includes = struct { r: *Run, path: []const u8, dir: []const u8 };
+    const Includes = struct { r: *const Run, path: []const u8, dir: []const u8, fresh: *Fresh };
 
     fn includes(
         ctx: *anyopaque,
@@ -754,19 +824,20 @@ const Run = struct {
         report: *ir.Report,
     ) Allocator.Error!void {
         const in: *Includes = @ptrCast(@alignCast(ctx));
-        try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report);
+        try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report, in.fresh);
     }
 
     fn translateFile(
-        r: *Run,
+        r: *const Run,
         a: Allocator,
         path: []const u8,
-        root_dir: []const u8,
         text: []const u8,
         report: *ir.Report,
         library: bool,
+        lines: *Lines,
+        fresh: *Fresh,
     ) (Allocator.Error || Writer.Error)!void {
-        const out_path = try r.outPath(a, root_dir, path);
+        const out_path = try r.outPath(a, r.root_dir, path);
         var buf: [64 * 1024]u8 = undefined;
         var discard: Writer.Discarding = .init(&buf);
         const file: ?std.Io.File = std.Io.Dir.cwd().createFile(r.io, out_path, .{}) catch null;
@@ -774,7 +845,7 @@ const Run = struct {
         var fw: std.Io.File.Writer = undefined;
         if (file) |f| fw = f.writer(r.io, &buf);
         const out: *Writer = if (file != null) &fw.interface else &discard.writer;
-        var in: Includes = .{ .r = r, .path = path, .dir = dirOf(path) };
+        var in: Includes = .{ .r = r, .path = path, .dir = dirOf(path), .fresh = fresh };
         const ok = if (stream.translate(a, r.opts.from, r.opts.to.?, text, out, report, r.opts.caps, .{
             .env = &r.env,
             .library = library,
@@ -788,53 +859,58 @@ const Run = struct {
             failed = true;
         };
         if (failed)
-            r.logLine(
+            lines.add(
                 out_path,
                 .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" },
             );
     }
 
-    /// The text of an input file; null when it cannot be read, or is
-    /// refused (`refusal` says why): not a regular file, or larger than
-    /// `ir.max_input`.
-    fn readFile(r: *Run, path: []const u8, a: Allocator) ?[]const u8 {
-        r.refusal = "";
-        const st = std.Io.Dir.cwd().statFile(r.io, path, .{}) catch return null;
-        if (st.kind != .file) {
-            r.refusal = "not a regular file; not read";
-            return null;
-        }
-        if (st.size > ir.max_input) {
-            r.refusal = std.fmt.comptimePrint(
+    /// What reading one input file gave: its text with the PDK's errata
+    /// read through, or why there is none; and the errata that name it,
+    /// each with the line its text stood on, if it stood there.
+    const Loaded = struct {
+        text: ?[]const u8 = null,
+        /// Why the file was refused; empty: it could not be opened.
+        refusal: []const u8 = "",
+        hits: []const Hit = &.{},
+
+        const Hit = struct { erratum: usize, line: ?u32 };
+    };
+
+    /// Reads `path`. It writes nothing of the run: files are read at once.
+    fn load(r: *const Run, path: []const u8, a: Allocator) Loaded {
+        const cwd = std.Io.Dir.cwd();
+        const st = cwd.statFile(r.io, path, .{}) catch return .{};
+        if (st.kind != .file) return .{ .refusal = "not a regular file; not read" };
+        if (st.size > ir.max_input)
+            return .{ .refusal = std.fmt.comptimePrint(
                 "larger than {d} MiB, the most an input may hold; not read",
                 .{ir.max_input >> 20},
-            );
-            return null;
-        }
-        const text = std.Io.Dir.cwd().readFileAlloc(
-            r.io,
-            path,
-            a,
-            .limited(ir.max_input),
-        ) catch return null;
-        return r.applyErrata(path, text, a) catch null;
-    }
-
-    /// `text`, the file at `path`, with its errata read in: one caveat each.
-    fn applyErrata(
-        r: *Run,
-        path: []const u8,
-        text_in: []const u8,
-        a: Allocator,
-    ) Allocator.Error![]const u8 {
-        var text = text_in;
+            ) };
+        var text = cwd.readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch return .{};
+        var hits: std.ArrayList(Loaded.Hit) = .empty;
         for (r.opts.errata, 0..) |e, i| {
             if (!std.mem.endsWith(u8, path, e.file)) continue;
+            var hit: Loaded.Hit = .{ .erratum = i, .line = null };
+            if (wholeLines(text, e.was, 0)) |at| {
+                hit.line = @intCast(std.mem.count(u8, text[0..at], "\n") + 1);
+                text = std.mem.concat(a, u8, &.{ text[0..at], e.read, text[at + e.was.len ..] }) catch
+                    return .{};
+            }
+            hits.append(a, hit) catch return .{};
+        }
+        return .{ .text = text, .hits = hits.items };
+    }
+
+    /// What `load` found of the PDK's errata in `path`, taken by the run:
+    /// which were met, and each one read through said once a file.
+    fn noteErrata(r: *Run, path: []const u8, hits: []const Loaded.Hit) Allocator.Error!void {
+        for (hits) |hit| {
+            const i = hit.erratum;
+            const e = r.opts.errata[i];
             r.errata_seen[i] = true;
-            const at = wholeLines(text, e.was, 0) orelse continue;
+            const line = hit.line orelse continue;
             r.errata_found[i] = true;
-            const line = std.mem.count(u8, text[0..at], "\n") + 1;
-            text = try std.mem.concat(a, u8, &.{ text[0..at], e.read, text[at + e.was.len ..] });
             const key = try std.fmt.allocPrint(r.arena, "{s}\x00{d}", .{ path, i });
             if (r.errata_said.contains(key)) continue;
             try r.errata_said.put(r.arena, key, {});
@@ -848,12 +924,295 @@ const Run = struct {
                 e.why,
                 std.mem.sliceTo(e.read, '\n'),
             });
-            r.logLine(
-                path,
-                .{ .sev = .warning, .code = .caveat, .line = @intCast(line), .msg = msg },
-            );
+            r.logLine(path, .{ .sev = .warning, .code = .caveat, .line = line, .msg = msg });
         }
-        return text;
+    }
+
+    /// The text of an input file; null when it cannot be read, or is
+    /// refused (`refusal` says why): not a regular file, or larger than
+    /// `ir.max_input`.
+    fn readFile(r: *Run, path: []const u8, a: Allocator) ?[]const u8 {
+        const loaded = r.load(path, a);
+        r.refusal = loaded.refusal;
+        r.noteErrata(path, loaded.hits) catch return null;
+        return loaded.text;
+    }
+
+    /// A file of the run as a task works on it: nothing of the run that
+    /// changes while tasks run is reached through it.
+    const File = struct { path: []const u8, library: bool };
+
+    /// Work on the files of the run done ahead of where its results are
+    /// taken. `opts.jobs` workers, each a task of `io`, take the files in
+    /// order as the run comes to know them, as far ahead as there are
+    /// slots; the run takes each result in the order of the files. What it
+    /// does with them is then what it would do one file after the other,
+    /// whichever worker ends first.
+    ///
+    /// `T`: the result, with `init(*T, gpa)`, `reset(*T)` before each file
+    /// and `deinit(*T)`. `work` fills it; it must write nothing else. A
+    /// slot keeps its memory from one file to the next (up to
+    /// `slot_keep`), so a file's text and statements land in pages that
+    /// are already there: 408 thousand page faults a run of sky130 were
+    /// one fresh mapping after the other.
+    ///
+    /// With one job, or an `io` that runs nothing at once, there are no
+    /// workers: `take` does the work where it is called.
+    fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) type {
+        return struct {
+            r: *const Run,
+            slots: []Slot,
+            workers: usize = 0,
+            group: std.Io.Group = .init,
+            /// Held by the run wherever it does not wait for a result, so
+            /// the list of files and what follows change under it alone;
+            /// a worker holds it to take a file and to give its result.
+            mutex: std.Io.Mutex = .init,
+            /// A result is there; or a file, or a slot, for a worker.
+            changed: std.Io.Condition = .init,
+            /// The file whose result is taken next, and the first no
+            /// worker has taken.
+            next: usize = 0,
+            claimed: usize = 0,
+            stop: bool = false,
+
+            const Slot = struct { value: T, done: bool };
+            const Self = @This();
+
+            /// In place: the workers hold `a`.
+            fn init(a: *Self, r: *const Run) Allocator.Error!void {
+                const jobs = @max(1, r.opts.jobs);
+                const slots = try r.arena.alloc(Slot, if (jobs > 1) jobs * slots_a_worker else 1);
+                for (slots) |*slot| {
+                    slot.value.init(r.gpa);
+                    slot.done = false;
+                }
+                a.* = .{ .r = r, .slots = slots };
+                if (jobs == 1) return;
+                a.mutex.lockUncancelable(r.io);
+                for (0..jobs) |_| {
+                    // rare: an `io` with nothing to run a task on at once.
+                    a.group.concurrent(r.io, worker, .{a}) catch break;
+                    a.workers += 1;
+                }
+                if (a.workers == 0) a.mutex.unlock(r.io);
+            }
+
+            /// The result of file `next`. Blocks until it is there.
+            fn take(a: *Self) *T {
+                const r = a.r;
+                assert(a.next < r.files.items.len);
+                const slot = &a.slots[a.next % a.slots.len];
+                if (a.workers == 0) {
+                    slot.value.reset();
+                    work(r, a.fileAt(a.next), &slot.value);
+                    return &slot.value;
+                }
+                // The files the run has come to know since the last are
+                // there to take.
+                a.changed.broadcast(r.io);
+                while (!slot.done) a.changed.waitUncancelable(r.io, &a.mutex);
+                return &slot.value;
+            }
+
+            /// The result `take` gave is done with: the next file's is
+            /// next, and the slot is free for the file a turn after it.
+            fn release(a: *Self) void {
+                a.slots[a.next % a.slots.len].done = false;
+                a.next += 1;
+            }
+
+            /// Lets the workers end (each finishes the file it has), and
+            /// frees the slots.
+            fn deinit(a: *Self) void {
+                const io = a.r.io;
+                if (a.workers > 0) {
+                    a.stop = true;
+                    a.changed.broadcast(io);
+                    a.mutex.unlock(io);
+                    // Nothing asks the workers to stop but `stop`.
+                    a.group.await(io) catch |e| switch (e) {
+                        error.Canceled => {},
+                    };
+                }
+                for (a.slots) |*slot| slot.value.deinit();
+            }
+
+            fn fileAt(a: *const Self, index: usize) File {
+                const r = a.r;
+                return .{
+                    .path = r.files.items[index],
+                    .library = r.opts.library or index >= r.opts.tops.len,
+                };
+            }
+
+            fn worker(a: *Self) void {
+                const r = a.r;
+                a.mutex.lockUncancelable(r.io);
+                // What ends it: `stop`, which `deinit` sets.
+                while (true) {
+                    // Waits for a file no worker has, within a turn of the
+                    // slots from the one the run takes next.
+                    while (!a.stop and
+                        (a.claimed >= r.files.items.len or a.claimed >= a.next + a.slots.len))
+                        a.changed.waitUncancelable(r.io, &a.mutex);
+                    if (a.stop) break;
+                    const index = a.claimed;
+                    a.claimed += 1;
+                    const slot = &a.slots[index % a.slots.len];
+                    assert(!slot.done);
+                    const file = a.fileAt(index);
+                    a.mutex.unlock(r.io);
+                    slot.value.reset();
+                    work(r, file, &slot.value);
+                    a.mutex.lockUncancelable(r.io);
+                    slot.done = true;
+                    a.changed.broadcast(r.io);
+                }
+                a.mutex.unlock(r.io);
+            }
+        };
+    }
+
+    /// Slots for each worker: a file that takes long holds back only the
+    /// files more than a turn of the slots after it.
+    const slots_a_worker = 4;
+
+    /// The most a slot keeps mapped from one file to the next. A file that
+    /// takes more gives the rest back when the slot is used again.
+    const slot_keep = 16 << 20;
+
+    /// One file of the first pass, read and parsed.
+    const Parsed = struct {
+        arena: std.heap.ArenaAllocator,
+        loaded: Loaded,
+        stmts: []ir.Stmt,
+        failed: bool,
+
+        fn init(p: *Parsed, gpa: Allocator) void {
+            p.* = .{ .arena = .init(gpa), .loaded = .{}, .stmts = &.{}, .failed = false };
+        }
+
+        fn reset(p: *Parsed) void {
+            _ = p.arena.reset(.{ .retain_with_limit = slot_keep });
+            p.loaded = .{};
+            p.stmts = &.{};
+            p.failed = false;
+        }
+
+        fn deinit(p: *Parsed) void {
+            p.arena.deinit();
+        }
+    };
+
+    fn parseOne(r: *const Run, file: File, out: *Parsed) void {
+        const a = out.arena.allocator();
+        out.loaded = r.load(file.path, a);
+        const text = out.loaded.text orelse return;
+        // What the file says of itself alone: the report of this reading
+        // is the second pass's to give, with the other files known.
+        var report: ir.Report = .init(a);
+        const nl = reader.read(r.opts.from, a, text, &report, .{ .library = file.library }) catch {
+            out.failed = true;
+            return;
+        };
+        out.stmts = nl.stmts;
+    }
+
+    /// What translating one file gives the run: the lines of its log,
+    /// their counts, and the `$NAME`s its include paths named.
+    const Done = struct {
+        /// What the run takes of the file lives here; what translating it
+        /// needs and no one after, in `scratch`.
+        arena: std.heap.ArenaAllocator,
+        scratch: std.heap.ArenaAllocator,
+        /// The file was there to read.
+        read: bool,
+        log: []const u8,
+        errors: usize,
+        warnings: usize,
+        fresh: Fresh,
+        err: ?(Allocator.Error || Writer.Error),
+
+        fn init(d: *Done, gpa: Allocator) void {
+            d.* = .{
+                .arena = .init(gpa),
+                .scratch = .init(gpa),
+                .read = false,
+                .log = "",
+                .errors = 0,
+                .warnings = 0,
+                .fresh = undefined,
+                .err = null,
+            };
+            d.fresh = .{ .arena = d.arena.allocator() };
+        }
+
+        fn reset(d: *Done) void {
+            _ = d.arena.reset(.{ .retain_with_limit = slot_keep });
+            _ = d.scratch.reset(.{ .retain_with_limit = slot_keep });
+            d.read = false;
+            d.log = "";
+            d.errors = 0;
+            d.warnings = 0;
+            d.fresh = .{ .arena = d.arena.allocator() };
+            d.err = null;
+        }
+
+        fn deinit(d: *Done) void {
+            d.scratch.deinit();
+            d.arena.deinit();
+        }
+    };
+
+    fn translateOne(r: *const Run, file: File, done: *Done) void {
+        r.translateInto(file, done) catch |e| {
+            done.err = e;
+        };
+    }
+
+    /// `file`, read and translated straight into the copy, a statement at
+    /// a time.
+    fn translateInto(
+        r: *const Run,
+        file: File,
+        done: *Done,
+    ) (Allocator.Error || Writer.Error)!void {
+        const path = file.path;
+        if (path.len == 0) return;
+        const scratch = done.scratch.allocator();
+        // What there is to say of reading it, the first pass said.
+        const text = r.load(path, scratch).text orelse return;
+        done.read = true;
+        var report: ir.Report = .init(scratch);
+        var log: Writer.Allocating = .init(done.arena.allocator());
+        var lines: Lines = .{ .out = if (r.opts.log != null) &log.writer else null, .cwd = r.cwd };
+        try r.translateFile(scratch, path, text, &report, file.library, &lines, &done.fresh);
+        for (report.items.items) |d| {
+            if (!withinProject(d)) lines.add(path, d);
+        }
+        done.log = log.written();
+        done.errors = lines.errors;
+        done.warnings = lines.warnings;
+    }
+
+    /// Every file translated into the copy, `opts.jobs` at once; what each
+    /// gives is taken in the order of the files.
+    fn translateAll(r: *Run) (Allocator.Error || Writer.Error)!void {
+        var ahead: Ahead(Done, translateOne) = undefined;
+        try ahead.init(r);
+        defer ahead.deinit();
+        while (ahead.next < r.files.items.len) {
+            const done = ahead.take();
+            defer ahead.release();
+            if (done.err) |e| return e;
+            if (!done.read) continue;
+            r.sum.files += 1;
+            try r.absorb(&done.fresh);
+            if (r.opts.log) |w| w.writeAll(done.log) catch {};
+            r.sum.errors += done.errors;
+            r.sum.warnings += done.warnings;
+        }
     }
 
     /// An erratum whose file was read and whose text is not in it: the PDK
@@ -872,13 +1231,20 @@ const Run = struct {
 
     /// Pass one: find every file and learn what each declares.
     fn discover(r: *Run) Allocator.Error!void {
-        var i: usize = 0;
-        while (i < r.files.items.len) : (i += 1) {
+        var ahead: Ahead(Parsed, parseOne) = undefined;
+        try ahead.init(r);
+        defer ahead.deinit();
+        // A file read names the files after it: the list grows as it is walked.
+        while (ahead.next < r.files.items.len) {
+            const i = ahead.next;
             const path = r.files.items[i];
-            var scratch_state: std.heap.ArenaAllocator = .init(r.gpa);
-            defer scratch_state.deinit();
-            const scratch = scratch_state.allocator();
-            const text = r.readFile(path, scratch) orelse {
+            const parsed = ahead.take();
+            defer ahead.release();
+            if (parsed.failed) return error.OutOfMemory;
+            const scratch = parsed.arena.allocator();
+            r.refusal = parsed.loaded.refusal;
+            try r.noteErrata(path, parsed.loaded.hits);
+            if (parsed.loaded.text == null) {
                 r.sum.missing += 1;
                 r.logLine(
                     path,
@@ -890,25 +1256,17 @@ const Run = struct {
                 // Keep the slot so indices stay stable, but mark it.
                 r.files.items[i] = "";
                 continue;
-            };
-            var report: ir.Report = .init(scratch);
-            const nl = try reader.read(
-                r.opts.from,
-                scratch,
-                text,
-                &report,
-                .{ .library = r.opts.library or i >= r.opts.tops.len },
-            );
-            try r.env.absorb(r.arena, nl.stmts);
+            }
+            try r.env.absorb(r.arena, parsed.stmts);
             // "": every name is copied, as `text` goes away with the statements.
             // With no target (a catalogue, kept for any): the names any
             // built-in dialect keeps for itself (#71).
             if (r.opts.to) |gt| {
-                try writer.collectReserved(r.arena, gt, nl.stmts, &r.env.params, "");
+                try writer.collectReserved(r.arena, gt, parsed.stmts, &r.env.params, "");
             } else for (&dialects.grammars) |*g| {
-                try writer.collectReserved(r.arena, g, nl.stmts, &r.env.params, "");
+                try writer.collectReserved(r.arena, g, parsed.stmts, &r.env.params, "");
             }
-            try r.findIncludes(path, nl.stmts, scratch, i < r.opts.tops.len);
+            try r.findIncludes(path, parsed.stmts, scratch, i < r.opts.tops.len);
         }
         // A section asked for by name that no file defines: nothing of it
         // is in the result, and what references it will not find it.
@@ -981,6 +1339,8 @@ const Run = struct {
         };
         r.sum.root_len = @min(root_dir.len, r.sum.root_buf.len);
         @memcpy(r.sum.root_buf[0..r.sum.root_len], root_dir[0..r.sum.root_len]);
+        r.root_dir = root_dir;
+        if (r.opts.to != null and r.opts.catalog == null) return r.translateAll();
         if (r.opts.catalog) |w| try w.writeAll("{\"devices\":[\n");
         for (r.files.items, 0..) |path, index| {
             if (path.len == 0) continue;
@@ -991,10 +1351,7 @@ const Run = struct {
             var report: ir.Report = .init(scratch);
             const library = r.opts.library or index >= r.opts.tops.len;
             r.sum.files += 1;
-            if (r.opts.to != null and r.opts.catalog == null) {
-                // Translated a statement at a time, straight into the copy.
-                try r.translateFile(scratch, path, root_dir, text, &report, library);
-            } else {
+            {
                 var nl = try reader.read(
                     r.opts.from,
                     scratch,
@@ -1005,7 +1362,9 @@ const Run = struct {
                 if (r.opts.catalog) |w| try r.catalogStmts(w, path, "", nl.stmts);
                 if (r.opts.to == null) r.noteOpaque(path, nl.stmts);
                 if (r.opts.to) |gt| {
-                    try r.rewriteIncludes(path, dirOf(path), nl.stmts, scratch, &report);
+                    var fresh: Fresh = .{ .arena = scratch };
+                    try r.rewriteIncludes(path, dirOf(path), nl.stmts, scratch, &report, &fresh);
+                    try r.absorb(&fresh);
                     var aw: Writer.Allocating = .init(scratch);
                     try writer.write(.{
                         .g = gt,
@@ -1032,13 +1391,7 @@ const Run = struct {
                 }
             }
             for (report.items.items) |d| {
-                // Within a project the other files are translated too.
-                if (d.code == .caveat and std.mem.indexOf(
-                    u8,
-                    d.msg,
-                    "translate that file too",
-                ) != null) continue;
-                r.logLine(path, d);
+                if (!withinProject(d)) r.logLine(path, d);
             }
         }
         if (r.opts.catalog) |w| {
@@ -1065,6 +1418,12 @@ const Run = struct {
         }
     }
 };
+
+/// Is `d` an entry that says to translate another file too? Within a
+/// project the other files are translated.
+fn withinProject(d: ir.Diag) bool {
+    return d.code == .caveat and std.mem.indexOf(u8, d.msg, "translate that file too") != null;
+}
 
 pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer.Error)!Summary {
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
@@ -1410,4 +1769,102 @@ test "a small project: includes followed, declarations shared, tree copied" {
             "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\",\"family\":\"bsim4\",\"polarity\":\"n\"",
         ) != null,
     );
+}
+
+test "files translated at once: the tree, the log and the names expanded are those of one at a time" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try tmp.dir.createDirPath(io, "in/models");
+    // A top file and twelve libraries, each reached through a name of its
+    // own, each with something to report, one of them missing and one read
+    // through an erratum: every per-file result the run takes is there.
+    const count = 12;
+    var top: std.ArrayList(u8) = .empty;
+    var vars: std.ArrayList([2][]const u8) = .empty;
+    try top.appendSlice(a, "Top netlist\n");
+    for (0..count) |k| {
+        const name = try std.fmt.allocPrint(a, "LIB{d}", .{k});
+        try vars.append(a, .{ name, try std.fmt.allocPrint(a, "{s}/in/models", .{base}) });
+        try top.print(a, ".include '${s}/m{d}.mod'\n", .{ name, k });
+        if (k == 5) continue; // not there
+        const text = try std.fmt.allocPrint(a,
+            \\* library {d}
+            \\.model n{d} nmos level=54 vth0=0.{d}
+            \\.subckt cell{d} a b
+            \\R1 a b 1k tc1=0.{d}
+            \\C1 a b 1p ic=0.{d}
+            \\.ends
+            \\.param p{d}=1 q{d}='p{d}*2'
+            \\
+        , .{ k, k, k + 1, k, k + 1, k + 1, k, k, k });
+        try tmp.dir.writeFile(
+            io,
+            .{ .sub_path = try std.fmt.allocPrint(a, "in/models/m{d}.mod", .{k}), .data = text },
+        );
+    }
+    try top.appendSlice(a, "X1 d g cell3\n.op\n.end\n");
+    try tmp.dir.writeFile(io, .{ .sub_path = "in/top.sp", .data = top.items });
+
+    const hspice = dialects.find("hspice").?.*;
+    const vacask = dialects.find("vacask").?.*;
+    const errata: []const Erratum = &.{.{
+        .file = "m7.mod",
+        .was = "R1 a b 1k tc1=0.8",
+        .read = "R1 a b 2k tc1=0.8",
+        .why = "a test",
+    }};
+    var logs: [2][]const u8 = undefined;
+    var names: [2][]const u8 = undefined;
+    var sums: [2]Summary = undefined;
+    for ([_]usize{ 1, 4 }, 0..) |jobs, n| {
+        var log: Writer.Allocating = .init(a);
+        var expanded: Writer.Allocating = .init(a);
+        sums[n] = try run(io, std.testing.allocator, .{
+            .from = &hspice,
+            .to = &vacask,
+            .tops = &.{try std.fmt.allocPrint(a, "{s}/in/top.sp", .{base})},
+            .out_dir = try std.fmt.allocPrint(a, "{s}/out{d}", .{ base, jobs }),
+            .vars = vars.items,
+            .log = &log.writer,
+            .expanded = &expanded.writer,
+            .errata = errata,
+            .jobs = jobs,
+        });
+        logs[n] = log.written();
+        names[n] = expanded.written();
+    }
+    try std.testing.expectEqual(count, sums[0].files);
+    try std.testing.expectEqual(1, sums[0].missing);
+    try std.testing.expect(sums[0].warnings > 0);
+    try std.testing.expect(std.mem.indexOf(u8, logs[0], "read through an erratum") != null);
+    // One at a time and four at once: nothing the run gives differs but
+    // the directory it was asked to write to.
+    try std.testing.expectEqualStrings(logs[0], logs[1]);
+    try std.testing.expectEqualStrings(names[0], names[1]);
+    try std.testing.expectEqual(sums[0].files, sums[1].files);
+    try std.testing.expectEqual(sums[0].errors, sums[1].errors);
+    try std.testing.expectEqual(sums[0].warnings, sums[1].warnings);
+    try std.testing.expectEqual(sums[0].missing, sums[1].missing);
+    for ([_][]const u8{ "top.sp", "models/m0.mod", "models/m7.mod", "models/m11.mod" }) |file| {
+        const one = try tmp.dir.readFileAlloc(
+            io,
+            try std.fmt.allocPrint(a, "out1/{s}", .{file}),
+            a,
+            .limited(1 << 20),
+        );
+        const four = try tmp.dir.readFileAlloc(
+            io,
+            try std.fmt.allocPrint(a, "out4/{s}", .{file}),
+            a,
+            .limited(1 << 20),
+        );
+        try std.testing.expect(one.len > 0);
+        try std.testing.expectEqualStrings(one, four);
+    }
 }
