@@ -39,9 +39,6 @@ const newStmt = ir.newStmt;
 const putName = ir.putName;
 const putValue = ir.putValue;
 
-/// Readers that cannot tell a transistor from a subcircuit call by syntax
-/// (Spectre, VACASK) produce `instance`. Where the master is a model declared
-/// in the same netlist, retag the instance as the device that model is.
 /// The family given to a model whose type the tables do not list, once a
 /// lettered device (M, Q, D, ...) is seen to use it: such a model is one of
 /// the simulator's own, not a Verilog-A module, and has no known name in
@@ -70,6 +67,7 @@ pub fn checkModelKinds(
 }
 
 /// Model name to family. With `src`, a name not in it is copied.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectFamilies(
     arena: Allocator,
     stmts: []const Stmt,
@@ -84,12 +82,14 @@ pub fn collectFamilies(
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn checkKinds(
     stmts: []const Stmt,
     models: *const std.StringHashMapUnmanaged(Kind),
     names: *const std.StringHashMapUnmanaged([]const u8),
     report: *Report,
 ) Allocator.Error!void {
+    std.debug.assert(models.count() > 0);
     for (stmts) |*s| {
         try checkKinds(s.body, models, names, report);
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
@@ -116,6 +116,9 @@ pub fn markUnlistedBuiltins(arena: Allocator, nl: *Netlist) Allocator.Error!void
     if (models.count() > 0) try markUsers(arena, nl.stmts, &models);
 }
 
+/// Readers that cannot tell a transistor from a subcircuit call by syntax
+/// (Spectre, VACASK) produce `instance`. Where the master is a model declared
+/// in the same netlist, retag the instance as the device that model is.
 pub fn resolveInstances(arena: Allocator, nl: *Netlist, env: ?*const Env) Allocator.Error!void {
     var models: std.StringHashMapUnmanaged(Kind) = .empty;
     var subckts: CaselessSet = .empty;
@@ -140,6 +143,7 @@ pub fn binBase(name: []const u8) ?[]const u8 {
 }
 
 /// With `src`, a name not in it is copied (the statements go away).
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectModels(
     arena: Allocator,
     stmts: []const Stmt,
@@ -161,6 +165,7 @@ pub fn collectModels(
                 kind = .device;
             }
             if (kind) |k| {
+                std.debug.assert(name == .atom);
                 try putValue(out, arena, src, name.atom, k);
                 if (binBase(name.atom)) |base| try putValue(out, arena, src, base, k);
             }
@@ -178,12 +183,14 @@ pub fn sameSlots(a: Kind, b: Kind) bool {
     return true;
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn retag(
     arena: Allocator,
     stmts: []Stmt,
     models: *const std.StringHashMapUnmanaged(Kind),
     subckts: *const CaselessSet,
 ) Allocator.Error!void {
+    std.debug.assert(models.count() > 0);
     for (stmts) |*s| {
         try retag(arena, s.body, models, subckts);
         // One element letter, two device kinds told apart by the model
@@ -205,56 +212,7 @@ pub fn retag(
             s.kind = .device;
             continue;
         }
-        const nodes = s.get("nodes");
-        if (nodes != .list) continue;
-        const slots = schema.info(target).slots;
-        var want: usize = 0;
-        for (slots) |sl| want += @intFromBool(sl.ty == .node and !sl.list);
-        // A BJT may leave its substrate node off.
-        // The substrate, bulk and thermal terminals are optional.
-        // A source's port reference is only a balanced port's.
-        const least: usize = if (target == .bjt or target == .mosfet)
-            3
-        else if (target == .vsource or target == .isource) 2 else want;
-        const ok = nodes.list.len >= least and nodes.list.len <= want;
-        if (!ok) continue;
-        var out = try newStmt(arena, target, s.line);
-        out.tail = s.tail;
-        var buf: [schema.max_slots]Value = @splat(.none);
-        const vals = buf[0..slots.len];
-        var n: usize = 0;
-        for (slots, 0..) |sl, i| {
-            if (sl.ty == .node and !sl.list) {
-                if (n < nodes.list.len) vals[i] = nodes.list[n];
-                n += 1;
-            } else if (std.mem.eql(u8, sl.name, "name")) {
-                vals[i] = s.get("name");
-            } else if (std.mem.eql(u8, sl.name, "master")) {
-                vals[i] = master;
-            } else if (sl.ty == .params) {
-                vals[i] = s.get("params");
-            }
-        }
-        // What a SPICE line says positionally (`D1 a k dmod 2`) an instance
-        // line says by name (`area=2`): put it where the device kind keeps it.
-        const pi = schema.slotOf(target, "params");
-        if (pi != null and vals[pi.?] == .params) {
-            var kept: std.ArrayList(Param) = .empty;
-            for (vals[pi.?].params) |p| {
-                const si = schema.slotIndex(target, p.key);
-                if (si != null and slots[si.?].ty == .value and !slots[si.?].list and
-                    vals[si.?] == .none and p.val != .none)
-                {
-                    vals[si.?] = p.val;
-                } else try kept.append(arena, p);
-            }
-            vals[pi.?] = if (kept.items.len > 0)
-                .{ .params = try kept.toOwnedSlice(arena) }
-            else
-                .none;
-        }
-        try out.pack(arena, vals);
-        s.* = out;
+        s.* = try asDevice(arena, s, master, target) orelse continue;
     }
 }
 
@@ -293,6 +251,7 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
             extra += 1;
         } else return null;
     }
+    std.debug.assert(extra <= params.items.len);
     if (vals[schema.slot(.instance, "master")] == .none) return null;
     vals[schema.slot(.instance, "nodes")] = .{ .list = try nodes.toOwnedSlice(arena) };
     if (params.items.len > 0)
@@ -303,6 +262,68 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
 
 // ---- private ----
 
+/// The instance `s` of a model of the device kind `target`, as that
+/// device; null when its nodes are too few or too many for one.
+fn asDevice(arena: Allocator, s: *const Stmt, master: Value, target: Kind) Allocator.Error!?Stmt {
+    std.debug.assert(target != .device);
+    const nodes = s.get("nodes");
+    if (nodes != .list) return null;
+    const slots = schema.info(target).slots;
+    var want: usize = 0;
+    for (slots) |sl| want += @intFromBool(sl.ty == .node and !sl.list);
+    // A BJT may leave its substrate node off.
+    // The substrate, bulk and thermal terminals are optional.
+    // A source's port reference is only a balanced port's.
+    const least: usize = if (target == .bjt or target == .mosfet)
+        3
+    else if (target == .vsource or target == .isource) 2 else want;
+    const ok = nodes.list.len >= least and nodes.list.len <= want;
+    if (!ok) return null;
+    var out = try newStmt(arena, target, s.line);
+    out.tail = s.tail;
+    var buf: [schema.max_slots]Value = @splat(.none);
+    const vals = buf[0..slots.len];
+    var n: usize = 0;
+    for (slots, 0..) |sl, i| {
+        if (sl.ty == .node and !sl.list) {
+            if (n < nodes.list.len) vals[i] = nodes.list[n];
+            n += 1;
+        } else if (std.mem.eql(u8, sl.name, "name")) {
+            vals[i] = s.get("name");
+        } else if (std.mem.eql(u8, sl.name, "master")) {
+            vals[i] = master;
+        } else if (sl.ty == .params) {
+            vals[i] = s.get("params");
+        }
+    }
+    try namedToSlots(arena, target, vals);
+    try out.pack(arena, vals);
+    return out;
+}
+
+/// What a SPICE line says positionally (`D1 a k dmod 2`) an instance
+/// line says by name (`area=2`): put it where the device kind keeps it.
+fn namedToSlots(arena: Allocator, target: Kind, vals: []Value) Allocator.Error!void {
+    const slots = schema.info(target).slots;
+    std.debug.assert(vals.len == slots.len);
+    const pi = schema.slotOf(target, "params") orelse return;
+    if (vals[pi] != .params) return;
+    var kept: std.ArrayList(Param) = .empty;
+    for (vals[pi].params) |p| {
+        const si = schema.slotIndex(target, p.key);
+        if (si != null and slots[si.?].ty == .value and !slots[si.?].list and
+            vals[si.?] == .none and p.val != .none)
+        {
+            vals[si.?] = p.val;
+        } else try kept.append(arena, p);
+    }
+    vals[pi] = if (kept.items.len > 0)
+        .{ .params = try kept.toOwnedSlice(arena) }
+    else
+        .none;
+}
+
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn collectUnlisted(
     arena: Allocator,
     stmts: []Stmt,
@@ -318,6 +339,7 @@ fn collectUnlisted(
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn markUsers(
     arena: Allocator,
     stmts: []const Stmt,

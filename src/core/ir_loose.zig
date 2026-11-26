@@ -15,13 +15,14 @@ const Value = ir.Value;
 
 const Group = enum { circuit, analysis, control, options, skip };
 
+/// Analyses and control statements may sit anywhere among the devices
+/// (VACASK keeps them in a block at the end): compare each group in its
+/// own order.
 pub fn looseListEql(a: []const Stmt, b: []const Stmt) bool {
-    // Analyses and control statements may sit anywhere among the devices
-    // (VACASK keeps them in a block at the end): compare each group in its
-    // own order.
     inline for (.{ Group.circuit, Group.analysis, Group.control }) |want| {
         var i: usize = 0;
         var j: usize = 0;
+        // Until either list has no statement of the group left.
         while (true) {
             while (i < a.len and groupOf(&a[i]) != want) i += 1;
             while (j < b.len and groupOf(&b[j]) != want) j += 1;
@@ -29,6 +30,7 @@ pub fn looseListEql(a: []const Stmt, b: []const Stmt) bool {
                 if (i != a.len or j != b.len) return false;
                 break;
             }
+            std.debug.assert(groupOf(&a[i]) == groupOf(&b[j]));
             if (!looseStmtEql(&a[i], &b[j])) return false;
             i += 1;
             j += 1;
@@ -55,6 +57,7 @@ fn looseVal(s: *const Stmt, i: usize) Value {
 fn sameWords(a: []const u8, b: []const u8) bool {
     var x = std.mem.tokenizeAny(u8, a, " \t\r\n");
     var y = std.mem.tokenizeAny(u8, b, " \t\r\n");
+    // Until either text has no word left.
     while (true) {
         const p = x.next();
         const q = y.next();
@@ -74,6 +77,7 @@ fn looseKind(k: Kind) Kind {
 fn sameSquashed(a: []const u8, b: []const u8) bool {
     var i: usize = 0;
     var j: usize = 0;
+    // Until either text has no character left.
     while (true) {
         while (i < a.len and (a[i] == ' ' or a[i] == '\t')) i += 1;
         while (j < b.len and (b[j] == ' ' or b[j] == '\t')) j += 1;
@@ -84,6 +88,7 @@ fn sameSquashed(a: []const u8, b: []const u8) bool {
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of a value's lists, ir.max_depth
 fn looseValueEql(a: Value, b: Value) bool {
     if (a == .expr and b == .expr) return sameSquashed(a.expr, b.expr);
     if (a == .list and b == .list) {
@@ -123,26 +128,11 @@ fn groupOf(s: *const Stmt) Group {
 fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
     const slots = schema.info(.options).slots;
     const package = schema.slot(.options, "package");
+    std.debug.assert(package < slots.len);
     for (slots, 0..) |sl, i| {
         if (i == package) continue;
         if (sl.ty == .params) {
-            var ia: usize = 0;
-            var ib: usize = 0;
-            var pa: usize = 0;
-            var pb: usize = 0;
-            while (true) {
-                while (ia < a.len and (a[ia].kind != .options or a[ia].at(i) != .params or pa >= a[ia].at(i).params.len)) : (pa = 0) ia += 1;
-                while (ib < b.len and (b[ib].kind != .options or b[ib].at(i) != .params or pb >= b[ib].at(i).params.len)) : (pb = 0) ib += 1;
-                if (ia == a.len or ib == b.len) {
-                    if (ia != a.len or ib != b.len) return false;
-                    break;
-                }
-                const x = a[ia].at(i).params[pa];
-                const y = b[ib].at(i).params[pb];
-                if (!std.mem.eql(u8, x.key, y.key) or !x.val.eql(y.val)) return false;
-                pa += 1;
-                pb += 1;
-            }
+            if (!paramsEql(a, b, i)) return false;
             continue;
         }
         var va: Value = .none;
@@ -156,6 +146,33 @@ fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
         if (!va.eql(vb)) return false;
     }
     return true;
+}
+
+/// The parameters in slot `i` of every options statement of `a` and of `b`,
+/// one after another, are the same.
+fn paramsEql(a: []const Stmt, b: []const Stmt, i: usize) bool {
+    var ia: usize = 0;
+    var ib: usize = 0;
+    var pa: usize = 0;
+    var pb: usize = 0;
+    // Until either list has no parameter left.
+    while (true) {
+        while (ia < a.len and !hasParam(&a[ia], i, pa)) : (pa = 0) ia += 1;
+        while (ib < b.len and !hasParam(&b[ib], i, pb)) : (pb = 0) ib += 1;
+        if (ia == a.len or ib == b.len) return ia == a.len and ib == b.len;
+        std.debug.assert(pa < a[ia].at(i).params.len);
+        std.debug.assert(pb < b[ib].at(i).params.len);
+        const x = a[ia].at(i).params[pa];
+        const y = b[ib].at(i).params[pb];
+        if (!std.mem.eql(u8, x.key, y.key) or !x.val.eql(y.val)) return false;
+        pa += 1;
+        pb += 1;
+    }
+}
+
+/// `s` is an options statement with a parameter `p` in slot `i`.
+fn hasParam(s: *const Stmt, i: usize, p: usize) bool {
+    return s.kind == .options and s.at(i) == .params and p < s.at(i).params.len;
 }
 
 test "the same circuit: blanks in an expression are not content, anything else is" {

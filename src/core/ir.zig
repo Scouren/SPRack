@@ -1,53 +1,32 @@
 //! Dialect-neutral netlist representation produced by every reader and
-//! consumed by every writer.
+//! consumed by every writer. The statement and its values are here; what
+//! is done with them is in the files below, re-exported under the same
+//! names.
 //!
 //! Contents:
-//! - `pub const principalParam`
-//! - `pub const resolveSweeps`
-//! - `pub const hasSweep`
-//! - `pub const gatherSteps`
-//! - `pub const checkModelKinds`
-//! - `pub const collectFamilies`
-//! - `pub const checkKinds`
-//! - `pub const unlisted_builtin`
-//! - `pub const markUnlistedBuiltins`
-//! - `pub const resolveInstances`
-//! - `pub const binBase`
-//! - `pub const collectModels`
-//! - `pub const sameSlots`
-//! - `pub const retag`
-//! - `pub const demoteToInstance`
-//! - `pub const markFamilies`
-//! - `pub const Env`
-//! - `pub const holdsCond`
-//! - `pub const looseListEql`
-//! - `pub const sameCircuit`
-//! - `pub const Severity`
-//! - `pub const Code`
-//! - `pub const Phase`
-//! - `pub const Diag`
-//! - `pub const Report`
-//! - `pub const keepText`
-//! - `pub const Keep`
-//! - `pub const cloneValue`
-//! - `pub const cloneStmt`
-//! - `pub const putName`
-//! - `pub const putValue`
-//! - `pub const Caseless`
-//! - `pub const CaselessSet`
-//! - `pub const NameSet`
 //! - `pub const Kind`
-//! - `pub const Number = struct`
+//! - `pub const Number = struct`: `init`, `digits`, `toFloat`
 //! - `pub const Param = struct`
-//! - `pub const Value = union(enum)`
-//! - `pub const Stmt = struct`
-//! - `pub const max_input: usize`
-//! - `pub const max_depth: usize`
+//! - `pub const Value = union(enum)`: `isNone`, `eql`
+//! - `pub const Stmt = struct`: `at`, `get`, `values`, `set`, `pack`,
+//!   `unpack`, `store`, `own`, `eql`
+//! - `pub const max_input: usize`, `pub const max_depth: usize`
 //! - `pub var big: Allocator`
+//! - `pub const blank_line`
 //! - `pub const ReadOptions = struct`
-//! - `pub const Netlist = struct`
+//! - `pub const Netlist = struct`: `eql`
 //! - `pub fn countStmts(stmts: []const Stmt, kind: ?Kind) usize`
 //! - `pub fn newStmt(arena: Allocator, kind: Kind, line: u32) Allocator.Error!Stmt`
+//! - from `ir_names.zig`: `keepText`, `Keep`, `cloneValue`, `cloneStmt`,
+//!   `putName`, `putValue`, `Caseless`, `CaselessSet`, `NameSet`
+//! - from `ir_report.zig`: `Severity`, `Code`, `Phase`, `Diag`, `Report`
+//! - from `ir_loose.zig`: `looseListEql`, `sameCircuit`
+//! - from `ir_env.zig`: `markFamilies`, `Env`, `holdsCond`
+//! - from `ir_models.zig`: `checkModelKinds`, `collectFamilies`, `checkKinds`,
+//!   `unlisted_builtin`, `markUnlistedBuiltins`, `resolveInstances`, `binBase`,
+//!   `collectModels`, `sameSlots`, `retag`, `demoteToInstance`
+//! - from `ir_sweeps.zig`: `principalParam`, `resolveSweeps`, `hasSweep`,
+//!   `gatherSteps`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -142,6 +121,8 @@ pub const Value = union(enum) {
 
     pub fn eql(a: Value, b: Value) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+        // Each arm reads `b` as the variant `a` is.
+        std.debug.assert(std.meta.activeTag(a) == std.meta.activeTag(b));
         return switch (a) {
             .none => true,
             .atom => |x| std.mem.eql(u8, x, b.atom),
@@ -287,8 +268,10 @@ pub const max_depth: usize = 100;
 /// follow, so a page one thread gave back and another was given reads as
 /// a race between the two (111 such reports on sky130, none after).
 pub var big: Allocator = if (@import("builtin").sanitize_thread)
+    // tidy: allow(global-allocator-in-library) the one allocator for large tables, as above
     std.heap.c_allocator
 else
+    // tidy: allow(global-allocator-in-library) the one allocator for large tables, as above
     std.heap.page_allocator;
 
 /// Marks a `comment` statement that stands for a blank line.
@@ -337,6 +320,7 @@ comptime {
 
 var no_values: [0]Value = .{};
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn countStmts(stmts: []const Stmt, kind: ?Kind) usize {
     var n: usize = 0;
     for (stmts) |*s| {

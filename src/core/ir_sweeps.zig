@@ -24,6 +24,33 @@ const KindMap = std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 );
 
+/// The slots of a sweep that name what it sweeps: an instance (`src`), a
+/// parameter of the netlist (`param`), the temperature (`v`), and the
+/// instance's parameter (`devparam`, empty where the sweep has none).
+const Target = struct {
+    src: []const u8,
+    param: []const u8,
+    v: []const u8,
+    devparam: []const u8,
+};
+
+/// What a sweep sweeps, and the outer loop of a DC sweep of two.
+const sweep_one: Target = .{ .src = "src", .param = "param", .v = "var", .devparam = "devparam" };
+const sweep_two: Target = .{ .src = "src2", .param = "param2", .v = "var2", .devparam = "" };
+
+/// A step that sets any of these is not a plain outer loop of a DC sweep.
+const step_own = [_][]const u8{ "values", "data", "devparam", "params" };
+
+/// A DC sweep that sets any of these has an outer loop already.
+const dc_outer = [_][]const u8{ "src2", "param2", "var2" };
+
+/// A step's slot, and the DC sweep's slot of its outer loop that it becomes.
+const step_to_dc = [_][2][]const u8{
+    .{ "src", "src2" },     .{ "param", "param2" },   .{ "var", "var2" },
+    .{ "start", "start2" }, .{ "stop", "stop2" },     .{ "step", "step2" },
+    .{ "sweep", "sweep2" }, .{ "points", "points2" },
+};
+
 /// The instance parameter a sweep of an instance changes when it names
 /// none: a source's dc value, a resistor's resistance.
 pub fn principalParam(kind: Kind) ?[]const u8 {
@@ -51,6 +78,7 @@ pub fn resolveSweeps(arena: Allocator, nl: *Netlist) Allocator.Error!void {
     try foldSteps(arena, nl.stmts);
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn hasSweep(stmts: []const Stmt) bool {
     for (stmts) |*s| if (s.kind == .dc or s.kind == .step or hasSweep(s.body)) return true;
     return false;
@@ -87,6 +115,7 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
         st.body = body;
         body = try arena.dupe(Stmt, &.{st});
     }
+    std.debug.assert(chain.items.len > 0);
     out.items[slot] = body[0];
     return out.toOwnedSlice(arena);
 }
@@ -95,38 +124,32 @@ pub fn gatherSteps(arena: Allocator, stmts: []Stmt) Allocator.Error![]Stmt {
 
 /// A step around one DC sweep of a single loop, by start, stop and step
 /// or points, is that sweep's outer loop (Spectre writes a nested DC sweep so).
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn foldSteps(arena: Allocator, stmts: []Stmt) Allocator.Error!void {
     for (stmts) |*s| {
         try foldSteps(arena, s.body);
         if (s.kind != .step or s.body.len != 1 or s.body[0].kind != .dc) continue;
         const dc = &s.body[0];
-        const own = [_][]const u8{ "values", "data", "devparam", "params" };
-        const outer = [_][]const u8{ "src2", "param2", "var2" };
-        const ok = for (own) |n| {
+        const ok = for (step_own) |n| {
             if (s.at(schema.slotIndex(.step, n).?) != .none) break false;
-        } else for (outer) |n| {
+        } else for (dc_outer) |n| {
             if (dc.at(schema.slotIndex(.dc, n).?) != .none) break false;
         } else true;
         if (!ok) continue;
         var out = dc.*;
         try out.own(arena);
-        const pairs = [_][2][]const u8{ .{ "src", "src2" }, .{
-            "param",
-            "param2",
-        }, .{ "var", "var2" }, .{ "start", "start2" }, .{ "stop", "stop2" }, .{ "step", "step2" }, .{ "sweep", "sweep2" }, .{
-            "points",
-            "points2",
-        } };
-        for (pairs) |p|
+        for (step_to_dc) |p|
             try out.set(
                 arena,
                 schema.slotIndex(.dc, p[1]).?,
                 s.at(schema.slotIndex(.step, p[0]).?),
             );
+        std.debug.assert(out.kind == .dc);
         s.* = out;
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn sweepNames(
     arena: Allocator,
     stmts: []const Stmt,
@@ -145,6 +168,7 @@ fn sweepNames(
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn fixSweeps(
     arena: Allocator,
     stmts: []Stmt,
@@ -155,29 +179,27 @@ fn fixSweeps(
         try fixSweeps(arena, s.body, insts, params);
         if (s.kind != .dc and s.kind != .step) continue;
         try s.own(arena);
-        try fixTarget(arena, s, "src", "param", "var", "devparam", insts, params);
-        if (s.kind == .dc) try fixTarget(arena, s, "src2", "param2", "var2", "", insts, params);
+        try fixTarget(arena, s, sweep_one, insts, params);
+        if (s.kind == .dc) try fixTarget(arena, s, sweep_two, insts, params);
     }
 }
 
 fn fixTarget(
     arena: Allocator,
     s: *Stmt,
-    src: []const u8,
-    param: []const u8,
-    v: []const u8,
-    devparam: []const u8,
+    t: Target,
     insts: *const KindMap,
     params: *const CaselessSet,
 ) Allocator.Error!void {
-    const si = schema.slotIndex(s.kind, src).?;
+    std.debug.assert(schema.runs(s.kind));
+    const si = schema.slotIndex(s.kind, t.src).?;
     const name = switch (s.at(si)) {
         .atom => |a| a,
         else => return,
     };
     if (insts.get(name)) |kind| {
-        if (devparam.len == 0) return;
-        const di = schema.slotIndex(s.kind, devparam).?;
+        if (t.devparam.len == 0) return;
+        const di = schema.slotIndex(s.kind, t.devparam).?;
         const dp = s.at(di);
         const own = principalParam(kind) orelse return;
         if (dp == .atom and std.ascii.eqlIgnoreCase(dp.atom, own)) try s.set(arena, di, .none);
@@ -185,9 +207,9 @@ fn fixTarget(
     }
     // The parameter's own spelling: `name` was read as an instance's.
     if (params.getKey(name)) |key| {
-        try s.set(arena, schema.slotIndex(s.kind, param).?, .{ .atom = key });
+        try s.set(arena, schema.slotIndex(s.kind, t.param).?, .{ .atom = key });
     } else if (std.ascii.eqlIgnoreCase(name, "temp")) {
-        try s.set(arena, schema.slotIndex(s.kind, v).?, .{ .atom = "temp" });
+        try s.set(arena, schema.slotIndex(s.kind, t.v).?, .{ .atom = "temp" });
     } else return;
     try s.set(arena, si, .none);
 }

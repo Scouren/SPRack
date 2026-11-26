@@ -2,7 +2,7 @@
 //! statements.
 //!
 //! Contents:
-//! - `pub const Env = struct`
+//! - `pub const Env = struct`: `absorb`
 //! - `pub fn markFamilies(stmts: []const Stmt, out: *[schema.families.len]bool) void`
 //! - `pub fn holdsCond(subckt: *const Stmt) bool`
 
@@ -41,7 +41,8 @@ pub const Env = struct {
     /// The subcircuits that hold a conditional block, whole: where one is
     /// written once for each branch (`cond.split`), an instance in another
     /// file is written with the one its parameters select.
-    // ponytail: the whole statement; only its parameters and blocks if a PDK's are too many to hold.
+    // ponytail: the whole statement; only its parameters and blocks if a
+    // PDK's are too many to hold.
     conditional: std.ArrayList(Stmt) = .empty,
     /// Files given to the translation by name (`--provide`): a Verilog-A
     /// module's Xyce plugin (`r3_cmc=r3_cmc.so`, loaded on Xyce's command
@@ -65,37 +66,42 @@ pub const Env = struct {
                 try env.declared.put(arena, own, {});
                 try env.declared.put(arena, try std.ascii.allocLowerString(arena, own), {});
                 if (s.kind == .subckt) try env.subckts.put(arena, own, {});
-                if (s.kind == .model) {
-                    const fam = s.get("family");
-                    const kind: ?Kind = if (fam == .atom)
-                        schema.familyKind(fam.atom)
-                    else if (s.get("type") == .atom) .device else null;
-                    if (fam == .atom)
-                        try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
-                    if (fam != .atom and s.get("type") == .atom)
-                        try env.modules.put(arena, own, try arena.dupe(u8, s.get("type").atom));
-                    if (kind) |k| {
-                        try env.models.put(arena, own, k);
-                        if (binBase(own)) |base| {
-                            try env.models.put(arena, base, k);
-                            try env.declared.put(arena, base, {});
-                            try env.declared.put(
-                                arena,
-                                try std.ascii.allocLowerString(arena, base),
-                                {},
-                            );
-                        }
-                    }
-                }
+                if (s.kind == .model) try env.absorbModel(arena, s, own);
+                std.debug.assert(env.declared.contains(own));
             }
             if (name == .atom and s.kind == .func)
                 try env.funcs.put(arena, try std.ascii.allocLowerString(arena, name.atom), {});
             try env.absorb(arena, s.body);
         }
     }
+
+    /// What a model card `own` declares beyond its name: its family, its
+    /// module, its kind, and the base name of a binned card.
+    fn absorbModel(
+        env: *Env,
+        arena: Allocator,
+        s: *const Stmt,
+        own: []const u8,
+    ) Allocator.Error!void {
+        const fam = s.get("family");
+        const kind: ?Kind = if (fam == .atom)
+            schema.familyKind(fam.atom)
+        else if (s.get("type") == .atom) .device else null;
+        if (fam == .atom)
+            try env.family_of.put(arena, own, try arena.dupe(u8, fam.atom));
+        if (fam != .atom and s.get("type") == .atom)
+            try env.modules.put(arena, own, try arena.dupe(u8, s.get("type").atom));
+        const k = kind orelse return;
+        try env.models.put(arena, own, k);
+        const base = binBase(own) orelse return;
+        try env.models.put(arena, base, k);
+        try env.declared.put(arena, base, {});
+        try env.declared.put(arena, try std.ascii.allocLowerString(arena, base), {});
+    }
 };
 
 /// Note the model families that model cards in `stmts` (and their bodies) use.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn markFamilies(stmts: []const Stmt, out: *[schema.families.len]bool) void {
     for (stmts) |*s| {
         markFamilies(s.body, out);

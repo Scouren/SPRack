@@ -4,9 +4,13 @@
 //! Contents:
 //! - `pub const Severity = enum`
 //! - `pub const Code = enum`
-//! - `pub const Phase = struct`
+//! - `pub const Phase = struct`: the passes in order, `read`, `finish`,
+//!   `bodies`, `bins`, `segments`, `kinds`, `project`, `case`, `params`,
+//!   `renames`, `masters`, `topology`, `fill`, `checks`, `checks_source`,
+//!   `options`, `devlot`, `stats`, `pz`, `ceilings`, `write`, `caveat`
 //! - `pub const Diag = struct`
-//! - `pub const Report = struct`
+//! - `pub const Report = struct`: `init`, `add`, `sortPhases`, `countCode`,
+//!   `count`, `hasErrors`, `contains`, `print`
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

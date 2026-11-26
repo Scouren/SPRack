@@ -2,10 +2,11 @@
 //! of values and statements, and the sets and maps of names that ignore case.
 //!
 //! Contents:
-//! - `pub const Keep = struct`
-//! - `pub const Caseless = struct`
+//! - `pub const Keep = struct`: `text`
+//! - `pub const Caseless = struct`: `hash`, `eql`
 //! - `pub const CaselessSet`
-//! - `pub const NameSet = struct`
+//! - `pub const NameSet = struct`: `count`, `getKey`, `contains`, `put`,
+//!   `deinit`
 //! - `pub fn keepText(perm: Allocator, src: []const u8, s: []const u8) Allocator.Error![]const u8`
 //! - `pub fn cloneValue(k: Keep, v: Value) Allocator.Error!Value`
 //! - `pub fn cloneStmt(k: Keep, st: *const Stmt) Allocator.Error!Stmt`
@@ -133,6 +134,7 @@ pub const NameSet = struct {
                 return e;
             };
         }
+        std.debug.assert(set.text(gop.key_ptr.*).len == name.len);
     }
 
     pub fn deinit(set: *NameSet) void {
@@ -152,8 +154,9 @@ pub fn keepText(perm: Allocator, src: []const u8, s: []const u8) Allocator.Error
 
 /// A copy of `v` that shares nothing with the statement it came from but
 /// the netlist's own text.
+// tidy: allow(recursion) bounded by the nesting of a value's lists, ir.max_depth
 pub fn cloneValue(k: Keep, v: Value) Allocator.Error!Value {
-    return switch (v) {
+    const copy: Value = switch (v) {
         .none => .none,
         .atom => |x| .{ .atom = try k.text(x) },
         .expr => |x| .{ .expr = try k.text(x) },
@@ -171,9 +174,12 @@ pub fn cloneValue(k: Keep, v: Value) Allocator.Error!Value {
             break :blk .{ .params = out };
         },
     };
+    std.debug.assert(std.meta.activeTag(copy) == std.meta.activeTag(v));
+    return copy;
 }
 
 /// A copy of `st`, its body included, as `cloneValue`.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn cloneStmt(k: Keep, st: *const Stmt) Allocator.Error!Stmt {
     var out = st.*;
     const vals = try k.perm.alloc(Value, st.values().len);
