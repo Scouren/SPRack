@@ -4618,3 +4618,9 @@ pub const Stream = struct {
         s.w.scratch.deinit();
     }
 };
+
+test {
+    _ = rewrite;
+    _ = emit;
+    _ = tables;
+}

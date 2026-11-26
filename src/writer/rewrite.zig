@@ -394,3 +394,93 @@ fn reportClashes(ctx: Context, filled: *Fill, clash: grammar.Rewrite.Clash) Allo
         );
     }
 }
+
+/// A capacitor `C1 a 0 1p ic=0.5 m=2`, as a reader of another dialect leaves it.
+fn testCapacitor(a: Allocator) Allocator.Error!ir.Stmt {
+    var st = try ir.newStmt(a, .capacitor, 2);
+    try st.set(a, schema.slot(.capacitor, "name"), .{ .atom = "C1" });
+    try st.set(a, schema.slot(.capacitor, "pos"), .{ .atom = "a" });
+    try st.set(a, schema.slot(.capacitor, "neg"), .{ .atom = "0" });
+    try st.set(a, schema.slot(.capacitor, "c"), .{ .num = .init("1", -12) });
+    const params = try a.dupe(ir.Param, &.{
+        .{ .key = "ic", .val = .{ .num = .init("0.5", 0) } },
+        .{ .key = "m", .val = .{ .num = .init("2", 0) } },
+    });
+    try st.set(a, schema.slot(.capacitor, "params"), .{ .params = params });
+    return st;
+}
+
+test "a rewrite block alone: statement in, statements and report entries out" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: grammar.Diag = .{};
+    const g = try grammar.compile(a,
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\end
+        \\rule capacitor = name~"C" pos neg c {...params}
+        \\rule vsource   = name~"V" pos neg dc
+        \\rule ic        = ".ic" { v(*)=values }
+        \\params capacitor
+        \\  same m
+        \\end
+        \\rewrite capacitor ic
+        \\  when   vsource
+        \\  keep   neg={name}__ic
+        \\  add    vsource name=V{name}__ic pos={name}__ic neg={neg} dc={ic}
+        \\  clash  ic.values pos neg : '{name}' and an .ic both set {node} ({from} to {to})
+        \\  oneway : '{name}' starts at {ic} through {name}__ic
+        \\end
+    , "", &diag);
+    const st = try testCapacitor(a);
+    var report: ir.Report = .init(a);
+    var em: Emit = .{ .g = &g, .arena = a, .st = &st, .report = &report };
+    var clash_keys: ir.CaselessSet = .empty;
+    const ctx: Context = .{
+        .g = &g,
+        .sg = null,
+        .em = &em,
+        .source = "other",
+        .report = &report,
+        .clash_keys = &clash_keys,
+        .nested = false,
+    };
+
+    const parts = (try apply(a, &st, ctx)).?;
+    try std.testing.expectEqual(2, parts.len);
+    // The capacitor itself, to a node of its own, without the parameter.
+    try std.testing.expectEqual(Kind.capacitor, parts[0].kind);
+    try std.testing.expectEqualStrings("C1__ic", parts[0].get("neg").atom);
+    try std.testing.expectEqual(1, parts[0].get("params").params.len);
+    try std.testing.expectEqualStrings("m", parts[0].get("params").params[0].key);
+    // The source the block adds.
+    try std.testing.expectEqual(Kind.vsource, parts[1].kind);
+    try std.testing.expectEqualStrings("VC1__ic", parts[1].get("name").atom);
+    try std.testing.expectEqualStrings("C1__ic", parts[1].get("pos").atom);
+    try std.testing.expectEqualStrings("0", parts[1].get("neg").atom);
+    try std.testing.expectEqualStrings("0.5", parts[1].get("dc").num.digits());
+    try std.testing.expectEqual(1, report.items.items.len);
+    try std.testing.expectEqualStrings(
+        "'C1' starts at 0.5 through C1__ic",
+        report.items.items[0].msg,
+    );
+
+    // An `.ic` on one of its nodes is the block's clash, in the block's words.
+    try ir.putName(&clash_keys, a, null, "a");
+    var second: ir.Report = .init(a);
+    var again = ctx;
+    again.report = &second;
+    _ = try apply(a, &st, again);
+    try std.testing.expectEqual(2, second.items.items.len);
+    try std.testing.expectEqualStrings(
+        "'C1' and an .ic both set a (other to tiny)",
+        second.items.items[0].msg,
+    );
+
+    // A statement of the dialect being written is not rewritten.
+    var own = ctx;
+    own.sg = &g;
+    try std.testing.expectEqual(null, try apply(a, &st, own));
+}
