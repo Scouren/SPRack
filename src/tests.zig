@@ -306,8 +306,16 @@ fn anyInputReport(a: std.mem.Allocator, from: []const u8, to: []const u8, src: [
     var r2: ir.Report = .init(a);
     const from_json = try sprack.json.parseNetlist(a, json, &r2);
     try testing.expectEqual(0, r2.items.items.len);
-    try testing.expectEqualStrings(json, try jsonOf(a, &from_json));
-    try testing.expectEqualStrings(out, try writeAs(a, to, &from_json, &r2));
+    if (std.unicode.utf8ValidateSlice(src)) {
+        try testing.expectEqualStrings(json, try jsonOf(a, &from_json));
+        try testing.expectEqualStrings(out, try writeAs(a, to, &from_json, &r2));
+    } else {
+        // A byte that is not UTF-8 comes back from the JSON as the Latin-1
+        // character of its value: from there on the form is stable.
+        const again = try jsonOf(a, &from_json);
+        try testing.expectEqualStrings(again, try jsonOf(a, &try sprack.json.parseNetlist(a, again, &r2)));
+        try testing.expectEqual(0, r2.items.items.len);
+    }
 
     var r3: ir.Report = .init(a);
     try testing.expectEqualStrings(json, try jsonOf(a, &try sprack.read(a, try loadedGrammar(from), src, &r3)));
@@ -2116,6 +2124,23 @@ fn tr0(a: std.mem.Allocator, from: []const u8, to: []const u8, src: []const u8, 
 
 test "fuzz: any bytes in, no crash" {
     try testing.fuzz({}, fuzzOne, .{ .corpus = &.{ core_ngspice, core_spectre, core_vacask, "\x00+\\\n+ ( = = )\n{'\"[", ".ic v(a)=1 v(\n.print tran v(a,b) i(\n.func f(x,\n.options a b=\n" } });
+}
+
+test "a byte that is not UTF-8 is written to JSON as its Latin-1 character" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // A Latin-1 micro sign, a lone continuation byte, an overlong '/', a
+    // UTF-16 surrogate and a sequence cut short; then UTF-8 kept as it is.
+    const nl = try readAs(a, "ngspice", "t \xb5 \x80 \xc0\xaf \xed\xa0\x80 \xe2\x82 \xc2\xb5\nR1 a 0 1k\n.end\n", &report);
+    const json = try jsonOf(a, &nl);
+    try has(json, "\"title\":\"t \\u00b5 \\u0080 \\u00c0\\u00af \\u00ed\\u00a0\\u0080 \\u00e2\\u0082 \xc2\xb5\"");
+    var r2: ir.Report = .init(a);
+    const back = try sprack.json.parseNetlist(a, json, &r2);
+    try testing.expectEqual(0, r2.items.items.len);
+    try testing.expectEqualStrings("t \xc2\xb5 \xc2\x80 \xc3\x80\xc2\xaf \xc3\xad\xc2\xa0\xc2\x80 \xc3\xa2\xc2\x82 \xc2\xb5", back.title);
+    try testing.expectEqual(nl.stmts.len, back.stmts.len);
 }
 
 /// Any bytes as the JSON form: read, then written in every dialect.

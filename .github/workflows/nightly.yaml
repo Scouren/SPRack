@@ -41,7 +41,9 @@ jobs:
       # Ten minutes of coverage-guided fuzzing over the four targets (netlist
       # text, JSON, grammar files, include trees), and the 20,000 damaged
       # netlists from this run's seed, printed when they fail (issue 64).
-      # Running out the time is a pass; a failure saves its input.
+      # Running out the time is a pass; a failure saves its input. Zig
+      # 0.18-dev exits 0 when a fuzz test fails (it counts failures before
+      # it fuzzes), so the saved input is the verdict.
       - name: Fuzz
         if: always()
         run: |
@@ -49,9 +51,11 @@ jobs:
           echo "seed $SPRACK_FUZZ_SEED"
           nix develop .#ci --command sh -c '
             zig build test || exit 1
+            rm -f .zig-cache/f/crash
             start=$(date +%s)
             timeout 600 zig build test --fuzz=100M; rc=$?
             echo "fuzzed $(( $(date +%s) - start )) s, status $rc"
+            [ ! -e .zig-cache/f/crash ] || { echo "a fuzz test failed: input in .zig-cache/f/crash"; exit 1; }
             [ $rc -eq 0 ] || [ $rc -eq 124 ]'
 
       # Every catalogue device of sky130, IHP and GF180 in ngspice against its

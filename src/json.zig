@@ -53,17 +53,37 @@ pub const number_cfg: grammar.LexCfg = .{
     .units_ignored = false,
 };
 
+/// JSON text is UTF-8, and a reader refuses the whole document over one
+/// byte that is not (issue 64). A netlist need not be: a byte that does
+/// not start a valid sequence is written as the Latin-1 character of its
+/// value, so `\xb5` reads back as "µ".
 fn str(w: *Writer, s: []const u8) Writer.Error!void {
     try w.writeByte('"');
-    for (s) |c| switch (c) {
-        '"' => try w.writeAll("\\\""),
-        '\\' => try w.writeAll("\\\\"),
-        '\n' => try w.writeAll("\\n"),
-        '\r' => try w.writeAll("\\r"),
-        '\t' => try w.writeAll("\\t"),
-        0...8, 11, 12, 14...0x1f => try w.print("\\u{x:0>4}", .{c}),
-        else => try w.writeByte(c),
-    };
+    var i: usize = 0;
+    while (i < s.len) {
+        const c = s[i];
+        if (c >= 0x80) {
+            const n: usize = std.unicode.utf8ByteSequenceLength(c) catch 1;
+            if (n > 1 and i + n <= s.len and std.unicode.utf8ValidateSlice(s[i..][0..n])) {
+                try w.writeAll(s[i..][0..n]);
+                i += n;
+            } else {
+                try w.print("\\u{x:0>4}", .{c});
+                i += 1;
+            }
+            continue;
+        }
+        switch (c) {
+            '"' => try w.writeAll("\\\""),
+            '\\' => try w.writeAll("\\\\"),
+            '\n' => try w.writeAll("\\n"),
+            '\r' => try w.writeAll("\\r"),
+            '\t' => try w.writeAll("\\t"),
+            0...8, 11, 12, 14...0x1f => try w.print("\\u{x:0>4}", .{c}),
+            else => try w.writeByte(c),
+        }
+        i += 1;
+    }
     try w.writeByte('"');
 }
 
