@@ -411,6 +411,9 @@ noparam bsim4 version warning : VACASK ships BSIM4 4.8 only (sp_bsim4v8.va:3873-
 # devices/spice/jfet1.va has no level; jfet2.va is a module with no family here.
 noparam jfet level=1 warning : sp_jfet1 is the level 1 JFET and has no level parameter; the card is simulated as written
 noparam jfet level error : sp_jfet1 is the level 1 JFET and has no level parameter; the level 2 model (spice/jfet2.osdi) has no family in the IR
+# devices/spice/bjt.va has no level either: VACASK b2c1551 refuses
+# `model q sp_bjt (type=1 level=1)` with "Parameter 'level' not found".
+noparam bjt level=1 warning : sp_bjt is the level 1 (Gummel-Poon) BJT and has no level parameter; the card is simulated as written
 # docs/cmd-options-op.md "Nodesets": op_nsiter=1, nr_nsforce=10.
 caveat op     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state
 caveat dc     nodeset : VACASK pulls toward a nodeset only during its first Newton iteration (op_nsiter); SPICE holds it until a first solution converges, so a bistable circuit may settle in the other state

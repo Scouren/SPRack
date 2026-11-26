@@ -4550,6 +4550,11 @@ test "VACASK model cards: a refused version is a warning, a refused JFET level 2
     try reported(&report, .@"error", "model 'nj': level not written: sp_jfet1 is the level 1 JFET");
     try reported(&report, .warning, "model 'n1': level not written: sp_jfet1 is the level 1 JFET");
     try testing.expectEqual(1, report.count(.@"error"));
+    // sp_bjt refuses `level` too ("Parameter 'level' not found" in VACASK b2c1551).
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", "t\n.model qq npn level=1 bf=80\n.end\n", &r2), "model qq sp_bjt (type=1 bf=80)\n");
+    try reported(&r2, .warning, "model 'qq': level not written: sp_bjt is the level 1 (Gummel-Poon) BJT");
+    try testing.expectEqual(0, r2.count(.@"error"));
 }
 
 test "VACASK model cards: a refused version is one warning per file, a refused level an error per card" {
