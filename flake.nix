@@ -50,6 +50,20 @@
         zig = zig-overlay.packages.${system}.master;
         # The reference simulators come from the conformance suite's flake.
         refPkgs = conformance.packages.${system};
+        # Xyce with plugin support (buildxyceplugin, ADMS's admsXml and the
+        # shared libraries a plugin links to): nixpkgs builds it static and
+        # without them, and so -plugin cannot load anything (#26, #52).
+        # Docs and the regression run are left out to keep the build short.
+        xyce =
+          (pkgs.xyce.override {
+            enableDocs = false;
+            enableTests = false;
+          }).overrideAttrs
+            (o: {
+              cmakeFlags = (o.cmakeFlags or [ ]) ++ [ "-DXyce_PLUGIN_SUPPORT=ON" ];
+              nativeBuildInputs = o.nativeBuildInputs ++ [ pkgs.adms ];
+              outputs = [ "out" ];
+            });
 
         # The layout SPRACK_TEST_PDKS expects: each checkout's model paths only.
         testPdks = pkgs.runCommand "sprack-test-pdks" { } ''
@@ -231,7 +245,7 @@
             inputsFrom = [ ci ];
             packages = [
               pkgs.ngspice
-              pkgs.xyce
+              xyce
               vacask
               refPkgs.openvaf-r
             ];
