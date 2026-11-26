@@ -1448,11 +1448,16 @@ class PDK:
         that exist under the PDK are listed. Empty for any other dialect,
         or where the PDK builds no plugin.
         """
-        if _dialect(dialect) != "xyce":
-            return []
-        files = [os.path.normpath(self._fmt(f)) for f in self.manifest.get("xyce_plugins", {}).values()]
-        files = [f for f in files if os.path.exists(f)]
+        files = list(self._plugins(dialect).values())
         return ["-plugin", ",".join(files)] if files else []
+
+    def _plugins(self, dialect: str) -> dict[str, str]:
+        """The manifest's `xyce_plugins` whose file is there, module to path:
+        what the translation to Xyce writes as `Y<module>` lines."""
+        if _dialect(dialect) != "xyce":
+            return {}
+        found = {mod: os.path.normpath(os.path.join(self.root, self._fmt(f))) for mod, f in self.manifest.get("xyce_plugins", {}).items()}
+        return {mod: f for mod, f in found.items() if os.path.isfile(f)}
 
     def _errata(self) -> str:
         """The manifest's errata, as the core takes them: lines the PDK's own
@@ -1473,6 +1478,10 @@ class PDK:
         pairs = self.entries()
         sections = [sec for _, sec in pairs if sec] if all(sec for _, sec in pairs) else []
         tag = f"{_dialect_tag(d)}-{self.corner}" if sections else _dialect_tag(d)
+        plugins = self._plugins(d)
+        # A plugin built since is another translation.
+        if plugins:
+            tag += "-" + hashlib.sha1(json.dumps(plugins, sort_keys=True).encode()).hexdigest()[:8]
         out = out or os.path.join(self.cache_dir, self.name, f"{tag}-{self._stamp()}")
         summary = _cached(out, variables=self._defines())
         if summary is not None:
@@ -1480,7 +1489,7 @@ class PDK:
                 log = f.read()
         else:
             os.makedirs(out, exist_ok=True)
-            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections), self._errata())
+            text, log = _core.project(self.dialect, d, "\n".join(self._tops()), out, _lines(self._defines()), True, "\n".join(sections), self._errata(), _lines(plugins))
             summary = json.loads(text)
             # Kept while every file translated is unchanged.
             summary["files"] = _sources(out, summary["root"])

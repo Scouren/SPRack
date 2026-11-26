@@ -209,6 +209,8 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
                 return error.Raised;
             },
         } else &.{},
+        // Optional: files given by name (`--provide`), NAME=FILE lines.
+        .provided = if (args != null and PyTuple_Size(args.?) > 8) try vars(arena, try arg(args, 8)) else &.{},
         .log = &log.writer,
         .catalog = if (gt == null) &cat.writer else null,
         .expanded = &expanded.writer,
@@ -242,7 +244,7 @@ var methods = [_]PyMethodDef{
     .{ .name = "translate", .meth = pyTranslate, .flags = METH_VARARGS, .doc = "translate(from, to, source) -> (netlist, report JSON)" },
     .{ .name = "read", .meth = pyRead, .flags = METH_VARARGS, .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)" },
     .{ .name = "write", .meth = pyWrite, .flags = METH_VARARGS, .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)" },
-    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata]]) -> (summary or catalogue JSON, log)" },
+    .{ .name = "project", .meth = pyProject, .flags = METH_VARARGS, .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata[, provided]]]) -> (summary or catalogue JSON, log)" },
     .{ .name = null, .meth = null, .flags = 0, .doc = null },
 };
 

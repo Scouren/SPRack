@@ -5,8 +5,8 @@
   "dialect": "ngspice",
   "env": ["PDK_ROOT"],
   "layouts": [
-    {"probe": "ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "ihp-sg13g2/libs.tech/ngspice/models", "osdi": "ihp-sg13g2/libs.tech/ngspice/osdi"}},
-    {"probe": "libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "libs.tech/ngspice/models", "osdi": "libs.tech/ngspice/osdi"}}
+    {"probe": "ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "ihp-sg13g2/libs.tech/ngspice/models", "osdi": "ihp-sg13g2/libs.tech/ngspice/osdi", "xyce": "ihp-sg13g2/libs.tech/xyce"}},
+    {"probe": "libs.tech/ngspice/models/cornerMOSlv.lib", "vars": {"m": "libs.tech/ngspice/models", "osdi": "libs.tech/ngspice/osdi", "xyce": "libs.tech/xyce"}}
   ],
   "corners": {
     "tt": [["{m}/cornerMOSlv.lib", "mos_tt"], ["{m}/cornerMOShv.lib", "mos_tt"], ["{m}/cornerHBT.lib", "hbt_typ"], ["{m}/cornerRES.lib", "res_typ"], ["{m}/cornerCAP.lib", "cap_typ"], ["{m}/cornerDIO.lib", "dio_tt"]],
@@ -17,5 +17,6 @@
   },
   "default_corner": "tt",
   "prefix": "",
-  "load": ["{osdi}/psp103.osdi", "{osdi}/psp103_nqs.osdi", "{osdi}/r3_cmc.osdi", "{osdi}/mosvar.osdi", "{osdi}/cap_cmomi.osdi", "{osdi}/cap_cmomf.osdi"]
+  "load": ["{osdi}/psp103.osdi", "{osdi}/psp103_nqs.osdi", "{osdi}/r3_cmc.osdi", "{osdi}/mosvar.osdi", "{osdi}/cap_cmomi.osdi", "{osdi}/cap_cmomf.osdi"],
+  "xyce_plugins": {"r3_cmc": "{xyce}/plugins/libXyce_Plugin_r3_cmc.so", "mosvar": "{xyce}/plugins/libXyce_Plugin_mosvar.so"}
 }

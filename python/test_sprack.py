@@ -1127,13 +1127,19 @@ def test_xyce_plugins():
     cir = "t\n.model rmod r3_cmc rsh=100\nN1 a b c rmod w=1u\nv1 a 0 1\n.op\n.end\n"
     raises(sprack.Unsupported, lambda: sprack.translate(cir, frm="ngspice", to="xyce"), "only through a plugin of it")
     d = run_dir("plugins")
-    open(os.path.join(d, "m.lib"), "w").write("* m\n")
-    open(os.path.join(d, "r3.so"), "w").write("")
+    open(os.path.join(d, "m.lib"), "w").write(".model rmod r3_cmc rsh=100\n.subckt rs a c\nN1 a b c rmod w=1u\n.ends\n")
     m = {"name": "x", "dialect": "ngspice", "layouts": [{"probe": "m.lib"}], "corners": {"tt": [["{root}/m.lib", ""]]},
-         "xyce_plugins": {"r3_cmc": "{root}/r3.so", "mosvar": "{root}/missing.so"}}
-    pdk = sprack.PDK("x", root=d, manifest=m)
+         "xyce_plugins": {"r3_cmc": "r3.so", "mosvar": "{root}/missing.so"}}
+    pdk = sprack.PDK("x", root=d, manifest=m, cache_dir=os.path.join(d, "cache"))
+    assert pdk.run_options("xyce") == []
+    raises(sprack.Unsupported, lambda: pdk.translate("xyce"), "only through a plugin of it")
+    # A plugin built since: the libraries are translated again, for it.
+    open(os.path.join(d, "r3.so"), "w").write("")
+    pdk = sprack.PDK("x", root=d, manifest=m, cache_dir=os.path.join(d, "cache"))
     assert pdk.run_options("ngspice") == []
     assert pdk.run_options("xyce") == ["-plugin", os.path.join(d, "r3.so")]
+    out = pdk.translate("xyce")
+    assert "Yr3_cmc N1 a b c rmod w=1u" in open(os.path.join(out, os.path.relpath(pdk.entries()[0][0], pdk._roots["xyce"][1]))).read()
 
 
 def test_pdk_env_reserved_params():

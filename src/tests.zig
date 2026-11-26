@@ -7058,6 +7058,27 @@ test "#52: a Verilog-A instance into Xyce is a Y line of its module, with a plug
     try has(try jsonOf(a, &try readAs(a, "xyce", "t\nYrlc rlc1 1 0 rmod R=1k\n.end\n", &r3)), "\"module\":\"rlc\"");
 }
 
+test "#52: a Xyce plugin's Y line has no m, and its card no level" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const env: ir.Env = .{ .provided = &.{.{ "mosvar", "mosvar.so" }} };
+    const src = "t\n.model cv mosvar level=1000 type=-1\nN1 g b w cv l=1u m=1\nN2 g b w cv l=1u m=2\nN3 g b w cv l=1u m={k}\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    var aw: std.Io.Writer.Allocating = .init(a);
+    _ = try sprack.stream.translate(a, sprack.find("ngspice").?, sprack.find("xyce").?, src, &aw.writer, &r, &sprack.caps, .{ .env = &env });
+    const xy = aw.written();
+    // Xyce 7.10: `level=1000` is "no valid model card" for the plugin.
+    try has(xy, ".model cv mosvar type=-1\n");
+    try reported(&r, .warning, "model 'cv': level not written: xyce takes a plugin's card only at the plugin's own level");
+    // m=1 is the same device; any other m has no form.
+    try has(xy, "Ymosvar N1 g b w cv l=1u\n");
+    try has(xy, "Ymosvar N2 g b w cv l=1u\n");
+    try reported(&r, .@"error", "device: 'm=2' not written: a xyce plugin has no device multiplier ($mfactor), so the module 'mosvar' is simulated as one device");
+    try reported(&r, .@"error", "device: 'm=k' not written");
+    try testing.expectEqual(2, r.count(.@"error"));
+}
+
 test "#53: a family a dialect has only as a module given to the translation" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

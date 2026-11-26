@@ -1878,9 +1878,56 @@ module is dropped where its model card names it.
 IHP SG13G2's libraries into Xyce: 73 errors here, 57 with the four
 modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` named.
 
-Not run here (no Xyce with ADMS in this environment): whether those
-modules build as Xyce plugins, the plugin's own model-card type, and their
-results against ngspice. Until they are, IHP's manifest names no plugin.
+Measured with Xyce 7.10 built with `-DXyce_PLUGIN_SUPPORT=ON` and ADMS
+2.3.7 (nixpkgs `xyce` overridden; ngspice 45 with IHP's OSDI files):
+
+* IHP's `adms-compile-va.sh`, as shipped, builds nothing and exits 0:
+  Xyce 7.10's buildxyceplugin changes to the destination directory before
+  it opens the input, so `buildxyceplugin psp103.va ../../xyce/plugins`
+  says `Input file not found: psp103.va`. With each source directory as
+  its own destination, admsXml then finds the `include`d files; the plugin
+  is `lib` + `Xyce_Plugin_<module>.so` (CMake's prefix, not the name the
+  README gives).
+  * `psp103.va`: builds, module `PSP103_VA`. `r3_cmc.va`: builds,
+    module `r3_cmc`.
+  * `mosvar.va`: admsXml stops on IHP's own `discipline.h` (`syntax error
+    at line 21 -- see ';'`, its `discipline logic; domain discrete;`).
+    Without that file, admsXml writes its own and the module `mosvar`
+    builds.
+  * `psp103_nqs.va`: ADMS writes C++ that does not compile
+    (`evaluator_idt_ was not declared`, 128 errors): Xyce's ADMS has no
+    `idt`. `cap_cmomi.va`, `cap_cmomf.va`: `module 'localparam' not
+    found`. Not built, and outside IHP's script (#69).
+* PSP103: IHP's own Xyce library (`xyce/models/cornerMOSlv.lib mos_tt`,
+  its `YPSP103_VA` lines) with the PSP103_VA plugin, `sg13_lv_nmos` W 1u
+  L 0.13u, Vds 1.2 V: 24.0222 uA at Vgs 0.6 V and 400.526 uA at 1.2 V,
+  ngspice's numbers (3.5). SPRack still writes PSP103 for Xyce's built-in
+  level 103, without `thecso` (3.5).
+* `r3_cmc`, IHP `rsil` w=0.5u l=5u at 1 V, translated by SPRack with the
+  plugin: 1.15433939e-2 A, 86.630 ohm; ngspice 1.15434e-2 A. With m=2 on
+  the subcircuit ngspice gives 2.30868e-2 A and Xyce 1.15433939e-2 A,
+  whether the Y line says `mult=2` (IHP's own Xyce library writes
+  `mult=m`), `m=2` on the subcircuit's X line, or nothing: Xyce's ADMS
+  templates have no `$mfactor` (`FIXME_MFACTOR`), r3_cmc.va's `mult` under
+  `__XYCE__` scales only its mismatch (r3_cmc.va:327, 408-421), and
+  `m=2` on the Y line is refused (`Unrecognized parameter M for device
+  YR3_CMC!NR1`). So a Y line's `m` is not written: at 1, the same device;
+  any other value or an expression (IHP's `m=m`, `m='Nx*Ny'`), an error.
+* `mosvar`, IHP `sg13_hv_svaricap` l=0.6u w=3.74u, both gates at the AC
+  source, well and bulk at 0, 1 MHz, imaginary part of the current:
+  -1.28364201e-7 A at 0 V and -1.52935386e-7 A at 1 V; ngspice
+  -1.28364e-7 and -1.52935e-7. With the card's `level=1000` (the
+  module's own default, mosvar.va:52), Xyce finds no card for the Y line
+  (`Model is required for device YMOSVAR!NMVCAP1 and no valid model card
+  found`): it selects a device by type and level, and a plugin is level 1.
+  A plugin module's card is written without `level`, a warning.
+
+IHP's manifest names the `r3_cmc` and `mosvar` plugins at the place its
+script writes them (`libs.tech/xyce/plugins/libXyce_Plugin_<module>.so`);
+`PDK.translate("xyce")` gives those that are there to the translation.
+IHP SG13G2's six corner files into Xyce: 71 errors with no plugin; 66 with
+the two, the 5 cards of the two modules gone and their 7 instances errors
+for their `m`; every other error the same.
 
 ### 4.37 BSIM-CMG as a module given to the translation (#53, in part)
 

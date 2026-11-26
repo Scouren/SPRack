@@ -1079,6 +1079,21 @@ const Writer = struct {
                     });
                 } else if (w.needsPlugin(ty)) {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from a plugin of the module; build one with buildxyceplugin and name it with --provide {s}=FILE", .{ st.get("name").atom, ty, w.g.name, ty });
+                } else if (w.namesModule() and st.get("params") == .params) {
+                    // Xyce finds a card's device by type and level, and a
+                    // plugin is level 1: IHP's `mosvar level=1000` card is
+                    // "no valid model card" for its Y line, and the same
+                    // card without it gives ngspice's current (#52).
+                    w.report.add(.warning, .caveat, st.line, "model '{s}' is of the Verilog-A module '{s}': {s} must load the same module", .{ st.get("name").atom, ty, w.g.name });
+                    const ps = st.get("params").params;
+                    for (ps, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "level")) {
+                        w.report.add(.warning, .loss, st.line, "model '{s}': level not written: {s} takes a plugin's card only at the plugin's own level, so the module runs at its default level", .{ st.get("name").atom, w.g.name });
+                        var out = st.*;
+                        try out.own(a);
+                        const rest = try std.mem.concat(a, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
+                        try out.set(a, schema.slotIndex(.model, "params").?, if (rest.len > 0) .{ .params = rest } else .none);
+                        return out;
+                    };
                 } else if (w.g.absentReason(.device)) |why| {
                     w.report.add(.@"error", .unsupported, st.line, "model '{s}' is of the Verilog-A module '{s}': {s}", .{ st.get("name").atom, ty, why });
                 } else {
@@ -1760,11 +1775,7 @@ const Writer = struct {
     /// Does this dialect name the module on the instance (a plugin's), and
     /// has no plugin of this one been named?
     fn needsPlugin(w: *const Writer, module: []const u8) bool {
-        const mi = schema.slotIndex(.device, "module").?;
-        const says = for (w.g.rules) |*r| {
-            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) break true;
-        } else false;
-        if (!says) return false;
+        if (!w.namesModule()) return false;
         const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
         for (plugins) |p| if (std.ascii.eqlIgnoreCase(p[0], module)) return false;
         return true;
@@ -1772,12 +1783,16 @@ const Writer = struct {
 
     const WithModule = union(enum) { keep, done, stmt: ir.Stmt };
 
+    /// Does this dialect name the Verilog-A module on the instance (Xyce `Y<module>`)?
+    fn namesModule(w: *const Writer) bool {
+        const mi = schema.slotIndex(.device, "module").?;
+        for (w.g.rules) |*r| if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) return true;
+        return false;
+    }
+
     fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
         const mi = schema.slotIndex(.device, "module").?;
-        const says = for (w.g.rules) |*r| {
-            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) break true;
-        } else false;
-        if (!says) return .keep;
+        if (!w.namesModule()) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
         const module = w.modules.get(master) orelse (if (w.env) |e| e.modules.get(master) else null) orelse return .keep;
         const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
@@ -1789,12 +1804,28 @@ const Writer = struct {
             return .done;
         };
         if (w.plugins_said.get(module) == null) {
-            try w.plugins_said.put(w.arena, module, {});
+            try w.plugins_said.put(w.perm, try w.perm.dupe(u8, module), {});
             w.report.add(.warning, .caveat, st.line, "device: the Verilog-A module '{s}' is the plugin {s}: run {s} with -plugin {s}", .{ module, file, w.g.name, file });
         }
         var d = st.*;
         try d.own(w.arena);
         try d.set(w.arena, mi, .{ .atom = module });
+        // A plugin has no m: Xyce's ADMS templates have no $mfactor
+        // (FIXME_MFACTOR), Xyce 7.10 refuses `Yr3_cmc ... m=2`, and neither
+        // a subcircuit's m nor IHP's own `mult` (r3_cmc.va:327, only its
+        // mismatch) changes the current of IHP's rsil (#52). At 1 it is the
+        // same device.
+        const pi = schema.slotIndex(.device, "params").?;
+        if (d.at(pi) == .params) for (d.at(pi).params, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "m")) {
+            if (p.val != .num or p.val.num.toFloat() != 1) {
+                var em = w.emitter(w.arena, st);
+                w.report.add(.@"error", .loss, st.line, "device: 'm={s}' not written: a {s} plugin has no device multiplier ($mfactor), so the module '{s}' is simulated as one device", .{ try em.describe(p.val), w.g.name, module });
+            }
+            const ps = d.at(pi).params;
+            const rest = try std.mem.concat(w.arena, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
+            try d.set(w.arena, pi, if (rest.len > 0) .{ .params = rest } else .none);
+            break;
+        };
         return .{ .stmt = d };
     }
 
