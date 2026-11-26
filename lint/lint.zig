@@ -21,6 +21,7 @@ pub const clean_paths = [_][]const u8{
     "lint/lint.zig",
     "src/capi.zig",
     "src/dialects.zig",
+    "src/main.zig",
     "src/root.zig",
     "src/schema.zig",
     "tools/grammar_gen.zig",
