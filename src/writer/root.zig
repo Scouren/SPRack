@@ -11,7 +11,7 @@
 //!
 //! Contents:
 //! - `pub const Caps`
-//! - `pub const write`
+//! - `pub const write`, `pub const needsAll`
 //! - `pub const Refs`, `pub const Survey`, `pub const Driver`, `pub const Target`
 //! - `pub const Terminals`
 //! - `pub const defaultOptions`, `pub const collectReserved`
@@ -29,6 +29,7 @@ const frame = @import("frame.zig");
 
 pub const Caps = emit.Caps;
 pub const write = driver.write;
+pub const needsAll = driver.needsAll;
 pub const Refs = refs.Refs;
 pub const Survey = driver.Survey;
 pub const Driver = driver.Driver;

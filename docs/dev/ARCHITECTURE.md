@@ -126,7 +126,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | D1 | a model card parameter one target refuses | issues 30, 57, 76; 32 fixes | one grammar row, one fixture; 0 bodies | passes (`noparam`), but precedence between the card directives lives in `unmapModel`, 189 lines |
 | D2 | a device parameter the target says as another device | issue 28 | one `rewrite` block, one fixture; 0 bodies | passes: the capacitor is two blocks of vacask.spgrammar, and a test rewrites a resistor from a grammar made up for it |
 | D3 | a new simulator | LTspice (l1, z2) | one `.spgrammar` file; 0 bodies | passes for syntax; fails where the simulator needs a transformation no directive names |
-| D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | passes in the writer: one line of `Driver.netlistPasses`. What makes a netlist be read whole for it is still a second line, in `src/stream.zig`'s survey |
+| D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | passes in the writer: one line of `Driver.netlistPasses`, and one of `needsAll` in the same file for what in a statement is its work |
 
 ## Gates
 

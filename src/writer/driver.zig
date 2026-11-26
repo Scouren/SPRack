@@ -19,6 +19,7 @@
 //! - `pub const Mode = union(enum)`
 //! - `pub const Driver = struct`, with `begin(s, to, k, sv, mode)`,
 //!   `group(s, arena, stmts)`, `end(s, rescan)` and `deinit(s)`
+//! - `pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8`
 //! - `pub fn write(to: Target, arena: Allocator, nl: *const ir.Netlist) Writer.Error!void`
 
 const std = @import("std");
@@ -465,8 +466,11 @@ pub const Driver = struct {
     /// The passes that need every statement at once, in the order they
     /// run: sweeps gathered around their analyses, the options the source
     /// assumes, alters laid out as runs, a maximum order the target has no
-    /// place for, values the target says on another statement. `named`:
-    /// the statements before `fill`, where the options given are read.
+    /// place for, values the target says on another statement. What is
+    /// work for one of them is said by `needsAll`, or by the survey of
+    /// `stream.zig` where it takes more than one statement to tell.
+    /// `named`: the statements before `fill`, where the options given are
+    /// read.
     fn netlistPasses(
         s: *Driver,
         named: []ir.Stmt,
@@ -564,6 +568,30 @@ const NoRescan = struct {
 };
 
 const no_rescan: NoRescan = .{};
+
+/// What `st`, a top-level statement, holds that a pass needing every
+/// statement at once works on (`Driver.netlistPasses`, `Driver.tail`): a
+/// netlist with one is written whole. Null where it holds none. A pass
+/// added there says here what its work is.
+pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
+    return switch (st.kind) {
+        // `alter.prepare`.
+        .alter => "an alter",
+        // `ir.gatherSteps`: it is around every analysis.
+        .montecarlo => if (st.body.len == 0)
+            "a Monte Carlo analysis of the whole netlist"
+        else
+            null,
+        // `analyses.pzPorts`.
+        .pz => "a pole-zero analysis",
+        // `analyses.foldMaxord`.
+        .options => if (st.get("maxord") != .none) "a maximum order of integration" else null,
+        // `statement.groupBins`: the bins of one model come a group each.
+        .model => if (g.blockOf(.model) != null and st.get("name") == .atom and
+            ir.binBase(st.get("name").atom) != null) "a binned model" else null,
+        else => null,
+    };
+}
 
 /// Write `nl`, a netlist held in memory, to `to`: every statement in one
 /// group, so the passes that need them all run. `to.env`: the environment

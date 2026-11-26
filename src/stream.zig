@@ -316,19 +316,7 @@ const Survey = struct {
         try sv.tables.add(k, stmts);
         sv.last = reader.lastAnalysis(stmts, sv.last);
         for (stmts) |*st| {
-            switch (st.kind) {
-                .alter => sv.reason("an alter"),
-                .montecarlo => if (st.body.len == 0)
-                    sv.reason("a Monte Carlo analysis of the whole netlist"),
-                .pz => sv.reason("a pole-zero analysis"),
-                // `writer.foldMaxord`: where the target has no maximum order.
-                .options => if (st.get("maxord") != .none)
-                    sv.reason("a maximum order of integration"),
-                .model => if (gt.blockOf(.model) != null and st.get("name") == .atom and
-                    ir.binBase(st.get("name").atom) != null)
-                    sv.reason("a binned model"),
-                else => {},
-            }
+            if (writer.needsAll(gt, st)) |why| sv.reason(why);
             for (gf.moves) |mv| {
                 if (!mv.oneway and st.kind == mv.to and isBound(st.at(mv.to_slot)))
                     sv.reason("a value read on one statement that belongs on another");
