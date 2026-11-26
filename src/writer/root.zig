@@ -4,7 +4,7 @@
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
 //! `statement.zig` chooses the pattern and writes the statement; what a
 //! statement is turned into first is a file a subject (`cards.zig`,
-//! `bins.zig`, `instparams.zig`, `plugins.zig`, `variants.zig`,
+//! `cardparams.zig`, `bins.zig`, `instparams.zig`, `plugins.zig`, `variants.zig`,
 //! `rewrite.zig`; `facts.zig` what a card's spelling learns of the netlist); the
 //! passes over a netlist (`names.zig`, `analyses.zig`, `defaults.zig`)
 //! change the statements before that; `frame.zig` writes what stands
@@ -22,6 +22,7 @@
 
 const cards = @import("cards.zig");
 const bins = @import("bins.zig");
+const cardparams = @import("cardparams.zig");
 const facts = @import("facts.zig");
 const emit = @import("emit.zig");
 const tables = @import("tables.zig");
@@ -63,6 +64,7 @@ test {
     _ = defaults;
     _ = cards;
     _ = bins;
+    _ = cardparams;
     _ = facts;
     _ = driver;
     _ = refs;
