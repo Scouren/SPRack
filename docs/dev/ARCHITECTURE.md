@@ -121,7 +121,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | tests | `zig build test` | all pass |
 | goldens | `python3 -I tools/golden.py snapshot` then `diff` | IDENTICAL for a refactor; a behaviour change names the cases it moved |
 | format | `zig fmt --check build.zig src tools` | clean |
-| speed | `zig build bench` (planned) | no row slower than the last recorded |
+| speed | `python3 -I tools/bench.py <sprack> [<other>]`, with `perf` on PATH | instructions a line no higher than the last recorded |
 | lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths` |
 
 ## Where a change goes
@@ -146,8 +146,8 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 1 | grammars compiled when the binary is built, by a tool | done | `zig build test` 3:20 to 1:10; Debug build 2 min to 9 s; start-up unchanged |
 | 2 | module DAG enforced by the build; the dialect table a leaf | done | 15 modules, a test binary each; no module imports `root.zig` |
 | 3 | lint and style gate in the build, module by module | wired; 3 files held to it | 2,562 findings to clear in the rest |
-| 4 | read path: rule dispatch by first token, one pass over the input | | 27 MB mesh: 6.5 s today |
-| 5 | write path: rule chosen once, tables by kind | | |
+| 4 | read path: rules offered by first byte, slot names as constants, byte classes in the lexer | done; one pass over the input is next | 27 MB mesh into ngspice: 66.3K to 42.3K instructions a line (1.57x) |
+| 5 | write path: one rendering where the first form says the statement, rules by kind | done; tables by kind for the facts are next | mesh 1.39x to 1.57x, sky130 cells 1.31x to 1.50x fewer instructions |
 | 6 | one pass table, one driver for whole and streamed netlists | | |
 | 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
 | 8 | the special cases of the writer, by mechanism | | 81 hard-coded today |
