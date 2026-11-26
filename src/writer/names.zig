@@ -5,6 +5,41 @@
 //!
 //! Each function is a pass of the writer (`root.zig` runs them in order):
 //! statements in, statements or report entries out.
+//!
+//! Contents:
+//! - `pub const Pass = struct`
+//! - `pub const CaselessMap`
+//! - `pub const Analysis = struct`
+//! - `pub const CaseMaps = struct`, with `pub fn deinit(m: *CaseMaps) void`
+//! - `pub fn renameMasters(w: Pass, stmts: []ir.Stmt, renames: *const CaselessMap,
+//!   told: *ir.CaselessSet) Allocator.Error![]ir.Stmt`
+//! - `pub fn collectReserved(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt,
+//!   out: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void`
+//! - `pub fn renameParams(w: Pass, stmts: []ir.Stmt, renames: *const CaselessMap,
+//!   told: *ir.CaselessSet) Allocator.Error![]ir.Stmt`
+//! - `pub fn collectMasters(arena: Allocator, stmts: []const ir.Stmt, models: *ir.CaselessSet,
+//!   subckts: *ir.CaselessSet, src: ?[]const u8) Allocator.Error!void`
+//! - `pub fn renamesOf(arena: Allocator, models_in: *const ir.CaselessSet,
+//!   subckts_in: *const ir.CaselessSet, env: ?*const ir.Env) Allocator.Error!CaselessMap`
+//! - `pub fn reservedRenames(arena: Allocator, g: *const Grammar, defined: *const ir.CaselessSet,
+//!   env: ?*const ir.Env) Allocator.Error!CaselessMap`
+//! - `pub fn uniqueParamsIn(stmts: []const ir.Stmt, seen: *ir.CaselessSet, keep: ?ir.Keep,
+//!   report: *ir.Report, g: *const Grammar) Allocator.Error!void`
+//! - `pub fn uniqueAnalyses(a: Allocator, g: *const Grammar, found: []const Analysis,
+//!   report: *ir.Report) Allocator.Error!void`
+//! - `pub fn collectAnalyses(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt,
+//!   found: *std.ArrayList(Analysis)) Allocator.Error!void`
+//! - `pub fn uniqueParams(stmts: []const ir.Stmt, report: *ir.Report,
+//!   g: *const Grammar) Allocator.Error!void`
+//! - `pub fn clashes(w: Pass, stmts: []const ir.Stmt, models: *ir.CaselessSet,
+//!   subckts: *ir.CaselessSet, told: *ir.CaselessSet) Allocator.Error!void`
+//! - `pub fn collectDeclared(arena: Allocator, stmts: []const ir.Stmt,
+//!   out: *std.StringHashMapUnmanaged(void)) Allocator.Error!void`
+//! - `pub fn checkCase(stmts: []const ir.Stmt, seen: *CaseMaps, report: *ir.Report,
+//!   target: []const u8, keep: ?ir.Keep) Allocator.Error!void`
+//! - `pub fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt,
+//!   out: *expr.Funcs) Allocator.Error!void`
+//! - `pub fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -12,8 +47,8 @@ const schema = @import("schema");
 const ir = @import("ir");
 const expr = @import("expr");
 const stats = @import("stats");
-
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Value = ir.Value;
@@ -38,9 +73,33 @@ pub const CaselessMap = std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 );
 
+pub const Analysis = struct { kind: ir.Kind, line: u32 };
+
+/// Two names that differ only by case are one name in a case-folding dialect.
+/// Each key is the spelling last seen. The tables hold every node and
+/// instance name, so they live outside the arena and are freed when done.
+pub const CaseMaps = struct {
+    nodes: ir.CaselessSet = .empty,
+    instances: ir.CaselessSet = .empty,
+    definitions: ir.CaselessSet = .empty,
+    params: ir.CaselessSet = .empty,
+
+    pub fn deinit(m: *CaseMaps) void {
+        m.nodes.deinit(ir.big);
+        m.instances.deinit(ir.big);
+        m.definitions.deinit(ir.big);
+        m.params.deinit(ir.big);
+    }
+};
+
+/// What in a value `renamedValue` takes for a parameter: `keys`, the keys
+/// of a parameter list; `words`, bare words.
+const Names = struct { keys: bool, words: bool };
+
 /// The model cards `renames` names, and the devices that use them as a
 /// model (by their SPICE letter), under their new names; subcircuit
 /// instances keep theirs. Each name is reported once.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn renameMasters(
     w: Pass,
     stmts: []ir.Stmt,
@@ -95,12 +154,16 @@ pub fn renameMasters(
             list.?[i] = cur;
         }
     }
-    return list orelse stmts;
+    const out = list orelse stmts;
+    // A statement renamed replaces the one it was, in place.
+    assert(out.len == stmts.len);
+    return out;
 }
 
 /// The parameter names `stmts` define that start with a name the dialect
 /// keeps for itself (`reserved`): those `reservedRenames` renames, and the
 /// names a new one could clash with. With `src`, a name not in it is copied.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectReserved(
     arena: Allocator,
     g: *const Grammar,
@@ -121,6 +184,7 @@ pub fn collectReserved(
 /// The parameters `renames` names under their new names: where they are
 /// defined (`.param`, a subcircuit's header), given to a subcircuit, and
 /// used in an expression. Each is reported once.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn renameParams(
     w: Pass,
     stmts: []ir.Stmt,
@@ -144,15 +208,16 @@ pub fn renameParams(
             // Slots that name a parameter: a function's arguments, what a
             // sweep sweeps, a data table's columns, what an alter sets.
             const words = (st.kind == .func and std.mem.eql(u8, sl.name, "args")) or
-                ((st.kind == .dc or st.kind == .step) and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "param2"))) or
+                ((st.kind == .dc or st.kind == .step) and
+                    (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "param2"))) or
                 (st.kind == .data and std.mem.eql(u8, sl.name, "cols")) or
-                (st.kind == .alter and (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "keys")));
+                (st.kind == .alter and
+                    (std.mem.eql(u8, sl.name, "param") or std.mem.eql(u8, sl.name, "keys")));
             const v = try renamedValue(
                 w.arena,
                 st.at(@intCast(si)),
                 renames,
-                keys,
-                words,
+                .{ .keys = keys, .words = words },
                 &hit,
             ) orelse continue;
             if (!changed or cur.body.ptr != st.body.ptr) try cur.own(w.arena);
@@ -180,10 +245,14 @@ pub fn renameParams(
             list.?[i] = cur;
         }
     }
-    return list orelse stmts;
+    const out = list orelse stmts;
+    // A statement renamed replaces the one it was, in place.
+    assert(out.len == stmts.len);
+    return out;
 }
 
 /// With `src`, a name not in it is copied (the statements go away).
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectMasters(
     arena: Allocator,
     stmts: []const ir.Stmt,
@@ -233,6 +302,8 @@ pub fn renamesOf(
         }
         try out.put(arena, k.*, name);
     }
+    // At most one rename for each model name.
+    assert(out.count() <= models.count());
     return out;
 }
 
@@ -255,7 +326,9 @@ pub fn reservedRenames(
         if (!defined.contains(n) and !(if (env) |e| e.params.contains(n) else false)) continue;
         var name = try std.fmt.allocPrint(arena, "{s}__p", .{n});
         var i: usize = 2;
-        while (defined.contains(name) or (if (env) |e| e.params.contains(name) else false)) : (i += 1) {
+        while (defined.contains(name) or
+            (if (env) |e| e.params.contains(name) else false)) : (i += 1)
+        {
             name = try std.fmt.allocPrint(arena, "{s}__p{d}", .{ n, i });
         }
         try out.put(arena, n, name);
@@ -265,6 +338,7 @@ pub fn reservedRenames(
 
 /// `seen`: the names the scope defined before `stmts`; with `keep`, each
 /// new one is kept, as `stmts` go away before the scope ends.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn uniqueParamsIn(
     stmts: []const ir.Stmt,
     seen: *ir.CaselessSet,
@@ -272,6 +346,8 @@ pub fn uniqueParamsIn(
     report: *ir.Report,
     g: *const Grammar,
 ) Allocator.Error!void {
+    // Only a dialect that refuses a parameter defined twice is checked.
+    assert(g.unique_param.len > 0);
     for (stmts) |*s| {
         if (s.body.len > 0) try uniqueParams(s.body, report, g);
         if (s.kind != .param or s.get("params") != .params) continue;
@@ -312,6 +388,8 @@ pub fn uniqueAnalyses(
         // Two of the kind are the same analysis twice: nothing is left out.
         if (besides == 2) return;
         const op: usize = @intFromBool(found[1].kind == u.beside);
+        // One of the two is of the kind, and `op` is that one.
+        assert(found[op].kind == u.beside);
         report.add(
             .warning,
             .caveat,
@@ -336,6 +414,7 @@ pub fn uniqueAnalyses(
 
 /// `unique analysis`: the statements of `stmts` that count as an analysis
 /// in `g`, outside subcircuits, in the order written.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectAnalyses(
     a: Allocator,
     g: *const Grammar,
@@ -363,83 +442,35 @@ pub fn uniqueParams(
     try uniqueParamsIn(stmts, &seen, null, report, g);
 }
 
-/// `v` for `renameParams`, or null when nothing in it is renamed. `keys`:
-/// the keys of a parameter list are parameters; `words`: so are bare words.
-pub fn renamedValue(
-    arena: Allocator,
-    v: Value,
-    renames: *const CaselessMap,
-    keys: bool,
-    words: bool,
-    hit: *std.ArrayList([]const u8),
-) Allocator.Error!?Value {
-    switch (v) {
-        .expr => |e| {
-            const t = try expr.rename(arena, e, renames, hit);
-            return if (t.ptr == e.ptr) null else .{ .expr = t };
-        },
-        .atom => |a| {
-            const to = renames.get(a) orelse return null;
-            if (!words) return null;
-            try hit.append(arena, a);
-            return .{ .atom = to };
-        },
-        .list => |l| {
-            var out: ?[]Value = null;
-            for (l, 0..) |x, i| if (try renamedValue(arena, x, renames, keys, words, hit)) |n| {
-                if (out == null) out = try arena.dupe(Value, l);
-                out.?[i] = n;
-            };
-            return if (out) |o| .{ .list = o } else null;
-        },
-        .params => |ps| {
-            var out: ?[]ir.Param = null;
-            for (ps, 0..) |p, i| {
-                var n = p;
-                if (keys) if (renames.get(p.key)) |to| {
-                    try hit.append(arena, p.key);
-                    n.key = to;
-                };
-                if (try renamedValue(arena, p.val, renames, false, false, hit)) |val| n.val = val;
-                if (n.key.ptr == p.key.ptr and n.val.eql(p.val)) continue;
-                if (out == null) out = try arena.dupe(ir.Param, ps);
-                out.?[i] = n;
-            }
-            return if (out) |o| .{ .params = o } else null;
-        },
-        else => return null,
-    }
-}
-
-pub const Analysis = struct { kind: ir.Kind, line: u32 };
-
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn clashes(
-    arena: Allocator,
+    w: Pass,
     stmts: []const ir.Stmt,
     models: *ir.CaselessSet,
     subckts: *ir.CaselessSet,
     told: *ir.CaselessSet,
-    report: *ir.Report,
-    g: *const Grammar,
 ) Allocator.Error!void {
+    // Only a dialect that refuses a model and a subcircuit of one name is checked.
+    assert(w.g.unique_master.len > 0);
     for (stmts) |*s| {
-        try clashes(arena, s.body, models, subckts, told, report, g);
+        try clashes(w, s.body, models, subckts, told);
         if (schema.info(s.kind).class != .device or s.kind == .instance) continue;
         const m = s.get("master");
         if (m != .atom or !models.contains(m.atom) or !subckts.contains(m.atom)) continue;
-        const gop = try told.getOrPut(arena, m.atom);
+        const gop = try told.getOrPut(w.perm, m.atom);
         if (gop.found_existing) continue;
-        gop.key_ptr.* = try arena.dupe(u8, m.atom);
-        report.add(
+        gop.key_ptr.* = try w.perm.dupe(u8, m.atom);
+        w.report.add(
             .@"error",
             .invalid,
             s.line,
             "'{s}' names both a model and a subcircuit, and {s} uses it on {s}; {s}",
-            .{ m.atom, @tagName(s.kind), s.get("name").atom, g.unique_master },
+            .{ m.atom, @tagName(s.kind), s.get("name").atom, w.g.unique_master },
         );
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectDeclared(
     arena: Allocator,
     stmts: []const ir.Stmt,
@@ -458,6 +489,7 @@ pub fn collectDeclared(
 /// subcircuit's ports, nodes and instances are its own scope; definitions
 /// and parameters are shared by all scopes.
 /// With `keep`, names are kept: the statements go away first.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn checkCase(
     stmts: []const ir.Stmt,
     seen: *CaseMaps,
@@ -503,30 +535,20 @@ pub fn checkCase(
                 } else if (!gop.found_existing) if (keep) |k| {
                     gop.key_ptr.* = try k.text(v.atom);
                 };
+                // The key kept is a spelling of this name.
+                assert(gop.key_ptr.len == v.atom.len);
             }
         }
         try checkCase(s.body, maps, report, target, keep);
     }
 }
 
-/// Two names that differ only by case are one name in a case-folding dialect.
-/// Each key is the spelling last seen. The tables hold every node and
-/// instance name, so they live outside the arena and are freed when done.
-pub const CaseMaps = struct {
-    nodes: ir.CaselessSet = .empty,
-    instances: ir.CaselessSet = .empty,
-    definitions: ir.CaselessSet = .empty,
-    params: ir.CaselessSet = .empty,
-
-    pub fn deinit(m: *CaseMaps) void {
-        m.nodes.deinit(ir.big);
-        m.instances.deinit(ir.big);
-        m.definitions.deinit(ir.big);
-        m.params.deinit(ir.big);
-    }
-};
-
-pub fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) Allocator.Error!void {
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
+pub fn collectFuncs(
+    arena: Allocator,
+    stmts: []const ir.Stmt,
+    out: *expr.Funcs,
+) Allocator.Error!void {
     for (stmts) |*s| {
         if (s.kind == .func and s.get("name") == .atom)
             try out.put(arena, try std.ascii.allocLowerString(arena, s.get("name").atom), {});
@@ -534,10 +556,64 @@ pub fn collectFuncs(arena: Allocator, stmts: []const ir.Stmt, out: *expr.Funcs) 
     }
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectInstances(stmts: []const ir.Stmt, out: *ir.CaselessSet) Allocator.Error!void {
     for (stmts) |*s| {
         if (schema.info(s.kind).class == .device and s.get("name") == .atom)
             try out.put(ir.big, s.get("name").atom, {});
         try collectInstances(s.body, out);
+    }
+}
+
+// ---- private ----
+
+/// `v` for `renameParams`, or null when nothing in it is renamed.
+// tidy: allow(recursion) bounded by the nesting of a value's lists, ir.max_depth
+fn renamedValue(
+    arena: Allocator,
+    v: Value,
+    renames: *const CaselessMap,
+    names: Names,
+    hit: *std.ArrayList([]const u8),
+) Allocator.Error!?Value {
+    switch (v) {
+        .expr => |e| {
+            const t = try expr.rename(arena, e, renames, hit);
+            return if (t.ptr == e.ptr) null else .{ .expr = t };
+        },
+        .atom => |a| {
+            const to = renames.get(a) orelse return null;
+            if (!names.words) return null;
+            try hit.append(arena, a);
+            return .{ .atom = to };
+        },
+        .list => |l| {
+            var out: ?[]Value = null;
+            for (l, 0..) |x, i| if (try renamedValue(arena, x, renames, names, hit)) |n| {
+                if (out == null) out = try arena.dupe(Value, l);
+                out.?[i] = n;
+            };
+            return if (out) |o| .{ .list = o } else null;
+        },
+        .params => |ps| {
+            var out: ?[]ir.Param = null;
+            for (ps, 0..) |p, i| {
+                var n = p;
+                if (names.keys) if (renames.get(p.key)) |to| {
+                    try hit.append(arena, p.key);
+                    n.key = to;
+                };
+                const none: Names = .{ .keys = false, .words = false };
+                if (try renamedValue(arena, p.val, renames, none, hit)) |val| n.val = val;
+                if (n.key.ptr == p.key.ptr and n.val.eql(p.val)) continue;
+                if (out == null) out = try arena.dupe(ir.Param, ps);
+                out.?[i] = n;
+            }
+            const o = out orelse return null;
+            // A renamed list has a parameter for each of the original's.
+            assert(o.len == ps.len);
+            return .{ .params = o };
+        },
+        else => return null,
     }
 }

@@ -446,7 +446,8 @@ pub const Driver = struct {
                 stmts = try name_passes.renameMasters(w.pass(), stmts, &s.renames, &s.told);
             report.phase = ir.Phase.masters;
             const perm = s.keep.perm;
-            try name_passes.clashes(perm, stmts, &s.models, &s.subckts, &s.clashed, report, g);
+            const p: name_passes.Pass = .{ .arena = perm, .perm = perm, .g = g, .report = report };
+            try name_passes.clashes(p, stmts, &s.models, &s.subckts, &s.clashed);
         }
         if (s.param_renames.count() > 0)
             stmts = try name_passes.renameParams(w.pass(), stmts, &s.param_renames, &s.param_told);
