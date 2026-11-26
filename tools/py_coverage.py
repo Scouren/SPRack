@@ -56,6 +56,8 @@ def bodies(code):
 
 
 def main():
+    # The output path is the caller's, resolved before the tests' directory is entered.
+    out = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
     sys.path.insert(0, os.path.join(HERE, "..", "python"))
     os.chdir(os.path.join(HERE, "..", "python"))
     threading.settrace(tracer)
@@ -86,8 +88,8 @@ def main():
             miss = sorted(lines - got)
             if miss:
                 print(f"    {fn}: {len(miss)} not run ({', '.join(map(str, miss[:12]))}{', ...' if len(miss) > 12 else ''})")
-    if len(sys.argv) > 1:
-        with open(sys.argv[1], "w") as f:
+    if out:
+        with open(out, "w") as f:
             f.write("file\tpercent\tcovered\tlines\n" + "".join(f"{n}\t{p:.1f}\t{c}\t{w}\n" for n, p, c, w in rows))
     sys.exit(status)
 
