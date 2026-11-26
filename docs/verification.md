@@ -1526,7 +1526,10 @@ ASAP7's cards (`7nm_TT.pm`) are HSPICE `level = 72` with `+version = 107`;
 they were written `level=111 version=107`. `m1 d g 0 0 nmos_rvt nfin=3` at
 Vgs = Vds = 0.7 V: -1.07435640e-04 at level 111 against -1.11899331e-04 at
 107 (4.0 %); `pmos_rvt` at -0.7 V 9.53447420e-05 against 9.59126504e-05
-(0.6 %). The same deck at L = 20n:
+(0.6 %), both at Xyce's default 27 degrees. The same deck at L = 20n,
+written as an HSPICE deck (`.include` of `7nm_TT.pm`, `vd d 0 0.7`,
+`vg g 0 0.7`, `m1 d g 0 0 nmos_rvt nfin=3 l=20n`, `.op`) and translated, so
+that it runs at HSPICE's 25 degrees (`.options device temp=25 tnom=25`, 4.7):
 
 | level | nmos_rvt | pmos_rvt | "no model parameter" warnings per card |
 |---|---|---|---|
@@ -1541,6 +1544,14 @@ VERSION, so a card's `version=` picks the level and is then not written. A
 card with no version, or one no level is, keeps 111 with a caveat. That
 HSPICE's level 72 at version 107 is the model Xyce's 107 implements is
 inferred, not run (#56).
+
+The temperature is part of the reference. Rerun on commit 63285aaa, the
+translated `7nm_TT.pm` with the deck above: 25 degrees gives the table's
+level 107 row to every printed digit (-1.13550354e-04, 9.86313428e-05), and
+so do the 111, 110 and 108 rows with only the level edited. The same deck
+without its `.options` line, at 27 degrees, gives -1.13404766e-04 and
+9.84035889e-05 at level 107, 0.13 % and 0.23 % off: a deck built with
+`sprack.Circuit` names no temperature and runs at 27.
 
 VACASK's table has the same shape (`vbic13_4t` and `vbic13`, and a
 5-terminal module it does not list); it was not run here.
@@ -1875,7 +1886,7 @@ Not done, and so no `provided` line is in ngspice's or VACASK's grammar:
 the measurement the issue asks for first. It needs the BSIM-CMG 107
 Verilog-A source and openvaf-r to compile it for ngspice, and VACASK to
 run it, none of which this environment has. The reference is Xyce 7.10's
-level 107 at L = 20n, NFIN = 3, 0.7 V on gate and drain (from the issue):
+level 107 at L = 20n, NFIN = 3, 0.7 V on gate and drain, 25 degrees (4.21):
 nmos_rvt 113.55035 uA, pmos_rvt 98.631343 uA. Until a run matches it,
 ASAP7 into ngspice and VACASK keeps its 24 errors, and the version check
 and the manifest's per-target `load` keys wait with the grammar line.
