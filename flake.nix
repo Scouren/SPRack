@@ -116,7 +116,7 @@
         # The Python package to ship (zig build bundle): $out/python/sprack/
         # with __init__.py, pdks/*.json and the extension, for one Zig target.
         # Any system builds any target: Zig cross-compiles, and the Windows
-        # import library for python3.dll comes from src/python3.def.
+        # import library for python3.dll comes from src/host/python3.def.
         mkBundle =
           target:
           pkgs.stdenvNoCC.mkDerivation {

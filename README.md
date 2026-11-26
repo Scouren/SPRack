@@ -202,7 +202,7 @@ each giving `result/python/sprack/`. Without Nix, the same is
 `zig build bundle -Doptimize=ReleaseSafe -Dtarget=<target> --prefix <dir>`
 (targets as in `flake.nix`'s `bundleTargets`); `zig build py` also writes the
 host's bundle into `zig-out/python/`. A Windows build links an import library
-for `python3.dll` that `zig dlltool` makes from `src/python3.def`, so no
+for `python3.dll` that `zig dlltool` makes from `src/host/python3.def`, so no
 Python is needed to build it. Checked: the x86_64 Linux bundle imports and
 runs under CPython 3.11 and 3.13; the macOS ones leave the Python symbols to
 flat-namespace lookup and the Windows one imports them from `python3.dll`.
@@ -335,22 +335,26 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
 ## Layout
 
     grammars/*.spgrammar   the seven dialects
-    src/schema.zig         canonical kinds, slots, model families, functions
-    src/grammar.zig        the .spgrammar compiler
+    src/root.zig           the library's surface
+    src/core/              what a netlist is: schema.zig (kinds, slots, model
+                           families, functions), ir.zig (statements, values,
+                           reports), expr.zig (expressions), dialects.zig (the
+                           built-in grammars)
+    src/grammar/           the .spgrammar compiler
     tools/grammar_gen.zig  runs it on grammars/* when the binary is built
-    src/dialects.zig       the built-in grammars and the names statements carry
-    src/lexer.zig          lines, tokens, exact numbers
-    src/reader.zig         pattern matcher: text to statements
-    src/writer.zig         patterns in reverse: statements to text
-    src/expr.zig           expressions
-    src/topology.zig       circuits a target cannot solve (`requires`)
-    src/ir.zig             statements, values, reports, circuit comparison
-    src/json.zig           the statements as JSON
-    src/project.zig        include following, shared declarations, catalogue
-    src/stream.zig         translation a statement at a time, after a survey
-    src/main.zig           the command
-    src/pyext.zig          the CPython extension
-    src/capi.zig           a C ABI for other hosts
+    src/reader/            text to statements: lexer.zig (lines, tokens, exact
+                           numbers) and the pattern matcher
+    src/writer/            statements to text: the patterns in reverse, and
+                           what a statement is turned into first, a file a
+                           subject (docs/dev/ARCHITECTURE.md lists them)
+    src/passes/            changes to a whole netlist: alter.zig, cond.zig
+                           (conditional blocks), stats.zig, topology.zig
+                           (circuits a target cannot solve)
+    src/translate/         stream.zig (one netlist, a statement at a time),
+                           project.zig (a tree of files, at once), json.zig
+    src/host/              main.zig (the command), pyext.zig (the CPython
+                           extension), capi.zig (a C ABI for other hosts)
+    src/tests.zig          the tests of the whole
     python/sprack/         the Python package and the PDK manifests
     tools/                 corpus audit and simulator check scripts; golden.py,
                            fixture.py and bench.py for work on the engine

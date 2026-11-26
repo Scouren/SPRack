@@ -634,7 +634,7 @@ ngspice names a pole-zero analysis by its input and output node pairs
 (`.pz in 0 out 0 vol pz`); HSPICE by an output signal and a source
 (`.pz v(out) vin`); Spectre by its output terminals and a probe instance
 (`pz1 (out 0) pz iprobe=vin`). The writer turns each half into the form
-the target takes (`pzPorts` in `src/writer.zig`):
+the target takes (`pzPorts` in `src/writer/analyses.zig`):
 
 - **Input.** A node pair becomes the one independent source of the
   matching kind (V for `vol`, I for `cur`) that connects exactly those two

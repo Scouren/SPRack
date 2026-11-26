@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "sprack",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("src/host/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "sprack", .module = sprack }},
@@ -107,7 +107,7 @@ pub fn build(b: *std.Build) void {
         .name = "sprack",
         .linkage = .dynamic,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/capi.zig"),
+            .root_source_file = b.path("src/host/capi.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "sprack", .module = sprack }},
@@ -122,7 +122,7 @@ pub fn build(b: *std.Build) void {
         .name = "_core",
         .linkage = .dynamic,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/pyext.zig"),
+            .root_source_file = b.path("src/host/pyext.zig"),
             // Zig's own TLS is not set up in a dlopen'd library; glibc's is.
             .link_libc = true,
             .target = target,
@@ -133,14 +133,14 @@ pub fn build(b: *std.Build) void {
     pyext.linker_allow_shlib_undefined = true;
     if (target.result.os.tag == .windows) {
         // A PE file cannot leave symbols to the loading process: link an
-        // import library for python3.dll, made here from src/python3.def.
+        // import library for python3.dll, made here from src/host/python3.def.
         const machine = switch (target.result.cpu.arch) {
             .x86_64 => "i386:x86-64",
             .aarch64 => "arm64",
             else => @panic("Windows Python extension: x86_64 or aarch64 only"),
         };
         const dlltool = b.addSystemCommand(&.{ b.graph.zig_exe, "dlltool", "-m", machine, "-d" });
-        dlltool.addFileArg(b.path("src/python3.def"));
+        dlltool.addFileArg(b.path("src/host/python3.def"));
         dlltool.addArg("-l");
         pyext.root_module.addObjectFile(dlltool.addOutputFileArg("python3.lib"));
     }
@@ -216,21 +216,21 @@ const ModuleSpec = struct { name: []const u8, path: []const u8, imports: []const
 /// `build` makes itself), leaves first. A module may import only modules
 /// listed above it.
 const module_specs = [_]ModuleSpec{
-    .{ .name = "ir", .path = "src/ir.zig", .imports = &.{"schema"} },
-    .{ .name = "dialects", .path = "src/dialects.zig", .imports = &.{ "grammar", "registry" } },
-    .{ .name = "lexer", .path = "src/lexer.zig", .imports = &.{ "grammar", "ir" } },
+    .{ .name = "ir", .path = "src/core/ir.zig", .imports = &.{"schema"} },
+    .{ .name = "dialects", .path = "src/core/dialects.zig", .imports = &.{ "grammar", "registry" } },
+    .{ .name = "lexer", .path = "src/reader/lexer.zig", .imports = &.{ "grammar", "ir" } },
     .{
         .name = "expr",
-        .path = "src/expr.zig",
+        .path = "src/core/expr.zig",
         .imports = &.{ "schema", "grammar", "ir", "lexer" },
     },
-    .{ .name = "cond", .path = "src/cond.zig", .imports = &.{ "schema", "ir", "expr" } },
-    .{ .name = "alter", .path = "src/alter.zig", .imports = &.{ "schema", "grammar", "ir" } },
-    .{ .name = "stats", .path = "src/stats.zig", .imports = &.{ "schema", "grammar", "ir" } },
-    .{ .name = "topology", .path = "src/topology.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "cond", .path = "src/passes/cond.zig", .imports = &.{ "schema", "ir", "expr" } },
+    .{ .name = "alter", .path = "src/passes/alter.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "stats", .path = "src/passes/stats.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "topology", .path = "src/passes/topology.zig", .imports = &.{ "schema", "grammar", "ir" } },
     .{
         .name = "reader",
-        .path = "src/reader.zig",
+        .path = "src/reader/root.zig",
         .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "expr" },
     },
     .{
@@ -252,17 +252,17 @@ const module_specs = [_]ModuleSpec{
     },
     .{
         .name = "stream",
-        .path = "src/stream.zig",
+        .path = "src/translate/stream.zig",
         .imports = &.{ "schema", "grammar", "ir", "reader", "writer", "stats", "topology" },
     },
     .{
         .name = "json",
-        .path = "src/json.zig",
+        .path = "src/translate/json.zig",
         .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "reader" },
     },
     .{
         .name = "project",
-        .path = "src/project.zig",
+        .path = "src/translate/project.zig",
         .imports = &.{
             "schema",
             "grammar",
@@ -303,10 +303,10 @@ fn grammarModule(
     optimize: ?std.builtin.OptimizeMode,
 ) *std.Build.Module {
     const schema = b.createModule(
-        .{ .root_source_file = b.path("src/schema.zig"), .target = target, .optimize = optimize },
+        .{ .root_source_file = b.path("src/core/schema.zig"), .target = target, .optimize = optimize },
     );
     return b.createModule(.{
-        .root_source_file = b.path("src/grammar.zig"),
+        .root_source_file = b.path("src/grammar/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{.{ .name = "schema", .module = schema }},

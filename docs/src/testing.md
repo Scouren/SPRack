@@ -74,7 +74,7 @@ zig build test-cli    # only the command-line cases
 ```
 
 The tests are in `src/tests.zig`, with a few unit tests beside the code they
-test (`src/lexer.zig`, `src/expr.zig`, `src/grammar.zig` and others). The
+test (`src/reader/lexer.zig`, `src/core/expr.zig`, `src/grammar/root.zig` and others). The
 names say what each one holds to; `grep -n '^test "' src/tests.zig` lists
 them. By kind:
 
@@ -209,7 +209,7 @@ from a seed of the night's own, printed when they fail
 ## Threads
 
 `sprack project` works on several files at once, and three things hold
-that they share nothing while they do. A test of `src/project.zig`
+that they share nothing while they do. A test of `src/translate/project.zig`
 translates a tree of thirteen files one at a time and four at once and
 compares the copies, the logs and the names expanded. The goldens take
 every PDK as a project at the default of eight. And `zig build -Dtsan`
@@ -240,26 +240,28 @@ floor in `tools/coverage-floor-zig.tsv` or `tools/coverage-floor-py.tsv`.
 
 | file | lines covered | measured |
 |---|---|---|
-| `src/alter.zig` | 95.4 % (185 of 194) | 2026-11-26, at f2d3eb02 |
-| `src/cond.zig` | 95.2 % (278 of 292) | 2026-11-26, at f2d3eb02 |
-| `src/expr.zig` | 96.4 % (719 of 746) | 2026-11-26, at f2d3eb02 |
-| `src/grammar.zig` | 98.3 % (1115 of 1134) | 2026-11-26, at f2d3eb02 |
-| `src/ir.zig` | 98.5 % (600 of 609) | 2026-11-26, at f2d3eb02 |
-| `src/json.zig` | 97.5 % (433 of 444) | 2026-11-26, at f2d3eb02 |
-| `src/lexer.zig` | 99.4 % (659 of 663) | 2026-11-26, at f2d3eb02 |
-| `src/project.zig` | 91.9 % (582 of 633) | 2026-11-26, at f2d3eb02 |
-| `src/reader.zig` | 96.5 % (1811 of 1877) | 2026-11-26, at f2d3eb02 |
+| `src/passes/alter.zig` | 95.4 % (185 of 194) | 2026-11-26, at f2d3eb02 |
+| `src/passes/cond.zig` | 95.2 % (278 of 292) | 2026-11-26, at f2d3eb02 |
+| `src/core/expr.zig` | 96.4 % (719 of 746) | 2026-11-26, at f2d3eb02 |
+| `src/grammar/root.zig` | 98.3 % (1115 of 1134) | 2026-11-26, at f2d3eb02 |
+| `src/core/ir.zig` | 98.5 % (600 of 609) | 2026-11-26, at f2d3eb02 |
+| `src/translate/json.zig` | 97.5 % (433 of 444) | 2026-11-26, at f2d3eb02 |
+| `src/reader/lexer.zig` | 99.4 % (659 of 663) | 2026-11-26, at f2d3eb02 |
+| `src/translate/project.zig` | 91.9 % (582 of 633) | 2026-11-26, at f2d3eb02 |
+| `src/reader/root.zig` | 96.5 % (1811 of 1877) | 2026-11-26, at f2d3eb02 |
 | `src/root.zig` | 98.1 % (52 of 53) | 2026-11-26, at f2d3eb02 |
-| `src/schema.zig` | 100.0 % (23 of 23) | 2026-11-26, at f2d3eb02 |
-| `src/stats.zig` | 98.2 % (383 of 390) | 2026-11-26, at f2d3eb02 |
-| `src/stream.zig` | 99.6 % (274 of 275) | 2026-11-26, at f2d3eb02 |
+| `src/core/schema.zig` | 100.0 % (23 of 23) | 2026-11-26, at f2d3eb02 |
+| `src/passes/stats.zig` | 98.2 % (383 of 390) | 2026-11-26, at f2d3eb02 |
+| `src/translate/stream.zig` | 99.6 % (274 of 275) | 2026-11-26, at f2d3eb02 |
 | `src/tests.zig` | 99.0 % (4476 of 4523) | 2026-11-26, at f2d3eb02 |
-| `src/topology.zig` | 98.4 % (440 of 447) | 2026-11-26, at f2d3eb02 |
-| `src/writer.zig` | 98.5 % (2765 of 2808) | 2026-11-26, at f2d3eb02 |
+| `src/passes/topology.zig` | 98.4 % (440 of 447) | 2026-11-26, at f2d3eb02 |
+| `src/writer/` (one file then) | 98.5 % (2765 of 2808) | 2026-11-26, at f2d3eb02 |
 | `src/` in all | 97.9 % (14795 of 15111) | 2026-11-26, at f2d3eb02 |
 | `python/sprack/__init__.py` | 92.8 % (827 of 891) | 2026-11-24, with the five PDKs, the installed trees skipped |
 
-The `src/` rows are kcov's over the test binary of the `sprack` module,
+The files are named as they are now; they were measured before they were
+grouped into folders, and the writer before it was a folder of files, whose
+floors the next `coverage_floor.py --update` writes. The `src/` rows are kcov's over the test binary of the `sprack` module,
 and `tools/coverage-floor-zig.tsv` holds them. kcov counts only the lines
 the binary has: a function nothing calls is not compiled, so it is not
 counted, and `main.zig`, `pyext.zig` and `capi.zig` are not in the

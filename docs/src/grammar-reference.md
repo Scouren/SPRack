@@ -8,7 +8,7 @@ step by step; this page lists every directive.
 
 A grammar file is a list of directives. `#` starts a comment. The first
 directive is `dialect <name>`, the name the dialect is known by. Kinds and
-slots are the canonical vocabulary in `src/schema.zig`, which `sprack info`
+slots are the canonical vocabulary in `src/core/schema.zig`, which `sprack info`
 prints; naming anything else is a compile error with the file and line.
 
 ## lexer
@@ -218,7 +218,7 @@ requires dc-path error : ...       # a topology the simulator cannot solve, and
                                    # analysis), no-vloop, no-vlloop, no-lloop (a loop of
                                    # voltage sources, of sources and inductors,
                                    # of inductors). An `invalid` entry naming
-                                   # the nodes or elements; src/topology.zig
+                                   # the nodes or elements; src/passes/topology.zig
 requires dc-path error [op dc ac] : ...  # only in a netlist with one of these
                                    # analyses (`tran`: one without UIC); with
                                    # no list, with any analysis
