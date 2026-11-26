@@ -226,6 +226,10 @@ spread montecarlo                  # a block written by adding its rule to each
                                    # analysis of its body (`sweep monte=30`)
 spread step "sweep"                # the same; only the rules starting with
                                    # the word are endings (`.temp` is not)
+variation inline                   # a parameter's variation is an entry of its
+                                   # own after it (`p=1 dev/gauss=0.1`): written
+                                   # so here, a random function in the
+                                   # parameter's definition anywhere else
 rerun alter                        # analyses run where they stand: written
                                    # again after each statement of the kind
 switch "simulator lang=spice" -> hspice   # from such a line on, read with

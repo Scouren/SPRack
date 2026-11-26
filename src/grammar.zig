@@ -609,6 +609,9 @@ pub const Grammar = struct {
     /// `unique param : why`: a parameter defined twice in one scope is
     /// refused here. Empty: allowed.
     unique_param: []const u8 = "",
+    /// `variation inline`: a parameter's variation is an entry of its own
+    /// after it on the line that defines it (`p=1 dev/gauss=0.1`).
+    variation_inline: bool = false,
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
@@ -1867,6 +1870,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var fills: []const Fill = &.{};
     var omitted: []const Omitted = &.{};
     var unique_param: []const u8 = "";
+    var variation_inline = false;
     var unique_master: []const u8 = "";
     var libsections_opened: []const u8 = "";
     var unique_analysis: ?UniqueAnalysis = null;
@@ -2372,6 +2376,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             if (!std.mem.startsWith(u8, rest, "opened : "))
                 return c.fail(no, "libsections is `libsections opened : reason`", .{});
             libsections_opened = rest["opened : ".len..];
+        } else if (std.mem.eql(u8, head, "variation")) {
+            if (!std.mem.eql(u8, rest, "inline"))
+                return c.fail(no, "variation is `variation inline`", .{});
+            variation_inline = true;
         } else if (std.mem.eql(u8, head, "unique")) {
             const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
                 no,
@@ -2693,6 +2701,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .fills = fills,
         .omitted = omitted,
         .unique_param = unique_param,
+        .variation_inline = variation_inline,
         .unique_master = unique_master,
         .libsections_opened = libsections_opened,
         .unique_analysis = unique_analysis,

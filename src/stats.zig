@@ -45,8 +45,6 @@ pub fn prepare(
 ) Allocator.Error![]const Stmt {
     var stmts = stmts_in;
     var functions: usize = 0;
-    // ponytail: HSPICE is the one dialect named here, as the home of the
-    // `dev/gauss=` form; a grammar directive if a second one needs it.
     if (devLots(g, source) and usesDevLot(stmts))
         stmts = try devLot(arena, stmts, report, &functions);
     checkReserved(g, stmts, report);
@@ -121,12 +119,13 @@ pub const Stream = struct {
 };
 
 /// Is `dev/gauss=` rewritten (`devLot`) on the way from `source` to `g`?
+/// Not where `g` says a variation that way itself (`variation inline`).
 pub fn devLots(g: *const Grammar, source: []const u8) bool {
-    return !std.mem.eql(u8, g.name, source) and !std.mem.eql(u8, g.name, "hspice");
+    return !std.mem.eql(u8, g.name, source) and !g.variation_inline;
 }
 
-/// HSPICE's `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run),
-/// or `/unif`: an entry of its own after the parameter it varies.
+/// `p=nom dev/gauss=s` (per device) and `lot/gauss=s` (per run), or
+/// `/unif`: an entry of its own after the parameter it varies.
 pub fn devLotKey(key: []const u8) ?enum { gauss, unif } {
     const slash = std.mem.indexOfScalar(u8, key, '/') orelse return null;
     const who = key[0..slash];
