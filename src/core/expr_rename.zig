@@ -22,8 +22,8 @@ const wordEnd = expr_scan.wordEnd;
 
 /// `text` with each word `renames` names written as its new name, where the
 /// word is a parameter: not the name of a call, and not a node or a branch
-/// inside a probe (`v()`, `i()`, `vdb()`, `id()`: `argSpace`). `hit` gets each word renamed. The same slice when
-/// there is none.
+/// inside a probe (`v()`, `i()`, `vdb()`, `id()`: `argSpace`). `hit` gets
+/// each word renamed. The same slice when there is none.
 pub fn rename(
     arena: Allocator,
     text: []const u8,
@@ -34,6 +34,7 @@ pub fn rename(
     var copied: usize = 0;
     var i: usize = 0;
     while (i < text.len) {
+        std.debug.assert(copied <= i);
         const c = text[i];
         if (c == '"' or c == '\'') {
             i = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
@@ -85,6 +86,8 @@ pub fn rename(
 
 /// Every call of `m.canon` in `text` as `m.body`, each argument put in
 /// parentheses where the body names it; `n` counts the calls rewritten.
+// tidy: allow(recursion) depth is the nesting of calls in the expression; nothing but
+// the length of its text bounds it
 pub fn applyMeans(
     arena: Allocator,
     text: []const u8,
@@ -120,9 +123,11 @@ pub fn applyMeans(
             try out.appendSlice(arena, text[i..]);
             break;
         };
+        std.debug.assert(close > open);
         // The arguments, themselves rewritten.
         var args: std.ArrayList([]const u8) = .empty;
         var from = open + 1;
+        // Until the last argument, the one no comma ends.
         while (true) {
             const comma = topLevel(text[0..close], from, ',');
             const end = comma orelse close;
@@ -138,39 +143,7 @@ pub fn applyMeans(
             i = close + 1;
             continue;
         }
-        // The body, its parameters replaced; in parentheses unless it is one call.
-        const wrap = !atomic(m.body);
-        if (wrap) try out.append(arena, '(');
-        var k: usize = 0;
-        const body = m.body;
-        while (k < body.len) {
-            const bc = body[k];
-            if ((std.ascii.isAlphabetic(bc) or bc == '_') and
-                (k == 0 or !isWordChar(body[k - 1])))
-            {
-                const e = wordEnd(body, k);
-                const w = body[k..e];
-                const at = for (m.args, 0..) |p, pi| {
-                    if (std.mem.eql(u8, p, w)) break pi;
-                } else null;
-                if (at) |pi| {
-                    const arg = args.items[pi];
-                    // A whole argument of a call in the body needs no parentheses.
-                    const before = std.mem.trimEnd(u8, body[0..k], " \t");
-                    const after = std.mem.trimStart(u8, body[e..], " \t");
-                    const whole = before.len > 0 and (before[before.len - 1] == '(' or before[before.len - 1] == ',') and after.len > 0 and (after[0] == ')' or after[0] == ',');
-                    if (whole or atomic(arg))
-                        try out.appendSlice(arena, arg)
-                    else
-                        try out.print(arena, "({s})", .{arg});
-                } else try out.appendSlice(arena, w);
-                k = e;
-                continue;
-            }
-            try out.append(arena, bc);
-            k += 1;
-        }
-        if (wrap) try out.append(arena, ')');
+        try substitute(arena, &out, m.body, m.args, args.items);
         n.* += 1;
         i = close + 1;
     }
@@ -178,6 +151,55 @@ pub fn applyMeans(
 }
 
 // ---- private ----
+
+/// `body` onto `out`, each of its `params` replaced by that argument of
+/// `args`; in parentheses unless it is one call.
+fn substitute(
+    arena: Allocator,
+    out: *std.ArrayList(u8),
+    body: []const u8,
+    params: []const []const u8,
+    args: []const []const u8,
+) Allocator.Error!void {
+    std.debug.assert(args.len == params.len);
+    const wrap = !atomic(body);
+    if (wrap) try out.append(arena, '(');
+    var k: usize = 0;
+    while (k < body.len) {
+        const bc = body[k];
+        if ((std.ascii.isAlphabetic(bc) or bc == '_') and
+            (k == 0 or !isWordChar(body[k - 1])))
+        {
+            const e = wordEnd(body, k);
+            const w = body[k..e];
+            const at = for (params, 0..) |p, pi| {
+                if (std.mem.eql(u8, p, w)) break pi;
+            } else null;
+            if (at) |pi| {
+                const arg = args[pi];
+                if (wholeArgument(body, k, e) or atomic(arg))
+                    try out.appendSlice(arena, arg)
+                else
+                    try out.print(arena, "({s})", .{arg});
+            } else try out.appendSlice(arena, w);
+            k = e;
+            continue;
+        }
+        try out.append(arena, bc);
+        k += 1;
+    }
+    if (wrap) try out.append(arena, ')');
+}
+
+/// The word `body[k..e]` is a whole argument of a call in the body, which
+/// needs no parentheses.
+fn wholeArgument(body: []const u8, k: usize, e: usize) bool {
+    const before = std.mem.trimEnd(u8, body[0..k], " \t");
+    const after = std.mem.trimStart(u8, body[e..], " \t");
+    const last = if (before.len > 0) before[before.len - 1] else 0;
+    const opens = before.len > 0 and (last == '(' or last == ',');
+    return opens and after.len > 0 and (after[0] == ')' or after[0] == ',');
+}
 
 /// A name, a number or one call: nothing an operator around it could split.
 fn atomic(text: []const u8) bool {

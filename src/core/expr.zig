@@ -8,29 +8,13 @@
 //!
 //! `read` maps a dialect's spelling onto the canonical one and `write` maps
 //! it back, both driven by the `functions`, `variables` and `operators`
-//! sections of the grammar.
+//! sections of the grammar. What else is done with canonical text is in the
+//! files below, re-exported under the same names.
 //!
 //! Contents:
-//! - `pub const isPlainNumber`
-//! - `pub const eval`
-//! - `pub const rename`
-//! - `pub const applyMeans`
-//! - `pub const uses`
-//! - `pub const ternaryToIf`
-//! - `pub const ifToTernary`
-//! - `pub const canonText`
-//! - `pub const Op`
-//! - `pub const arith`
-//! - `pub const halve`
-//! - `pub const Thresholds`
-//! - `pub const thresholds`
-//! - `pub const convert`
-//! - `pub const convertFlat`
 //! - `pub const Problem = struct`
 //! - `pub const Resolver = struct`
-//! - `pub const canon_pow`
-//! - `pub const canon_xor`
-//! - `pub const canon_ne`
+//! - `pub const canon_pow`, `pub const canon_xor`, `pub const canon_ne`
 //! - `pub const param_mark`
 //! - `pub const Funcs`
 //! - `pub const ChoiceForm = enum`
@@ -41,6 +25,11 @@
 //! - `pub fn write(arena: Allocator, g: *const Grammar, text_in: []const u8,
 //!   user_funcs: ?*const Funcs, foreign: bool,
 //!   problems: *std.ArrayList(Problem)) Allocator.Error![]const u8`
+//! - from `expr_arith.zig`: `canonText`, `Op`, `arith`, `halve`, `Thresholds`,
+//!   `thresholds`, `convert`, `convertFlat`
+//! - from `expr_forms.zig`: `uses`, `ternaryToIf`, `ifToTernary`
+//! - from `expr_rename.zig`: `rename`, `applyMeans`
+//! - from `expr_eval.zig`: `isPlainNumber`, `eval`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -125,6 +114,135 @@ pub const Funcs = std.StringHashMapUnmanaged(void);
 
 pub const ChoiceForm = enum { ternary, call };
 
+/// A name `readWord` read: where it ends, its canonical spelling, and
+/// whether the parameter mark goes before it.
+const ReadWord = struct { end: usize, name: []const u8, mark: bool };
+
+/// An operator's canonical name and the length of the spelling matched.
+const OpMatch = struct { canon: []const u8, len: usize };
+
+/// What `write` was given, for the parts of the text it writes.
+const Writing = struct {
+    arena: Allocator,
+    g: *const Grammar,
+    user_funcs: ?*const Funcs,
+    foreign: bool,
+    problems: *std.ArrayList(Problem),
+
+    /// `text` with its choices in the form the target has, where it came
+    /// from another dialect; the rewrite noted, or a choice it cannot say.
+    fn choices(wr: Writing, text: []const u8) Allocator.Error![]const u8 {
+        const has_ternary = spellingOf(wr.g.operators, "ternary") != null;
+        const has_if = spellingOf(wr.g.functions, "if") != null;
+        if (wr.foreign and !has_ternary and has_if and uses(text, "ternary")) {
+            const out = try ternaryToIf(wr.arena, text);
+            try wr.problems.append(wr.arena, .{ .kind = .form, .text = "if" });
+            return out;
+        } else if (wr.foreign and has_ternary and !has_if and uses(text, "if")) {
+            const out = try ifToTernary(wr.arena, text);
+            try wr.problems.append(wr.arena, .{ .kind = .form, .text = "ternary" });
+            return out;
+        } else if (wr.foreign and !has_ternary and uses(text, "ternary")) {
+            try wr.problems.append(wr.arena, .{ .kind = .operator, .text = "ternary" });
+        }
+        return text;
+    }
+
+    /// The marked parameter at `text[i..]`, under its own name; where the
+    /// target spells a variable so, the word is the variable there. Its end.
+    fn writeMarked(
+        wr: Writing,
+        w: *std.Io.Writer,
+        text: []const u8,
+        i: usize,
+    ) Allocator.Error!usize {
+        std.debug.assert(text[i] == param_mark);
+        const cfg = &wr.g.lex;
+        const j = wordEnd(text, i + 1);
+        const word = text[i + 1 .. j];
+        for (wr.g.variables) |v| for (v.spellings) |sp| {
+            if (if (cfg.case_sensitive) std.mem.eql(
+                u8,
+                sp,
+                word,
+            ) else std.ascii.eqlIgnoreCase(sp, word)) try wr.problems.append(
+                wr.arena,
+                .{ .kind = .shadowed, .text = word },
+            );
+        };
+        w.writeAll(word) catch return error.OutOfMemory;
+        return j;
+    }
+
+    /// The name at `text[i..]` in the target's spelling: a function or a
+    /// variable the target lists, else as it is, noted where the target
+    /// may not know it. Its end.
+    fn writeWord(wr: Writing, w: *std.Io.Writer, text: []const u8, i: usize) Allocator.Error!usize {
+        const j = wordEnd(text, i);
+        std.debug.assert(j > i);
+        const name = text[i..j];
+        if (nextIsCall(text, j)) {
+            if (schema.isFunction(name)) {
+                if (spellingOf(wr.g.functions, name)) |s| {
+                    w.writeAll(s) catch return error.OutOfMemory;
+                    return j;
+                }
+                try wr.problems.append(wr.arena, .{ .kind = .function, .text = name });
+            } else if (wr.foreign) {
+                const key = try lowered(wr.arena, name);
+                const defined = if (wr.user_funcs) |uf| uf.contains(key) else false;
+                if (!defined)
+                    try wr.problems.append(wr.arena, .{ .kind = .function, .text = name });
+            }
+        } else if (schema.isVariable(name)) {
+            if (spellingOf(wr.g.variables, name)) |s| {
+                w.writeAll(s) catch return error.OutOfMemory;
+                return j;
+            }
+            try wr.problems.append(wr.arena, .{ .kind = .variable, .text = name });
+        }
+        w.writeAll(name) catch return error.OutOfMemory;
+        return j;
+    }
+
+    /// The canonical power or exclusive-or at `text[i..]`, as the target
+    /// spells it, or as it is and noted.
+    fn writePowXor(
+        wr: Writing,
+        aw: *std.Io.Writer.Allocating,
+        text: []const u8,
+        i: usize,
+    ) Allocator.Error!void {
+        const is_pow = text[i] == '*';
+        if (spellingOf(wr.g.operators, if (is_pow) "pow" else "xor")) |s| {
+            try writeOp(aw, s, text[i + 2 ..]);
+        } else {
+            try wr.problems.append(wr.arena, .{ .kind = .operator, .text = if (is_pow)
+                "pow"
+            else
+                "xor" });
+            aw.writer.writeAll(text[i .. i + 2]) catch return error.OutOfMemory;
+        }
+    }
+
+    /// Note the operator at `text[i]` that the target may not have: `^`,
+    /// ngspice's integer division, modulo and unary not.
+    fn noteUnlisted(wr: Writing, text: []const u8, i: usize, prev_word: bool) Allocator.Error!void {
+        const c = text[i];
+        if (c == '^') try wr.problems.append(wr.arena, .{ .kind = .operator, .text = "^" });
+        // ngspice's integer division.
+        if (c == '\\' and spellingOf(wr.g.operators, "idiv") == null)
+            try wr.problems.append(wr.arena, .{ .kind = .operator, .text = "idiv" });
+        // A `%` glued to a number is the number's suffix (`30%`), not a modulo.
+        const is_not = c == '!' and !(i + 1 < text.len and text[i + 1] == '=');
+        if ((c == '%' and !prev_word) or is_not) {
+            const canon = if (c == '%') "mod" else "not";
+            if (spellingOf(wr.g.operators, canon) == null)
+                try wr.problems.append(wr.arena, .{ .kind = .operator, .text = canon });
+        }
+    }
+};
+
 /// What the names in the parentheses of a call to `word` are: the nodes of
 /// a voltage probe (`v(a,b)`, `vdb(out)`, the forms a `signals` section
 /// spells), the device of a current probe (`i(v1)`, `idb(v1)`) or of a
@@ -153,7 +271,6 @@ pub fn read(
 ) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     const src = std.mem.trim(u8, text, " \t");
-    const cfg = &g.lex;
     var i: usize = 0;
     // What a name is here: a parameter, or what `v(` or `i(` names.
     var space: schema.Space = .param;
@@ -167,49 +284,19 @@ pub fn read(
             i = end + 1;
             continue;
         }
-        const starts_num = std.ascii.isDigit(c) or (c == '.' and i + 1 < src.len and std.ascii.isDigit(src[i + 1]));
-        if (starts_num and !prev_word) {
-            const j = numberEnd(src, i);
-            const word = if (cfg.case_sensitive) src[i..j] else try lowered(arena, src[i..j]);
-            if (lexer.parseNumber(arena, cfg, word)) |n| {
-                try out.appendSlice(arena, n.digits());
-                if (n.exp10 != 0) try out.print(arena, "e{d}", .{n.exp10});
-            } else try out.appendSlice(arena, src[i..j]);
-            i = j;
+        if (startsNumber(src, i) and !prev_word) {
+            i = try readNumber(arena, g, src, i, &out);
             continue;
         }
         if ((std.ascii.isAlphabetic(c) or c == '_' or c == '$') and !prev_word) {
-            const j = wordEnd(src, i);
-            const word = src[i..j];
-            const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
-            const is_call = nextIsCall(src, j);
-            const known = if (is_call)
-                canonOf(g.functions, folded)
-            else
-                canonOf(g.variables, folded);
-            // `@m1[gm]`: the device whose quantity is read.
-            const at_device = i > 0 and src[i - 1] == '@';
-            const name = known orelse try names.resolve(arena, word, if (is_call)
-                null
-            else if (at_device) .instance else space);
-            // A parameter that a variable's canonical name would take for the variable.
-            if (known == null and !is_call and space == .param and schema.isVariable(name))
-                try out.append(arena, param_mark);
-            try out.appendSlice(arena, name);
-            if (is_call) space = argSpace(word);
-            i = j;
+            const word = try readWord(arena, g, names, src, i, &space);
+            if (word.mark) try out.append(arena, param_mark);
+            try out.appendSlice(arena, word.name);
+            i = word.end;
             continue;
         }
         // Operators that differ between dialects; the longest spelling wins.
-        var best: ?struct { canon: []const u8, len: usize } = null;
-        for (g.operators) |op| {
-            for (op.spellings) |spelled| {
-                const s = std.mem.trim(u8, spelled, " ");
-                if (std.mem.startsWith(u8, src[i..], s) and (best == null or s.len > best.?.len))
-                    best = .{ .canon = op.canon, .len = s.len };
-            }
-        }
-        if (best) |b| {
+        if (longestOp(g, src[i..])) |b| {
             try out.appendSlice(arena, if (std.mem.eql(u8, b.canon, "pow"))
                 canon_pow
             else if (std.mem.eql(u8, b.canon, "xor")) canon_xor else src[i .. i + b.len]);
@@ -231,6 +318,7 @@ pub fn read(
         try out.append(arena, c);
         i += 1;
     }
+    std.debug.assert(i == src.len);
     return out.toOwnedSlice(arena);
 }
 
@@ -255,21 +343,16 @@ pub fn write(
     foreign: bool,
     problems: *std.ArrayList(Problem),
 ) Allocator.Error![]const u8 {
-    var text = text_in;
-    const has_ternary = spellingOf(g.operators, "ternary") != null;
-    const has_if = spellingOf(g.functions, "if") != null;
-    if (foreign and !has_ternary and has_if and uses(text, "ternary")) {
-        text = try ternaryToIf(arena, text);
-        try problems.append(arena, .{ .kind = .form, .text = "if" });
-    } else if (foreign and has_ternary and !has_if and uses(text, "if")) {
-        text = try ifToTernary(arena, text);
-        try problems.append(arena, .{ .kind = .form, .text = "ternary" });
-    } else if (foreign and !has_ternary and uses(text, "ternary")) {
-        try problems.append(arena, .{ .kind = .operator, .text = "ternary" });
-    }
+    const wr: Writing = .{
+        .arena = arena,
+        .g = g,
+        .user_funcs = user_funcs,
+        .foreign = foreign,
+        .problems = problems,
+    };
+    const text = try wr.choices(text_in);
     var aw: std.Io.Writer.Allocating = .init(arena);
     const w = &aw.writer;
-    const cfg = &g.lex;
     var i: usize = 0;
     while (i < text.len) {
         const c = text[i];
@@ -280,95 +363,22 @@ pub fn write(
             i = end + 1;
             continue;
         }
-        const starts_num = std.ascii.isDigit(c) or (c == '.' and i + 1 < text.len and std.ascii.isDigit(text[i + 1]));
-        if (starts_num and !prev_word) {
-            var j = i;
-            while (j < text.len and (std.ascii.isDigit(text[j]) or text[j] == '.')) j += 1;
-            if (j < text.len and text[j] == 'e') {
-                var k = j + 1;
-                if (k < text.len and text[k] == '-') k += 1;
-                if (k < text.len and std.ascii.isDigit(text[k])) {
-                    while (k < text.len and std.ascii.isDigit(text[k])) k += 1;
-                    j = k;
-                }
-            }
-            j = wordEnd(text, j);
-            // A scale suffix only where it is exact: inside an expression
-            // the digits stay as written, so it reads back the same.
-            const exact = if (canonNumber(text[i..j])) |n| blk: {
-                if (n.exp10 == 0) break :blk false;
-                for (cfg.scales) |sc| {
-                    if (sc.exp10 != n.exp10) continue;
-                    w.writeAll(n.digits()) catch return error.OutOfMemory;
-                    w.writeAll(sc.suffix) catch return error.OutOfMemory;
-                    break :blk true;
-                }
-                break :blk false;
-            } else false;
-            if (!exact) w.writeAll(text[i..j]) catch return error.OutOfMemory;
-            i = j;
+        if (startsNumber(text, i) and !prev_word) {
+            i = try writeNumber(g, w, text, i);
             continue;
         }
         if (c == param_mark and i + 1 < text.len) {
-            // The parameter, under its own name; where the target spells a
-            // variable so, the word is the variable there.
-            const j = wordEnd(text, i + 1);
-            const word = text[i + 1 .. j];
-            for (g.variables) |v| for (v.spellings) |sp| {
-                if (if (cfg.case_sensitive) std.mem.eql(
-                    u8,
-                    sp,
-                    word,
-                ) else std.ascii.eqlIgnoreCase(sp, word)) try problems.append(
-                    arena,
-                    .{ .kind = .shadowed, .text = word },
-                );
-            };
-            w.writeAll(word) catch return error.OutOfMemory;
-            i = j;
+            i = try wr.writeMarked(w, text, i);
             continue;
         }
         if ((std.ascii.isAlphabetic(c) or c == '_' or c == '$') and !prev_word) {
-            const j = wordEnd(text, i);
-            const word = text[i..j];
-            i = j;
-            if (nextIsCall(text, j)) {
-                if (schema.isFunction(word)) {
-                    if (spellingOf(g.functions, word)) |s| {
-                        w.writeAll(s) catch return error.OutOfMemory;
-                        continue;
-                    }
-                    try problems.append(arena, .{ .kind = .function, .text = word });
-                } else if (foreign) {
-                    const key = try lowered(arena, word);
-                    const defined = if (user_funcs) |uf| uf.contains(key) else false;
-                    if (!defined) try problems.append(arena, .{ .kind = .function, .text = word });
-                }
-            } else if (schema.isVariable(word)) {
-                if (spellingOf(g.variables, word)) |s| {
-                    w.writeAll(s) catch return error.OutOfMemory;
-                    continue;
-                }
-                try problems.append(arena, .{ .kind = .variable, .text = word });
-            }
-            w.writeAll(word) catch return error.OutOfMemory;
+            i = try wr.writeWord(w, text, i);
             continue;
         }
-        if (std.mem.startsWith(
-            u8,
-            text[i..],
-            canon_pow,
-        ) or std.mem.startsWith(u8, text[i..], canon_xor)) {
-            const is_pow = c == '*';
-            if (spellingOf(g.operators, if (is_pow) "pow" else "xor")) |s| {
-                try writeOp(&aw, s, text[i + 2 ..]);
-            } else {
-                try problems.append(arena, .{ .kind = .operator, .text = if (is_pow)
-                    "pow"
-                else
-                    "xor" });
-                w.writeAll(text[i .. i + 2]) catch return error.OutOfMemory;
-            }
+        if (std.mem.startsWith(u8, text[i..], canon_pow) or
+            std.mem.startsWith(u8, text[i..], canon_xor))
+        {
+            try wr.writePowXor(&aw, text, i);
             i += 2;
             continue;
         }
@@ -377,23 +387,122 @@ pub fn write(
             i += 2;
             continue;
         }
-        if (c == '^' and foreign) try problems.append(arena, .{ .kind = .operator, .text = "^" });
-        // ngspice's integer division.
-        if (c == '\\' and foreign and spellingOf(g.operators, "idiv") == null)
-            try problems.append(arena, .{ .kind = .operator, .text = "idiv" });
-        // A `%` glued to a number is the number's suffix (`30%`), not a modulo.
-        if (foreign and ((c == '%' and !prev_word) or (c == '!' and !(i + 1 < text.len and text[i + 1] == '=')))) {
-            const canon = if (c == '%') "mod" else "not";
-            if (spellingOf(g.operators, canon) == null)
-                try problems.append(arena, .{ .kind = .operator, .text = canon });
-        }
+        if (foreign) try wr.noteUnlisted(text, i, prev_word);
         w.writeByte(c) catch return error.OutOfMemory;
         i += 1;
     }
+    std.debug.assert(i == text.len);
     return aw.written();
 }
 
 // ---- private ----
+
+/// A numeric literal starts at `i`: a digit, or a point before one.
+fn startsNumber(text: []const u8, i: usize) bool {
+    const c = text[i];
+    const digit_next = i + 1 < text.len and std.ascii.isDigit(text[i + 1]);
+    return std.ascii.isDigit(c) or (c == '.' and digit_next);
+}
+
+/// The numeric literal at `src[i..]` onto `out` in canonical spelling, or
+/// as written where it is no number; its end.
+fn readNumber(
+    arena: Allocator,
+    g: *const Grammar,
+    src: []const u8,
+    i: usize,
+    out: *std.ArrayList(u8),
+) Allocator.Error!usize {
+    const cfg = &g.lex;
+    const j = numberEnd(src, i);
+    const word = if (cfg.case_sensitive) src[i..j] else try lowered(arena, src[i..j]);
+    if (lexer.parseNumber(arena, cfg, word)) |n| {
+        try out.appendSlice(arena, n.digits());
+        if (n.exp10 != 0) try out.print(arena, "e{d}", .{n.exp10});
+    } else try out.appendSlice(arena, src[i..j]);
+    return j;
+}
+
+/// The name at `src[i..]` in canonical spelling, and whether it takes the
+/// parameter mark; a call sets what the names in its parentheses are.
+fn readWord(
+    arena: Allocator,
+    g: *const Grammar,
+    names: Resolver,
+    src: []const u8,
+    i: usize,
+    space: *schema.Space,
+) Allocator.Error!ReadWord {
+    const cfg = &g.lex;
+    const j = wordEnd(src, i);
+    std.debug.assert(j > i);
+    const word = src[i..j];
+    const folded = if (cfg.case_sensitive) word else try lowered(arena, word);
+    const is_call = nextIsCall(src, j);
+    const known = if (is_call)
+        canonOf(g.functions, folded)
+    else
+        canonOf(g.variables, folded);
+    // `@m1[gm]`: the device whose quantity is read.
+    const at_device = i > 0 and src[i - 1] == '@';
+    const name = known orelse try names.resolve(arena, word, if (is_call)
+        null
+    else if (at_device) .instance else space.*);
+    // A parameter that a variable's canonical name would take for the variable.
+    const mark = known == null and !is_call and space.* == .param and schema.isVariable(name);
+    if (is_call) space.* = argSpace(word);
+    return .{ .end = j, .name = name, .mark = mark };
+}
+
+/// The operator of the grammar that `rest` starts with, the longest
+/// spelling where several do.
+fn longestOp(g: *const Grammar, rest: []const u8) ?OpMatch {
+    var best: ?OpMatch = null;
+    for (g.operators) |op| {
+        for (op.spellings) |spelled| {
+            const s = std.mem.trim(u8, spelled, " ");
+            if (std.mem.startsWith(u8, rest, s) and (best == null or s.len > best.?.len))
+                best = .{ .canon = op.canon, .len = s.len };
+        }
+    }
+    return best;
+}
+
+/// The canonical number at `text[i..]` in the target's spelling: with a
+/// scale suffix only where it is exact, since inside an expression the
+/// digits stay as written, so it reads back the same. Its end.
+fn writeNumber(
+    g: *const Grammar,
+    w: *std.Io.Writer,
+    text: []const u8,
+    i: usize,
+) Allocator.Error!usize {
+    const cfg = &g.lex;
+    var j = i;
+    while (j < text.len and (std.ascii.isDigit(text[j]) or text[j] == '.')) j += 1;
+    std.debug.assert(j > i);
+    if (j < text.len and text[j] == 'e') {
+        var k = j + 1;
+        if (k < text.len and text[k] == '-') k += 1;
+        if (k < text.len and std.ascii.isDigit(text[k])) {
+            while (k < text.len and std.ascii.isDigit(text[k])) k += 1;
+            j = k;
+        }
+    }
+    j = wordEnd(text, j);
+    const exact = if (canonNumber(text[i..j])) |n| blk: {
+        if (n.exp10 == 0) break :blk false;
+        for (cfg.scales) |sc| {
+            if (sc.exp10 != n.exp10) continue;
+            w.writeAll(n.digits()) catch return error.OutOfMemory;
+            w.writeAll(sc.suffix) catch return error.OutOfMemory;
+            break :blk true;
+        }
+        break :blk false;
+    } else false;
+    if (!exact) w.writeAll(text[i..j]) catch return error.OutOfMemory;
+    return j;
+}
 
 /// An operator's spelling. A blank at either end of it is one the target
 /// needs there (Spectre's ` != `), written unless the text has one already.

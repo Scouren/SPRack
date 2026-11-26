@@ -34,12 +34,17 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;
-        if ((at == 0 or !isWordChar(text[at - 1])) and (end == text.len or !isWordChar(text[end])) and nextIsCall(text, end)) return true;
+        std.debug.assert(end <= text.len);
+        const starts = at == 0 or !isWordChar(text[at - 1]);
+        const ends = end == text.len or !isWordChar(text[end]);
+        if (starts and ends and nextIsCall(text, end)) return true;
     }
     return false;
 }
 
 /// `c ? a : b` as `if(c, a, b)`, in every group and argument.
+// tidy: allow(recursion) depth is the nesting of the expression's groups, commas and
+// choices; nothing but the length of its text bounds it
 pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
     if (topLevel(text, 0, ',')) |comma| {
         return std.fmt.allocPrint(
@@ -66,6 +71,7 @@ pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u
             i = end;
         } else if (c == '(') {
             const close = matching(text, i) orelse text.len;
+            std.debug.assert(close > i);
             try out.append(arena, '(');
             try out.appendSlice(arena, try ternaryToIf(arena, text[i + 1 .. close]));
             if (close < text.len) try out.append(arena, ')');
@@ -79,6 +85,8 @@ pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u
 }
 
 /// `if(c, a, b)` as `(c ? a : b)`.
+// tidy: allow(recursion) depth is the nesting of the expression's groups, commas and
+// choices; nothing but the length of its text bounds it
 pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
@@ -106,6 +114,7 @@ pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u
             try out.appendSlice(arena, text[i..]);
             break;
         };
+        std.debug.assert(close > open);
         const inner = text[open + 1 .. close];
         const c1 = topLevel(inner, 0, ',');
         const c2 = if (c1) |x| topLevel(inner, x + 1, ',') else null;
@@ -115,7 +124,11 @@ pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u
             try out.append(arena, ')');
         } else {
             const t = " \t";
-            const parts = [3][]const u8{ inner[0..c1.?], inner[c1.? + 1 .. c2.?], inner[c2.? + 1 ..] };
+            const parts = [3][]const u8{
+                inner[0..c1.?],
+                inner[c1.? + 1 .. c2.?],
+                inner[c2.? + 1 ..],
+            };
             try out.append(arena, '(');
             for (parts, 0..) |part, k| {
                 const conv = std.mem.trim(u8, try ifToTernary(arena, part), t);
@@ -205,6 +218,7 @@ fn minusPow(text: []const u8) bool {
         if (i < text.len and text[i] == '(')
             i = (topLevel(text, i + 1, ')') orelse return false) + 1;
         while (i < text.len and text[i] == ' ') i += 1;
+        std.debug.assert(i <= text.len);
         if (std.mem.startsWith(u8, text[i..], canon_pow)) return true;
     }
     return false;

@@ -3,7 +3,9 @@
 //!
 //! Contents:
 //! - `pub const Op = enum`
-//! - `pub const Thresholds`
+//! - `pub const Thresholds = struct`
+//! - `pub fn thresholds(arena: Allocator, g: *const Grammar, family: []const u8,
+//!   params: []const ir.Param, forward: bool) Allocator.Error!Thresholds`
 //! - `pub fn canonText(arena: Allocator, v: ir.Value) Allocator.Error![]const u8`
 //! - `pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error!ir.Value`
 //! - `pub fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value`
@@ -53,10 +55,12 @@ pub fn thresholds(
             b = p.val;
         } else try rest.append(arena, p);
     }
+    std.debug.assert(at <= rest.items.len);
     if (a == .none) return .{ .params = params };
     if (forward) {
         // on = mid + half, off = mid - half
-        const no_half = b == .none or (b == .num and decimal(b.num) != null and decimal(b.num).?[0] == 0);
+        const zero = b == .num and decimal(b.num) != null and decimal(b.num).?[0] == 0;
+        const no_half = b == .none or zero;
         const h: ir.Value = if (b == .none) .{ .num = .init("0", 0) } else b;
         try rest.insertSlice(arena, at, &.{
             .{ .key = th.on, .val = try arith(arena, .add, a, h) },
@@ -117,6 +121,8 @@ pub fn arith(arena: Allocator, op: Op, a: ir.Value, b: ir.Value) Allocator.Error
                 d = -d;
                 m = -m;
             }
+            // So that each division below ends.
+            std.debug.assert(d > 0);
             while (@rem(d, 10) == 0) : (ex -= 1) d = @divExact(d, 10);
             while (@rem(d, 2) == 0) : (ex -= 1) {
                 d = @divExact(d, 2);
@@ -179,6 +185,7 @@ pub fn halve(arena: Allocator, v: ir.Value) Allocator.Error!ir.Value {
 /// values into the dialect's (writing), otherwise the dialect's into
 /// canonical ones (reading, in reverse order). Values are copied before
 /// they change; bodies are walked too.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn convert(
     arena: Allocator,
     g: *const Grammar,
@@ -231,6 +238,7 @@ pub fn convertFlat(
                 }
                 continue;
             }
+            std.debug.assert(cv.op != .wrap);
             const from = if (forward) cv.src else cv.dst;
             const to = if (forward) cv.dst else cv.src;
             const v = st.at(from);

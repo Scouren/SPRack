@@ -42,15 +42,19 @@ const Eval = struct {
     }
 
     fn op(e: *Eval, spelling: []const u8) bool {
-        while (e.at < e.text.len and (e.text[e.at] == ' ' or e.text[e.at] == '\t')) e.at += 1;
+        var at = e.at;
+        while (at < e.text.len and (e.text[at] == ' ' or e.text[at] == '\t')) at += 1;
+        e.at = at;
         if (!std.mem.startsWith(u8, e.text[e.at..], spelling)) return false;
         e.at += spelling.len;
         return true;
     }
 
     fn binary(e: *Eval, level: usize) ?f64 {
+        std.debug.assert(level <= levels.len);
         if (level == levels.len) return e.unary();
         var a = e.binary(level + 1) orelse return null;
+        // Until no operator of this level follows.
         next: while (true) {
             for (levels[level]) |o| {
                 if (!e.op(o)) continue;
@@ -77,6 +81,7 @@ const Eval = struct {
     }
 
     fn unary(e: *Eval) ?f64 {
+        std.debug.assert(e.at <= e.text.len);
         if (e.op("-")) return -(e.unary() orelse return null);
         if (e.op("!")) return if ((e.unary() orelse return null) == 0) 1 else 0;
         if (e.op("(")) {
