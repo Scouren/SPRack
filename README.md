@@ -220,7 +220,8 @@ Windows. `auditwheel show` agrees with both Linux tags; the extension needs
 only glibc 2.28 and nothing to repair. `pip wheel . --config-settings
 target=x86_64-windows` builds the Windows wheel on another host.
 The sdist ships what `zig build py` needs: `build.zig`, `build.zig.zon`,
-`src`, `grammars`, `python`, `tools/wheel_backend.py`, `pyproject.toml`,
+`src`, `grammars`, `python`, `tools/wheel_backend.py`,
+`tools/grammar_gen.zig`, `pyproject.toml`,
 `LICENSE` and this file.
 
 ## Status
