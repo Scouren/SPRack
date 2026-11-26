@@ -1,56 +1,19 @@
 //! Numbers: a literal with its dialect's scale factors read exactly, and a
 //! number spelled back with the shortest suffix that is exact.
+//!
+//! Contents:
+//! - `pub fn shiftDecimal(arena: Allocator, digits: []const u8,
+//!   exp10: i32) Allocator.Error!?[]const u8`
+//! - `pub fn parseNumber(arena: Allocator, cfg: *const LexCfg, text: []const u8) ?ir.Number`
+//! - `pub fn renderNumber(w: *std.Io.Writer, cfg: *const LexCfg,
+//!   n: ir.Number) std.Io.Writer.Error!void`
 
 const std = @import("std");
 const grammar = @import("grammar");
 const ir = @import("ir");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const LexCfg = grammar.LexCfg;
-
-// ------------------------------------------------------------------ numbers
-
-/// Multiply a decimal literal by an integer, digit by digit. No floating
-/// point is involved, so `1mil` is exactly 25.4e-6.
-fn mulDecimal(arena: Allocator, mant: []const u8, k: u64) Allocator.Error![]const u8 {
-    const neg = mant.len > 0 and mant[0] == '-';
-    const body = if (neg) mant[1..] else mant;
-    var digits: std.ArrayList(u8) = .empty;
-    var frac: usize = 0;
-    var seen_point = false;
-    for (body) |c| {
-        if (c == '.') {
-            seen_point = true;
-        } else {
-            try digits.append(arena, c - '0');
-            if (seen_point) frac += 1;
-        }
-    }
-    var out: std.ArrayList(u8) = .empty; // least significant digit first
-    var carry: u64 = 0;
-    var i = digits.items.len;
-    while (i > 0) {
-        i -= 1;
-        const v = digits.items[i] * k + carry;
-        try out.append(arena, @intCast(v % 10));
-        carry = v / 10;
-    }
-    while (carry > 0) : (carry /= 10) try out.append(arena, @intCast(carry % 10));
-    while (out.items.len <= frac) try out.append(arena, 0);
-    var text: std.ArrayList(u8) = .empty;
-    if (neg) try text.append(arena, '-');
-    var j = out.items.len;
-    while (j > 0) {
-        j -= 1;
-        try text.append(arena, '0' + out.items[j]);
-        if (j == frac and frac > 0) try text.append(arena, '.');
-    }
-    var res: []const u8 = text.items;
-    if (frac > 0) {
-        res = std.mem.trimEnd(u8, res, "0");
-        res = std.mem.trimEnd(u8, res, ".");
-    }
-    return res;
-}
 
 /// Move the decimal point instead of writing an exponent, when that stays short.
 pub fn shiftDecimal(arena: Allocator, digits: []const u8, exp10: i32) Allocator.Error!?[]const u8 {
@@ -65,6 +28,7 @@ pub fn shiftDecimal(arena: Allocator, digits: []const u8, exp10: i32) Allocator.
     while (pos <= 0) : (pos += 1) try all.insert(arena, 0, '0');
     while (pos > all.items.len) try all.append(arena, '0');
     const p: usize = @intCast(pos);
+    assert(p <= all.items.len);
     var out: std.ArrayList(u8) = .empty;
     if (neg) try out.append(arena, '-');
     try out.appendSlice(arena, all.items[0..p]);
@@ -99,6 +63,8 @@ pub fn parseNumber(arena: Allocator, cfg: *const LexCfg, text: []const u8) ?ir.N
     var mant = text[0..i];
     if (mant[mant.len - 1] == '.') mant = mant[0 .. mant.len - 1];
     if (mant.len > 0 and mant[0] == '+') mant = mant[1..];
+    // At least one digit, which neither a sign nor a point is.
+    assert(mant.len > 0);
 
     var exp: i32 = 0;
     if (i < text.len and (text[i] == 'e' or text[i] == 'E')) {
@@ -152,6 +118,7 @@ pub fn parseNumber(arena: Allocator, cfg: *const LexCfg, text: []const u8) ?ir.N
 /// plain exponent notation otherwise. No arithmetic, so nothing is rounded.
 pub fn renderNumber(w: *std.Io.Writer, cfg: *const LexCfg, n: ir.Number) std.Io.Writer.Error!void {
     if (n.exp10 == 0) return w.writeAll(n.digits());
+    assert(n.exp10 != 0);
     for (cfg.scales) |s| {
         if (s.exp10 == n.exp10) {
             try w.writeAll(n.digits());
@@ -182,4 +149,53 @@ pub fn renderNumber(w: *std.Io.Writer, cfg: *const LexCfg, n: ir.Number) std.Io.
         }
     }
     try w.writeAll(best);
+}
+
+// ---- private ----
+
+// ------------------------------------------------------------------ numbers
+
+/// Multiply a decimal literal by an integer, digit by digit. No floating
+/// point is involved, so `1mil` is exactly 25.4e-6.
+fn mulDecimal(arena: Allocator, mant: []const u8, k: u64) Allocator.Error![]const u8 {
+    const neg = mant.len > 0 and mant[0] == '-';
+    const body = if (neg) mant[1..] else mant;
+    var digits: std.ArrayList(u8) = .empty;
+    var frac: usize = 0;
+    var seen_point = false;
+    for (body) |c| {
+        if (c == '.') {
+            seen_point = true;
+        } else {
+            try digits.append(arena, c - '0');
+            if (seen_point) frac += 1;
+        }
+    }
+    var out: std.ArrayList(u8) = .empty; // least significant digit first
+    var carry: u64 = 0;
+    var i = digits.items.len;
+    while (i > 0) {
+        i -= 1;
+        const v = digits.items[i] * k + carry;
+        try out.append(arena, @intCast(v % 10));
+        carry = v / 10;
+    }
+    while (carry > 0) : (carry /= 10) try out.append(arena, @intCast(carry % 10));
+    while (out.items.len <= frac) try out.append(arena, 0);
+    // A digit before the point, however many there are after it.
+    assert(out.items.len > frac);
+    var text: std.ArrayList(u8) = .empty;
+    if (neg) try text.append(arena, '-');
+    var j = out.items.len;
+    while (j > 0) {
+        j -= 1;
+        try text.append(arena, '0' + out.items[j]);
+        if (j == frac and frac > 0) try text.append(arena, '.');
+    }
+    var res: []const u8 = text.items;
+    if (frac > 0) {
+        res = std.mem.trimEnd(u8, res, "0");
+        res = std.mem.trimEnd(u8, res, ".");
+    }
+    return res;
 }

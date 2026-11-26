@@ -1,26 +1,36 @@
 //! Turns source text into logical lines and tokens, driven entirely by the
 //! `lexer` section of a grammar: comments, continuation, case folding,
 //! expression delimiters and scale factors are data, not code.
+//!
+//! The logical lines are `lines.zig`, cutting one into tokens `tokens.zig`,
+//! numbers and their scale factors `numbers.zig`. This file holds the
+//! tokens themselves and the window of them a reader looks at.
+//!
+//! Contents:
+//! - `pub const TokTag = enum`
+//! - `pub const Tok = struct`, with `pub const Flags = packed struct(u8)`
+//! - `pub const LineKind = enum`
+//! - `pub const Line = struct`
+//! - `pub const Window = struct`, with `pub fn init`, `pub fn deinit`, `pub fn has`,
+//!   `pub fn rewind`, `pub fn drop`
+//! - `pub const Lines = lines.Lines` (`lines.zig`)
+//! - `pub const isIdent`, `pub const isNameLike` (`tokens.zig`)
+//! - `pub const parseNumber`, `pub const renderNumber` (`numbers.zig`)
 
 const std = @import("std");
 const grammar = @import("grammar");
 const ir = @import("ir");
-const Allocator = std.mem.Allocator;
-const LexCfg = grammar.LexCfg;
-
 const logical = @import("lines.zig");
 const tokens = @import("tokens.zig");
 const numbers = @import("numbers.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const LexCfg = grammar.LexCfg;
 const startsWithAny = logical.startsWithAny;
 const commentText = logical.commentText;
 const tokenizeLine = tokens.tokenizeLine;
 const shiftDecimal = numbers.shiftDecimal;
-
-pub const Lines = logical.Lines;
-pub const isIdent = tokens.isIdent;
-pub const isNameLike = tokens.isNameLike;
-pub const parseNumber = numbers.parseNumber;
-pub const renderNumber = numbers.renderNumber;
+const testing = std.testing;
 
 pub const TokTag = enum { word, str, expr, vec, eq, lparen, rparen, nl, comment, blank };
 
@@ -54,9 +64,13 @@ pub const LineKind = enum { code, comment, blank };
 /// A logical line: a statement with its continuation lines joined, or one
 /// comment line, or a run of blank lines. `gen`: which of `Lines.gens`
 /// holds the text made for it.
-pub const Line = struct { text: []const u8, no: u32, kind: LineKind = .code, gen: u1 =
-    0,
-    tail: []const u8 = "" };
+pub const Line = struct {
+    text: []const u8,
+    no: u32,
+    kind: LineKind = .code,
+    gen: u1 = 0,
+    tail: []const u8 = "",
+};
 
 /// The tokens of a few logical lines at a time. A pass over a netlist lexes
 /// each line when it reaches it and forgets it once it is read: the tokens
@@ -84,10 +98,10 @@ pub const Window = struct {
     /// run out. A line is lexed whole: every token up to the `nl` that ends
     /// the line of token `i` is there too.
     pub fn has(w: *Window, i: usize) Allocator.Error!bool {
+        // Bounded by the lines: each pass lexes one more, until there are none.
         while (i >= w.toks.items.len) {
             if (!try w.lines.has(w.next)) return false;
-            try w.lexLine(w.next);
-            w.next += 1;
+            try w.lexNext();
         }
         return true;
     }
@@ -114,6 +128,12 @@ pub const Window = struct {
         w.lines.release(w.toks.items[0].lno);
     }
 
+    /// Lex the next line.
+    fn lexNext(w: *Window) Allocator.Error!void {
+        try w.lexLine(w.next);
+        w.next += 1;
+    }
+
     fn lexLine(w: *Window, lno: u32) Allocator.Error!void {
         const ln = w.lines.get(lno);
         const cfg = w.cfg;
@@ -127,20 +147,18 @@ pub const Window = struct {
             try w.toks.append(ir.big, .{ .tag = .nl, .text = "", .raw = "", .lno = lno });
             return;
         }
-        try tokenizeLine(
-            w.scratch.allocator(),
-            w.lines.textFor(lno),
-            ir.big,
-            cfg,
-            ln.text,
-            lno,
-            &w.toks,
-        );
+        try tokenizeLine(w.scratch.allocator(), w.lines.textFor(lno), cfg, ln.text, lno, &w.toks);
         try w.toks.append(ir.big, .{ .tag = .nl, .text = ln.tail, .raw = "", .lno = lno });
+        // A line is lexed whole, up to the `nl` that ends it.
+        assert(w.toks.items[w.toks.items.len - 1].tag == .nl);
     }
 };
 
-const testing = std.testing;
+pub const Lines = logical.Lines;
+pub const isIdent = tokens.isIdent;
+pub const isNameLike = tokens.isNameLike;
+pub const parseNumber = numbers.parseNumber;
+pub const renderNumber = numbers.renderNumber;
 
 const spice_cfg: LexCfg = .{
     .line_comments = &.{"*"},
