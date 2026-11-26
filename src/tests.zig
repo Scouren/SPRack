@@ -4737,6 +4737,30 @@ test "VACASK capacitor: ic= is a DC source in series, q= a behavioural source of
     try reported(&r6, .@"error", "function 'ddt' has no spelling in xyce");
 }
 
+test "Spectre capacitor: q= is an error, not written" {
+    // docs/verification.md 4.39: the Components Reference (23.1) lists no
+    // charge among the capacitor's instance parameters; not run in Spectre.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a b 100k\nCg b 0 q='1p*v(b)'\n.tran 1n 300n\n.end\n", &r);
+    try testing.expect(std.mem.indexOf(u8, out, "q=") == null);
+    try reported(&r, .@"error", "capacitor: 'q=1e-12*v(b)' has no spelling in spectre");
+}
+
+test "Spectre options: trtol and chgtol are errors that give the reason" {
+    // docs/verification.md 4.39: the User Guide (13.1.1) has lteratio and
+    // no charge tolerance.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.options trtol=1 chgtol=1e-14\n.op\n.end\n", &r);
+    try reported(&r, .@"error", "options.trtol = 1 has no spelling in spectre: Spectre's truncation-error factor is lteratio");
+    try reported(&r, .@"error", "options.chgtol = 1e-14 has no spelling in spectre: Spectre has no charge tolerance");
+}
+
 test "Xyce: a diode card of ngspice's level 3 is an error, a level 1 card is not" {
     // docs/verification.md 4.20: Xyce 7.10 has diode levels 1, 2, 200 and 2002.
     var arena_state: Arena = .init(testing.allocator);

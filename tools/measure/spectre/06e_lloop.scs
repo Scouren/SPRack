@@ -1,0 +1,10 @@
+// #57 item 6 (requires no-lloop error): two 1 uH inductors in parallel fed
+// through 1k from 1 V. ngspice and Xyce: 0.5 mA in each.
+simulator lang=spectre
+v1 (in 0) vsource dc=1
+r1 (in a) resistor r=1k
+l1 (a 0) inductor l=1u
+l2 (a 0) inductor l=1u
+op1 dc
+tran1 tran stop=1m
+tran2 tran stop=1m skipdc=yes

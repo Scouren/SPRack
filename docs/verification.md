@@ -1998,13 +1998,37 @@ divider of check 6, so they are written `ac 1`.
 ### 4.39 Spectre checks waiting for a run (#57)
 
 Issue 57's fourteen checks need Spectre 25.10, which this environment has
-not. Their decks are in `tools/measure/spectre/` with what to read; the
-statistics deck is SPRack's own translation of an HSPICE deck that uses
-`agauss`, `aunif` and a subcircuit's random parameter, so the run checks
-exactly what the writer emits (the helper `parameters` line written after
-the lines that use it is one of its questions). Until the runs are here:
-the `measure` reason, the capacitor's `q` and the statistics lowering stay
-as they are.
+not. Their decks are in `tools/measure/spectre/` with what to read. Each
+row says where its answer stands: **measured** (and where), **documented**
+(Cadence's text, not a run: the User Guide is *Virtuoso Spectre Circuit
+Simulator and Accelerated Parallel Simulator User Guide*, Product Version
+13.1.1, April 2014; the Components Reference is *Spectre Circuit Simulator
+Components and Device Models Reference*, Product Version 23.1, June 2023),
+or **needs a run**. Documented rows are older than 25.10 and are confirmed
+by the deck named. A row is closed when its 25.10 result is written here.
+
+| item | deck | status | what is known |
+|---|---|---|---|
+| 1a | `01_statistics.scs` | measured in part (#70, 4.42) | SPRack's form loaded in 25.10: a `parameters sprack_rv_...=0` line after the lines that use it, a top-level parameter in `mismatch`, `std=(30)/(3)`. The User Guide: only a parameter declared with a number can be varied (SPRack's helpers are `=0`). Not run: the whole deck (`dist=unif`, a helper inside an expression of a top-level parameter) |
+| 1b | 4.42's deck | measured (#70, 4.42) | 25.10, 200 runs, `variations=all`: node a std 0.0108 (p1 std 10 gives 0.01), node b std 0.000365. Xyce 7.10, the HSPICE form of the same deck translated by SPRack (`.sampling`, 200 samples, run here): node a mean 1.00113 std 0.0101967; node b mean 0.500051 std 0.00036275, 0.499247 to 0.501037. Both draw the subcircuit's value per instance (for two 1k of std 1 in series, sqrt(2)/4000 = 0.000354) |
+| 1c | `01_statistics.scs` | documented (User Guide, "Uniform") | `x = unif(mean-N, mean+N)`, `std=N/sqrt(3)`; `dist=unif N=5` on 200 gives 195 to 205. So `vary p3 dist=unif N=30` on 1000 is 970 to 1030 |
+| 2 | `02_exp_zeros.scs`, `02_exp_start.scs` | needs a run | v(nX) at 10n, 30n, 49n if a 0 is taken as left out (TAU 0.5n, no fall without TD2): v1 1, 1, 1; v2 0.864665, 0.997521, 0.999945; v3 1, 0.135335, 0.003028; v4 0.798103, 0.996302, 0.999917; v5 0.798103, -0.003698, -0.000083; v6 0.864665, 0.132857, 0.002972; v7 as v4. A TAU of 0 taken as 0 is a step (or refused, as a pulse's rise of 0 is); a TD2 of 0 a fall from 0 |
+| 3 | `03_measure_in_spice.scs` | needs a run | Cadence (MDL User Guide 23.1, appendix B): without MDL "the .measure/.probe/.print statements defined in the netlist" take effect. Which kinds and where the results go: not documented here |
+| 4 | `04_capacitor_q.scs` | documented (Components Reference, capacitor) | instance parameters `c c0 w l m scale trise tc1 tc2 ic area perim coeffs symmetric bv_max scalec bv_min`: no `q`. The grammar no longer lists it, so a `q=` into Spectre is an error |
+| 5 | `05_lteratio.scs` | documented in part, needs a run | User Guide: `ToleranceLTE = ToleranceNR * lteratio`, default 3.5 (SPICE's trtol is 7 on a tolerance of its own). No charge tolerance: the seven quantities a `quantity` statement sets (I, MMF, V, Wb, Temp, Pwr, U) have no charge, and the guide has no `chgtol`. Both are `no options` lines with these reasons; trtol gets a form only if the tank (ngspice: 0.9996779 at trtol 7, 0.1540101 at 70, 4.19) moves alike under lteratio 3.5 and 35 |
+| 6 | `06a`..`06e` | documented in part, needs a run | User Guide: a node with no DC path gets a 1e12 ohm gmin to ground ("No DC path from node ... Gmin installed"); a singular matrix is "a floating node ... or a loop of zero resistance branches, for example, a loop of voltage sources or inductors". The `requires` lines' comment reports 23.10 and 25.10 runs that this page has no numbers for |
+| 7 | `07a_unique_param.scs`, `07b_unique_master.scs` | needs a run; the User Guide disagrees with the grammar | User Guide, "Duplicate Specification of Parameters": "If a parameter is specified more than once in the netlist, the Spectre cicruit [sic] simulator uses the last specified value." `unique param` says Spectre stops. Nothing found on a model and a subcircuit of one name |
+| 8 | `08_readscale.scs` | documented (User Guide, scale factors) | Spectre mode: `_=1`, `%=1e-2`, `c=1e-2` among the SI factors, case sensitive. So 1, 0.5, 0.5 |
+| 9 | `09_psp_pac.scs` | needs a run | Components Reference, vsource: `pacmag=0 V` "Periodic AC analysis magnitude", `mag` "Small signal voltage"; "In AC analyses, the only active parameters are m, mag and phase". Whether a pac with no pacmag stops, or runs at 0: not documented. psp's `ports=`: not found |
+| 10 | `10_library_sections.scs` | documented (User Guide, "Library Reference") | "When the file is being inserted, only the named section is actually included." Whether the other sections' includes are opened is not said |
+| 11 | `11_tf_current.scs` | documented in part, needs a run | User Guide: an instance that "measures a branch current" can be a current or a voltage probe; `xf ... probe=Rload` computes "all transfer functions ... to a probe component". Which a vsource probe is by default, and so 1e-3: not documented |
+| 12 | `12_element_variation.scs` | documented: no form found | The only by-type variation in the User Guide is XPS's `vary ids primitive=[bsim4]` under `montecarlo method=vade`, which varies a MOSFET's drain current, not a resistor's or capacitor's value. The `caveat statgroup scope=*element` line stands |
+| 13 | `13_save_all.scs` | documented (User Guide, `save` option) | `allpub`: "Saves only signals that are normally useful. Normally useful signals include shared node voltages and currents through voltage sources and iprobes"; `all` adds internal nodes. The HSPICE reader does not read `.print tran all` yet (#56) |
+| 14 | `14_mos_levels.scs` | documented, needs a run | Components Reference contents: "BSIM1 Level-4 Model (bsim1)", "BSIM2 Level-5 Model (bsim2)"; no mos6 or mos9 (its "Compact MOS-Transistor Model" entries `mos902`, `mos903` are not shown to be ngspice's level 9); `b3soipd` is among the User Guide's stb devices. b3soifd, b3soidd: not found |
+
+What the documented rows changed: the capacitor's `q` left the grammar
+(item 4), and `trtol` and `chgtol` give their reasons (item 5). The other
+grammar lines keep their present marks until their run is here.
 
 ### 4.40 DC paths and source loops (the `requires` lines)
 

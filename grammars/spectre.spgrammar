@@ -31,7 +31,7 @@ lexer
   quotes     '"' string          # parameters t2="a*3" is a string (0 as a number); r="2*rv" is refused
   values     idents
   scale      M=6 T=12 G=9 k=3 K=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
-  readscale  _=0 %=-2 c=-2
+  readscale  _=0 %=-2 c=-2   # the User Guide's scale factors (13.1.1; docs/verification.md 4.39), not run
   units      after-scale
   numbers    strict           # version=3.3.0 does not load
 end
@@ -199,7 +199,8 @@ block statgroup
 end
 caveat statgroup scope=*element : Spectre varies netlist parameters (vary), not every element of a type; an HSPICE element variation has no form here (#57)
 # A uniform distribution's N is its half width; an std given instead is
-# turned into N with a factor of sqrt(3).
+# turned into N with a factor of sqrt(3) (the User Guide 13.1.1: unif(mean-N,
+# mean+N), std=N/sqrt(3); docs/verification.md 4.39).
 rule  vary      = "vary" param { dist=dist std=std N=range ...params }
 rule  correlate = "correlate" { param=[names]! cc=cc ...params }
 # Without variations=, Spectre varies the process block alone: a mismatch
@@ -233,6 +234,12 @@ no lossyline : this grammar has no form for Spectre's lossy lines; their models 
 no tf iout   : this grammar has no Spectre form for a current as the output of xf; that xf's probe= gives the current through that source, and with which sign, is not established without a Spectre run
 no simctl  : Spectre has no control commands of this kind; its analyses and options are netlist statements
 no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
+# The User Guide (13.1.1) has no charge tolerance: no chgtol, and no charge
+# among the quantities whose abstol a quantity statement sets. Its LTE
+# tolerance is the Newton tolerance times lteratio (default 3.5), not yet
+# measured against SPICE's trtol (docs/verification.md 4.39).
+no options trtol  : Spectre's truncation-error factor is lteratio, on a Newton tolerance of its own (default 3.5 where SPICE's trtol is 7); the two are not measured to give the same step
+no options chgtol : Spectre has no charge tolerance: its quantity statement sets abstol for current, voltage, flux, power, temperature and unitless quantities, not charge
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 # analyses (b3)
@@ -394,8 +401,10 @@ params resistor
   dtemp = dtemp trise
   noisy = isnoisy
 end
+# No q: the Components Reference (23.1) lists no charge among the
+# capacitor's instance parameters (docs/verification.md 4.39).
 params capacitor
-  same ic l m>0 q scale tc1 tc2 w
+  same ic l m>0 scale tc1 tc2 w
   dtemp = dtemp trise
 end
 params inductor

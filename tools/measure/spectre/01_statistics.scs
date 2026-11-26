@@ -13,7 +13,7 @@ x1 (in 0) cell
 x2 (in 0) cell
 v1 (in 0) vsource dc=1
 r5 (in 0) resistor r=p5+p3
-mc1 montecarlo numruns=200 {
+mc1 montecarlo numruns=200 variations=all {
 tran1 tran step=1n stop=10n
 }
 parameters sprack_rv_p5=0 sprack_rv_cell_pm=0

@@ -1,8 +1,10 @@
-// #57 item 11: the transfer function to the current through vmeasure, in
-// the form SPRack writes; expect 1e-3.
+// #57 item 11: the transfer function from vin to the current through
+// vmeasure, in the form SPRack writes tf (xf at 0 Hz) with the output a
+// probe instead of a node pair; expect 1e-3 (A/V) for vin. dcxf is VACASK's
+// name, tried in case Spectre has it too.
 simulator lang=spectre
-v1 (a 0) vsource dc=1
-r1 (a b) resistor r=1k
-vmeasure (b 0) vsource dc=0
-xf1 xf probe=vmeasure
+vin (in 0) vsource dc=1
+vmeasure (in mid) vsource dc=0
+r1 (mid 0) resistor r=1k
+xf1 xf freq=0 probe=vmeasure
 tf1 dcxf probe=vmeasure

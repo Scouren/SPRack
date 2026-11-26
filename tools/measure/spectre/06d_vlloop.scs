@@ -1,0 +1,7 @@
+// #57 item 6 (requires no-vlloop error): a 1 V source across a 1 uH inductor.
+simulator lang=spectre
+v1 (a 0) vsource dc=1
+l1 (a 0) inductor l=1u
+op1 dc
+tran1 tran stop=1m
+tran2 tran stop=1m skipdc=yes

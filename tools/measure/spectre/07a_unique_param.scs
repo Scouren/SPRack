@@ -1,0 +1,13 @@
+// #57 item 7 (unique param): a name set twice in one parameters line, and
+// again on a second line. i(v1): -1m (first), -0.5m (last), or a stop.
+// The User Guide 13.1.1 says the last value is used; the grammar says
+// Spectre stops. If it stops, run with only the a line, then only the b lines.
+simulator lang=spectre
+parameters a=1k a=2k
+parameters b=1k
+parameters b=2k
+v1 (n1 0) vsource dc=1
+r1 (n1 0) resistor r=a
+v2 (n2 0) vsource dc=1
+r2 (n2 0) resistor r=b
+op1 dc

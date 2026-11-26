@@ -1,0 +1,8 @@
+// #57 item 2, second part: TD1 given, TAU1 left out, with a start of 10n.
+// Read v(b) at 12.5n: 0.632121 if TAU1 is stop/100 (0.5n), 0.713495 if it
+// is (stop-start)/100 (0.4n); another value is another rule.
+simulator lang=spectre
+vb (b 0) vsource type=exp val0=0 val1=1 td1=12n
+rb (b 0) resistor r=1k
+tran1 tran step=2n stop=50n start=10n maxstep=0.05n
+save b

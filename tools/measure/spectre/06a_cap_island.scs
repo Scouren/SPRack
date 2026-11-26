@@ -1,0 +1,9 @@
+// #57 item 6 (requires dc-path): node b reached only through capacitors.
+// Read v(b) in op1, and at 0 and 1m in tran1 and tran2.
+simulator lang=spectre
+v1 (a 0) vsource dc=1
+c1 (a b) capacitor c=1u
+c2 (b 0) capacitor c=1u
+op1 dc
+tran1 tran stop=1m
+tran2 tran stop=1m skipdc=yes

@@ -1,0 +1,12 @@
+// #57 item 7 (unique master): x1's master rr is both a subcircuit (1k) and
+// a diode model. i(v1): -1m if the subcircuit is taken, hundreds of amperes
+// if the diode is. Run as it is and with the model line moved above the
+// subcircuit.
+simulator lang=spectre
+subckt rr (p n)
+r1 (p n) resistor r=1k
+ends rr
+model rr diode is=1e-14
+v1 (a 0) vsource dc=1
+x1 (a 0) rr
+op1 dc

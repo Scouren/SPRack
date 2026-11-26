@@ -1,0 +1,7 @@
+// #57 item 6 (dc-path / cutset): 1 mA into a node that has only a capacitor.
+simulator lang=spectre
+i1 (0 a) isource dc=1m
+c1 (a 0) capacitor c=1u
+op1 dc
+tran1 tran stop=1m
+tran2 tran stop=1m skipdc=yes

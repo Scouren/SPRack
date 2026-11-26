@@ -1,0 +1,8 @@
+// #57 item 6 (requires no-vloop error): two voltage sources in parallel.
+simulator lang=spectre
+v1 (a 0) vsource dc=1
+v2 (a 0) vsource dc=2
+r1 (a 0) resistor r=1k
+op1 dc
+tran1 tran stop=1m
+tran2 tran stop=1m skipdc=yes
