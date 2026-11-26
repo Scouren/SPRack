@@ -11,10 +11,12 @@
 const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
+const ir = @import("ir");
 const emit = @import("emit.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Emit = emit.Emit;
+const Value = ir.Value;
 const reasonFor = emit.reasonFor;
 
 pub fn lost(e: *Emit, idx: u8) Allocator.Error!bool {
@@ -41,11 +43,53 @@ pub fn lossCount(e: *Emit) Allocator.Error!usize {
 }
 
 pub fn reportLosses(e: *Emit) Allocator.Error!void {
-    // The target's caveats on writing it, the source's on reading it.
+    reportCaveats(e);
+    if (e.lost_flags > 0) reportFlags(e);
+    for (0..schema.info(e.st.kind).slots.len) |i| {
+        const v = e.st.at(i);
+        const idx: u8 = @intCast(i);
+        if (!try e.lost(idx)) continue;
+        // What is lost is what no rule wrote.
+        assert(!e.isUsed(idx));
+        const label = schema.info(e.st.kind).class == .analysis and e.slot(idx).ty == .name;
+        if (label) {
+            e.report.add(
+                .info,
+                .cosmetic,
+                e.st.line,
+                "{s}: {s} does not name its analyses; the label '{s}' is not written",
+                .{ @tagName(e.st.kind), e.g.name, try e.describe(v) },
+            );
+            continue;
+        }
+        if (e.slot(idx).ty == .params and v == .params) {
+            try reportParams(e, v);
+            continue;
+        }
+        const why = e.g.slotAbsentReason(e.st.kind, idx);
+        e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in " ++
+            "{s}{s}{s}", .{
+            @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name,
+            if (why != null)
+                ": "
+            else
+                "",
+            why orelse "",
+        });
+    }
+}
+
+// ---- private ----
+
+/// The target's caveats on writing a slot the rule wrote, the source's on
+/// reading it.
+fn reportCaveats(e: *Emit) void {
     const src: []const grammar.Caveat = if (e.sourceGrammar()) |sg| sg.caveats else &.{};
     for ([_][]const grammar.Caveat{ e.g.caveats, src }, [_]bool{ false, true }) |cs, read|
         for (cs) |c| {
             if (c.read == read and e.foreign and c.kind == e.st.kind and e.isUsed(c.slot)) {
+                // The grammar names a slot of the caveat's kind, the statement's.
+                assert(c.slot < schema.info(e.st.kind).slots.len);
                 if (c.suffix.len > 0) {
                     const v = e.st.at(c.slot);
                     const t: []const u8 = switch (v) {
@@ -64,68 +108,52 @@ pub fn reportLosses(e: *Emit) Allocator.Error!void {
                         "{s}.{s}: {s}; it is {s} text, written as it was",
                         .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text, e.source },
                     );
-                } else e.report.add(.warning, .caveat, e.st.line, "{s}.{s}: {s}", .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text });
+                } else e.report.add(
+                    .warning,
+                    .caveat,
+                    e.st.line,
+                    "{s}.{s}: {s}",
+                    .{ @tagName(e.st.kind), e.slot(c.slot).name, c.text },
+                );
             }
         };
-    if (e.lost_flags > 0) {
-        for (e.st.values()) |v| {
-            if (v != .params) continue;
-            for (v.params) |p| {
-                if (p.val == .none)
-                    e.report.add(
-                        .@"error",
-                        .loss,
-                        e.st.line,
-                        "{s}: the flag '{s}' has no spelling in {s}",
-                        .{ @tagName(e.st.kind), p.key, e.g.name },
-                    );
-            }
+}
+
+/// Each bare flag of the statement, where a rule had no way to write one.
+fn reportFlags(e: *Emit) void {
+    assert(e.lost_flags > 0);
+    for (e.st.values()) |v| {
+        if (v != .params) continue;
+        for (v.params) |p| {
+            if (p.val == .none)
+                e.report.add(
+                    .@"error",
+                    .loss,
+                    e.st.line,
+                    "{s}: the flag '{s}' has no spelling in {s}",
+                    .{ @tagName(e.st.kind), p.key, e.g.name },
+                );
         }
     }
-    for (0..schema.info(e.st.kind).slots.len) |i| {
-        const v = e.st.at(i);
-        const idx: u8 = @intCast(i);
-        if (!try e.lost(idx)) continue;
-        const label = schema.info(e.st.kind).class == .analysis and e.slot(idx).ty == .name;
-        if (label) {
+}
+
+/// One entry per parameter: each is a separate thing the target cannot say.
+fn reportParams(e: *Emit, v: Value) Allocator.Error!void {
+    assert(v == .params);
+    for (v.params) |p| {
+        if (try e.inert(p.key)) |why| {
             e.report.add(
                 .info,
-                .cosmetic,
+                .loss,
                 e.st.line,
-                "{s}: {s} does not name its analyses; the label '{s}' is not written",
-                .{ @tagName(e.st.kind), e.g.name, try e.describe(v) },
+                "{s}: '{s}' is not written: {s}",
+                .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why },
             );
             continue;
         }
-        if (e.slot(idx).ty == .params and v == .params) {
-            // One entry per parameter: each is a separate thing the target cannot say.
-            for (v.params) |p| {
-                if (try e.inert(p.key)) |why| {
-                    e.report.add(
-                        .info,
-                        .loss,
-                        e.st.line,
-                        "{s}: '{s}' is not written: {s}",
-                        .{ @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), why },
-                    );
-                    continue;
-                }
-                e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in " ++
-                    "{s}", .{
-                    @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), e.g.name,
-                });
-            }
-            continue;
-        }
-        const why = e.g.slotAbsentReason(e.st.kind, idx);
-        e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in " ++
-            "{s}{s}{s}", .{
-            @tagName(e.st.kind), e.slot(idx).name, try e.describe(v), e.g.name,
-            if (why != null)
-                ": "
-            else
-                "",
-            why orelse "",
+        e.report.add(.@"error", .loss, e.st.line, "{s}: '{s}' has no spelling in " ++
+            "{s}", .{
+            @tagName(e.st.kind), try e.describe(.{ .params = &.{p} }), e.g.name,
         });
     }
 }

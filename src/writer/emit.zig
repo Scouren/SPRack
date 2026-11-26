@@ -31,6 +31,7 @@ const bag = @import("emit_bag.zig");
 const losses = @import("emit_losses.zig");
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Node = grammar.Node;
 const Value = ir.Value;
@@ -64,6 +65,7 @@ pub const Caps = struct {
     }
 };
 
+// tidy: allow-fn(bool-heavy-struct) one Emit per statement attempt, never held in an array
 pub const Emit = struct {
     g: *const Grammar,
     arena: Allocator,
@@ -247,6 +249,7 @@ pub const Emit = struct {
         }
     }
 
+    // tidy: allow(recursion) bounded by the nesting of a pattern (the parser's max_depth)
     pub fn hasSlots(items: []const Node) bool {
         for (items) |n| {
             switch (n.tag) {
@@ -273,6 +276,10 @@ pub const Emit = struct {
     }
 
     pub fn one(e: *Emit, n: Node) Allocator.Error!bool {
+        const len = e.buf.items.len;
+        // A node only adds to the text: a group that fails takes back what
+        // it wrote itself, never more.
+        defer assert(e.buf.items.len >= len);
         switch (n.tag) {
             .lit => try e.tok(n.text),
             .glue => {
@@ -284,109 +291,8 @@ pub const Emit = struct {
                 e.mark(n.slot);
                 if (n.slot < 64) e.dropped |= @as(u64, 1) << @intCast(n.slot);
             },
-            .taglit => {
-                const v = e.val(n.slot);
-                if (n.soft and !e.present(n.slot)) {
-                    try e.tok(n.text);
-                    return true;
-                }
-                // On a value slot (`repeat:"endrepeat"=0`) the literal stands
-                // for a number, and a number equal to it is written so.
-                const num_ok = v == .num and if (lexer.parseNumber(
-                    e.arena,
-                    &e.g.lex,
-                    n.atom,
-                )) |want| want.toFloat() == v.num.toFloat() else false;
-                if (!num_ok and (v != .atom or !std.mem.eql(u8, v.atom, n.atom))) {
-                    if (v == .atom)
-                        e.why = try e.arena.print("{s} = {s}", .{ e.slot(n.slot).name, v.atom });
-                    return false;
-                }
-                try e.tok(n.text);
-                e.mark(n.slot);
-            },
-            .cap => {
-                if (n.slot == grammar.wild_slot) {
-                    try e.tok(try e.expandDefault(n.default));
-                    return true;
-                }
-                if (!e.given(n.slot)) {
-                    if (n.star) return true;
-                    if (n.default.len == 0) {
-                        if (e.why.len == 0)
-                            e.why = try e.arena.print(
-                                "a statement without '{s}'",
-                                .{e.slot(n.slot).name},
-                            );
-                        return false;
-                    }
-                    var text = try e.expandDefault(n.default);
-                    if (e.slot(n.slot).ty == .value and lexer.parseNumber(
-                        e.arena,
-                        &e.g.lex,
-                        text,
-                    ) == null) {
-                        text = try e.valueText(.{ .expr = text }, false);
-                    }
-                    try e.tok(text);
-                    // A node made up for the instance (`tj?dt$name`) is news too.
-                    const made = e.slot(n.slot).ty == .node and std.mem.indexOfScalar(
-                        u8,
-                        n.default,
-                        '$',
-                    ) != null;
-                    if (!e.quiet and (e.slot(n.slot).ty == .value or made)) {
-                        e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' " ++
-                            "but the source gave none; wrote {s}", .{
-                            @tagName(e.st.kind), e.g.name, e.slot(n.slot).name, text,
-                        });
-                    }
-                    return true;
-                }
-                if (n.count != grammar.no_slot and !try e.counted(
-                    n,
-                    if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1,
-                )) return false;
-                if (n.one and (e.st.at(n.slot) != .list or e.st.at(n.slot).list.len != 1)) {
-                    if (e.why.len == 0)
-                        e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
-                    return false;
-                }
-                var text = (try e.slotText(n.slot, false)) orelse return false;
-                // `path!`: a path with no blank goes out without quotes.
-                const v = e.st.at(n.slot);
-                if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null)
-                    text = v.str;
-                // A module's letter (Xyce `Y<module>`) is part of the form,
-                // not a new name.
-                if (n.prefix.len > 0 and !std.mem.eql(u8, e.slot(n.slot).name, "name")) {
-                    text = try e.arena.print(
-                        "{c}{s}{s}",
-                        .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
-                    );
-                } else if (n.prefix.len > 0 and !std.ascii.startsWithIgnoreCase(text, n.prefix)) {
-                    const upper = text.len > 0 and std.ascii.isUpper(text[0]);
-                    const renamed = if (upper)
-                        try e.arena.print(
-                            "{c}{s}{s}",
-                            .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
-                        )
-                    else
-                        try e.arena.print("{s}{s}", .{ n.prefix, text });
-                    e.renames += 1;
-                    if (!e.quiet)
-                        e.report.add(
-                            .info,
-                            .rename,
-                            e.st.line,
-                            "renamed '{s}' to '{s}': {s} tells devices apart by the first letter",
-                            .{ text, renamed, e.g.name },
-                        );
-                    text = renamed;
-                }
-                try e.tok(text);
-                e.mark(n.slot);
-            },
+            .taglit => return e.taglit(n),
+            .cap => return e.cap(n),
             .rest => {
                 if (!e.bound(n.slot)) return true;
                 switch (e.st.at(n.slot)) {
@@ -417,22 +323,7 @@ pub const Emit = struct {
                 return false;
             },
             .seq => return e.seq(n.kids),
-            .rep => {
-                // As many passes as the longest list in the group has items.
-                var passes: usize = 0;
-                e.passCount(n.kids, &passes);
-                if (!try e.counted(n, passes)) return false;
-                if (passes == 0 and n.plus) {
-                    if (e.why.len == 0) e.why = "a statement without the repeated items";
-                    return false;
-                }
-                defer e.pass = null;
-                for (0..passes) |i| {
-                    if (i > 0 and !try e.seq(n.sep)) return false;
-                    e.pass = i;
-                    if (!try e.seq(n.kids)) return false;
-                }
-            },
+            .rep => return e.rep(n),
             .bag => return bag.write(e, n),
         }
         return true;
@@ -442,6 +333,145 @@ pub const Emit = struct {
     pub const inert = losses.inert;
     pub const lossCount = losses.lossCount;
     pub const reportLosses = losses.reportLosses;
+
+    fn taglit(e: *Emit, n: Node) Allocator.Error!bool {
+        assert(n.tag == .taglit);
+        const v = e.val(n.slot);
+        if (n.soft and !e.present(n.slot)) {
+            try e.tok(n.text);
+            return true;
+        }
+        // On a value slot (`repeat:"endrepeat"=0`) the literal stands
+        // for a number, and a number equal to it is written so.
+        const num_ok = v == .num and if (lexer.parseNumber(
+            e.arena,
+            &e.g.lex,
+            n.atom,
+        )) |want| want.toFloat() == v.num.toFloat() else false;
+        if (!num_ok and (v != .atom or !std.mem.eql(u8, v.atom, n.atom))) {
+            if (v == .atom)
+                e.why = try e.arena.print("{s} = {s}", .{ e.slot(n.slot).name, v.atom });
+            return false;
+        }
+        try e.tok(n.text);
+        e.mark(n.slot);
+        return true;
+    }
+
+    fn cap(e: *Emit, n: Node) Allocator.Error!bool {
+        assert(n.tag == .cap);
+        if (n.slot == grammar.wild_slot) {
+            try e.tok(try e.expandDefault(n.default));
+            return true;
+        }
+        if (!e.given(n.slot)) return e.capDefault(n);
+        if (n.count != grammar.no_slot and !try e.counted(
+            n,
+            if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1,
+        )) return false;
+        if (n.one and (e.st.at(n.slot) != .list or e.st.at(n.slot).list.len != 1)) {
+            if (e.why.len == 0)
+                e.why = try e.arena.print("more than one '{s}'", .{e.slot(n.slot).name});
+            return false;
+        }
+        var text = (try e.slotText(n.slot, false)) orelse return false;
+        // `path!`: a path with no blank goes out without quotes.
+        const v = e.st.at(n.slot);
+        if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null)
+            text = v.str;
+        if (n.prefix.len > 0) text = try e.prefixed(n, text);
+        try e.tok(text);
+        e.mark(n.slot);
+        return true;
+    }
+
+    /// A capture whose slot the statement does not give: its default, or
+    /// nothing where the capture may be left out.
+    fn capDefault(e: *Emit, n: Node) Allocator.Error!bool {
+        assert(!e.given(n.slot));
+        if (n.star) return true;
+        if (n.default.len == 0) {
+            if (e.why.len == 0)
+                e.why = try e.arena.print(
+                    "a statement without '{s}'",
+                    .{e.slot(n.slot).name},
+                );
+            return false;
+        }
+        var text = try e.expandDefault(n.default);
+        if (e.slot(n.slot).ty == .value and lexer.parseNumber(
+            e.arena,
+            &e.g.lex,
+            text,
+        ) == null) {
+            text = try e.valueText(.{ .expr = text }, false);
+        }
+        try e.tok(text);
+        // A node made up for the instance (`tj?dt$name`) is news too.
+        const made = e.slot(n.slot).ty == .node and std.mem.indexOfScalar(
+            u8,
+            n.default,
+            '$',
+        ) != null;
+        if (!e.quiet and (e.slot(n.slot).ty == .value or made)) {
+            e.report.add(.warning, .synthesized, e.st.line, "{s}: {s} needs '{s}' " ++
+                "but the source gave none; wrote {s}", .{
+                @tagName(e.st.kind), e.g.name, e.slot(n.slot).name, text,
+            });
+        }
+        return true;
+    }
+
+    /// A capture's text with the letter its pattern puts in front.
+    fn prefixed(e: *Emit, n: Node, text: []const u8) Allocator.Error![]const u8 {
+        assert(n.prefix.len > 0);
+        // A module's letter (Xyce `Y<module>`) is part of the form,
+        // not a new name.
+        if (!std.mem.eql(u8, e.slot(n.slot).name, "name")) {
+            return e.arena.print(
+                "{c}{s}{s}",
+                .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
+            );
+        }
+        if (std.ascii.startsWithIgnoreCase(text, n.prefix)) return text;
+        const upper = text.len > 0 and std.ascii.isUpper(text[0]);
+        const renamed = if (upper)
+            try e.arena.print(
+                "{c}{s}{s}",
+                .{ std.ascii.toUpper(n.prefix[0]), n.prefix[1..], text },
+            )
+        else
+            try e.arena.print("{s}{s}", .{ n.prefix, text });
+        e.renames += 1;
+        if (!e.quiet)
+            e.report.add(
+                .info,
+                .rename,
+                e.st.line,
+                "renamed '{s}' to '{s}': {s} tells devices apart by the first letter",
+                .{ text, renamed, e.g.name },
+            );
+        return renamed;
+    }
+
+    fn rep(e: *Emit, n: Node) Allocator.Error!bool {
+        assert(n.tag == .rep);
+        // As many passes as the longest list in the group has items.
+        var passes: usize = 0;
+        e.passCount(n.kids, &passes);
+        if (!try e.counted(n, passes)) return false;
+        if (passes == 0 and n.plus) {
+            if (e.why.len == 0) e.why = "a statement without the repeated items";
+            return false;
+        }
+        defer e.pass = null;
+        for (0..passes) |i| {
+            if (i > 0 and !try e.seq(n.sep)) return false;
+            e.pass = i;
+            if (!try e.seq(n.kids)) return false;
+        }
+        return true;
+    }
 };
 
 /// A grammar's reason with `{to}` in it replaced by the dialect being

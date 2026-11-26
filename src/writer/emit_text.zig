@@ -1,7 +1,7 @@
 //! Value text: one value of a statement → its text in the target's
 //! spelling (numbers, expressions, signals, enumerated words, the
 //! defaults a pattern fills in), with what the target cannot say or says
-//! differently reported. The methods of `Emit` of that name are these.
+//! differently reported. Each is a method of `Emit` under the same name.
 //!
 //! Contents:
 //! - `pub fn valueText(e: *Emit, v: Value, quoted: bool) Allocator.Error![]const u8`
@@ -58,6 +58,8 @@ pub fn valueText(e: *Emit, v: Value, quoted: bool) Allocator.Error![]const u8 {
         .str => |s| return std.mem.concat(e.arena, u8, &.{ "\"", s, "\"" }),
         .list, .params => {},
     }
+    // A number gets this far only when it has an exponent to render.
+    if (v == .num) assert(v.num.exp10 != 0);
     var aw: std.Io.Writer.Allocating = .init(e.arena);
     const w = &aw.writer;
     switch (v) {
@@ -84,6 +86,8 @@ pub fn valueText(e: *Emit, v: Value, quoted: bool) Allocator.Error![]const u8 {
 /// A function the target lacks, said by what the source means by it
 /// (`means`), one note a rewrite.
 pub fn meant(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
+    // `exprText` asks only for a statement another dialect wrote.
+    assert(e.foreign);
     const sg = e.sourceGrammar() orelse return canon_in;
     var canon = canon_in;
     for (sg.means) |*m| {
@@ -111,6 +115,8 @@ pub fn meant(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
 pub fn exprText(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
     var problems: std.ArrayList(expr.Problem) = .empty;
     const canon = if (e.foreign) try e.meant(canon_in) else canon_in;
+    // A statement in the target's own dialect is written as it was read.
+    if (!e.foreign) assert(canon.ptr == canon_in.ptr);
     const s = try expr.write(e.arena, e.g, canon, e.funcs, e.foreign, &problems);
     // What the source's functions mean differently, as it wrote them,
     // but for those written as what they mean (`means`).
@@ -143,8 +149,12 @@ pub fn exprText(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
         const who = if (e.caps) |c| c.word(pb.text) else "";
         e.report.add(.@"error", .unsupported, e.st.line, "expression '{s}': {s} '{s}' has " ++
             "no spelling in {s}{s}{s}", .{
-            canon,                                                @tagName(pb.kind), pb.text, e.g.name,
-            if (who.len > 0) ". Dialects that have it: " else "", who,
+            canon,
+            @tagName(pb.kind),
+            pb.text,
+            e.g.name,
+            if (who.len > 0) ". Dialects that have it: " else "",
+            who,
         });
     };
     return s;
@@ -214,6 +224,7 @@ pub fn sourceGrammar(e: *const Emit) ?*const Grammar {
 pub fn signalText(e: *Emit, canon: []const u8) Allocator.Error!?[]const u8 {
     var args: [3][]const u8 = undefined;
     const form, const n = reader.signalParts(canon, &args) orelse return null;
+    assert(n <= args.len);
     for (e.g.signals) |sf| {
         if (!std.mem.eql(u8, sf.form, form)) continue;
         var out: std.ArrayList(u8) = .empty;
@@ -244,82 +255,13 @@ pub fn signalText(e: *Emit, canon: []const u8) Allocator.Error!?[]const u8 {
 /// The text of a bound slot, or null (with `why` set) when this dialect
 /// has no spelling for the value.
 pub fn slotText(e: *Emit, idx: u8, quoted: bool) Allocator.Error!?[]const u8 {
+    assert(idx < schema.info(e.st.kind).slots.len);
     const v = e.val(idx);
     const sl = e.slot(idx);
     if (sl.ty == .atom and v == .atom) {
-        if (e.g.enumOf(e.st.kind, idx)) |em| {
-            const sp = for (em.pairs) |pr| {
-                if (std.mem.eql(u8, pr.canon, v.atom)) break pr.spelling;
-            } else blk: {
-                // A value this dialect's own reader let through goes
-                // back out as it came in.
-                if (!e.foreign) break :blk v.atom;
-                e.why = try e.arena.print("{s} = {s}", .{ sl.name, v.atom });
-                return null;
-            };
-            // `bdf=gear`: a spelling that reads back as another value.
-            for (em.pairs) |pr| if (std.mem.eql(u8, pr.spelling, sp)) {
-                if (!std.mem.eql(u8, pr.canon, v.atom) and !e.quiet)
-                    e.report.add(
-                        .info,
-                        .oneway,
-                        e.st.line,
-                        "{s}.{s} = {s} is written as {s}, which reads back as {s}",
-                        .{ @tagName(e.st.kind), sl.name, v.atom, sp, pr.canon },
-                    );
-                break;
-            };
-            return if (quoted) try e.arena.print("\"{s}\"", .{sp}) else sp;
-        }
+        if (e.g.enumOf(e.st.kind, idx)) |em| return enumText(e, sl, v.atom, em, quoted);
     }
-    if (sl.ty == .signal) {
-        const items: []const Value = if (v == .list) v.list else &.{v};
-        var out: std.ArrayList(u8) = .empty;
-        for (items, 0..) |it, i| {
-            if (i > 0) try out.append(e.arena, ' ');
-            if (it == .atom) {
-                const t = (try e.signalText(it.atom)) orelse {
-                    e.why = try e.arena.print("the signal {s}", .{it.atom});
-                    return null;
-                };
-                try out.appendSlice(e.arena, t);
-            } else if (it == .expr) {
-                // `expr = "par('%')"` says how; where expressions have no
-                // delimiters nothing tells one from a node name.
-                const tmpl = for (e.g.signals) |sf| {
-                    if (std.mem.eql(u8, sf.form, "expr")) break sf.template;
-                } else "";
-                if (tmpl.len == 0 and e.g.lex.bare_expr) {
-                    e.why = try e.arena.print("the signal expression {s}", .{it.expr});
-                    return null;
-                }
-                if (tmpl.len == 0) {
-                    try out.appendSlice(e.arena, try e.valueText(it, false));
-                } else {
-                    var problems: std.ArrayList(expr.Problem) = .empty;
-                    const body = try expr.write(
-                        e.arena,
-                        e.g,
-                        it.expr,
-                        e.funcs,
-                        e.foreign,
-                        &problems,
-                    );
-                    if (problems.items.len > 0) {
-                        e.why = try e.arena.print("the signal expression {s}", .{it.expr});
-                        return null;
-                    }
-                    const pct = std.mem.indexOfScalar(u8, tmpl, '%').?;
-                    try out.print(
-                        e.arena,
-                        "{s}{s}{s}",
-                        .{ tmpl[0..pct], body, tmpl[pct + 1 ..] },
-                    );
-                }
-            } else try out.appendSlice(e.arena, try e.valueText(it, false));
-        }
-        return out.items;
-    }
+    if (sl.ty == .signal) return signalSlot(e, idx);
     return try e.valueText(v, quoted);
 }
 
@@ -388,10 +330,96 @@ pub fn expandDefault(e: *Emit, text: []const u8) Allocator.Error![]const u8 {
         } else try out.appendSlice(e.arena, text[i..j]);
         i = j;
     }
+    // Every step stops at the end of the text, never past it.
+    assert(i == text.len);
     return out.toOwnedSlice(e.arena);
 }
 
 // ---- private ----
+
+/// A word of an enumerated slot in this dialect's spelling, or null (with
+/// `why` set) for a foreign word it has none for.
+fn enumText(
+    e: *Emit,
+    sl: schema.Slot,
+    atom: []const u8,
+    em: *const grammar.EnumMap,
+    quoted: bool,
+) Allocator.Error!?[]const u8 {
+    assert(sl.ty == .atom);
+    const sp = for (em.pairs) |pr| {
+        if (std.mem.eql(u8, pr.canon, atom)) break pr.spelling;
+    } else blk: {
+        // A value this dialect's own reader let through goes
+        // back out as it came in.
+        if (!e.foreign) break :blk atom;
+        e.why = try e.arena.print("{s} = {s}", .{ sl.name, atom });
+        return null;
+    };
+    // `bdf=gear`: a spelling that reads back as another value.
+    for (em.pairs) |pr| if (std.mem.eql(u8, pr.spelling, sp)) {
+        if (!std.mem.eql(u8, pr.canon, atom) and !e.quiet)
+            e.report.add(
+                .info,
+                .oneway,
+                e.st.line,
+                "{s}.{s} = {s} is written as {s}, which reads back as {s}",
+                .{ @tagName(e.st.kind), sl.name, atom, sp, pr.canon },
+            );
+        break;
+    };
+    return if (quoted) try e.arena.print("\"{s}\"", .{sp}) else sp;
+}
+
+/// The signals of a signal slot, blank-separated, or null (with `why`
+/// set) for one this dialect cannot name.
+fn signalSlot(e: *Emit, idx: u8) Allocator.Error!?[]const u8 {
+    assert(e.slot(idx).ty == .signal);
+    const v = e.val(idx);
+    const items: []const Value = if (v == .list) v.list else &.{v};
+    var out: std.ArrayList(u8) = .empty;
+    for (items, 0..) |it, i| {
+        if (i > 0) try out.append(e.arena, ' ');
+        if (it == .atom) {
+            const t = (try e.signalText(it.atom)) orelse {
+                e.why = try e.arena.print("the signal {s}", .{it.atom});
+                return null;
+            };
+            try out.appendSlice(e.arena, t);
+        } else if (it == .expr) {
+            if (!try signalExpr(e, &out, it)) return null;
+        } else try out.appendSlice(e.arena, try e.valueText(it, false));
+    }
+    return out.items;
+}
+
+/// A signal given as an expression, onto `out`; false (with `why` set)
+/// where this dialect has no way to say it.
+fn signalExpr(e: *Emit, out: *std.ArrayList(u8), it: Value) Allocator.Error!bool {
+    assert(it == .expr);
+    // `expr = "par('%')"` says how; where expressions have no
+    // delimiters nothing tells one from a node name.
+    const tmpl = for (e.g.signals) |sf| {
+        if (std.mem.eql(u8, sf.form, "expr")) break sf.template;
+    } else "";
+    if (tmpl.len == 0 and e.g.lex.bare_expr) {
+        e.why = try e.arena.print("the signal expression {s}", .{it.expr});
+        return false;
+    }
+    if (tmpl.len == 0) {
+        try out.appendSlice(e.arena, try e.valueText(it, false));
+        return true;
+    }
+    var problems: std.ArrayList(expr.Problem) = .empty;
+    const body = try expr.write(e.arena, e.g, it.expr, e.funcs, e.foreign, &problems);
+    if (problems.items.len > 0) {
+        e.why = try e.arena.print("the signal expression {s}", .{it.expr});
+        return false;
+    }
+    const pct = std.mem.indexOfScalar(u8, tmpl, '%').?;
+    try out.print(e.arena, "{s}{s}{s}", .{ tmpl[0..pct], body, tmpl[pct + 1 ..] });
+    return true;
+}
 
 /// `3.3.0`: digits with more than one point.
 fn malformedNumber(t: []const u8) bool {
