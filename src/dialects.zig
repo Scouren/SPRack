@@ -60,6 +60,7 @@ pub fn intern(name: []const u8) Allocator.Error!?u8 {
         if (std.ascii.eqlIgnoreCase(known, name)) return @intCast(i);
     }
     if (names_len == names.len) return null;
+    // tidy: allow(global-allocator-in-library) the table outlives every caller's arena
     names[names_len] = try std.heap.page_allocator.dupe(u8, name);
     names_len += 1;
     return @intCast(names_len - 1);

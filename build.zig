@@ -1,4 +1,5 @@
 const std = @import("std");
+const lint = @import("lint/lint.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -66,6 +67,12 @@ pub fn build(b: *std.Build) void {
     }
     const sprack = modules.get("sprack").?;
     b.modules.put(b.graph.arena, "sprack", sprack) catch @panic("OOM");
+
+    // No binary and no test run from a tree that breaks a rule it already
+    // kept (lint/lint.zig lists the files held to them).
+    const lint_step = lint.addTo(b);
+    b.getInstallStep().dependOn(lint_step);
+    test_step.dependOn(lint_step);
 
     const exe = b.addExecutable(.{
         .name = "sprack",

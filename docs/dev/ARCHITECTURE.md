@@ -122,7 +122,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | goldens | `python3 -I tools/golden.py snapshot` then `diff` | IDENTICAL for a refactor; a behaviour change names the cases it moved |
 | format | `zig fmt --check build.zig src tools` | clean |
 | speed | `zig build bench` (planned) | no row slower than the last recorded |
-| lint | `zig build lint` (planned) | clean for every module already moved |
+| lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths` |
 
 ## Where a change goes
 
@@ -145,7 +145,7 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 0 | golden snapshots as the refactor gate | done | 31,034 cases, 50 s |
 | 1 | grammars compiled when the binary is built, by a tool | done | `zig build test` 3:20 to 1:10; Debug build 2 min to 9 s; start-up unchanged |
 | 2 | module DAG enforced by the build; the dialect table a leaf | done | 15 modules, a test binary each; no module imports `root.zig` |
-| 3 | lint and style gate in the build, module by module | next | 2,562 findings to clear |
+| 3 | lint and style gate in the build, module by module | wired; 3 files held to it | 2,562 findings to clear in the rest |
 | 4 | read path: rule dispatch by first token, one pass over the input | | 27 MB mesh: 6.5 s today |
 | 5 | write path: rule chosen once, tables by kind | | |
 | 6 | one pass table, one driver for whole and streamed netlists | | |
