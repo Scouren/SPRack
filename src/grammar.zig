@@ -2700,6 +2700,7 @@ fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite {
         } else if (std.mem.eql(u8, verb, "loss") or std.mem.eql(u8, verb, "oneway")) {
             if (!std.mem.startsWith(u8, rest, ": "))
                 return c.fail(no, "{s} is `{s} : text`", .{ verb, verb });
+            if (rest.len == 2) return c.fail(no, "{s} needs its text", .{verb});
             if (verb[0] == 'l') rule.loss = rest[2..] else rule.note = rest[2..];
         } else if (std.mem.eql(u8, verb, "clash")) {
             rule.clash = try rewriteClash(c, no, rule.kind, rest);
@@ -2740,11 +2741,41 @@ fn rewritePart(
         const eq = std.mem.indexOfScalar(u8, word, '=') orelse
             return c.fail(no, "expected slot=template, found '{s}'", .{word});
         const slot = try slotNamed(c, no, kind, word[0..eq]);
-        sets = try c.add(Rewrite.Set, sets, .{ .slot = slot, .template = word[eq + 1 ..] });
+        const template = word[eq + 1 ..];
+        if (!pairedBrackets(template))
+            return c.fail(no, "the {{ }} and [ ] of template '{s}' do not pair", .{template});
+        sets = try c.add(Rewrite.Set, sets, .{ .slot = slot, .template = template });
     }
     // A kept statement may stay as it is: the rewrite then only adds to it.
     if (sets.len == 0 and !keep) return c.fail(no, "{s} needs at least one slot=template", .{verb});
     return .{ .kind = kind, .keep = keep, .sets = sets };
+}
+
+/// Does every `{` of a template close before the next opens, and every
+/// `[` likewise, with no `[` inside another?
+fn pairedBrackets(template: []const u8) bool {
+    var in_name = false;
+    var in_group = false;
+    for (template) |ch| switch (ch) {
+        '{' => {
+            if (in_name) return false;
+            in_name = true;
+        },
+        '}' => {
+            if (!in_name) return false;
+            in_name = false;
+        },
+        '[' => {
+            if (in_group or in_name) return false;
+            in_group = true;
+        },
+        ']' => {
+            if (!in_group or in_name) return false;
+            in_group = false;
+        },
+        else => {},
+    };
+    return !in_name and !in_group;
 }
 
 /// `kind.slot node ... : text`.
@@ -2762,6 +2793,7 @@ fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.
     var nodes: []const u8 = &.{};
     while (words.next()) |name| nodes = try c.add(u8, nodes, try slotNamed(c, no, original, name));
     if (nodes.len == 0) return c.fail(no, "clash needs the slots whose names it looks for", .{});
+    if (rest[colon + 3 ..].len == 0) return c.fail(no, "clash needs its text", .{});
     return .{ .kind = kind, .slot = slot, .nodes = nodes, .text = rest[colon + 3 ..] };
 }
 

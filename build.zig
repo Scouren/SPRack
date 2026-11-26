@@ -227,7 +227,7 @@ const module_specs = [_]ModuleSpec{
     },
     .{
         .name = "writer",
-        .path = "src/writer.zig",
+        .path = "src/writer/root.zig",
         .imports = &.{
             "schema",
             "grammar",
