@@ -30,6 +30,9 @@ const expr = @import("expr");
 const stats = @import("stats");
 const alter = @import("alter");
 const topology = @import("topology");
+const variants = @import("variants.zig");
+const defaults = @import("defaults.zig");
+const cards = @import("cards.zig");
 const emit = @import("emit.zig");
 const statement = @import("statement.zig");
 const analysis_passes = @import("analyses.zig");
@@ -83,8 +86,8 @@ pub const Survey = struct {
     reserved: ir.CaselessSet = .empty,
     /// `rewrite.collectClashKeys`.
     clash_keys: ir.CaselessSet = .empty,
-    /// `statement.collectTerminals`.
-    terminals: statement.TerminalMap = .empty,
+    /// `cards.collectTerminals`.
+    terminals: cards.TerminalMap = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold: what the
     /// writing of any netlist asks.
@@ -97,14 +100,14 @@ pub const Survey = struct {
         const a = k.perm;
         try name_passes.collectDeclared(a, stmts, &sv.declared);
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
-        try statement.collectModules(a, stmts, &sv.modules);
+        try cards.collectModules(a, stmts, &sv.modules);
         try name_passes.collectFuncs(a, stmts, &sv.funcs);
         statement.markUsed(stmts, &sv.used);
         rewrite.markUsed(g, sv.dialect, stmts, &sv.used);
         try rewrite.collectClashKeys(a, g, stmts, &sv.clash_keys, k.src);
         ir.markFamilies(stmts, &sv.fams);
         try name_passes.collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
-        try statement.collectTerminals(a, stmts, &sv.terminals, k.src);
+        try cards.collectTerminals(a, stmts, &sv.terminals, k.src);
         try name_passes.collectReserved(a, g, stmts, &sv.reserved, k.src);
         try name_passes.collectAnalyses(a, g, stmts, &sv.counted);
     }
@@ -144,7 +147,7 @@ pub const Survey = struct {
         for (sv.fill_from.items) |*s| {
             if (s.kind == kind and s.at(slot) != .none) return;
         }
-        const v = statement.firstValue(stmts, kind, slot) orelse return;
+        const v = defaults.firstValue(stmts, kind, slot) orelse return;
         var st = try ir.newStmt(k.perm, kind, 0);
         try st.set(k.perm, slot, try ir.cloneValue(k, v));
         try sv.fill_from.append(k.perm, st);
@@ -301,12 +304,12 @@ pub const Driver = struct {
         report.phase = ir.Phase.topology;
         try s.checkTopology(named);
         report.phase = ir.Phase.fill;
-        const filled = try w.fill(named, if (s.whole) named else s.fill_from);
+        const filled = try defaults.fill(w, named, if (s.whole) named else s.fill_from);
         if (s.foreign) {
             report.phase = ir.Phase.checks;
-            try w.check(g, filled, s.source);
+            try defaults.check(w, g, filled, s.source);
             report.phase = ir.Phase.checks_source;
-            if (s.source) |sg| try w.check(sg, filled, null);
+            if (s.source) |sg| try defaults.check(w, sg, filled, null);
         }
         try s.tail(if (s.whole) try s.netlistPasses(named, filled) else filled);
     }
@@ -358,7 +361,8 @@ pub const Driver = struct {
         s.fill_from = sv.fill_from.items;
         s.analyses = sv.analyses;
         s.lower = stats.Stream.init(s.keep, g, w.report);
-        if (w.env) |e| if (!g.canWrite(.cond_if)) try w.noteAllSplits(e.conditional.items, null);
+        if (w.env) |e|
+            if (!g.canWrite(.cond_if)) try variants.noteAllSplits(w, e.conditional.items, null);
     }
 
     /// The names a foreign netlist is written under: a model named as a
@@ -407,7 +411,7 @@ pub const Driver = struct {
         const w = &s.w;
         if (!s.foreign or w.foreign_inst != null or w.g.canWrite(.cond_if) or w.env != null)
             return;
-        const x = try w.foreignInstance(stmts) orelse return;
+        const x = try variants.foreignInstance(w, stmts) orelse return;
         w.foreign_inst = .{
             .line = x.line,
             .name = try s.keep.text(x.get("name").atom),
@@ -494,7 +498,7 @@ pub const Driver = struct {
         }
         stmts = try alter.prepare(a, g, stmts, w.report);
         stmts = try analysis_passes.foldMaxord(a, g, stmts, w.report);
-        return w.applyMoves(stmts);
+        return defaults.applyMoves(w, stmts);
     }
 
     /// The passes after the options are laid out, and the writing itself.
@@ -508,7 +512,7 @@ pub const Driver = struct {
             try expr.convert(a, g, list, true);
             stmts = list;
         }
-        if (g.blockOf(.model) != null) stmts = try statement.groupBins(a, stmts);
+        if (g.blockOf(.model) != null) stmts = try cards.groupBins(a, stmts);
         stmts = try s.statistics(stmts);
         if (s.whole) stmts = try analysis_passes.pzPorts(a, g, w.origin(), stmts, w.report);
         try s.last(stmts);
@@ -545,7 +549,7 @@ pub const Driver = struct {
             // first statements, this one has here, as it is written.
             s.analyses = countRuns(stmts);
             try s.noteForeign(stmts);
-            if (!g.canWrite(.cond_if)) try w.noteAllSplits(stmts, w.env);
+            if (!g.canWrite(.cond_if)) try variants.noteAllSplits(w, stmts, w.env);
         }
         w.report.phase = ir.Phase.write;
         for (stmts) |*st| {
@@ -586,7 +590,7 @@ pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
         .pz => "a pole-zero analysis",
         // `analyses.foldMaxord`.
         .options => if (st.get("maxord") != .none) "a maximum order of integration" else null,
-        // `statement.groupBins`: the bins of one model come a group each.
+        // `cards.groupBins`: the bins of one model come a group each.
         .model => if (g.blockOf(.model) != null and st.get("name") == .atom and
             ir.binBase(st.get("name").atom) != null) "a binned model" else null,
         else => null,

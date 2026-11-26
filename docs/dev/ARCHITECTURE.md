@@ -77,7 +77,12 @@ The writer is a directory, a file an owner:
 | `names.zig` | names the target would refuse: case, uniqueness, renames |
 | `analyses.zig` | analyses and options the target says another way |
 | `rewrite.zig` | the `rewrite` blocks of a grammar |
-| `statement.zig` | one statement: the rule chosen, model cards, parameters, what is lost |
+| `statement.zig` | one statement: the rule chosen, what it holds, what is lost; the notes said once a file |
+| `cards.zig` | a model card as the target's model of its family takes it; binned cards |
+| `instparams.zig` | the parameters a device is given, as the target's device takes them; parameters hoisted to a header |
+| `plugins.zig` | a module the target takes only compiled (`plugin`) |
+| `variants.zig` | a subcircuit written once for each branch of a conditional block |
+| `defaults.zig` | what one dialect assumes and the other must be told: `default`, `omitted`, `invalid`, `move` |
 | `emit.zig` | one statement and one pattern to text |
 | `refs.zig`, `tables.zig` | references met before what they name; lookups several files share |
 

@@ -2,12 +2,14 @@
 //! text and the report of what did not cross.
 //!
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
-//! `statement.zig` chooses the pattern and writes the statement; the passes
-//! (`names.zig`, `analyses.zig`, `rewrite.zig`) change the statements
-//! before that; `frame.zig` writes what stands around them; `driver.zig`
-//! runs the passes in order, over a netlist held in memory or a group of
-//! statements at a time (`refs.zig` holds the names a netlist written in
-//! groups meets before what they name).
+//! `statement.zig` chooses the pattern and writes the statement; what a
+//! statement is turned into first is a file a subject (`cards.zig`,
+//! `instparams.zig`, `plugins.zig`, `variants.zig`, `rewrite.zig`); the
+//! passes over a netlist (`names.zig`, `analyses.zig`, `defaults.zig`)
+//! change the statements before that; `frame.zig` writes what stands
+//! around them; `driver.zig` runs the passes in order, over a netlist held
+//! in memory or a group of statements at a time (`refs.zig` holds the names
+//! a netlist written in groups meets before what they name).
 //!
 //! Contents:
 //! - `pub const Caps`
@@ -17,12 +19,17 @@
 //! - `pub const defaultOptions`, `pub const collectReserved`
 //! - `pub const checkCase`, `pub const foldMaxord`
 
+const cards = @import("cards.zig");
 const emit = @import("emit.zig");
 const tables = @import("tables.zig");
 const rewrite = @import("rewrite.zig");
 const names = @import("names.zig");
 const analyses = @import("analyses.zig");
 const statement = @import("statement.zig");
+const plugins = @import("plugins.zig");
+const instparams = @import("instparams.zig");
+const variants = @import("variants.zig");
+const defaults = @import("defaults.zig");
 const driver = @import("driver.zig");
 const refs = @import("refs.zig");
 const frame = @import("frame.zig");
@@ -34,7 +41,7 @@ pub const Refs = refs.Refs;
 pub const Survey = driver.Survey;
 pub const Driver = driver.Driver;
 pub const Target = driver.Target;
-pub const Terminals = statement.Terminals;
+pub const Terminals = cards.Terminals;
 pub const defaultOptions = analyses.defaultOptions;
 pub const collectReserved = names.collectReserved;
 pub const checkCase = names.checkCase;
@@ -47,6 +54,11 @@ test {
     _ = names;
     _ = analyses;
     _ = statement;
+    _ = plugins;
+    _ = instparams;
+    _ = variants;
+    _ = defaults;
+    _ = cards;
     _ = driver;
     _ = refs;
     _ = frame;
