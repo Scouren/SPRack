@@ -3,16 +3,21 @@
 Usage:
     python3 tools/param_lists.py xyce <Xyce checkout>      # from the source, as Xyce -param lists them
     python3 tools/param_lists.py ngspice                   # from ngspice's devhelp (ngspice on PATH)
-    python3 tools/param_lists.py check <Xyce checkout>     # the grammars' tables against both
+    python3 tools/param_lists.py vacask <lib/vacask/mod>   # from the OSDI descriptors VACASK loads
+    python3 tools/param_lists.py check <Xyce checkout> [<lib/vacask/mod>]   # the grammars' tables against them
 
 `xyce` prints, for each family the grammars map to a Xyce device, every model
 parameter its ParametricData declares (Traits::loadModelParameters), one group
 per member: a parameter and its synonyms. `ngspice` prints devhelp's groups
-(one id, several names). `check` reports a name a grammar's table lists that
+(one id, several names). `vacask` prints, for each family, every parameter a
+model card of the module VACASK writes it as takes: the OSDI descriptor's
+model and instance parameters with their aliases, as lib/osdifile.cpp reads
+them (both kinds are valid on a model, include/osdifile.h
+modelParameterIndex). `check` reports a name a grammar's table lists that
 the simulator does not, and a family whose Xyce table is not `only` or lists
 fewer names than Xyce has: what docs/verification.md 4.23 records.
 """
-import os, re, subprocess, sys, tempfile
+import ctypes, os, re, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRAMMARS = os.path.join(HERE, "..", "grammars")
@@ -28,6 +33,17 @@ XYCE = {
     "bsim3": ["OpenModels/N_DEV_MOSFET_B3.C"],
     "bsim4": ["OpenModels/N_DEV_MOSFET_B4.C", "OpenModels/N_DEV_MOSFET_B4p61.C", "OpenModels/N_DEV_MOSFET_B4p70.C"],
     "psp103": ["ADMS/N_DEV_ADMSPSP103VA.C"],
+}
+
+# family -> the OSDI file and module grammars/vacask.spgrammar writes it as
+# (its `needs` and `models` sections), under VACASK's lib/vacask/mod.
+VACASK = {
+    "diode": "spice/diode.osdi",
+    "bjt": "spice/bjt.osdi",
+    "vbic": "vbic_1p3_4t.osdi",
+    "bsim3": "spice/bsim3v3.osdi",
+    "bsim4": "spice/bsim4v8.osdi",
+    "psp103": "psp103v4.osdi",
 }
 
 # ngspice 45's names that 42's devhelp does not give (issue #33).
@@ -75,6 +91,42 @@ def xyce_groups(src, files):
     return [groups[k] for k in order]
 
 
+class _Param(ctypes.Structure):  # include/osdi.h OsdiParamOpvar
+    _fields_ = [("name", ctypes.POINTER(ctypes.c_char_p)), ("num_alias", ctypes.c_uint32),
+                ("description", ctypes.c_char_p), ("units", ctypes.c_char_p),
+                ("flags", ctypes.c_uint32), ("len", ctypes.c_uint32)]
+
+
+class _Descriptor(ctypes.Structure):  # include/osdi.h OsdiDescriptor, up to param_opvar
+    _fields_ = [("name", ctypes.c_char_p), ("num_nodes", ctypes.c_uint32), ("num_terminals", ctypes.c_uint32),
+                ("nodes", ctypes.c_void_p), ("num_jacobian_entries", ctypes.c_uint32),
+                ("jacobian_entries", ctypes.c_void_p), ("num_collapsible", ctypes.c_uint32),
+                ("collapsible", ctypes.c_void_p), ("collapsed_offset", ctypes.c_uint32),
+                ("noise_sources", ctypes.c_void_p), ("num_noise_src", ctypes.c_uint32),
+                ("num_params", ctypes.c_uint32), ("num_instance_params", ctypes.c_uint32),
+                ("num_opvars", ctypes.c_uint32), ("param_opvar", ctypes.POINTER(_Param))]
+
+
+PARA_KIND_OPVAR = 2 << 30
+
+
+def vacask_groups(moddir, file):
+    """A model card's parameters of the file's (first) module, each with its
+    aliases, lower case, as VACASK reads them; $mfactor is not a card's."""
+    lib = ctypes.CDLL(os.path.join(moddir, file))
+    base = ctypes.addressof(ctypes.c_char.in_dll(lib, "OSDI_DESCRIPTORS"))
+    d = _Descriptor.from_address(base)
+    groups = []
+    for j in range(d.num_params + d.num_opvars):
+        p = d.param_opvar[j]
+        if p.flags & (3 << 30) == PARA_KIND_OPVAR:
+            continue
+        names = [p.name[k].decode().lower() for k in range(p.num_alias + 1)]
+        if names[0] != "$mfactor":
+            groups.append(names)
+    return groups
+
+
 def ngspice_groups(device):
     deck = f"t\n.control\ndevhelp {device}\n.endc\n.end\n"
     with tempfile.NamedTemporaryFile("w", suffix=".sp", delete=False) as f:
@@ -110,14 +162,15 @@ def ngspice_aliases(fam):
     return groups
 
 
-def xyce_tables(src):
-    """Xyce's tables by canonical (ngspice) name: each Xyce group under the
-    first name of the ngspice group that shares a name with it."""
+def canonical_tables(groups_of, what):
+    """A simulator's tables by canonical name: each of its groups under the
+    name of grammars/ngspice.spgrammar's row that shares a name with it (the
+    names the IR reads a card in; ngspice 45's devhelp orders some of them
+    otherwise, `tcv` before `tbv1`), else under its own first name."""
     out = {}
-    for fam, files in XYCE.items():
-        ng = ngspice_aliases(fam)
+    for fam, groups in groups_of.items():
+        ng = [[c] + sp for c, sp in (table("ngspice", fam)[0] or {}).items()]
         rows, seen = [], set()
-        groups = xyce_groups(src, files)
         # A group that holds ngspice's canonical name itself takes it first.
         owner = {g[0]: grp[0] for grp in groups for g in ng if g[0] in grp}
         for grp in groups:
@@ -125,12 +178,20 @@ def xyce_tables(src):
             if owner.get(canon, grp[0]) != grp[0]:
                 canon = grp[0]
             if canon in seen:
-                print(f"# xyce {fam}: two Xyce groups are ngspice's '{canon}': {grp}", file=sys.stderr)
+                print(f"# {what} {fam}: two groups are ngspice's '{canon}': {grp}", file=sys.stderr)
                 continue
             seen.add(canon)
             rows.append((canon, grp))
         out[fam] = rows
     return out
+
+
+def xyce_tables(src):
+    return canonical_tables({f: xyce_groups(src, files) for f, files in XYCE.items()}, "xyce")
+
+
+def vacask_tables(moddir):
+    return canonical_tables({f: vacask_groups(moddir, file) for f, file in VACASK.items()}, "vacask")
 
 
 def table(g, family):
@@ -153,39 +214,49 @@ def table(g, family):
     return rows, bool(m.group(1))
 
 
-def check(src):
+def check_one(g, fam, have):
+    rows, only = table(g, fam)
+    if rows is None or not only:
+        print(f"{g} {fam}: no `only` table ({len(have)} names in {g})")
+        return 1
     bad = 0
-    for fam, files in XYCE.items():
-        have = {n for grp in xyce_groups(src, files) for n in grp}
-        rows, only = table("xyce", fam)
-        if rows is None or not only:
-            print(f"xyce {fam}: no `only` table ({len(have)} names in Xyce)")
-            bad += 1
-            continue
-        listed = {s for sp in rows.values() for s in sp}
-        for n in sorted(listed - have):
-            print(f"xyce {fam}: '{n}' is in the table and not a Xyce parameter")
-            bad += 1
-        missing = sorted(have - listed)
-        if missing:
-            print(f"xyce {fam}: Xyce takes {len(missing)} names the table does not list: {' '.join(missing[:12])}{' ...' if len(missing) > 12 else ''}")
-            bad += 1
+    listed = {s for sp in rows.values() for s in sp}
+    for n in sorted(listed - have):
+        print(f"{g} {fam}: '{n}' is in the table and not a {g} parameter")
+        bad += 1
+    missing = sorted(have - listed)
+    if missing:
+        print(f"{g} {fam}: {g} takes {len(missing)} names the table does not list: {' '.join(missing[:12])}{' ...' if len(missing) > 12 else ''}")
+        bad += 1
     return bad
+
+
+def check(src, moddir=None):
+    bad = sum(check_one("xyce", f, {n for grp in xyce_groups(src, files) for n in grp}) for f, files in XYCE.items())
+    if moddir:
+        bad += sum(check_one("vacask", f, {n for grp in vacask_groups(moddir, file) for n in grp}) for f, file in VACASK.items())
+    return bad
+
+
+def print_tables(tables):
+    for fam, rows in tables.items():
+        print(f"modelparams {fam} only")
+        same = [c for c, grp in rows if grp == [c]]
+        for i in range(0, len(same), 12):
+            print("  same " + " ".join(same[i:i + 12]))
+        for canon, grp in rows:
+            if grp != [canon]:
+                print(f"  {canon} = {' '.join(grp)}")
+        print("end")
 
 
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     if sys.argv[1] == "xyce":
-        for fam, rows in xyce_tables(sys.argv[2]).items():
-            print(f"modelparams {fam} only")
-            same = [c for c, grp in rows if grp == [c]]
-            for i in range(0, len(same), 12):
-                print("  same " + " ".join(same[i:i + 12]))
-            for canon, grp in rows:
-                if grp != [canon]:
-                    print(f"  {canon} = {' '.join(grp)}")
-            print("end")
+        print_tables(xyce_tables(sys.argv[2]))
+    elif sys.argv[1] == "vacask":
+        print_tables(vacask_tables(sys.argv[2]))
     elif sys.argv[1] == "ngspice":
         for fam in NGSPICE:
             print(f"modelparams {fam}")
@@ -194,7 +265,7 @@ def main():
                     print(f"  {grp[0]} = {' '.join(grp)}")
             print("end")
     elif sys.argv[1] == "check":
-        sys.exit(1 if check(sys.argv[2]) else 0)
+        sys.exit(1 if check(*sys.argv[2:4]) else 0)
     else:
         sys.exit(__doc__)
 

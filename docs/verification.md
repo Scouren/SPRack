@@ -1606,17 +1606,48 @@ ngspice 45 gives a diode besides (`tcv`, `vjsw`, `isw`). Xyce's tables are
 `only`: a name not in them is a loss error, or a `noparam` line's warning
 where the value is ngspice's default or the parameter changes no current.
 
-| family | into Xyce: names checked | result compared | into VACASK |
+| family | into Xyce: names checked | result compared | into VACASK: names checked |
 |---|---|---|---|
-| resistor | 8 of 8 (4.22) | sky130 res_generic_nd, 4.22 (before the change) | not checked |
-| capacitor | 8 of 8 (4.22) | GF180 MIM, 4.22 (before the change) | not checked |
-| diode | 32 groups of 32 | no | not checked |
-| bjt | 44 of 44 | no | not checked |
-| vbic | 132 of 132 (levels 11 and 12) | IHP npn13G2, 4.21 (the level) | not checked |
-| bsim3 | 400 of 400 | no | not checked |
-| bsim4 | 876 of 876 (4.6.1, 4.7, 4.8.2) | no | not checked |
-| psp103 | 753 of 753 | 7 names, 3.5 | not checked |
-| bsimcmg | not checked: one list per level (107 to 111) | no | not checked |
+| resistor | 8 of 8 (4.22) | sky130 res_generic_nd, 4.22 (before the change) | not checked (#32) |
+| capacitor | 8 of 8 (4.22) | GF180 MIM, 4.22 (before the change) | not checked (#32) |
+| diode | 32 groups of 32 | IHP diodevdd_2kv, below (ikf differs, #77) | 77 groups of 77 (sp_diode) |
+| bjt | 44 of 44 | GF180 npn_10p00x10p00, sky130 pnp_05v5_W0p68L0p68, below | 129 groups of 129 (sp_bjt) |
+| vbic | 132 of 132 (levels 11 and 12) | IHP npn13G2, 4.21 (the level) | 134 groups of 134 (vbic13_4t) |
+| bsim3 | 400 of 400 | sky130 special_nfet_pass, below | 436 groups of 436 (sp_bsim3v3) |
+| bsim4 | 876 of 876 (4.6.1, 4.7, 4.8.2) | no | 929 groups of 929 (sp_bsim4v8) |
+| psp103 | 753 of 753 | 7 names, 3.5 | 782 of 782 (psp103va, PSP 103.4) |
+| bsimcmg | not checked: one list per level (107 to 111) | no | not checked: a module given with `--provide` (#53) |
+
+Into VACASK: `tools/param_lists.py vacask <lib/vacask/mod>` reads the OSDI
+descriptor of the module each family is written as (the files of
+`grammars/vacask.spgrammar`'s `needs`, compiled by the flake's openvaf-r),
+with ctypes, as `lib/osdifile.cpp` reads it: every parameter that is not an
+output variable, with its aliases, in lower case; model and instance
+parameters both, since a card takes both (`include/osdifile.h`,
+`modelParameterIndex`). The tables are under the canonical names of
+`grammars/ngspice.spgrammar` (ngspice 45's `devhelp` puts `tcv` before
+`tbv1`, the table `tbv1`). `check <Xyce checkout> <lib/vacask/mod>`
+compares both grammars' tables with both simulators and reports nothing
+(Xyce source: nixpkgs' xyce 7.10.0 `srcs`; the Xyce tables come out as
+committed). VACASK b2c1551 refuses a card with a name its module lacks
+(`model d1 sp_diode (is=1e-14 foo=1)`: "Parameter 'foo' not found."), so a
+name copied as written was a deck VACASK does not load.
+
+What the PDKs give that VACASK's modules have not (`sprack project`, all
+corners): GF180 BSIM4 `rgeomod=0` (4 cards; sp_bsim4v8 takes it on the
+instance only, `instance_rgeomod`, 0 by default: a warning); IHP VBIC
+`vbe_max vbc_max vce_max` (6 cards) and PSP103 `swsoa` and six `v*_max`
+(5 cards: no safe-operating-area check, warnings), and the PSP 103.6 names
+psp103v4 lacks, `st2vfbo ctgo ctbo stcto stthecso nsubedgelexp thecso` (5
+cards): warnings at the values of 3.5, so an error only for `thecso` on 3
+cards, as into Xyce. sky130's BSIM3 ACM names, its pnp's and GF180's BJT
+temperature coefficients and IHP's diode `tlev tlevc cta` are all
+parameters of VACASK's modules. Errors into VACASK: sky130 0, IHP 0 to 3,
+GF180 0, FreePDK45 0. With the 3 `thecso` cards and the NQS cards (#26)
+taken out, the IHP library's `sg13g2_lv_nmos_psp` card loads in VACASK
+(before: "Parameter 'st2vfbo' not found."); its subcircuit's instance
+then stops at `dta`, an instance parameter psp103v4 has not (instance
+parameters are not part of this).
 
 What the PDKs give that Xyce's device has not, after ngspice's other
 names are written in Xyce's spelling (`mj` as `m`, `ik` as `ikf`, `tref` as
@@ -1631,10 +1662,36 @@ safe-operating-area parameters (warnings: Xyce's modules have no such check
 and no current changes). A card Xyce refuses by one value (a diode's
 `level=3`, 4.20) is another model, and its names are not checked.
 
-Not done here, for want of the tools: Xyce's tables against the simulator
-itself and the four decks of step 2 (no Xyce run in this environment);
-VACASK's OSDI descriptors (its source was not reachable); HSPICE and
-Spectre. The general caveat stays for every pair, since none is compared.
+Step 2, the same meaning: four PDK devices, ngspice 45 on the PDK's own
+card against Xyce 7.10 on the translation (`sprack.Circuit`, `.op`, or
+`.ac` at 1 MHz; `.options temp=`), then each name the translation drops
+taken off ngspice's card, one at a time and all together. Relative
+differences:
+
+| device, bias | probe | 27 C | 85 C | the dropped names that act (85 C) | ngspice without them against Xyce (27 C, 85 C) |
+|---|---|---|---|---|---|
+| GF180 `x1 c b 0 s npn_10p00x10p00`, Vbe 0.7, Vce 1.5 | Ic | 3.4e-3 | 6.3e-2 | tnf1 5.9e-2, tbf1 1.2e-2, tre1 8.5e-3, tikf1 8.1e-3, tne1 1.5e-3, tbf2 4.4e-4; subs, tbr1, tnr1 0 | 7.7e-4, 7.3e-4 |
+| same | Isub | 1.5e-12 A against 0 | 3.7e-12 A against 0 | iss (0.6 at 85 C) | ngspice's GMIN across the substrate junction (1.5e-12 A at 1.5 V) |
+| sky130 `x1 0 b e 0 sky130_fd_pr__pnp_05v5_W0p68L0p68`, Veb 0.7 | Ie | 2.9e-4 | 1.5e-2 | tnf2 4.7e-2, tikf1 3.2e-2, tnf1 2.0e-3; iss, ns 0 | 7.2e-4, 6.9e-4 |
+| IHP `x1 vdd pad vss diodevdd_2kv`, pad 0.7 V | I | 3.7e-3 | 1.2e-2 | none dropped; without ikf on both cards 7.3e-4, 7.9e-4 (#77) | |
+| same, pad -1 V, AC 1 MHz | Im I | 1.9e-16 | 3.3e-8 | none dropped (`mj` crosses as `m`) | |
+| sky130 `x1 d g 0 0 sky130_fd_pr__special_nfet_pass w=0.14 l=0.15`, Vgs = Vds = 1.8 | Id | 3.8e-8 | 3.8e-8 | none: rd rs rdc rsc hdif ldif nqsmod at 0 change nothing | 3.8e-8, 3.8e-8 |
+
+Numbers (A): GF180 Ic -1.309561283e-05 / -1.314054745e-05 at 27 C,
+-3.395254368e-04 / -3.609929228e-04 at 85 C; sky130 pnp Ie
+-2.111675212e-07 / -2.112287830e-07, -5.415796603e-06 /
+-5.336100848e-06; IHP diode -3.491895396e-06 / -3.504889696e-06,
+-7.786912532e-05 / -7.877718833e-05, AC -1.415444676e-07 both, at 85 C
+-1.449849779e-07 / -1.449849731e-07; sky130 pass -7.056625646e-05 /
+-7.056625379e-05, -6.463078301e-05 / -6.463078057e-05 (ngspice / Xyce).
+The BJT names Xyce lacks are what moves the current, and they are errors
+already; with them off ngspice's card the two agree to 7e-4. The BSIM3
+ACM names are inert at 0, as their warnings say.
+
+Not done here, for want of the tools: HSPICE and Spectre ("not
+measured"); BSIM-CMG into Xyce (a list per level); a VACASK simulation of
+the four decks. The general caveat stays for every pair: no grammar line
+yet says a family is compared.
 
 ### 4.24 A library copied for one section (#35)
 

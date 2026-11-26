@@ -246,8 +246,8 @@ Whole model libraries, all corners, errors per target:
 
 | PDK (written in) | files | to ngspice | to HSPICE | to Xyce | to Spectre | to VACASK |
 |---|---|---|---|---|---|---|
-| sky130 (ngspice) | 319 | 0 | 0 | 312 | 2 | 0 |
-| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 71 | 0 | 0 |
+| sky130 (ngspice) | 319 | 0 | 0 | 312 | 2 | 18 |
+| IHP SG13G2 (ngspice) | 31 | 0 | 0 | 71 | 0 | 3 |
 | ASAP7 (HSPICE) | 3 | 24 | 0 | 0 | 0 | 24 |
 | FreePDK45 (HSPICE) | 27 | 0 | 0 | 0 | 0 | 0 |
 | GF180MCU (ngspice) | 4 | 0 | 0 | 181 | 0 | 0 |
@@ -271,7 +271,8 @@ Every error names a file and a line. What is left, and whose it is:
 - ASAP7 to ngspice and to VACASK, 24 each: BSIM-CMG, which neither has built in. Upstream: [issue 27](https://github.com/Scouren/SPRack/issues/27). 0 with a BSIM-CMG module provided: `tools/bsimcmg-osdi.sh` compiles BSIM-CMG 107.0.0 from Xyce's source with openvaf-r (the flake builds it as `packages.bsimcmg-osdi`); give it with `--provide bsimcmg=FILE`, or set `BSIMCMG_OSDI` for ASAP7's manifest. One caveat a file, and it agrees with Xyce's level 107 to 9 digits ([issue 53](https://github.com/Scouren/SPRack/issues/53)).
 - IHP to Xyce, 16: the Verilog-A modules `r3_cmc`, `mosvar`, `cap_cmomi` and `cap_cmomf` (7 model cards) and their 9 instances. Xyce takes a Verilog-A module only as a plugin built with buildxyceplugin and named on its command line; with `--xyce-plugin MODULE=FILE` for each, the instances are written as Xyce's `Y<module>` lines with a caveat to run Xyce with `-plugin`, ([issue 52](https://github.com/Scouren/SPRack/issues/52)). IHP's `r3_cmc` and `mosvar` plugins agree with ngspice (`docs/verification.md` 4.36) and its manifest names them; with both, 5 fewer: the 7 instances stay errors, because a Xyce plugin has no `m` and IHP's instances give one. The MOM capacitors do not build as plugins ([issue 69](https://github.com/Scouren/SPRack/issues/69)).
 - IHP to Xyce, 17: the NQS module of PSP103 (`pspnqs103va`), 5 model cards and their 12 instances, one in the `rfmode` branch of each transistor subcircuit. The target has no such thing: Xyce's PSP103 has no NQS.
-- IHP to Xyce, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off.
+- sky130 to VACASK, 18: BJT card parameters `gap1`, `gap2` and `dcap` (4 each, on the npn and pnp cards) and the diode card's `scalm` (6), which VACASK's modules do not have and would refuse the card for.
+- IHP to Xyce, 3, and to VACASK, 3: the PSP103 parameter `thecso` on three model cards. The target has no such thing: Xyce's PSP103 ignores it, and the drain current of a transistor measured with it is 12 % off; VACASK's psp103v4 (PSP 103.4) refuses it. Into VACASK every name of a diode, BJT, VBIC, BSIM3, BSIM4 and PSP103 card is checked against the OSDI descriptor of the module it is written as (`tools/param_lists.py vacask`); a name the module lacks, which VACASK would refuse, is an error, or a warning where it changes nothing (`rgeomod=0`, the safe-operating-area limits).
 
 ## Tests
 
@@ -386,8 +387,10 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
   the simulators ship different versions of the same model. Into Xyce, the
   names of resistor, capacitor, diode, BJT, VBIC, BSIM3, BSIM4 and PSP103
   cards are checked against every parameter Xyce declares for the device
-  (BSIM-CMG and VACASK not yet); whether they mean the same was measured
-  for PSP103 only (docs/verification.md 4.23). Instance
+  (BSIM-CMG not yet), and into VACASK those of diode, BJT, VBIC, BSIM3,
+  BSIM4 and PSP103 cards against each module's OSDI descriptor; whether
+  they mean the same was measured into Xyce for PSP103, a BJT pair, a
+  BSIM3 and a diode card (docs/verification.md 4.23). Instance
   parameters are checked (`params` tables) for resistors, capacitors,
   inductors, current sources, diodes, BJTs and JFETs, and HSPICE MOSFETs.
 * The topology check (`requires`) runs when translating between two

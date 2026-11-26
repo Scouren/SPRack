@@ -1283,6 +1283,38 @@ test "card parameters into Xyce: every name its device declares, ngspice's other
     try clean(&r3);
 }
 
+test "card parameters into VACASK: every name its module's OSDI descriptor lists, the rest a loss" {
+    // docs/verification.md 4.23: the tables are tools/param_lists.py vacask's.
+    // VACASK refuses a card with a name its module lacks ("Parameter ... not found").
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\n.model d1 d is=1e-14 mj=0.3 ik=1m tref=25 tlev=1 foo=1\n.model q1 npn tref=25 trc=1m tnf1=1e-4\n.end\n", &r1);
+    try has(va, "model d1 sp_diode (is=1e-14 m=0.3 ikf=1m tnom=25 tlev=1)\n");
+    try has(va, "model q1 sp_bjt (type=1 tnom=25 trc1=1m tnf1=1e-4)\n");
+    try reported(&r1, .info, "model 'd1': the parameter 'ik' is spelled 'ikf' in vacask");
+    try reported(&r1, .@"error", "model 'd1': foo=1 not written: the diode card of vacask takes no such parameter");
+    try testing.expectEqual(1, r1.count(.@"error"));
+    // BSIM4's rgeomod is an instance parameter of sp_bsim4v8: at 0, its default, a warning.
+    var r2: ir.Report = .init(a);
+    const b4 = try tr(a, "ngspice", "vacask", "t\n.model n1 nmos level=54 rgeomod=0 vth0=0.4\n.model n2 nmos level=54 rgeomod=1\n.end\n", &r2);
+    try has(b4, "model n1 sp_bsim4v8 (type=1 vth0=0.4)\nmodel n2 sp_bsim4v8 (type=1)\n");
+    try reported(&r2, .warning, "model 'n1': rgeomod not written: sp_bsim4v8 takes rgeomod on the instance only");
+    try reported(&r2, .@"error", "model 'n2': rgeomod not written");
+    try testing.expectEqual(1, r2.count(.@"error"));
+    // PSP 103.6 names psp103v4 lacks: a warning at the neutral value, else an
+    // error; the safe-operating-area check is absent: a warning.
+    var r3: ir.Report = .init(a);
+    const psp = try tr(a, "ngspice", "vacask", "t\n.model p1 psp103va type=1 thecso=2 swsoa=1 toxo=1.5n\n.model p2 psp103va type=1 thecso=1\n.model v1 npn level=4 vbe_max=1.6 is=1e-16\nQ1 c b e s v1\n.end\n", &r3);
+    try has(psp, "model p1 psp103va (type=1 toxo=1.5n)\nmodel p2 psp103va (type=1)\n");
+    try reported(&r3, .warning, "model 'p1': thecso not written: VACASK's PSP103 (psp103v4, PSP 103.4) has no such parameter; at 2 it changes nothing");
+    try reported(&r3, .warning, "model 'p1': swsoa not written: VACASK's PSP103 (psp103v4) has no safe-operating-area check");
+    try reported(&r3, .warning, "model 'v1': vbe_max not written: VACASK's VBIC (vbic_1p3.va) has no safe-operating-area check");
+    try reported(&r3, .@"error", "model 'p2': thecso not written");
+    try testing.expectEqual(1, r3.count(.@"error"));
+}
+
 test "Xyce's reserved names: renamed in sweeps, data columns and alters; temper and hertz are shadowed" {
     // docs/verification.md 4.15.
     var arena_state: Arena = .init(testing.allocator);
