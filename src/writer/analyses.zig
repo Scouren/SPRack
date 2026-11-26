@@ -35,14 +35,6 @@ pub fn anyConverted(g: *const Grammar, stmts: []const ir.Stmt) bool {
     return false;
 }
 
-pub fn mentions(nodes: []const Node, slot: u8) bool {
-    for (nodes) |n| {
-        if (n.slot == slot or mentions(n.kids, slot)) return true;
-        for (n.bag) |b| if (b.slot == slot or b.slot2 == slot) return true;
-    }
-    return false;
-}
-
 /// A `.tran` step ceiling at or above the stop time limits nothing, and in
 /// HSPICE a fourth number above the stop is a second segment: not written.
 pub fn idleCeilings(
@@ -85,8 +77,7 @@ pub fn foldMaxord(
 ) Allocator.Error![]const ir.Stmt {
     const mo = schema.slot(.options, "maxord");
     const me = schema.slot(.options, "method");
-    for (g.rules) |r|
-        if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
+    if (g.writesSlot(.options, mo)) return stmts;
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
         if (st.kind != .options or st.at(mo) != .num) continue;
@@ -439,8 +430,8 @@ pub fn pzForm(g: *const Grammar) PzForm {
     var f: PzForm = .{};
     for (g.rules) |r| if (r.kind == .pz and r.dir != .read) {
         f.writes = true;
-        f.by_src = f.by_src or mentions(r.pat, src_i);
-        f.by_sig = f.by_sig or mentions(r.pat, out_i);
+        f.by_src = f.by_src or grammar.mentions(r.pat, src_i);
+        f.by_sig = f.by_sig or grammar.mentions(r.pat, out_i);
     };
     return f;
 }

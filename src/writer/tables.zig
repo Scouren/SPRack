@@ -10,6 +10,8 @@
 //! - `pub fn takes(table: []const grammar.Spellings, canon: []const u8) bool`
 //! - `pub fn idleCeiling(st: *const ir.Stmt, slot: usize, v: Value) bool`
 //! - `pub fn describeValue(a: Allocator, v: Value) Allocator.Error![]const u8`
+//! - `pub fn filled(arena: Allocator, text: []const u8,
+//!   vars: []const [2][]const u8) Allocator.Error![]const u8`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -77,4 +79,19 @@ pub fn describeValue(a: Allocator, v: Value) Allocator.Error![]const u8 {
         .num => try expr.canonText(a, v),
         else => "...",
     };
+}
+
+/// `text`, a line of a grammar, with each mark of `vars` (`{to}`,
+/// `{module}`) replaced by what stands for it here.
+pub fn filled(
+    arena: Allocator,
+    text: []const u8,
+    vars: []const [2][]const u8,
+) Allocator.Error![]const u8 {
+    var out = text;
+    for (vars) |v| {
+        if (std.mem.indexOf(u8, out, v[0]) == null) continue;
+        out = try std.mem.replaceOwned(u8, arena, out, v[0], v[1]);
+    }
+    return out;
 }

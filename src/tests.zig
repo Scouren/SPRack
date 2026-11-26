@@ -7606,3 +7606,73 @@ test "fixtures: every case of tests/fixtures gives the output and the report it 
     }
     try testing.expectEqual(0, failed);
 }
+
+test "plugin: what a dialect tells and leaves out for a compiled module is its grammar's, in any dialect" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A dialect made up here: another tool, another flag, two parameters
+    // of its own. Nothing of it is known to the writer.
+    const tiny = tinyGrammar(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3 u=-6
+        \\end
+        \\rule model  = ".model" name type {...params}
+        \\rule device = module~"Z" name nodes+ master {...params}
+        \\plugin
+        \\  missing : compile it with zcc and pass --provide {module}=FILE
+        \\  given : load {file} into {to} with -z
+        \\  card version warning : a {to} module has one version
+        \\  instance area=1 error : the module '{module}' has no area in {to}
+        \\  instance trise=0 warning : {to} modules run at the circuit's temperature
+        \\end
+    );
+    const src = "t\n.model cv mosvar version=2 type=-1\nN1 g b cv l=1u area=1\n" ++
+        "N2 g b cv area=3 trise=5\n.end\n";
+    var none: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &none);
+    var out: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &tiny, &out.writer, &nl, &none);
+    try reported(&none, .@"error", "model 'cv' is of the Verilog-A module 'mosvar': tiny takes it only from a plugin of the module; compile it with zcc and pass --provide mosvar=FILE");
+    try reported(&none, .@"error", "device: tiny instantiates the Verilog-A module 'mosvar' only through a plugin of it: compile it with zcc and pass --provide mosvar=FILE");
+
+    const env: ir.Env = .{ .provided = &.{.{ "mosvar", "mosvar.z" }} };
+    var report: ir.Report = .init(a);
+    var given: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, &tiny, &given.writer, &nl, &report, &env);
+    try reported(&report, .warning, "device: the Verilog-A module 'mosvar' is the plugin mosvar.z: load mosvar.z into tiny with -z");
+    // The card's parameter goes whatever its value; an instance's at the
+    // plugin's own value goes in silence, at another with its line's text.
+    try has(given.written(), ".model cv mosvar type=-1\n");
+    try reported(&report, .warning, "model 'cv': version not written: a tiny module has one version");
+    try has(given.written(), "Zmosvar N1 g b cv l=1u\n");
+    try has(given.written(), "Zmosvar N2 g b cv\n");
+    try reported(&report, .@"error", "device: 'area=3' not written: the module 'mosvar' has no area in tiny");
+    try reported(&report, .warning, "device: 'trise=5' not written: tiny modules run at the circuit's temperature");
+    try testing.expectEqual(1, report.count(.@"error"));
+}
+
+test "plugin: a device rule that names the module and a plugin block go together" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const head = "dialect tiny\nlexer\n  title yes\nend\n";
+    const rule = "rule device = module~\"Z\" name nodes+ master {...params}\n";
+    const block = "plugin\n  missing : build it\n  given : load {file}\nend\n";
+    for ([_][]const u8{
+        head ++ rule,
+        head ++ block,
+        head ++ rule ++ "plugin\n  missing : build it\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  card level=1 warning : x\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  instance m=one error : x\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  instance m=1 fatal : x\nend\n",
+        head ++ rule ++ block ++ block,
+    }) |src| {
+        var diag: sprack.grammar.Diag = .{};
+        try testing.expectError(error.BadGrammar, sprack.grammar.compile(a, src, "f.spgrammar", &diag));
+    }
+    var diag: sprack.grammar.Diag = .{};
+    _ = try sprack.grammar.compile(a, head ++ rule ++ block, "f.spgrammar", &diag);
+}

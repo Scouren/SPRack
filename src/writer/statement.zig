@@ -20,7 +20,6 @@ const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Value = ir.Value;
-const mentions = analysis_passes.mentions;
 
 const emit = @import("emit.zig");
 const Refs = @import("refs.zig").Refs;
@@ -260,15 +259,10 @@ pub const Writer = struct {
                         .unsupported,
                         st.line,
                         "model '{s}' is of the Verilog-A module '{s}': {s} takes it only from " ++
-                            "a plugin of the module; build one with buildxyceplugin and name " ++
-                            "it with --provide {s}=FILE",
-                        .{ st.get("name").atom, ty, w.g.name, ty },
+                            "a plugin of the module; {s}",
+                        .{ st.get("name").atom, ty, w.g.name, try w.pluginText(a, .missing, ty, "") },
                     );
-                } else if (w.namesModule() and st.get("params") == .params) {
-                    // Xyce finds a card's device by type and level, and a
-                    // plugin is level 1: IHP's `mosvar level=1000` card is
-                    // "no valid model card" for its Y line, and the same
-                    // card without it gives ngspice's current (#52).
+                } else if (w.g.plugin != null and st.get("params") == .params) {
                     w.report.add(
                         .warning,
                         .caveat,
@@ -277,26 +271,7 @@ pub const Writer = struct {
                             "module",
                         .{ st.get("name").atom, ty, w.g.name },
                     );
-                    const ps = st.get("params").params;
-                    for (ps, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "level")) {
-                        w.report.add(
-                            .warning,
-                            .loss,
-                            st.line,
-                            "model '{s}': level not written: {s} takes a plugin's card only " ++
-                                "at the plugin's own level, so the module runs at its default " ++
-                                "level",
-                            .{ st.get("name").atom, w.g.name },
-                        );
-                        var out = st.*;
-                        try out.own(a);
-                        const rest = try std.mem.concat(a, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
-                        try out.set(a, schema.slot(.model, "params"), if (rest.len > 0)
-                            .{ .params = rest }
-                        else
-                            .none);
-                        return out;
-                    };
+                    if (try w.pluginDrops(a, st, ty, true)) |out| return out;
                 } else if (w.g.absentReason(.device)) |why| {
                     w.report.add(
                         .@"error",
@@ -1284,10 +1259,6 @@ pub const Writer = struct {
         try w.bodyComments(a, st.body);
     }
 
-    /// A Verilog-A instance where the target names the module on it (Xyce
-    /// `Y<module>`): the module of its model card, if the target has a
-    /// plugin of it (`ir.Env.provided`); else an error that says how to get
-    /// one. Null: written as it is.
     /// The file given to the translation under this name (`--provide`).
     pub fn providedFile(w: *const Writer, name: []const u8) ?[]const u8 {
         const given: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
@@ -1295,44 +1266,116 @@ pub const Writer = struct {
         return null;
     }
 
-    /// Does this dialect name the module on the instance (a plugin's), and
-    /// has no plugin of this one been named?
+    /// Does this dialect take a module only as a plugin, and has no plugin
+    /// of this one been given to the translation?
     pub fn needsPlugin(w: *const Writer, module: []const u8) bool {
-        if (!w.namesModule()) return false;
-        const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
-        for (plugins) |p| if (std.ascii.eqlIgnoreCase(p[0], module)) return false;
-        return true;
+        if (w.g.plugin == null) return false;
+        return w.providedFile(module) == null;
+    }
+
+    /// A line of the target's `plugin` block, for the module `module`
+    /// (and, for `given`, the plugin `file` of it).
+    pub fn pluginText(
+        w: *const Writer,
+        a: Allocator,
+        comptime which: enum { missing, given },
+        module: []const u8,
+        file: []const u8,
+    ) Allocator.Error![]const u8 {
+        const pl = w.g.plugin.?;
+        const text = if (which == .missing) pl.missing else pl.given;
+        const vars = [_][2][]const u8{
+            .{ "{to}", w.g.name }, .{ "{module}", module }, .{ "{file}", file },
+        };
+        return tables.filled(a, text, &vars);
+    }
+
+    /// `st`, the model card (`card`) or the instance of the plugin of
+    /// `module`, without the parameters the target's `plugin` block says a
+    /// plugin has no place for, each reported unless it is given at the
+    /// value the plugin behaves as having. Null: it gives none of them.
+    pub fn pluginDrops(
+        w: *Writer,
+        a: Allocator,
+        st: *const ir.Stmt,
+        module: []const u8,
+        card: bool,
+    ) Allocator.Error!?ir.Stmt {
+        const pl = w.g.plugin.?;
+        const pi = schema.slotOf(st.kind, "params").?;
+        var out: ?ir.Stmt = null;
+        for (pl.drops) |drop| {
+            if (drop.card != card) continue;
+            const cur = if (out) |*o| o else st;
+            if (cur.at(pi) != .params) break;
+            const ps = cur.at(pi).params;
+            const i = for (ps, 0..) |p, i| {
+                if (std.ascii.eqlIgnoreCase(p.key, drop.key)) break i;
+            } else continue;
+            if (!neutral(drop, ps[i].val)) try w.reportDrop(a, st, drop, ps[i].val, module);
+            var next = cur.*;
+            try next.own(a);
+            const rest = try std.mem.concat(a, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
+            try next.set(a, pi, if (rest.len > 0) .{ .params = rest } else .none);
+            out = next;
+        }
+        return out;
+    }
+
+    /// Is `v` the value a plugin behaves as having for `drop`'s parameter?
+    fn neutral(drop: grammar.Plugin.Drop, v: Value) bool {
+        if (drop.neutral.len == 0 or v != .num) return false;
+        // The grammar compiler took only a number.
+        const same = std.fmt.parseFloat(f64, drop.neutral) catch unreachable;
+        return v.num.toFloat() == same;
+    }
+
+    fn reportDrop(
+        w: *Writer,
+        a: Allocator,
+        st: *const ir.Stmt,
+        drop: grammar.Plugin.Drop,
+        v: Value,
+        module: []const u8,
+    ) Allocator.Error!void {
+        const vars = [_][2][]const u8{ .{ "{to}", w.g.name }, .{ "{module}", module } };
+        const why = try tables.filled(a, drop.text, &vars);
+        const sev: ir.Severity = if (drop.err) .@"error" else .warning;
+        if (drop.card) {
+            w.report.add(sev, .loss, st.line, "model '{s}': {s} not written: {s}", .{
+                st.get("name").atom, drop.key, why,
+            });
+        } else {
+            var em = w.emitter(a, st);
+            w.report.add(sev, .loss, st.line, "device: '{s}={s}' not written: {s}", .{
+                drop.key, try em.describe(v), why,
+            });
+        }
     }
 
     pub const WithModule = union(enum) { keep, done, stmt: ir.Stmt };
 
-    /// Does this dialect name the Verilog-A module on the instance (Xyce `Y<module>`)?
-    pub fn namesModule(w: *const Writer) bool {
-        const mi = schema.slot(.device, "module");
-        for (w.g.rules) |*r|
-            if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) return true;
-        return false;
-    }
-
+    /// A Verilog-A instance where the target takes its module as a plugin
+    /// and names it on the instance (`plugin`): the instance with the
+    /// module of its model card, if a plugin of it was given to the
+    /// translation (`ir.Env.provided`); else an error that says how to get
+    /// one. `keep`: written as it is.
     pub fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
         const mi = schema.slot(.device, "module");
-        if (!w.namesModule()) return .keep;
+        if (w.g.plugin == null) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
         const module = w.modules.get(master) orelse (if (w.env) |e|
             e.modules.get(master)
         else
             null) orelse return .keep;
-        const plugins: []const [2][]const u8 = if (w.env) |e| e.provided else &.{};
-        const file = for (plugins) |p| {
-            if (std.ascii.eqlIgnoreCase(p[0], module)) break p[1];
-        } else {
+        const file = w.providedFile(module) orelse {
             w.report.add(
                 .@"error",
                 .unsupported,
                 st.line,
                 "device: {s} instantiates the Verilog-A module '{s}' only through a plugin of " ++
-                    "it: build one with buildxyceplugin and name it with --provide {s}=FILE",
-                .{ w.g.name, module, module },
+                    "it: {s}",
+                .{ w.g.name, module, try w.pluginText(w.arena, .missing, module, "") },
             );
             try w.comment(
                 try w.arena.print("[sprack] not written: {s}", .{if (st.get("name") == .atom)
@@ -1348,37 +1391,14 @@ pub const Writer = struct {
                 .warning,
                 .caveat,
                 st.line,
-                "device: the Verilog-A module '{s}' is the plugin {s}: run {s} with -plugin {s}",
-                .{ module, file, w.g.name, file },
+                "device: the Verilog-A module '{s}' is the plugin {s}: {s}",
+                .{ module, file, try w.pluginText(w.arena, .given, module, file) },
             );
         }
         var d = st.*;
         try d.own(w.arena);
         try d.set(w.arena, mi, .{ .atom = module });
-        // A plugin has no m: Xyce's ADMS templates have no $mfactor
-        // (FIXME_MFACTOR), Xyce 7.10 refuses `Yr3_cmc ... m=2`, and neither
-        // a subcircuit's m nor IHP's own `mult` (r3_cmc.va:327, only its
-        // mismatch) changes the current of IHP's rsil (#52). At 1 it is the
-        // same device.
-        const pi = schema.slot(.device, "params");
-        if (d.at(pi) == .params)
-            for (d.at(pi).params, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "m")) {
-                if (p.val != .num or p.val.num.toFloat() != 1) {
-                    var em = w.emitter(w.arena, st);
-                    w.report.add(
-                        .@"error",
-                        .loss,
-                        st.line,
-                        "device: 'm={s}' not written: a {s} plugin has no device multiplier " ++
-                            "($mfactor), so the module '{s}' is simulated as one device",
-                        .{ try em.describe(p.val), w.g.name, module },
-                    );
-                }
-                const ps = d.at(pi).params;
-                const rest = try std.mem.concat(w.arena, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
-                try d.set(w.arena, pi, if (rest.len > 0) .{ .params = rest } else .none);
-                break;
-            };
+        if (try w.pluginDrops(w.arena, &d, module, false)) |without| return .{ .stmt = without };
         return .{ .stmt = d };
     }
 

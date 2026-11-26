@@ -101,20 +101,8 @@ fn unnamed(arena: Allocator, s: Stmt) Allocator.Error!Stmt {
     return out;
 }
 
-fn mentions(nodes: []const grammar.Node, slot: u8) bool {
-    for (nodes) |n| {
-        if (n.slot == slot) return true;
-        for (n.bag) |e| if (e.slot == slot or e.slot2 == slot) return true;
-        if (mentions(n.kids, slot)) return true;
-    }
-    return false;
-}
-
 fn writesSlot(g: *const Grammar, name: []const u8) bool {
-    const slot = schema.slotIndex(.alter, name).?;
-    for (g.rules) |*r|
-        if (r.kind == .alter and r.dir != .read and mentions(r.pat, slot)) return true;
-    return false;
+    return g.writesSlot(.alter, schema.slotIndex(.alter, name).?);
 }
 
 /// ` 'name'`, or nothing for an alter without one: for messages.

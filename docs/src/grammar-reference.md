@@ -270,6 +270,23 @@ end                                # every slot and parameter of the original
                                    # `{node}` the node of a clash, and a name
                                    # the original lacks is that slot of the
                                    # first statement written
+plugin                             # a Verilog-A module is taken only compiled
+  missing : build one with ...     # here, and named on the instance by a
+  given : run {to} with ...        # device rule that says `module` (the two go
+  card level warning : ...         # together: one without the other is refused).
+  instance m=1 error : ...         # `missing`: what gets one, the end of the
+end                                # error for a module no plugin of was given
+                                   # to the translation (`--provide`). `given`:
+                                   # how the one given is loaded, a caveat once
+                                   # a module. `card key` and `instance key`: a
+                                   # parameter a plugin's model card, or its
+                                   # instance, has no place for: not written,
+                                   # an error or a warning in the line's words;
+                                   # `instance key=value`: at that value
+                                   # leaving it out changes nothing, and
+                                   # nothing is said. In a text `{to}` is this
+                                   # dialect, `{module}` the module, `{file}`
+                                   # the plugin given
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # how the family's model here computes with
                                    # these parameters, as measured: said, with

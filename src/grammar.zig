@@ -374,6 +374,31 @@ pub const Omitted = struct {
 pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 =
     "",
     read: bool = false };
+/// `plugin ... end`: this dialect takes a Verilog-A module only compiled,
+/// as a plugin, and names the module on the instance (a device rule that
+/// says `module`). `missing`: what gets one, said to whoever gave none to
+/// the translation; `given`: how the one given is loaded. Both may name
+/// `{to}`, `{module}` and, for `given`, `{file}`.
+pub const Plugin = struct {
+    missing: []const u8,
+    given: []const u8,
+    drops: []const Drop = &.{},
+
+    /// `card key sev : text` and `instance key[=value] sev : text`: a
+    /// parameter a plugin's model card, or its instance, has no place for.
+    /// It is not written, and `text` says so, but for an instance that
+    /// gives it at `neutral`, where leaving it out changes nothing.
+    pub const Drop = struct {
+        card: bool,
+        key: []const u8,
+        /// A number, as written; empty where no value is the plugin's own.
+        neutral: []const u8 = "",
+        /// An error, else a warning.
+        err: bool,
+        text: []const u8,
+    };
+};
+
 /// `rewrite capacitor ic ... end`: an instance parameter this dialect's
 /// device does not take, said by other statements. A statement of `kind`
 /// read in another dialect that gives `param` is written as `parts`: the
@@ -617,6 +642,7 @@ pub const Grammar = struct {
     edges: []const Edge = &.{},
     inerts: []const Inert = &.{},
     rewrites: []const Rewrite = &.{},
+    plugin: ?Plugin = null,
     read_index: ReadIndex = .{},
 
     /// The rules that may read a line whose first token is a word of this
@@ -639,6 +665,11 @@ pub const Grammar = struct {
     /// The rules of `kind`, read or write, as indices into `rules` in file order.
     pub fn rulesOf(g: *const Grammar, kind: Kind) []const u16 {
         return g.read_index.by_kind[@backingInt(kind)];
+    }
+
+    /// Does a rule this dialect writes `kind` by say `slot`?
+    pub fn writesSlot(g: *const Grammar, kind: Kind, slot: u8) bool {
+        return anyWrites(g.rules, kind, slot);
     }
 
     /// Does this dialect give the slot a meaning of its own when it is
@@ -1850,6 +1881,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var edges: []const Edge = &.{};
     var inerts: []const Inert = &.{};
     var rewrites: []const Rewrite = &.{};
+    var plugin: ?Plugin = null;
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -2081,6 +2113,9 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     return c.fail(no, "every clash line of a grammar names one kind.slot", .{});
             }
             rewrites = try c.add(Rewrite, rewrites, rule);
+        } else if (std.mem.eql(u8, head, "plugin")) {
+            if (plugin != null) return c.fail(no, "a grammar has one plugin block", .{});
+            plugin = try pluginBlock(c, &lines, rest);
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))
@@ -2614,6 +2649,14 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     }
     if (std.mem.eql(u8, c.name, "?")) return c.fail(1, "missing `dialect <name>`", .{});
     rules = try markEndings(c, rules, spreads);
+    // A device named by its module is a plugin's: the block says what to
+    // tell who has none, and a block with no such rule says it to no one.
+    if (anyWrites(rules, .device, schema.slot(.device, "module")) != (plugin != null))
+        return c.fail(
+            0,
+            "a device rule that names the module (`module`) and a plugin block go together",
+            .{},
+        );
     return .{
         .read_index = try readIndex(c, rules),
         .name = c.name,
@@ -2664,7 +2707,80 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .edges = edges,
         .inerts = inerts,
         .rewrites = rewrites,
+        .plugin = plugin,
     };
+}
+
+/// Does a rule among `rules` that writes `kind` say `slot`?
+fn anyWrites(rules: []const Rule, kind: Kind, slot: u8) bool {
+    for (rules) |*r| {
+        if (r.kind == kind and r.dir != .read and mentions(r.pat, slot)) return true;
+    }
+    return false;
+}
+
+/// Does the pattern `nodes` say `slot`, anywhere in it?
+// tidy: allow(recursion) bounded by the nesting of a pattern (the parser's max_depth)
+pub fn mentions(nodes: []const Node, slot: u8) bool {
+    for (nodes) |n| {
+        if (n.slot == slot or mentions(n.kids, slot)) return true;
+        for (n.bag) |b| if (b.slot == slot or b.slot2 == slot) return true;
+    }
+    return false;
+}
+
+/// The lines of a `plugin` block, up to its `end`.
+fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin {
+    const head_line = lines.no;
+    if (header.len > 0) return c.fail(head_line, "plugin takes nothing on its own line", .{});
+    var missing: []const u8 = "";
+    var given: []const u8 = "";
+    var drops: []const Plugin.Drop = &.{};
+    while (lines.next()) |line| {
+        const no = lines.no;
+        if (std.mem.eql(u8, line, "end")) {
+            if (missing.len == 0 or given.len == 0)
+                return c.fail(no, "plugin needs a `missing : text` and a `given : text` line", .{});
+            return .{ .missing = missing, .given = given, .drops = drops };
+        }
+        const colon = std.mem.indexOf(u8, line, " : ") orelse
+            return c.fail(no, "a line of plugin is `what : text`", .{});
+        const text = std.mem.trim(u8, line[colon + 3 ..], " \t");
+        if (text.len == 0) return c.fail(no, "a line of plugin needs its text", .{});
+        const words = try args(c, no, line[0..colon]);
+        if (words.len == 1 and std.mem.eql(u8, words[0], "missing")) {
+            missing = text;
+        } else if (words.len == 1 and std.mem.eql(u8, words[0], "given")) {
+            given = text;
+        } else {
+            drops = try c.add(Plugin.Drop, drops, try pluginDrop(c, no, words, text));
+        }
+    }
+    return c.fail(head_line, "plugin is missing 'end'", .{});
+}
+
+/// `card key error|warning` or `instance key[=value] error|warning`, and its text.
+fn pluginDrop(c: *C, no: u32, words: []const []const u8, text: []const u8) Error!Plugin.Drop {
+    std.debug.assert(text.len > 0);
+    const card = words.len == 3 and std.mem.eql(u8, words[0], "card");
+    if (!card and !(words.len == 3 and std.mem.eql(u8, words[0], "instance")))
+        return c.fail(
+            no,
+            "plugin: `missing`, `given`, `card key error|warning` or " ++
+                "`instance key[=value] error|warning`, each with ` : text`",
+            .{},
+        );
+    const err = std.mem.eql(u8, words[2], "error");
+    if (!err and !std.mem.eql(u8, words[2], "warning"))
+        return c.fail(no, "plugin: '{s}' is neither error nor warning", .{words[2]});
+    const eq = std.mem.indexOfScalar(u8, words[1], '=') orelse words[1].len;
+    const neutral = if (eq < words[1].len) words[1][eq + 1 ..] else "";
+    if (eq == 0) return c.fail(no, "plugin: a parameter name is missing", .{});
+    if (card and eq < words[1].len)
+        return c.fail(no, "plugin: a card's parameter is left out whatever its value", .{});
+    if (eq < words[1].len and (std.fmt.parseFloat(f64, neutral) catch null) == null)
+        return c.fail(no, "plugin: '{s}' is not a number", .{neutral});
+    return .{ .card = card, .key = words[1][0..eq], .neutral = neutral, .err = err, .text = text };
 }
 
 /// The lines of a `rewrite kind param` block, up to its `end`.

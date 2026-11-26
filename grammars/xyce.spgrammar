@@ -183,6 +183,20 @@ no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command
 # (N_IO_DeviceBlock.C extractYDeviceData; user_plugin/rlc_adms.cir). Written
 # only for a module named with --xyce-plugin (#52).
 rule  device    = module~"Y" name nodes+ master {...params}
+# What a plugin is told and has no place for. `level`: Xyce finds a card's
+# device by type and level, and a plugin is level 1: IHP's `mosvar
+# level=1000` card is "no valid model card" for its Y line, and the same
+# card without it gives ngspice's current (#52). `m`: Xyce's ADMS templates
+# have no $mfactor (FIXME_MFACTOR), Xyce 7.10 refuses `Yr3_cmc ... m=2`, and
+# neither a subcircuit's m nor IHP's own `mult` (r3_cmc.va:327, only its
+# mismatch) changes the current of IHP's rsil (#52). At 1 it is the same
+# device.
+plugin
+  missing : build one with buildxyceplugin and name it with --provide {module}=FILE
+  given : run {to} with -plugin {file}
+  card level warning : {to} takes a plugin's card only at the plugin's own level, so the module runs at its default level
+  instance m=1 error : a {to} plugin has no device multiplier ($mfactor), so the module '{module}' is simulated as one device
+end
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
 # analyses (b3)
 no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top

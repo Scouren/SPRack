@@ -111,7 +111,8 @@ Each is a place where behaviour varies without that place being edited.
 | S2 kind | which statement | 80 kinds in `schema.zig` | a row (rung 3) |
 | S3 pass | which transformation | ~40 | one driver, `src/writer/driver.zig`: the order of the passes is `Driver.group` and `Driver.tail`, a line each; a pass that needs every statement at once is a line of `Driver.netlistPasses` (rung 2: a call in a list) |
 | S4 fact | what a dialect means by a slot | `implied`, `caveat`, `omitted`, `no`, ... | facts indexed by kind and slot (rung 3) |
-| S5 rewrite | a statement the target says as other statements | capacitor `ic=` and `q=` into VACASK (two `rewrite` blocks of its grammar); `maxord`, the pole-zero ports and plugin devices still in Zig | `rewrite` blocks in the grammar, one executor (rung 3) |
+| S5 rewrite | a statement the target says as other statements | capacitor `ic=` and `q=` into VACASK (two `rewrite` blocks of its grammar); `maxord` and the pole-zero ports still in Zig | `rewrite` blocks in the grammar, one executor (rung 3) |
+| S7 plugin | a module the target takes only compiled | Xyce (`plugin` block: what to tell who has none, how one is loaded, the parameters a plugin has no place for) | a block of the grammar (rung 3) |
 | S6 word | a name both dialects have under other spellings | functions, parameters, model types | word tables (rung 3) |
 
 No seam is above rung 3: every variation is data, and no call on the path of
@@ -164,6 +165,6 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 5 | write path: one rendering where the first form says the statement, rules by kind | done; tables by kind for the facts are next | mesh 1.39x to 1.57x, sky130 cells 1.31x to 1.50x fewer instructions |
 | 6 | one driver for whole and streamed netlists | done in the writer: a netlist held in memory is one group holding all of it; the reasons a netlist is read whole are still listed apart from the passes they are for | two drivers of 760 lines were one of 617 and a frame of 149; both ways of writing byte-identical over the 31,034 cases, before and after |
 | 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
-| 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`) | 81 hard-coded at the start; 9 moved to grammar lines |
+| 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`), compiled Verilog-A modules (`plugin`) | 81 hard-coded at the start; 18 moved to grammar lines |
 | 9 | the special cases of the reader and the passes, by mechanism | | |
 | 10 | tests by module, a fixture a fix, fuzz targets a stage | | 55 fixes not fully pinned today |
