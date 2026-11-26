@@ -2383,6 +2383,9 @@ const Writer = struct {
         // ngspice reads .lib and .include before it joins continuation lines.
         w.nowrap = st.kind == .include or st.kind == .lib or st.kind == .hdl;
         defer w.nowrap = false;
+        // An options statement none of whose values crossed (ngspice's
+        // `noacct` alone) says nothing: Xyce warns on a bare `.options timeint`.
+        if (st.kind == .options and e.used == 0) return e.reportLosses();
         try w.lineTail(std.mem.trimEnd(u8, e.buf.items, "\n"), st.tail);
         if (rule.dir == .write and !w.g.canRead(st.kind)) {
             w.report.add(.info, .oneway, st.line, "{s}: written in a form the {s} grammar does not read back as a {s}", .{ @tagName(st.kind), w.g.name, @tagName(st.kind) });

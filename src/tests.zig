@@ -1769,6 +1769,12 @@ test "options: one vocabulary, five ways of filing it" {
     try reported(&r5, .info, "options: 'klu' is not written: ngspice's KLU only picks the sparse solver");
     try reported(&r5, .info, "options: 'noacct' is not written: ngspice's NOACCT only leaves out the accounting printout");
     try testing.expectEqual(0, r5.count(.@"error"));
+    // Nothing of it crosses: no bare `.options timeint`, which Xyce 7.10
+    // warns "is missing one or more required parameters" about.
+    var r9: ir.Report = .init(a);
+    const xy9 = try tr(a, "ngspice", "xyce", "t\n.options klu noacct\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n", &r9);
+    try testing.expect(std.mem.indexOf(u8, xy9, ".options") == null);
+    try testing.expectEqual(0, r9.count(.@"error"));
     // A method with no transient for it to act on.
     var r8: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.options method=gear\n.op\n.end\n", &r8);
