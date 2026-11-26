@@ -6886,6 +6886,33 @@ test "#47: an HSPICE optimization is the ending of its analysis, and nowhere els
     try testing.expect(std.mem.indexOf(u8, xy, "\n.dc ") == null);
 }
 
+test "#47: a comma after = parts two values: an optimization's results=va,vb is two results" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* opt\n.param ra=opt2(1k, 100, 10k)\nv1 a 0 1\nr1 a b ra\nr2 b 0 1k\n.model optmod opt relin=1e-6\n" ++
+        ".dc v1 0 5 1 sweep optimize=opt2 results=va,vb model=optmod\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try testing.expectEqual(1, countKind(nl, .optimize));
+    try testing.expectEqual(0, countKind(nl, .@"opaque"));
+    var r1: ir.Report = .init(a);
+    try has(try sameBack(a, "hspice", "hspice", src, &r1), ".dc v1 0 5 1 sweep optimize=opt2 results=va,vb model=optmod\n");
+}
+
+test "#47: an HSPICE optimization reads result= in the singular, written back as results=" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "* opt\n.param rx=opt1(5k, 100, 10k)\nv1 a 0 5\nr1 a b 1k\nr2 b 0 rx\n.model optmod opt method=bisection\n" ++
+        ".dc v1 0 5 1 sweep optimize=opt1 result=vout model=optmod\n.end\n";
+    var r: ir.Report = .init(a);
+    const nl = try readAs(a, "hspice", src, &r);
+    try testing.expectEqual(1, countKind(nl, .optimize));
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "hspice", "hspice", src, &r1), ".dc v1 0 5 1 sweep optimize=opt1 results=vout model=optmod\n");
+}
+
 test "#47: HSPICE statements of its own are unsupported elsewhere, with the reason" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

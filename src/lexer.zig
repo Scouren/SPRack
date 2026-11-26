@@ -515,7 +515,10 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
                 continue;
             }
             // A bare expression runs to the next blank outside parentheses
-            // and brackets: `hblin=[1, -1]` is one value.
+            // and brackets: `hblin=[1, -1]` is one value. In a SPICE
+            // dialect a comma outside them is a blank, as elsewhere on the
+            // line: `results=va,vb` is two values (HSPICE's optimization).
+            // VACASK's `nodeset={"q",5}` stays one.
             var depth: usize = 0;
             var square: usize = 0;
             var j = i;
@@ -532,7 +535,7 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
                 } else if (ch == ')') {
                     if (depth == 0) break;
                     depth -= 1;
-                } else if (depth == 0 and (ch == ' ' or ch == '\t')) break;
+                } else if (depth == 0 and (ch == ' ' or ch == '\t' or (ch == ',' and !cfg.bare_expr))) break;
             }
             var run = text[i..j];
             // `= (0,0) (1,2)`: a comma at the top level of the parentheses

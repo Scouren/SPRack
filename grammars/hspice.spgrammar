@@ -242,6 +242,9 @@ read  montecarlo = "monte" ~"=" runs
 # `.dc v1 0 5 1 sweep optimize=opt1 results=vout model=optmod`.
 spread optimize
 rule  optimize   = "sweep" "optimize" ~"=" param "results" ~"=" ( results )+~"," "model" ~"=" model
+# `result=` in the singular, as the suite's optimize/bisection_divider.sp has it;
+# not run in HSPICE (docs/verification.md 4.32).
+read  optimize   = "sweep" "optimize" ~"=" param "result" ~"=" ( results )+~"," "model" ~"=" model
 own model "opt" : HSPICE's optimizer is set by a .MODEL of type OPT; no other dialect has an optimizer statement for it to drive
 implied montecarlo variations = all
 no montecarlo variations : an HSPICE Monte Carlo run varies every random parameter, global and local alike; it cannot vary one kind alone
