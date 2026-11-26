@@ -33,6 +33,8 @@ lexer
   # it a path or label, and rlgcfile= and tstonefile= a file name.
   quotes    '"' expr-in-values except rlgcfile tstonefile
   values    idents
+  # The HSPICE User Guide's scale table: X is 1e6, A 1e-18, MIL 25.4e-6
+  # (docs/verification.md 4.38; documented, not run).
   scale     meg=6 x=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
   oddscale  mil=25.4e-6
   units     ignore
@@ -88,17 +90,20 @@ rule  mutual    = name~"K" l1 l2 k
 read  mutual    = name~"K" l1 l2 { k=k! }
 # The waveform of a V or I source; vsource and isource share these slots.
 define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl [freq [mdi [fsig]]] ~")" | wave:"am" ~"(" ampl val0 fsig freq [delay] ~")" | wave:"pat" ~"(" val1 val0 delay rise fall width bits+ ~")" )
+# b4: `dc=` as a key, and `ac` with no magnitude, which is 1 (ngspice 45
+# reads `ac` and `dc 0 ac` so: docs/verification.md 4.38). Tried first: a
+# bare name is a value here, so the rule below would take `ac` for the DC
+# value.
+read  vsource   = name~"V" pos neg [ ( { dc=dc! } | "dc" dc ) ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
 read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
 read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
-# b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
-read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 # A named pattern; a PAT source gives its name where the bits go.
 rule  pattern   = ".pat" name ~"=" data...
+read  isource   = name~"I" pos neg [ ( { dc=dc! } | "dc" dc ) ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] {r=repeat ...params}
 read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] {r=repeat ...params}
 read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc {r=repeat ...params}
-read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
 rule  bsource   = name~"E" pos neg { vol=v! }
 rule  bsource   = name~"G" pos neg { cur=i! }
 rule  vcvs      = name~"E" pos neg cpos cneg gain
@@ -288,6 +293,9 @@ no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 # charge (0.5 V on an equal capacitive divider); an unbalanced current
 # source into one drives it to about 1e9 V. A loop of voltage sources, of
 # a voltage source and an inductor, or of inductors only stops the run.
+# The User Guide says the same: topology rules 1 and 2, the inductor/voltage
+# source loop error, and a node with no DC path tied to ground through
+# GDCPATH with a warning (docs/verification.md 4.38).
 requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : HSPICE solves it but starts such nodes at 0 V, where ngspice divides the charge among the capacitors
 requires no-vloop  error   : HSPICE stops on it
 requires no-vlloop error   : HSPICE stops on it, where ngspice gets through with its transient operating point
@@ -413,7 +421,9 @@ rule  ctlsrc    = name~"G" pos neg form:"vcr" cpos#1 cneg#1 gain
 rule  ctlsrc    = name~"G" pos neg form:"vccap" cpos#1 cneg#1 gain
 # Measurements in their common forms, so that the probes and numbers in
 # them are translated; anything else is carried as text. A measurement that
-# names no analysis is of the last analysis in the netlist.
+# names no analysis is of the last analysis in the netlist (the .MEASURE
+# reference: "HSPICE uses the last analysis mode that you requested";
+# docs/verification.md 4.38, documented, not run).
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"trig"=trig trig { val=trigval td=trigtd rise=trign@trigedge:rise fall=trign@trigedge:fall cross=trign@trigedge:cross } "targ" targ { val=targval td=targtd rise=targn@targedge:rise fall=targn@targedge:fall cross=targn@targedge:cross }
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name op:"find"=find out "when" when ~"=" whenval { td=whentd rise=whenn@whenedge:rise fall=whenn@whenedge:fall cross=whenn@whenedge:cross ...params }
 rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"find"=find | op:"deriv"=deriv | op:"derivative"=deriv ) out { at=at! ...params }
@@ -429,7 +439,8 @@ rule  measure   = ( ".meas" | ".measure" ) [analysis] name ( op:"thd"=thd | op:"
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 # HSPICE's AM is sa*(oc + sin(2 pi fm t)) sin(2 pi fc t): no offset, and
-# oc is the modulation offset over the modulation amplitude.
+# oc is the modulation offset over the modulation amplitude. That is the
+# User Guide's formula (docs/verification.md 4.38; documented, not run).
 convert vsource wave=am : val0 = val0 / ampl
 convert isource wave=am : val0 = val0 / ampl
 no relay  : HSPICE has no relay element; a voltage-controlled resistor (G element, VCR) is the closest form
@@ -509,7 +520,7 @@ edge resistor narrow : where W - 2 DW is 0, HSPICE takes a floor resistance (1e5
 # for each (docs/verification.md 4.32).
 own ".connect" : HSPICE's .CONNECT makes two nets one; SPRack has no kind for it, and in the other dialects the same circuit is one of the nodes renamed to the other (or a 0 V source between them)
 own "S*" : an HSPICE S element is an S-parameter block read from its .MODEL's TSTONEFILE; SPRack has no kind for it (Spectre's nport file= and Xyce's YLIN with a LIN model are the nearest forms)
-own ".dcsens" : HSPICE's .DCSENS (DC mismatch sensitivity) is not mapped: that it equals another dialect's .SENS or dcmatch has not been measured
+own ".dcsens" : HSPICE's .DCSENS (DC mismatch sensitivity) is not mapped: its reference makes it a finite difference over the .VARIATION block, not .SENS's normalized derivatives, and no other dialect's form of it is known
 own ".acmatch" : HSPICE's .ACMATCH (AC mismatch) is not mapped: SPRack has no kind for an AC mismatch analysis
 own ".net" : HSPICE's .NET (network parameters over an .AC) is not mapped: SPRack has no kind for it (LTspice's .NET is a different statement)
 own ".power" : HSPICE's .POWER (the power of each instance) is an output request SPRack has no kind for
@@ -520,11 +531,11 @@ own ".load" : HSPICE's .LOAD reads an operating point HSPICE saved (.SAVE); the 
 own ".vec" : HSPICE's .VEC reads digital vectors from a file in HSPICE's own vector format
 # Families ngspice has that HSPICE has no model of, or none known (#48);
 # a run is #56's to make.
-no model mos6 : HSPICE's level 6 is its own IDS model (AMI), not SPICE3's MOS6
+no model mos6 : HSPICE's level 6 is Lattin-Jenkins-Grove with ASPEC parasitics (its MOSFET Models manual), not SPICE3's MOS6
 no model mos9 : HSPICE's MOS9 (level 50) is Philips MOS9, not SPICE3's modified level 3
-no model b3soifd : that an HSPICE level takes ngspice's B3SOIFD 2.1 cards is not established without an HSPICE run (#56)
-no model b3soidd : that an HSPICE level takes ngspice's B3SOIDD 2.1 cards is not established without an HSPICE run (#56)
-no model b3soipd : HSPICE's level 57 (BSIM3SOI) is read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards is not established without an HSPICE run (#56)
+no model b3soifd : HSPICE's level table has no fully depleted BSIM3SOI (its level 57 is the partially depleted one, and it lists no level 56); that a level takes ngspice's B3SOIFD 2.1 cards is not established without an HSPICE run (#56)
+no model b3soidd : HSPICE's level table has no dynamically depleted BSIM3SOI (its level 57 is the partially depleted one, and it lists no level 56); that a level takes ngspice's B3SOIDD 2.1 cards is not established without an HSPICE run (#56)
+no model b3soipd : HSPICE's level 57 (BSIM3SOI, UCB PD 2.2.3 at VERSION=2.2 by its MOSFET Models manual) is read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards is not established without an HSPICE run (#56)
 no model mesa : HSPICE's MESFETs are J elements (level 3); none is the MESA model
 no model urc : HSPICE's U element is a lossy transmission line of its own models; that HSPICE takes an ngspice URC line and card is not established without an HSPICE run (#56)
 no script : HSPICE has no control script; its analyses and outputs are netlist lines

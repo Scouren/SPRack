@@ -1783,7 +1783,7 @@ reason; in HSPICE itself it is written back as read, with no note.
 | `sweep optimize= results= model=` | kind `optimize`, the ending of the analysis it optimizes over; a `.model` of type OPT is `own` | not run | no optimizer statement in any other dialect: `no` lines; the analysis inside is not written either, as the report says |
 | `.connect` | `own` | not run | none has one; the reason says how to write the same circuit |
 | S element | `own "S*"` | not run | Spectre `nport file=` and Xyce `YLIN` are named as the nearest forms, not mapped |
-| `.dcsens`, `.acmatch` | `own` | not run | not mapped: equality with `.sens`/`dcmatch` is not measured |
+| `.dcsens`, `.acmatch` | `own` | not run | not mapped: `.dcsens` is documented as another computation than `.sens` (4.38) |
 | `.net`, `.power` | `own` | not run | not mapped |
 | `.check`, `.dout`, `.biaschk` | `own` | not run | Spectre's checks are not mapped either |
 | `.mosra`, `.appendmodel` | `own` | not run | none has MOSRA |
@@ -1815,11 +1815,11 @@ The targets, each a row or a `no model` line with its reason:
 
 | family | Xyce | HSPICE | Spectre, LTspice | VACASK |
 |---|---|---|---|---|
-| mos6 | level 6 (N_DEV_MOSFET6.C registers it) | no: its level 6 is the AMI IDS model | not established without a run | no built-in |
+| mos6 | level 6 (N_DEV_MOSFET6.C registers it) | no: its level 6 is Lattin-Jenkins-Grove (4.38) | not established without a run | no built-in |
 | mos9 | no: its level 9 is BSIM3 | no: its MOS9 (level 50) is Philips MOS9 | not established | no built-in |
 | bsim1 | no level registered | level 13 (Star-HSPICE manual, MOSFET chapter) | not established | no built-in |
 | bsim2 | no level registered | level 39 (same) | not established | no built-in |
-| b3soifd, b3soidd, b3soipd | no: its BSIM3SOI (10, 57) is 3.2, read as bsimsoi | not established (#56) | not established | no built-in |
+| b3soifd, b3soidd, b3soipd | no: its BSIM3SOI (10, 57) is 3.2, read as bsimsoi | level 57 is PD 2.2.3 at VERSION=2.2; no FD or DD level (4.38); not run | not established | no built-in |
 | mesa | no: one Z level | no: its MESFETs are J level 3 | not established | no built-in |
 
 Not run: none of the rows above was simulated against ngspice; parameter
@@ -1943,10 +1943,57 @@ The measurement and the grammar lines it lets in are 4.43.
 
 Issue 56 lists 29 checks that need HSPICE Y-2026.03-SP2-1. None is run
 here (no HSPICE in this environment). The decks for those that need a deck
-of their own are in `tools/measure/hspice/`, each with what to read and what
-the grammar expects, so a licensed host runs them as they are; their rows
-go here when it has. Until then, the grammar lines they bear on keep their
-present marks (none says "measured" for these).
+of their own are in `tools/measure/hspice/`, each with what to read and the
+value each reading gives, so a licensed host runs them as they are
+(`hspice -i DECK -o DECK`, then the `.mt0`/`.lis` files); their values go
+in the last column when it has. Until then no grammar line resting on them
+says "measured".
+
+What HSPICE's own manuals say was read for each; a manual is of an older
+release (2010 and before) than the one SPRack targets, so a documented row
+is the expected value, not a measurement. The manuals:
+
+- CMD: HSPICE Reference Manual: Commands and Control Options, E-2010.12 (`https://www.ele.uri.edu/Courses/ele448/HspiceRef/hspice_cmdref.pdf`)
+- SA: HSPICE User Guide: Simulation and Analysis, E-2010.12 (`.../hspice_sa.pdf`, same directory)
+- ELEM: HSPICE Reference Manual: Elements and Device Models, E-2010.12 (`.../hspice_devmod.pdf`)
+- MOS: HSPICE Reference Manual: MOSFET Models, D-2010.12 (`.../hspice_mosmod.pdf`)
+- SI: HSPICE User Guide: Signal Integrity, E-2010.12 (`.../hspice_si.pdf`)
+- S98: Star-Hspice Manual, Release 1998.2 (`https://web.engr.oregonstate.edu/~moon/ece323/hspice98/files/Star-Hspice.pdf`)
+
+| # | check | deck | the manuals | ngspice 45 (run here) | status | HSPICE Y-2026.03-SP2-1 |
+|---|---|---|---|---|---|---|
+| 1 | an explicit 0 in an EXP source | `01_exp_zeros.sp` | SA p.248: TD1 default 0, TAU1 and TAU2 TSTEP, TD2 TD1+TSTEP (contradicted by the run of 4.18, which wins); nothing on a 0 | reads a 0 as left out (4.18) | TD1: settled, a 0 and left out are both 0 (4.18). TAU1, TD2, TAU2: needs a run | |
+| 2 | `.option parhier` | `02_parhier_local.sp` | SA Table 26 and p.357: GLOBAL is the default and puts a top-level `.PARAM` above the instance and the header; LOCAL puts the instance, then the header, then the top level | the header and the instance win (LOCAL's order) | documented; needs a run | |
+| 3 | `.fft` defaults | `03_fft_defaults.sp` | CMD p.103: NP 1024, WINDOW RECT, FORMAT NORM, START and STOP the `.tran`'s, ALFA 3; FREQ 1/(STOP-START) (S98: 0) | has no `.fft` | documented; needs a run (FREQ) | |
+| 4 | random parameters, `.variation`, seed | `04_random_params.sp`, `04b_variation_seed.sp` | CMD .MODEL: DEV per device, LOT shared (on `.MODEL` only); S98 p.10-42: agauss's sigma is abs_variation over the third argument, so agauss(1k,30,3) and agauss(1k,10,1) both have 10; SA p.735: a variation is absolute, `%` relative; CMD p.640 `.option seed`, SA p.664 the same seed for the first run | no Monte Carlo statement | agauss and `.variation`: documented. DEV/LOT on `.param`, the seed: needs a run | |
+| 5 | AM | `05_am_source.sp` | SA p.258: sa (oc + sin(2 pi fm (t-td))) sin(2 pi fc (t-td)) | `am()` is ngspice's own order | documented: 2.4142; needs a run | |
+| 6 | `ac` with no magnitude | `06_ac_no_magnitude.sp` | SA: no default given for ACMAG | `v1 a 0 ac` and `v1 a 0 dc 0 ac`: vm(b) 0.5 each | needs a run | |
+| 7 | `.meas` with no analysis | `07_meas_no_analysis.sp` | CMD p.172: "If you omit this parameter, HSPICE uses the last analysis mode that you requested" | refuses the deck | documented; needs a run | |
+| 8 | the `requires` lines | `08a` to `08e`, and each again with `uic` on the `.tran` | SA p.92 rules 1 and 2, p.422 the loop error for parallel sources, a source across an inductor and an inductor loop; SA p.1142 a node with no DC path is tied through GDCPATH (default 1e-12) with a warning | 4.40 | documented as the grammar has them; needs a run (values) | |
+| 9 | scale letters | `09_scale_letters.sp` | SA Table 13: X 1e6, A 1e-18, MIL 25.4e-6 | `1x` is 1 (no X), A and MIL as HSPICE | documented; needs a run | |
+| 10 | includes of a section not asked for | `10_library_sections.sp` | CMD p.150: the entry named is read "until it finds an .ENDL"; nothing on the others' includes | | needs a run | |
+| 11 | `tc1r`, `cox`, `capsw` | `11a_tc1r.sp`, `11b_cox_capsw.sp` | ELEM p.10: TC1 and TC2 are aliases of TC1R and TC2R; p.33: C = M SCALE (L W COX + 2 (L + W) CAPSW) | | documented: 0.5 and 0.25 mA; 6.2832e-7 and 8.7965e-7 A; needs a run | |
+| 12 | `.tf` of a current | `12_tf_current.sp` | CMD p.311: `.TF I(VLOAD) VIN` | runs, 3.333e-4 | documented: taken; the reader has no current output yet | |
+| 13 | `.opt`, `.opts` | `13_opt.sp`, `13b_opts.sp` | `.opt` only in examples (CMD, S98); `.opts` undocumented (OPTS is an option's name) | | needs a run | |
+| 14 | `.width in=72` | `14_width.sp` | S98 p.4-51: `.WIDTH OUT=80|132`; no IN | | needs a run | |
+| 15 | `.option temp=` | `15_option_temp.sp` | not an HSPICE option: S98 p.16-228 gives it as SPICE3's form of `.TEMP` | 0.5 mA (TNOM 27) | needs a run | |
+| 16 | `noacct`, `klu` | `16_noacct_klu.sp` | CMD p.778: ACCT obsolete since 2009.03; NOACCT and KLU undocumented | runs, KLU taken | needs a run | |
+| 17 | DELAY | `17_delay.sp` | SA p.286: `Exxx n+ n- DELAY in+ in- TD=val [SCALE=] [NPDELAY=]` | refuses it (MIF-ERROR) | documented: taken; needs a run | |
+| 18 | `.lstb mode=diff/comm` | the suite's `tests/netlist/stb/lstb_diff_comm.sp` | CMD p.160: `mode=single|diff|comm`, two sources for diff and comm (`vsource=v1,v2`) | | documented: taken; the grammar reads single only | |
+| 19 | positional `.hb` | `19_hb_positional.sp` | CMD p.115: `TONES=` and `NHARMS=` only | no `.hb` | needs a run | |
+| 20 | `.print tran all`, `.print pz all` | `20_print_all.sp` | CMD p.252: wildcards and `iall`; no `all`, no `pz` analysis type | refuses `.pz v(b) v1` | needs a run | |
+| 21 | a `params:` port | `21_params_port.sp` | CMD p.300: no `PARAMS:` | refuses the instance | needs a run | |
+| 22 | the lossy line as W | the suite's `netlist/tran/bench_tline_ltra1_1_line.sp` | SI p.121, p.126: the W element and its RLGC model; no O element or LTRA | | needs a run | |
+| 23 to 25 | the suite's HSPICE decks | each as it is | | | needs a run | |
+| 26 | `.dcsens` against `.sens` | `hspice/match_diode.sp` | CMD p.78: a finite difference over the `.VARIATION` block; CMD p.267: `.SENS` normalized derivatives of a few device types: two computations | | documented: not the same | |
+| 27, 28 | ASAP7, FreePDK45 cards | the issue's decks | MOS p.629: BSIM-CMG is level 72 | | needs a run | |
+| 29 | MOS levels 4 to 57 | `29_mos_levels.sp` | MOS Table 1: 4 Grove-Frohman (level 2 of SPICE 2E.3), 5 AMI-ASPEC (Taylor-Huang), 6 Lattin-Jenkins-Grove, 9 AMD (proprietary), 55 EPFL-EKV 2.6, 57 BSIM3-SOI (PD 2.2.3 at VERSION=2.2, also BSIMSOI 3.x); no 56 | 4.33 | documented but 56; needs a run | |
+
+Found on the way: the HSPICE reader took `ac` with no magnitude for the DC
+value (`v1 a 0 ac` became `dc {ac}`, a bare name being a value in
+HSPICE), and no rule read `dc 0 ac`. The `ac` line is now tried first and
+takes `dc` positionally too; ngspice 45 gives 0.5 for both forms on the
+divider of check 6, so they are written `ac 1`.
 
 ### 4.39 Spectre checks waiting for a run (#57)
 

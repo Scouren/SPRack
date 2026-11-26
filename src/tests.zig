@@ -4191,6 +4191,23 @@ test "b4: source forms" {
     try reported(&r3, .@"error", "vsource.wave = pat has no spelling in ngspice");
 }
 
+test "#56: a bare ac in an HSPICE source is a magnitude of 1, not the DC value" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // HSPICE reads a bare name as a value, so `ac` was the DC value
+    // (`v1 a 0 dc {ac}`) and `dc 0 ac` no rule's. ngspice 45 gives 0.5 on
+    // this divider for both forms (docs/verification.md 4.38).
+    const src = "t\nv1 a 0 ac\nv2 b 0 dc 0 ac\ni1 c 0 ac sin(0 1 1k)\nv3 d 0 1 ac 2 90\nr1 a 0 1k\n.end\n";
+    var r: ir.Report = .init(a);
+    const ng = try tr(a, "hspice", "ngspice", src, &r);
+    try clean(&r);
+    try has(ng, "v1 a 0 ac 1\n");
+    try has(ng, "v2 b 0 dc 0 ac 1\n");
+    try has(ng, "i1 c 0 ac 1 sin(0 1 1k)\n");
+    try has(ng, "v3 d 0 dc 1 ac 2 90\n");
+}
+
 test "b4: output forms and measurements" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

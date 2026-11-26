@@ -1,0 +1,8 @@
+* #56 item 10: a library of two sections; the second includes a file that
+* does not exist.
+.lib one
+.param rv=1k
+.endl one
+.lib two
+.include 'no_such_file.inc'
+.endl two
