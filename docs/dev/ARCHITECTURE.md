@@ -65,6 +65,20 @@ hands each only the modules above it, so a cycle cannot be written.
 | `sprack` | the public surface | all of the above |
 | `main`, `pyext`, `capi` | the command, the Python extension, the C ABI | `sprack` |
 
+The writer is a directory, a file an owner:
+
+| file | owns |
+|---|---|
+| `root.zig` | what other modules may name |
+| `driver.zig` | the order of the passes; the survey of a netlist; `write` |
+| `frame.zig` | what stands around the statements: title, header, boilerplate, control blocks, end marker, notes |
+| `names.zig` | names the target would refuse: case, uniqueness, renames |
+| `analyses.zig` | analyses and options the target says another way |
+| `rewrite.zig` | the `rewrite` blocks of a grammar |
+| `statement.zig` | one statement: the rule chosen, model cards, parameters, what is lost |
+| `emit.zig` | one statement and one pattern to text |
+| `refs.zig`, `tables.zig` | references met before what they name; lookups several files share |
+
 ## What must not change
 
 These are contracts other people's files and scripts hold:
@@ -95,7 +109,7 @@ Each is a place where behaviour varies without that place being edited.
 |---|---|---|---|
 | S1 dialect | which simulator | 7 grammar files, any file by path | a table file (rung 3) |
 | S2 kind | which statement | 80 kinds in `schema.zig` | a row (rung 3) |
-| S3 pass | which transformation | ~40, each run by hand in two drivers today | a pass table with one driver (rung 3, planned) |
+| S3 pass | which transformation | ~40 | one driver, `src/writer/driver.zig`: the order of the passes is `Driver.group` and `Driver.tail`, a line each; a pass that needs every statement at once is a line of `Driver.netlistPasses` (rung 2: a call in a list) |
 | S4 fact | what a dialect means by a slot | `implied`, `caveat`, `omitted`, `no`, ... | facts indexed by kind and slot (rung 3) |
 | S5 rewrite | a statement the target says as other statements | capacitor `ic=` and `q=` into VACASK (two `rewrite` blocks of its grammar); `maxord`, the pole-zero ports and plugin devices still in Zig | `rewrite` blocks in the grammar, one executor (rung 3) |
 | S6 word | a name both dialects have under other spellings | functions, parameters, model types | word tables (rung 3) |
@@ -112,14 +126,14 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | D1 | a model card parameter one target refuses | issues 30, 57, 76; 32 fixes | one grammar row, one fixture; 0 bodies | passes (`noparam`), but precedence between the card directives lives in `unmapModel`, 189 lines |
 | D2 | a device parameter the target says as another device | issue 28 | one `rewrite` block, one fixture; 0 bodies | passes: the capacitor is two blocks of vacask.spgrammar, and a test rewrites a resistor from a grammar made up for it |
 | D3 | a new simulator | LTspice (l1, z2) | one `.spgrammar` file; 0 bodies | passes for syntax; fails where the simulator needs a transformation no directive names |
-| D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | fails: two drivers, `write` and `Stream`, are both edited |
+| D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | passes in the writer: one line of `Driver.netlistPasses`. What makes a netlist be read whole for it is still a second line, in `src/stream.zig`'s survey |
 
 ## Gates
 
 | gate | command | must hold |
 |---|---|---|
 | tests | `zig build test` | all pass |
-| goldens | `python3 -I tools/golden.py snapshot` then `diff` | IDENTICAL for a refactor; a behaviour change names the cases it moved |
+| goldens | `python3 -I tools/golden.py snapshot` then `diff`; again with `SPRACK_WHOLE=1` set for both snapshots | IDENTICAL for a refactor, read as a stream and read whole; a behaviour change names the cases it moved |
 | format | `zig fmt --check build.zig src tools` | clean |
 | speed | `python3 -I tools/bench.py <sprack> [<other>]`, with `perf` on PATH | instructions a line no higher than the last recorded |
 | lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths` |
@@ -145,10 +159,10 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 0 | golden snapshots as the refactor gate | done | 31,034 cases, 50 s |
 | 1 | grammars compiled when the binary is built, by a tool | done | `zig build test` 3:20 to 1:10; Debug build 2 min to 9 s; start-up unchanged |
 | 2 | module DAG enforced by the build; the dialect table a leaf | done | 15 modules, a test binary each; no module imports `root.zig` |
-| 3 | lint and style gate in the build, module by module | wired; 3 files held to it | 2,562 findings to clear in the rest |
+| 3 | lint and style gate in the build, module by module | wired; the files listed in `lint/lint.zig` are held to it | 2,562 findings at the start |
 | 4 | read path: rules offered by first byte, slot names as constants, byte classes in the lexer | done; one pass over the input is next | 27 MB mesh into ngspice: 66.3K to 42.3K instructions a line (1.57x) |
 | 5 | write path: one rendering where the first form says the statement, rules by kind | done; tables by kind for the facts are next | mesh 1.39x to 1.57x, sky130 cells 1.31x to 1.50x fewer instructions |
-| 6 | one pass table, one driver for whole and streamed netlists | | |
+| 6 | one driver for whole and streamed netlists | done in the writer: a netlist held in memory is one group holding all of it; the reasons a netlist is read whole are still listed apart from the passes they are for | two drivers of 760 lines were one of 617 and a frame of 149; both ways of writing byte-identical over the 31,034 cases, before and after |
 | 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
 | 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`) | 81 hard-coded at the start; 9 moved to grammar lines |
 | 9 | the special cases of the reader and the passes, by mechanism | | |

@@ -128,8 +128,9 @@ pub fn translate(
     if (sv.wanted.count() > 0) try rescan.run(Survey.retain, &sv);
     s.r.report = report;
     s.rewind(scratch.allocator(), null);
-    var ws: writer.Stream = undefined;
-    try ws.begin(gt, keep, out, &sv.w, report, caps, opts.env);
+    var ws: writer.Driver = undefined;
+    const to: writer.Target = .{ .g = gt, .out = out, .report = report, .caps = caps, .env = opts.env };
+    try ws.begin(to, keep, &sv.w, .groups);
     defer ws.deinit();
     while (true) {
         s.between();
@@ -172,7 +173,8 @@ fn whole(
         .{ .env = opts.env, .library = opts.library },
     );
     if (opts.hook) |h| try h.run(h.ctx, arena, nl.stmts, report);
-    try writer.write(gt, arena, out, &nl, report, caps, opts.env);
+    const to: writer.Target = .{ .g = gt, .out = out, .report = report, .caps = caps, .env = opts.env };
+    try writer.write(to, arena, &nl);
 }
 
 /// The statements again, as the writer is given them: for the topology
@@ -310,7 +312,7 @@ const Survey = struct {
     ) Allocator.Error!void {
         const gf = sv.gf;
         const gt = sv.gt;
-        try sv.w.add(gt, gf, k, stmts);
+        try sv.w.addStreamed(gt, gf, k, stmts);
         try sv.tables.add(k, stmts);
         sv.last = reader.lastAnalysis(stmts, sv.last);
         for (stmts) |*st| {

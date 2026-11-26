@@ -30,28 +30,6 @@ pub const Pass = struct {
     report: *ir.Report,
 };
 
-/// A device still using a name both a model and a subcircuit define after
-/// `renameMasters` (one it could not reach): an error.
-pub fn uniqueMasters(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    env: ?*const ir.Env,
-    report: *ir.Report,
-    g: *const Grammar,
-) Allocator.Error!void {
-    var models: ir.CaselessSet = .empty;
-    var subckts: ir.CaselessSet = .empty;
-    var told: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts, null);
-    if (env) |e| {
-        var it = e.models.keyIterator();
-        while (it.next()) |k| try models.put(arena, ir.binBase(k.*) orelse k.*, {});
-        var si = e.subckts.keyIterator();
-        while (si.next()) |k| try subckts.put(arena, k.*, {});
-    }
-    try clashes(arena, stmts, &models, &subckts, &told, report, g);
-}
-
 /// A map from names, ignoring case.
 pub const CaselessMap = std.HashMapUnmanaged(
     []const u8,
@@ -225,7 +203,7 @@ pub fn collectMasters(
     }
 }
 
-/// `masterRenames` for the models and subcircuits `collectMasters` found.
+/// The renames for the models and subcircuits `collectMasters` found.
 pub fn renamesOf(
     arena: Allocator,
     models_in: *const ir.CaselessSet,
@@ -371,21 +349,6 @@ pub fn collectAnalyses(
             try found.append(a, .{ .kind = s.kind, .line = s.line });
         try collectAnalyses(a, g, s.body, found);
     }
-}
-
-/// `unique master`: names both a model (or its bins, `nch.1`) and a
-/// subcircuit define, here or in another file of the project, each to the
-/// name its model is written under: `nch__m`, or `nch__m2` and so on when
-/// that is taken. Every file of a project gets the same map.
-pub fn masterRenames(
-    arena: Allocator,
-    stmts: []const ir.Stmt,
-    env: ?*const ir.Env,
-) Allocator.Error!CaselessMap {
-    var models: ir.CaselessSet = .empty;
-    var subckts: ir.CaselessSet = .empty;
-    try collectMasters(arena, stmts, &models, &subckts, null);
-    return renamesOf(arena, &models, &subckts, env);
 }
 
 /// `unique param`: a parameter defined twice in one scope. Each body

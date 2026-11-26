@@ -131,7 +131,7 @@ pub fn Dialect(comptime name: []const u8) type {
             nl: *const ir.Netlist,
             report: *ir.Report,
         ) !void {
-            return writer.write(g, arena, out, nl, report, &caps, null);
+            return writer.write(target(g, out, report, null), arena, nl);
         }
     };
 }
@@ -152,7 +152,7 @@ pub fn write(
     nl: *const ir.Netlist,
     report: *ir.Report,
 ) !void {
-    return writer.write(g, arena, out, nl, report, &caps, null);
+    return writer.write(target(g, out, report, null), arena, nl);
 }
 
 /// As `read` and `write`, for one file of a project: `env` holds the names
@@ -175,7 +175,7 @@ pub fn writeIn(
     report: *ir.Report,
     env: ?*const ir.Env,
 ) !void {
-    return writer.write(g, arena, out, nl, report, &caps, env);
+    return writer.write(target(g, out, report, env), arena, nl);
 }
 
 /// `back`, a translation of `src` into `g` read back, is the same circuit,
@@ -225,6 +225,17 @@ pub fn translateAlloc(
 }
 
 // ---- private ----
+
+/// Where `write` and its like write to: `g`, with what every dialect of
+/// this binary can say.
+fn target(
+    g: *const Grammar,
+    out: *std.Io.Writer,
+    report: *ir.Report,
+    env: ?*const ir.Env,
+) writer.Target {
+    return .{ .g = g, .out = out, .report = report, .caps = &caps, .env = env };
+}
 
 /// `names` and one more, separated as an error message lists them.
 fn joined(comptime names: []const u8, comptime name: []const u8) []const u8 {

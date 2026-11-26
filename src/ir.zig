@@ -215,10 +215,13 @@ pub fn keepText(perm: Allocator, src: []const u8, s: []const u8) Allocator.Error
 /// Where names go that must outlive the statements they were read from.
 pub const Keep = struct {
     perm: Allocator,
-    src: []const u8,
+    /// The netlist's own text, which outlives the statements read from it.
+    /// Null where the statements themselves outlive what is kept (a
+    /// netlist held in memory): nothing is copied.
+    src: ?[]const u8,
 
     pub fn text(k: Keep, s: []const u8) Allocator.Error![]const u8 {
-        return keepText(k.perm, k.src, s);
+        return keepText(k.perm, k.src orelse return s, s);
     }
 };
 

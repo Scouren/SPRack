@@ -4,17 +4,17 @@
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
 //! `statement.zig` chooses the pattern and writes the statement; the passes
 //! (`names.zig`, `analyses.zig`, `rewrite.zig`) change the statements
-//! before that; `frame.zig` writes what stands around them; `whole.zig`
-//! and `stream.zig` run the passes in order, over
-//! a netlist held in memory or a group of statements at a time (`refs.zig`
-//! holds the names a streamed netlist meets before what they name).
+//! before that; `frame.zig` writes what stands around them; `driver.zig`
+//! runs the passes in order, over a netlist held in memory or a group of
+//! statements at a time (`refs.zig` holds the names a netlist written in
+//! groups meets before what they name).
 //!
 //! Contents:
 //! - `pub const Caps`
 //! - `pub const write`
-//! - `pub const Refs`, `pub const Survey`, `pub const Stream`
+//! - `pub const Refs`, `pub const Survey`, `pub const Driver`, `pub const Target`
 //! - `pub const Terminals`
-//! - `pub const defaultOptions`, `pub const collectReserved`, `pub const masterRenames`
+//! - `pub const defaultOptions`, `pub const collectReserved`
 //! - `pub const checkCase`, `pub const foldMaxord`
 
 const emit = @import("emit.zig");
@@ -23,20 +23,19 @@ const rewrite = @import("rewrite.zig");
 const names = @import("names.zig");
 const analyses = @import("analyses.zig");
 const statement = @import("statement.zig");
-const whole = @import("whole.zig");
-const stream = @import("stream.zig");
+const driver = @import("driver.zig");
 const refs = @import("refs.zig");
 const frame = @import("frame.zig");
 
 pub const Caps = emit.Caps;
-pub const write = whole.write;
+pub const write = driver.write;
 pub const Refs = refs.Refs;
-pub const Survey = stream.Survey;
-pub const Stream = stream.Stream;
+pub const Survey = driver.Survey;
+pub const Driver = driver.Driver;
+pub const Target = driver.Target;
 pub const Terminals = statement.Terminals;
 pub const defaultOptions = analyses.defaultOptions;
 pub const collectReserved = names.collectReserved;
-pub const masterRenames = names.masterRenames;
 pub const checkCase = names.checkCase;
 pub const foldMaxord = analyses.foldMaxord;
 
@@ -47,8 +46,7 @@ test {
     _ = names;
     _ = analyses;
     _ = statement;
-    _ = whole;
-    _ = stream;
+    _ = driver;
     _ = refs;
     _ = frame;
 }

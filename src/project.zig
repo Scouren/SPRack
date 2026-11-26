@@ -1007,7 +1007,13 @@ const Run = struct {
                 if (r.opts.to) |gt| {
                     try r.rewriteIncludes(path, dirOf(path), nl.stmts, scratch, &report);
                     var aw: Writer.Allocating = .init(scratch);
-                    try writer.write(gt, scratch, &aw.writer, &nl, &report, r.opts.caps, &r.env);
+                    try writer.write(.{
+                        .g = gt,
+                        .out = &aw.writer,
+                        .report = &report,
+                        .caps = r.opts.caps,
+                        .env = &r.env,
+                    }, scratch, &nl);
                     const out_path = try r.outPath(scratch, root_dir, path);
                     std.Io.Dir.cwd().writeFile(
                         r.io,
