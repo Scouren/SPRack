@@ -14,17 +14,27 @@
 //!   temperature; anything else in it is an error;
 //! * no alter but a `step` over a `data` table (Xyce): one row per run,
 //!   parameters and temperature only.
+//!
+//! Contents:
+//! - `pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt,
+//!   report: *ir.Report) Allocator.Error![]const Stmt`
 
 const std = @import("std");
 const schema = @import("schema");
 const ir = @import("ir");
 const grammar = @import("grammar");
-
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Stmt = ir.Stmt;
 const Value = ir.Value;
 const Param = ir.Param;
+
+/// The name of the `.data` table the alters become.
+const table = "alters";
+
+/// The parameters an alter changes and the temperature it sets, or the
+/// first statement of its body that is neither.
+const Edits = struct { params: []const Param, temp: Value, other: ?*const Stmt };
 
 pub fn prepare(
     arena: Allocator,
@@ -38,6 +48,7 @@ pub fn prepare(
     var rest: std.ArrayList(Stmt) = .empty;
     var alters: std.ArrayList(Stmt) = .empty;
     for (stmts) |s| try (if (s.kind == .alter) &alters else &rest).append(arena, s);
+    std.debug.assert(alters.items.len > 0);
     if (!g.canWrite(.alter)) {
         if (g.canWrite(.step) and g.canWrite(.data))
             return dataStep(arena, g, rest.items, alters.items, report);
@@ -78,6 +89,8 @@ pub fn prepare(
     return rest.items;
 }
 
+// ---- private ----
+
 fn isAnalysis(s: *const Stmt) bool {
     return schema.runs(s.kind);
 }
@@ -90,6 +103,7 @@ fn isIdent(s: []const u8) bool {
 
 /// A copy of an analysis without its label, so that the rerun gets a name
 /// of its own.
+// tidy: allow(recursion) bounded by the nesting of blocks, which the reader caps at ir.max_depth
 fn unnamed(arena: Allocator, s: Stmt) Allocator.Error!Stmt {
     var out = s;
     try out.own(arena);
@@ -110,11 +124,8 @@ fn label(arena: Allocator, a: *const Stmt) Allocator.Error![]const u8 {
     return if (a.get("name") == .atom) arena.print(" '{s}'", .{a.get("name").atom}) else "";
 }
 
-/// The parameters an alter changes and the temperature it sets, or the
-/// first statement of its body that is neither.
-const Edits = struct { params: []const Param, temp: Value, other: ?*const Stmt };
-
 fn edits(arena: Allocator, a: *const Stmt) Allocator.Error!Edits {
+    std.debug.assert(a.kind == .alter);
     var ps: std.ArrayList(Param) = .empty;
     var temp: Value = .none;
     const ti = schema.slot(.options, "temp");
@@ -156,6 +167,7 @@ fn flatten(
     temp: *Value,
     report: *ir.Report,
 ) Allocator.Error!?Stmt {
+    std.debug.assert(a.kind == .alter);
     const e = try edits(arena, a);
     if (e.other) |o| {
         try refuse(arena, g, a, o, "the form this grammar writes", report);
@@ -187,6 +199,7 @@ fn checkNew(
     alters: []const Stmt,
     report: *ir.Report,
 ) Allocator.Error!void {
+    std.debug.assert(alters.len > 0);
     for (alters) |*a| for (a.body) |*s| {
         if (isAnalysis(s))
             report.add(
@@ -227,6 +240,7 @@ fn dataStep(
     alters: []const Stmt,
     report: *ir.Report,
 ) Allocator.Error![]const Stmt {
+    std.debug.assert(alters.len > 0);
     var cols: std.ArrayList([]const u8) = .empty;
     var runs: std.ArrayList(Edits) = .empty;
     var with_temp = false;
@@ -274,32 +288,9 @@ fn dataStep(
         );
         return rest;
     });
-    if (with_temp) {
-        const t = baseTemp(rest) orelse blk: {
-            report.add(
-                .warning,
-                .caveat,
-                alters[0].line,
-                "alter: the netlist sets no temperature; its run is written at 27 degrees, " ++
-                    "{s}'s default",
-                .{g.name},
-            );
-            break :blk Value{ .num = .init("27", 0) };
-        };
-        try row.append(arena, t);
-    }
-    var values: std.ArrayList(Value) = .empty;
-    try values.appendSlice(arena, row.items);
-    for (runs.items) |e| {
-        for (e.params) |p| {
-            for (cols.items, 0..) |c, i| if (std.ascii.eqlIgnoreCase(c, p.key)) {
-                row.items[i] = p.val;
-            };
-        }
-        if (e.temp != .none) row.items[cols.items.len] = e.temp;
-        try values.appendSlice(arena, row.items);
-    }
-    for (values.items) |v| if (v != .num) {
+    if (with_temp) try row.append(arena, netlistTemp(g, rest, alters[0].line, report));
+    const values = try dataRows(arena, row.items, runs.items, cols.items);
+    for (values) |v| if (v != .num) {
         report.add(
             .@"error",
             .unsupported,
@@ -309,15 +300,74 @@ fn dataStep(
         );
         return rest;
     };
-    const table = "alters";
+    const out = try stepOver(arena, rest, alters[0].line, cols.items, with_temp, values);
+    report.add(
+        .info,
+        .oneway,
+        alters[0].line,
+        "alter: {s} has no alter; the runs are a .step over the .data table '{s}', one row " ++
+            "each, which reads back as a step",
+        .{ g.name, table },
+    );
+    return out;
+}
+
+/// The temperature the netlist runs at before any alter: its own, or 27
+/// degrees with a caveat.
+fn netlistTemp(g: *const Grammar, rest: []const Stmt, line: u32, report: *ir.Report) Value {
+    return baseTemp(rest) orelse {
+        report.add(
+            .warning,
+            .caveat,
+            line,
+            "alter: the netlist sets no temperature; its run is written at 27 degrees, " ++
+                "{s}'s default",
+            .{g.name},
+        );
+        return Value{ .num = .init("27", 0) };
+    };
+}
+
+/// The rows of the table: the netlist's, then one per alter with every
+/// change so far. `row` is the netlist's and is overwritten.
+fn dataRows(
+    arena: Allocator,
+    row: []Value,
+    runs: []const Edits,
+    cols: []const []const u8,
+) Allocator.Error![]const Value {
+    var values: std.ArrayList(Value) = .empty;
+    try values.appendSlice(arena, row);
+    for (runs) |e| {
+        for (e.params) |p| {
+            for (cols, 0..) |c, i| if (std.ascii.eqlIgnoreCase(c, p.key)) {
+                row[i] = p.val;
+            };
+        }
+        if (e.temp != .none) row[cols.len] = e.temp;
+        try values.appendSlice(arena, row);
+    }
+    return values.items;
+}
+
+/// `rest` with the `.data` table and a `.step` over it where its first
+/// analysis stood, the analyses moved into the step.
+fn stepOver(
+    arena: Allocator,
+    rest: []const Stmt,
+    line: u32,
+    cols: []const []const u8,
+    with_temp: bool,
+    values: []const Value,
+) Allocator.Error![]const Stmt {
     var names: std.ArrayList(Value) = .empty;
-    for (cols.items) |c| try names.append(arena, .{ .atom = c });
+    for (cols) |c| try names.append(arena, .{ .atom = c });
     if (with_temp) try names.append(arena, .{ .atom = "temp" });
-    var data: Stmt = .{ .kind = .data, .line = alters[0].line };
+    var data: Stmt = .{ .kind = .data, .line = line };
     try data.set(arena, schema.slot(.data, "name"), .{ .atom = table });
     try data.set(arena, schema.slot(.data, "cols"), .{ .list = names.items });
-    try data.set(arena, schema.slot(.data, "values"), .{ .list = values.items });
-    var step: Stmt = .{ .kind = .step, .line = alters[0].line };
+    try data.set(arena, schema.slot(.data, "values"), .{ .list = values });
+    var step: Stmt = .{ .kind = .step, .line = line };
     try step.set(arena, schema.slot(.step, "data"), .{ .atom = table });
     var body: std.ArrayList(Stmt) = .empty;
     var out: std.ArrayList(Stmt) = .empty;
@@ -330,14 +380,7 @@ fn dataStep(
     }
     step.body = body.items;
     try out.insertSlice(arena, at orelse out.items.len, &.{ data, step });
-    report.add(
-        .info,
-        .oneway,
-        alters[0].line,
-        "alter: {s} has no alter; the runs are a .step over the .data table '{s}', one row " ++
-            "each, which reads back as a step",
-        .{ g.name, table },
-    );
+    std.debug.assert(out.items.len == rest.len - body.items.len + 2);
     return out.items;
 }
 
