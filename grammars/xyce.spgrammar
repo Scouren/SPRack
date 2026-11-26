@@ -118,6 +118,11 @@ rule  vsource   = name~"P" pos neg [ ["dc"] dc ] { port=portnum! z0=z0 } [ "ac" 
 rule  instance  = name~"X" nodes+ master [ "params:" {...params} ]
 
 rule  op        = ".op"
+# One analysis a netlist, measured in Xyce 7.10: of several it runs the last
+# and leaves the others out with no message, exit 0 (.ac .dc .tran gave only
+# the transient, .tran .ac only the AC, .ac .noise only the noise); an .op
+# beside one other is not run on its own, before it or after it.
+unique analysis dc ac tran noise sp hb beside op : Xyce 7.10 runs one analysis a netlist: of several it runs the last and leaves the others out without a message, and an .op beside another analysis is not run on its own
 # What is swept: the temperature, a source, a resistor or a parameter. LIN
 # (the default) takes a step; DEC and OCT points per decade or octave; LIST
 # the values (DC_Command.tex).

@@ -2016,7 +2016,9 @@ test "VACASK control block and sweep" {
     try has(xy, ".tran 1u 10m\n");
     try has(xy, "* [sprack] not written: postprocess (PYTHON, \"runme.py\")\n");
     // A VACASK pulse without fall or width is not the SPICE pulse of the same words.
-    try testing.expectEqual(3, report.count(.@"error"));
+    // The swept op and the tran are two analyses: Xyce runs only the last.
+    try testing.expectEqual(5, report.count(.@"error"));
+    try reported(&report, .@"error", "dc: one of 2 analyses in this netlist (dc, tran); Xyce 7.10 runs one analysis a netlist");
     try reported(&report, .@"error", "vsource.fall is not given: a VACASK pulse without a fall time never falls");
     try reported(&report, .@"error", "vsource.width is not given: a VACASK pulse without a width has no flat top");
     try reported(&report, .info, "model 'v' only names a built-in vsource");
@@ -4300,8 +4302,12 @@ test "sweeps: a sweep whose stop is its start" {
     try has(sp, "dc1 dc dev=V1 start=1 step=0.25 values=[1]\n");
     try has(sp, "ac1 ac start=1k lin=0 values=[1k]\n");
     try has(sp, "noise1 (b 0) noise iprobe=V1 start=100 dec=4 values=[100]\n");
-    try has(try sameBack(a, "ngspice", "xyce", src, &r), ".dc V1 1 1 0.25\n");
     try clean(&r);
+    // Xyce runs only the last of the three (docs: grammars/xyce.spgrammar, unique).
+    var rx: ir.Report = .init(a);
+    try has(try sameBack(a, "ngspice", "xyce", src, &rx), ".dc V1 1 1 0.25\n");
+    try testing.expectEqual(3, rx.count(.@"error"));
+    try reported(&rx, .@"error", "noise: one of 3 analyses in this netlist (dc, ac, noise)");
 }
 
 test "sweeps: a step repeats the analyses it holds" {
