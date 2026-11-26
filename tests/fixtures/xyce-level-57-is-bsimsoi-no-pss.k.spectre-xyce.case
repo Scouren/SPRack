@@ -1,0 +1,14 @@
+# Xyce: level 57 is BSIMSOI, no pss, fmod and db (63f08969, part k).
+# What the fix was for, as the ledger has it: output `.param p={fmod(7,2)+db(10)}`; no report
+# entry `function 'fmod' has no spelling in xyce` nor for `db`.
+from: spectre
+to: xyce
+--- input
+// t
+simulator lang=spectre
+parameters p=fmod(7,2)+db(10)
+--- output
+t
+.param p={fmod(7,2)+db(10)}
+.end
+--- report

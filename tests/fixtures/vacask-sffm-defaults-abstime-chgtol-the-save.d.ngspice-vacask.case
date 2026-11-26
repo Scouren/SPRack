@@ -1,0 +1,20 @@
+# VACASK: SFFM defaults, $abstime, chgtol, the save caveat (062bcac0, part d).
+# What the fix was for, as the ledger has it: three `error[invalid]` entries: `vsource.freq is not
+# given: VACASK's default carrier frequency is 1k; SPICE's is 1/TSTOP`, `vsource.mdi is not given:
+# VACASK's default modulation index is 0.5; SPICE's is 0`, `vsource.fsig is not given: VACASK's
+# default modulating frequency is 1k; SPICE's is 1/TSTOP`.
+from: ngspice
+to: vacask
+--- input
+t
+V1 a 0 sffm(0 1)
+.end
+--- output
+t
+ground 0
+model vsource vsource
+V1 (a 0) vsource type="fm" sinedc=0 ampl=1
+--- report
+error[invalid]: line 2: vsource.freq is not given: VACASK's default carrier frequency is 1k; SPICE's is 1/TSTOP
+error[invalid]: line 2: vsource.mdi is not given: VACASK's default modulation index is 0.5; SPICE's is 0
+error[invalid]: line 2: vsource.fsig is not given: VACASK's default modulating frequency is 1k; SPICE's is 1/TSTOP

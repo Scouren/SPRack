@@ -10,8 +10,8 @@ Spectre, VACASK, LTspice and CDL.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 It translates; it does not simulate. Each dialect is one
-`grammars/<name>.spgrammar` file, from which the reader and the writer for
-that dialect are generated at compile time. There is no hand-written parser
+`grammars/<name>.spgrammar` file, from which the tables the reader and the
+writer for that dialect run on are made when the binary is built. There is no hand-written parser
 per dialect and no converter per pair: every reader produces the same
 canonical statements and every writer consumes them. What the target cannot
 say is never dropped in silence: it is an error in the report, with the
@@ -282,7 +282,10 @@ Every error names a file and a line. What is left, and whose it is:
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig` and each module | 237 tests |
+| End-to-end and unit tests (zig) | `src/tests.zig`, and each module in a test binary of its own | 257 tests |
+| Fixtures: a netlist, and the output and report it must give (zig) | `tests/fixtures/*.case`, `tools/fixture.py` | 12 cases, one more with each fix |
+| The rules the code is held to | `zig build lint` (`lint/`), part of every build and test run | the files listed in `lint/lint.zig` |
+| Byte-identical snapshots, for a change that must move nothing | `tools/golden.py` | 31,034 cases |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 35 runs |
 | The Python package | `python/test_sprack.py` | 40 tests, 11 of them on real PDK libraries |
 | Corpus audit, nightly | `tools/corpus_audit.py`, `tools/corpus_compare.py` | 9,670 translations |
@@ -305,9 +308,9 @@ What the tests hold the translator to:
   through every reader and writer without a crash, one in eight through the
   byte-for-byte checks above; truncated input, deeply nested and oversized
   grammars are refused with a message.
-- **Both compilers of a grammar agree.** Each of the seven grammar files
-  compiled at run time equals, field for field, the one compiled into the
-  binary.
+- **A grammar file and the binary agree.** Each of the seven grammar files
+  compiled at run time equals, field for field, the tables made from it
+  when the binary was built.
 
 The PDK tests need the model libraries: `nix build .#test-pdks` and
 `.#test-pdks-installed`, named by `SPRACK_TEST_PDKS` and
@@ -333,7 +336,9 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
 
     grammars/*.spgrammar   the seven dialects
     src/schema.zig         canonical kinds, slots, model families, functions
-    src/grammar.zig        the .spgrammar compiler (at compile time and at run time)
+    src/grammar.zig        the .spgrammar compiler
+    tools/grammar_gen.zig  runs it on grammars/* when the binary is built
+    src/dialects.zig       the built-in grammars and the names statements carry
     src/lexer.zig          lines, tokens, exact numbers
     src/reader.zig         pattern matcher: text to statements
     src/writer.zig         patterns in reverse: statements to text
@@ -347,8 +352,12 @@ The pages are an mdBook (`mdbook build docs`), published as a website by
     src/pyext.zig          the CPython extension
     src/capi.zig           a C ABI for other hosts
     python/sprack/         the Python package and the PDK manifests
-    tools/                 corpus audit and simulator check scripts
+    tools/                 corpus audit and simulator check scripts; golden.py,
+                           fixture.py and bench.py for work on the engine
+    tests/fixtures/        a netlist a file, with the output and report it must give
+    lint/                  the rules `zig build lint` holds the code to
     docs/                  the documentation site (mdBook) and the verification log
+    docs/dev/              the architecture, block by block, and the ledger of fixes
 
 ## Known limits
 

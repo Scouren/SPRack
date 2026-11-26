@@ -1,0 +1,22 @@
+# ngspice reads the noise summary interval; HSPICE noise is against ground (b855300c, part b).
+# What the fix was for, as the ledger has it: the statement reads as `noise` with `interval` = 5
+# (not opaque); output has `.noise v(out) vin 5` after an `.ac dec 10 1 1meg` line.
+from: ngspice
+to: hspice
+--- input
+t
+vin in 0 ac 1
+r1 in out 1k
+.noise v(out) vin dec 10 1 1meg 5
+.end
+--- output
+t
+.option tnom=27
+vin in 0 ac 1
+r1 in out 1k
+.ac dec 10 1 1meg
+.noise v(out) vin 5
+.end
+--- report
+warning[caveat]: options: ngspice assumes other defaults for tnom than hspice does; they are written out
+warning[caveat]: line 4: noise.src: HSPICE runs noise as part of an AC analysis, so the AC analysis itself is run as well

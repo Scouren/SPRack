@@ -1,0 +1,20 @@
+# Xyce: level 57 is BSIMSOI, no pss, fmod and db (63f08969, part h).
+# What the fix was for, as the ledger has it: `error[unsupported]` `analysis 'pss' cannot be
+# written for xyce: Xyce has no periodic steady-state (shooting) analysis; its periodic analyses
+# are .HB and .MPDE. Dialects that define it: ...`; output has `* [sprack] not written: analysis
+# 'pss'`.
+from: spectre
+to: xyce
+--- input
+// t
+simulator lang=spectre
+V1 (in 0) vsource type=sine ampl=1 freq=1M
+pss1 pss fund=1M harms=10 tstab=1u
+--- output
+t
+V1 in 0 sin(0 1 1meg)
+* [sprack] not written: analysis 'pss' has no xyce form
+.end
+--- report
+warning[synthesized]: line 3: vsource: xyce needs 'sinedc' but the source gave none; wrote 0
+error[unsupported]: line 4: analysis 'pss' cannot be written for xyce: Xyce has no periodic steady-state (shooting) analysis; its periodic analyses are .HB and .MPDE. Dialects that define it: hspice, spectre, vacask

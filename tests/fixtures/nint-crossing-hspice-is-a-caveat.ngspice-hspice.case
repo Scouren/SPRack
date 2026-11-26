@@ -1,0 +1,19 @@
+# nint crossing HSPICE is a caveat (04b5199f).
+# What the fix was for, as the ledger has it: output `.param p='nint(x)'`; `warning[caveat]`
+# containing `nint in hspice: halves round away from zero (nint(2.5) is 3), not to even`.
+from: ngspice
+to: hspice
+--- input
+t
+.param x=2.5
+.param p={nint(x)}
+.end
+--- output
+t
+.option tnom=27
+.param x=2.5
+.param p='nint(x)'
+.end
+--- report
+warning[caveat]: options: ngspice assumes other defaults for tnom than hspice does; they are written out
+warning[caveat]: line 3: expression 'nint(x)': nint in hspice: halves round away from zero (nint(2.5) is 3), not to even

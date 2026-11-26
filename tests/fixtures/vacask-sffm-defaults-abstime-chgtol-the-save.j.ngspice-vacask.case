@@ -1,0 +1,22 @@
+# VACASK: SFFM defaults, $abstime, chgtol, the save caveat (062bcac0, part j).
+# What the fix was for, as the ledger has it: the control block holds `options chgtol=1e-14`
+# before `analysis op1 op`; no `has no spelling in vacask` entry for chgtol.
+from: ngspice
+to: vacask
+--- input
+t
+R1 a 0 1k
+.options chgtol=1e-14
+.op
+.end
+--- output
+t
+ground 0
+load "spice/resistor.osdi"
+model resistor sp_resistor
+R1 (a 0) resistor r=1k
+control
+options chgtol=1e-14
+analysis op1 op
+endc
+--- report

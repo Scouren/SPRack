@@ -1,0 +1,22 @@
+# ngspice reads the noise summary interval; HSPICE noise is against ground (b855300c, part c).
+# What the fix was for, as the ledger has it: `noise1 (out 0) noise iprobe=vin start=1k stop=1M
+# dec=10`; clean report.
+from: hspice
+to: spectre
+--- input
+t
+vin in 0 ac 1
+r1 in out 1k
+.ac dec 10 1k 1meg
+.noise v(out) vin
+.end
+--- output
+// t
+simulator lang=spectre insensitive=yes
+global 0
+sprackOptions1 options temp=25 tnom=25
+vin (in 0) vsource mag=1
+r1 (in out) resistor r=1k
+noise1 (out 0) noise iprobe=vin start=1k stop=1M dec=10
+--- report
+warning[caveat]: options: hspice assumes other defaults for temp, tnom than spectre does; they are written out

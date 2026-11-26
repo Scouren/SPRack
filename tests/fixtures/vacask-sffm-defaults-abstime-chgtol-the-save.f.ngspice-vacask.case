@@ -1,0 +1,17 @@
+# VACASK: SFFM defaults, $abstime, chgtol, the save caveat (062bcac0, part f).
+# What the fix was for, as the ledger has it: `B1 (b 0) v=v(in)*$abstime`, clean report.
+from: ngspice
+to: vacask
+--- input
+t
+V1 in 0 1
+B1 b 0 V={v(in)*time}
+.end
+--- output
+t
+ground 0
+model vsource vsource
+V1 (in 0) vsource dc=1
+B1 (b 0) v=v(in)*$abstime
+--- report
+warning[caveat]: line 3: bsource.name: VACASK (b2c1551) names the module it synthesizes after the instance but looks it up in lower case, so an instance name with capitals is not found

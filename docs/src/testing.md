@@ -4,6 +4,68 @@ Four layers, from the fastest to the slowest. The first two run in CI on
 every push to `main` and every pull request; the others need a corpus of
 decks or the simulators themselves.
 
+## Adding a test for a netlist that went wrong
+
+A fix for a reported netlist adds one file to `tests/fixtures/`: the
+netlist, the dialect it is in, the dialect it is written for, and the output
+and the report that must come out, byte for byte.
+
+```sh
+python3 -I tools/fixture.py new zig-out/bin/sprack capacitor-ic-into-vacask ngspice vacask < deck.sp
+```
+
+writes `tests/fixtures/capacitor-ic-into-vacask.case` with what the binary
+answers now. Read the two sections it filled in before you commit them: they
+are the claim. Say in the first line what the case holds and the issue it
+comes from. `zig build test` runs every case (the test named `fixtures:`),
+and puts each through the checks every translation of the suite goes
+through. After a change that is meant to move a case,
+`python3 -I tools/fixture.py bless zig-out/bin/sprack <file>` rewrites its
+expected sections, and the diff in review shows what moved.
+
+## Changing the engine without changing what it does
+
+A change that is not meant to move any output is checked against a snapshot
+of everything the command prints:
+
+```sh
+python3 -I tools/golden.py snapshot before/bin/sprack before.snap --suite "$SPRACK_SUITE" --pdks "$SPRACK_TEST_PDKS"
+python3 -I tools/golden.py snapshot zig-out/bin/sprack  after.snap  --suite "$SPRACK_SUITE" --pdks "$SPRACK_TEST_PDKS"
+python3 -I tools/golden.py diff before.snap after.snap
+```
+
+31,034 cases: every deck of the conformance suite read in its own dialect,
+as ngspice and as HSPICE, and written for all seven (`translate`, `read`,
+`audit`); the model libraries of the five PDKs as projects; and two damaged
+copies of each deck. `diff` prints `IDENTICAL` or the cases that differ and
+exits 1. A refactor is done when it prints `IDENTICAL`; a change of
+behaviour names the cases it moved in its commit.
+
+## Speed
+
+```sh
+python3 -I tools/bench.py zig-out/bin/sprack [other/bin/sprack] --pdks "$SPRACK_TEST_PDKS"
+```
+
+times a 27 MB RC mesh and 49 MB of sky130 cells into four dialects, by the
+process's own time and, with `perf` on `PATH`, by instructions retired: on a
+machine that is doing other work the wall clock moves by a third from run
+to run, the instruction count does not. Build with
+`-Doptimize=ReleaseFast` to measure.
+
+## The rules the build holds the code to
+
+`zig build lint` runs with every `zig build` and `zig build test`: `zig fmt
+--check`; `lint/perf_tidy.py`, the linter of the performance guide (a
+function is at most 70 lines and a line 100 columns, no recursion without a
+stated bound, an assertion in every function of some length, no swallowed
+error, no allocation or I/O in a loop without a reason); and
+`lint/check_style.py`, the order of a file (what goes in and what comes out
+and a list of its public items first, then imports, public before private,
+tests last). The second and third hold the files listed in `lint/lint.zig`;
+a module joins the list when it is moved to the rules
+(`docs/dev/ARCHITECTURE.md`), and cannot slide back.
+
 ## 1. `zig build test`
 
 ```sh
