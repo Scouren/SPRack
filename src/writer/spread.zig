@@ -1,6 +1,11 @@
 //! Sweeps over analyses: a `spread` block's rule written as the end of
 //! each analysis it holds, whether the kind's own line says it whole, and
 //! the check that a one-line `.step` sweeps every analysis.
+//!
+//! Contents:
+//! - `pub fn checkSteps(w: *Writer, stmts: []const ir.Stmt) void`
+//! - `pub fn spread(w: *Writer, st: *const ir.Stmt) Error!void`
+//! - `pub fn fits(w: *Writer, st: *const ir.Stmt) Error!bool`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -15,16 +20,6 @@ const Kind = schema.Kind;
 const Writer = statement.Writer;
 const Error = Writer.Error;
 
-/// What `stmt` writes for `st`, as text.
-pub fn capture(w: *Writer, st: *const ir.Stmt) Error![]const u8 {
-    var aw: std.Io.Writer.Allocating = .init(w.arena);
-    const saved = w.out;
-    w.out = &aw.writer;
-    defer w.out = saved;
-    try blocks.stmt(w, st);
-    return aw.written();
-}
-
 /// Where a step is one line that sweeps every analysis of the netlist, a
 /// step that sweeps only some of them cannot be said.
 pub fn checkSteps(w: *Writer, stmts: []const ir.Stmt) void {
@@ -38,6 +33,7 @@ pub fn checkSteps(w: *Writer, stmts: []const ir.Stmt) void {
         } else if (step == null) step = s else outside = true;
     }
     const st = step orelse return;
+    assert(st.kind == .step);
     // HSPICE's .TEMP list in a deck with no analysis: nothing to repeat.
     if (st.body.len == 0 and !std.mem.eql(u8, w.sourceOf(st), w.g.name))
         w.report.add(
@@ -88,4 +84,16 @@ pub fn fits(w: *Writer, st: *const ir.Stmt) Error!bool {
         if (try e.seq(rule.pat) and try e.lossCount() == 0) return true;
     }
     return false;
+}
+
+// ---- private ----
+
+/// What `blocks.stmt` writes for `st`, as text.
+fn capture(w: *Writer, st: *const ir.Stmt) Error![]const u8 {
+    var aw: std.Io.Writer.Allocating = .init(w.arena);
+    const saved = w.out;
+    w.out = &aw.writer;
+    defer w.out = saved;
+    try blocks.stmt(w, st);
+    return aw.written();
 }

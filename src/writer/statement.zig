@@ -40,6 +40,7 @@ const Caps = emit.Caps;
 const Emit = emit.Emit;
 const reasonFor = emit.reasonFor;
 
+// tidy: allow-fn(bool-heavy-struct) one a file, never in an array
 pub const Writer = struct {
     g: *const Grammar,
     arena: Allocator,
@@ -149,7 +150,11 @@ pub const Writer = struct {
     /// where the line says `{to}`. A statement of no dialect this binary
     /// has a grammar for (one built from JSON or Python) is every
     /// built-in dialect's: the first that lists the command decides.
-    pub fn inertCommand(w: *Writer, st: *const ir.Stmt, cmd: []const u8) Allocator.Error!?[]const u8 {
+    pub fn inertCommand(
+        w: *Writer,
+        st: *const ir.Stmt,
+        cmd: []const u8,
+    ) Allocator.Error!?[]const u8 {
         const why = if (w.sourceGrammar(st)) |sg|
             sg.inertReason(st.kind, cmd)
         else for (if (w.caps) |c| c.grammars else &.{}) |*g| {
@@ -192,6 +197,8 @@ pub const Writer = struct {
     }
 };
 
+/// The kinds of `stmts` and of what they hold, at any depth.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn markUsed(stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void {
     for (stmts) |*s| {
         used[@backingInt(s.kind)] = true;

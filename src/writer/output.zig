@@ -1,6 +1,11 @@
 //! The output itself: a statement as one line or broken with the
 //! dialect's continuation mark, a comment, a statement with the comment
 //! that trailed it.
+//!
+//! Contents:
+//! - `pub fn lineTail(w: *Writer, text: []const u8, tail: []const u8) Error!void`
+//! - `pub fn line(w: *Writer, text: []const u8) Error!void`
+//! - `pub fn comment(w: *Writer, text: []const u8) Error!void`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -74,15 +79,10 @@ pub fn line(w: *Writer, text: []const u8) Error!void {
         try breakLine(w);
         start = b + 1;
     };
+    // Every break is at a blank inside the text, so what is left is too.
+    assert(start <= text.len);
     try w.out.writeAll(text[start..]);
     try w.out.writeByte('\n');
-}
-
-pub fn breakLine(w: *Writer) Error!void {
-    const cfg = &w.g.lex;
-    if (cfg.cont_lead.len > 0) {
-        try w.out.print("\n{s} ", .{cfg.cont_lead});
-    } else try w.out.print(" {s}\n    ", .{cfg.cont_trail});
 }
 
 pub fn comment(w: *Writer, text: []const u8) Error!void {
@@ -95,4 +95,14 @@ pub fn comment(w: *Writer, text: []const u8) Error!void {
             try w.out.print("{s} {s}\n", .{ marker, l });
     }
     w.last_blank = false;
+}
+
+// ---- private ----
+
+/// The dialect's continuation mark, between two parts of one statement.
+fn breakLine(w: *Writer) Error!void {
+    const cfg = &w.g.lex;
+    if (cfg.cont_lead.len > 0) {
+        try w.out.print("\n{s} ", .{cfg.cont_lead});
+    } else try w.out.print(" {s}\n    ", .{cfg.cont_trail});
 }

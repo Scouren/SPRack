@@ -2,6 +2,12 @@
 //! gives parameters to another file's subcircuit, the cards copied by name,
 //! the lines kept as text, the parameters refused and the subcircuits whose
 //! inner parameters were hoisted or kept.
+//!
+//! Contents:
+//! - `pub fn foreignNote(w: *Writer) void`
+//! - `pub fn keptNote(w: *Writer) void`
+//! - `pub fn copiedNote(w: *Writer) void`
+//! - `pub fn refusals(w: *Writer) void`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -71,6 +77,8 @@ pub fn copiedNote(w: *Writer) void {
 /// A loss, so that the cards reading back without the parameter is explained.
 pub fn refusals(w: *Writer) void {
     for (w.refused.keys(), w.refused.values()) |np, r| {
+        // An entry is made by the first card refused under its rule.
+        assert(r.n >= 1);
         if (r.n == 1) {
             w.report.add(
                 .warning,
@@ -89,39 +97,37 @@ pub fn refusals(w: *Writer) void {
             );
         }
     }
-    var buf: [48]u8 = undefined;
+    hoistedNote(w);
+    unhoistedNote(w);
+}
+
+// ---- private ----
+
+/// The subcircuits whose inner parameters went to the header, said once.
+fn hoistedNote(w: *Writer) void {
     const hs = w.hoisted;
-    if (hs.n > 0)
-        w.report.add(.info, .oneway, hs.line, "subckt '{s}'{s}: the parameters defined " ++
-            "inside are written on the header, which reads back there; {s} gives an " ++
-            "instance's value to that instance alone only for a parameter of the header", .{
-            hs.name,
-            if (hs.n > 1)
-                std.fmt.bufPrint(
-                    &buf,
-                    " and {d} more in this file",
-                    .{hs.n - 1},
-                ) catch unreachable
-            else
-                "",
-            w.g.name,
-        });
+    const hoisted = ": the parameters defined inside are written on the header, which " ++
+        "reads back there; {s} gives an instance's value to that instance alone only for a " ++
+        "parameter of the header";
+    if (hs.n == 1)
+        w.report.add(.info, .oneway, hs.line, "subckt '{s}'" ++ hoisted, .{ hs.name, w.g.name })
+    else if (hs.n > 1)
+        w.report.add(.info, .oneway, hs.line, "subckt '{s}' and {d} more in this file" ++
+            hoisted, .{ hs.name, hs.n - 1, w.g.name });
+}
+
+/// The subcircuits whose inner parameters stayed inside, because their
+/// dialect is not measured, said once.
+fn unhoistedNote(w: *Writer) void {
     const us = w.unhoisted;
-    if (us.n > 0)
-        w.report.add(.warning, .ambiguous, us.line, "subckt '{s}'{s}: the parameters " ++
-            "defined inside are written as they were; {s} gives an instance's value to " ++
-            "that instance alone only for a parameter of the header, and what {s} does " ++
-            "with one defined inside is not measured", .{
-            us.name,
-            if (us.n > 1)
-                std.fmt.bufPrint(
-                    &buf,
-                    " and {d} more in this file",
-                    .{us.n - 1},
-                ) catch unreachable
-            else
-                "",
-            w.g.name,
-            us.source,
-        });
+    const kept = ": the parameters defined inside are written as they were; {s} gives an " ++
+        "instance's value to that instance alone only for a parameter of the header, and " ++
+        "what {s} does with one defined inside is not measured";
+    if (us.n == 1)
+        w.report.add(.warning, .ambiguous, us.line, "subckt '{s}'" ++ kept, .{
+            us.name, w.g.name, us.source,
+        })
+    else if (us.n > 1)
+        w.report.add(.warning, .ambiguous, us.line, "subckt '{s}' and {d} more in this file" ++
+            kept, .{ us.name, us.n - 1, w.g.name, us.source });
 }
