@@ -241,6 +241,21 @@ const Emit = struct {
                 if (o.kind != null and o.kind.? == e.st.kind and std.mem.eql(u8, o.canon, m.canon)) break false;
             } else true;
             if (!specific) continue;
+            if (std.mem.eql(u8, m.canon, expr.canon_pow)) {
+                // The power operator: unless the target means the same by it.
+                const same = for (e.g.means) |o| {
+                    if (std.mem.eql(u8, o.canon, m.canon) and std.mem.eql(u8, o.body, m.body)) break true;
+                } else false;
+                if (same) continue;
+                var n: usize = 0;
+                const out = try expr.applyPowMeans(e.arena, canon, m, &n);
+                if (n == 0) continue;
+                if (!e.quiet) e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s}'s x ** y is {s}, and {s}'s power is not; written as that; it reads back in that form", .{
+                    canon_in, sg.name, m.body, e.g.name,
+                });
+                canon = out;
+                continue;
+            }
             if (spellingsOf(e.g.functions, m.canon) != null or !expr.uses(canon, m.canon)) continue;
             var n: usize = 0;
             const out = try expr.applyMeans(e.arena, canon, m, &n);
@@ -314,7 +329,16 @@ const Emit = struct {
         for ([_]?*const Grammar{ e.g, e.sourceGrammar() }) |og| {
             const g = og orelse continue;
             for (g.differs) |d| {
-                if (expr.uses(canon, d.canon) and expr.uses(written, d.canon)) {
+                const said = if (g != e.g and std.mem.eql(u8, d.canon, "pow"))
+                    // The operator and the function apart: either may be written as what it means.
+                    (std.mem.indexOf(u8, canon, expr.canon_pow) != null and std.mem.indexOf(u8, written, expr.canon_pow) != null) or
+                        (expr.calls(canon, "pow") and expr.calls(written, "pow"))
+                else if (g != e.g and std.mem.eql(u8, d.canon, "negpow"))
+                    // How the source reads its text: no meaning written changes that.
+                    true
+                else
+                    expr.uses(written, d.canon);
+                if (expr.uses(canon, d.canon) and said) {
                     e.report.add(.warning, .caveat, e.st.line, "expression '{s}': {s} in {s}: {s}", .{ canon, d.canon, g.name, d.text });
                 }
             }

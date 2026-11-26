@@ -608,6 +608,11 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "negpow")) return negPow(text);
     if (std.mem.eql(u8, name, "minuspow")) return minusPow(text);
     if (std.mem.eql(u8, name, "andor")) return std.mem.indexOf(u8, text, "&&") != null or std.mem.indexOf(u8, text, "||") != null;
+    return calls(text, name);
+}
+
+/// Does a canonical expression call function `name`?
+pub fn calls(text: []const u8, name: []const u8) bool {
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;
@@ -816,38 +821,139 @@ pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) All
             i = close + 1;
             continue;
         }
-        // The body, its parameters replaced; in parentheses unless it is one call.
-        const wrap = !atomic(m.body);
-        if (wrap) try out.append(arena, '(');
-        var k: usize = 0;
-        const body = m.body;
-        while (k < body.len) {
-            const bc = body[k];
-            if ((std.ascii.isAlphabetic(bc) or bc == '_') and (k == 0 or !isWordChar(body[k - 1]))) {
-                const e = wordEnd(body, k);
-                const w = body[k..e];
-                const at = for (m.args, 0..) |p, pi| {
-                    if (std.mem.eql(u8, p, w)) break pi;
-                } else null;
-                if (at) |pi| {
-                    const arg = args.items[pi];
-                    // A whole argument of a call in the body needs no parentheses.
-                    const before = std.mem.trimEnd(u8, body[0..k], " \t");
-                    const after = std.mem.trimStart(u8, body[e..], " \t");
-                    const whole = before.len > 0 and (before[before.len - 1] == '(' or before[before.len - 1] == ',') and after.len > 0 and (after[0] == ')' or after[0] == ',');
-                    if (whole or atomic(arg)) try out.appendSlice(arena, arg) else try out.print(arena, "({s})", .{arg});
-                } else try out.appendSlice(arena, w);
-                k = e;
-                continue;
-            }
-            try out.append(arena, bc);
-            k += 1;
-        }
-        if (wrap) try out.append(arena, ')');
+        try substitute(arena, &out, m, args.items);
         n.* += 1;
         i = close + 1;
     }
     return out.items;
+}
+
+/// `m.body`, its parameters replaced by `args`; in parentheses unless it
+/// is one call.
+fn substitute(arena: Allocator, out: *std.ArrayList(u8), m: anytype, args: []const []const u8) Allocator.Error!void {
+    const wrap = !atomic(m.body);
+    if (wrap) try out.append(arena, '(');
+    var k: usize = 0;
+    const body = m.body;
+    while (k < body.len) {
+        const bc = body[k];
+        if ((std.ascii.isAlphabetic(bc) or bc == '_') and (k == 0 or !isWordChar(body[k - 1]))) {
+            const e = wordEnd(body, k);
+            const w = body[k..e];
+            const at = for (m.args, 0..) |p, pi| {
+                if (std.mem.eql(u8, p, w)) break pi;
+            } else null;
+            if (at) |pi| {
+                const arg = args[pi];
+                // A whole argument of a call in the body needs no parentheses.
+                const before = std.mem.trimEnd(u8, body[0..k], " \t");
+                const after = std.mem.trimStart(u8, body[e..], " \t");
+                const whole = before.len > 0 and (before[before.len - 1] == '(' or before[before.len - 1] == ',') and after.len > 0 and (after[0] == ')' or after[0] == ',');
+                if (whole or atomic(arg)) try out.appendSlice(arena, arg) else try out.print(arena, "({s})", .{arg});
+            } else try out.appendSlice(arena, w);
+            k = e;
+            continue;
+        }
+        try out.append(arena, bc);
+        k += 1;
+    }
+    if (wrap) try out.append(arena, ')');
+}
+
+/// Every `x ** y` in `text` as `m.body` (`means x ** y = ...`), the
+/// operands as ngspice takes them: the power binds before a unary minus
+/// and from the left, `2**3**2` is 64 (docs/verification.md 4.44). `n`
+/// counts the powers rewritten.
+pub fn applyPowMeans(arena: Allocator, text: []const u8, m: anytype, n: *usize) Allocator.Error![]const u8 {
+    // Inside parentheses first: each operand is then one primary.
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == '"' or c == '\'') {
+            const end = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
+            try out.appendSlice(arena, text[i..end]);
+            i = end;
+            continue;
+        }
+        if (c == '(') if (matching(text, i)) |close| {
+            try out.print(arena, "({s})", .{try applyPowMeans(arena, text[i + 1 .. close], m, n)});
+            i = close + 1;
+            continue;
+        };
+        try out.append(arena, c);
+        i += 1;
+    }
+    var cur = out.items;
+    while (topLevelPow(cur)) |at| {
+        const lo = powBase(cur, at);
+        const hi = powExponent(cur, at + canon_pow.len);
+        if (lo == at or hi == at + canon_pow.len) break;
+        var next: std.ArrayList(u8) = .empty;
+        try next.appendSlice(arena, cur[0..lo]);
+        try substitute(arena, &next, m, &.{ ungroup(cur[lo..at]), ungroup(cur[at + canon_pow.len .. hi]) });
+        try next.appendSlice(arena, cur[hi..]);
+        cur = next.items;
+        n.* += 1;
+    }
+    return cur;
+}
+
+/// The first `**` outside parentheses and quotes.
+fn topLevelPow(text: []const u8) ?usize {
+    var from: usize = 0;
+    while (topLevel(text, from, '*')) |at| : (from = at + 2) {
+        if (at + 1 < text.len and text[at + 1] == '*') return at;
+    }
+    return null;
+}
+
+/// Where the base of the power at `at` starts: a name, a number, a call
+/// or a group; a minus before it is not its own.
+fn powBase(text: []const u8, at: usize) usize {
+    var k = at;
+    while (k > 0 and text[k - 1] == ' ') k -= 1;
+    if (k > 0 and text[k - 1] == ')') {
+        var depth: usize = 0;
+        while (k > 0) {
+            k -= 1;
+            if (text[k] == ')') depth += 1;
+            if (text[k] == '(') {
+                depth -= 1;
+                if (depth == 0) break;
+            }
+        }
+    }
+    while (k > 0 and (isWordChar(text[k - 1]) or text[k - 1] == param_mark)) {
+        k -= 1;
+        // The sign of an exponent in a number: `1e-3`.
+        if (k >= 2 and (text[k - 1] == '-' or text[k - 1] == '+') and (text[k - 2] == 'e' or text[k - 2] == 'E') and std.ascii.isDigit(text[k])) {
+            const m = k - 2;
+            var d = m;
+            while (d > 0 and (std.ascii.isDigit(text[d - 1]) or text[d - 1] == '.')) d -= 1;
+            if (d < m and (d == 0 or !isWordChar(text[d - 1]))) k = d;
+        }
+    }
+    return k;
+}
+
+/// Where the exponent of a power, from `from`, ends: a signed name,
+/// number, call or group.
+fn powExponent(text: []const u8, from: usize) usize {
+    var j = from;
+    while (j < text.len and (text[j] == ' ' or text[j] == '-' or text[j] == '+')) j += 1;
+    const start = j;
+    if (j < text.len and text[j] == param_mark) j += 1;
+    j = if (j < text.len and (std.ascii.isDigit(text[j]) or text[j] == '.')) numberEnd(text, j) else wordEnd(text, j);
+    if (j < text.len and text[j] == '(') j = (matching(text, j) orelse return from) + 1;
+    return if (j == start) from else j;
+}
+
+/// An operand without the parentheses around the whole of it.
+fn ungroup(text: []const u8) []const u8 {
+    const t = std.mem.trim(u8, text, " \t");
+    if (t.len > 1 and t[0] == '(' and matching(t, 0) == t.len - 1) return t[1 .. t.len - 1];
+    return t;
 }
 
 /// `if(c, a, b)` as `(c ? a : b)`.

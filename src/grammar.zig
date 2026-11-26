@@ -383,7 +383,8 @@ pub fn paramsOpen(table: []const Spellings) bool {
 pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// `means [kind] f(x, y) = body`: what this dialect means by a function,
 /// in canonical functions, for a target that lacks it; with a kind, in
-/// statements of that kind only (a behavioural source).
+/// statements of that kind only (a behavioural source). `means x ** y =
+/// body`: the power operator, `canon` "**", for every target.
 pub const Means = struct { kind: ?Kind = null, canon: []const u8, args: []const []const u8, body: []const u8 };
 /// A kind the simulator itself lacks, and why; with a slot, the one value
 /// of a kind it has (`no options vntol : why`), the reason ending the error.
@@ -1917,6 +1918,16 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         } else if (std.mem.eql(u8, head, "means")) {
             const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(no, "means is `means [kind] f(x, y) = expression`", .{});
             var lhs = std.mem.trim(u8, rest[0..eq], " \t");
+            const body = std.mem.trim(u8, rest[eq + 3 ..], " \t");
+            if (std.mem.indexOf(u8, lhs, " ** ")) |op| {
+                // `means x ** y = ...`: the power operator, in every kind of statement.
+                if (std.mem.indexOf(u8, body, "**") != null) return c.fail(no, "the meaning of ** cannot use **", .{});
+                var margs: []const []const u8 = &.{};
+                margs = try c.add([]const u8, margs, std.mem.trim(u8, lhs[0..op], " \t"));
+                margs = try c.add([]const u8, margs, std.mem.trim(u8, lhs[op + 4 ..], " \t"));
+                means = try c.add(Means, means, .{ .canon = "**", .args = margs, .body = body });
+                continue;
+            }
             var kind: ?Kind = null;
             if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp| if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
                 kind = try kindOf(c, no, lhs[0..sp]);
@@ -1929,7 +1940,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             var margs: []const []const u8 = &.{};
             var it = std.mem.splitScalar(u8, lhs[open + 1 .. lhs.len - 1], ',');
             while (it.next()) |a| margs = try c.add([]const u8, margs, std.mem.trim(u8, a, " \t"));
-            means = try c.add(Means, means, .{ .kind = kind, .canon = canon, .args = margs, .body = std.mem.trim(u8, rest[eq + 3 ..], " \t") });
+            means = try c.add(Means, means, .{ .kind = kind, .canon = canon, .args = margs, .body = body });
         } else if (std.mem.eql(u8, head, "switch")) {
             const arrow = std.mem.indexOf(u8, rest, " -> ") orelse return c.fail(no, "switch is `switch \"words\" -> dialect`", .{});
             const lits = try args(c, no, rest[0..arrow]);

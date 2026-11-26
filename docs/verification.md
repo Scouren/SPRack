@@ -2275,6 +2275,36 @@ given, 0 errors with the module given, one caveat and one version warning a
 file. The three at once first crashed the writer on the second file: the
 set that says the caveat once a file was kept in a statement's arena, which
 the stream frees after each statement.
+### 4.44 ngspice's power operator, for a target that keeps the sign (#78)
+
+ngspice 45, `.param` and a B source (`V0 n0 0 -2`, `v(n0)` as the base):
+
+| expression | `.param` (b = -2) | B source |
+|---|---|---|
+| `b**3`, `b^2.5` | 8, 5.657 | 8, 5.657 |
+| `(-8)**(1/3)` | 2 | |
+| `pow(b,3)`, `pow(b,2.5)` | -8, an error (NaN) | 8, |
+| `pwr(b,3)` | 8 | -8 |
+| `2**3**2`, `2**2**3` | 64, 64 | 64 |
+| `-b**2`, `-2**3`, `2**-1`, `b**-1`, `(b+1)**3` | -4, -8, 0.5, 0.5, 1 | |
+| `1+-2**3`, `1+-c**3` (c = 2), `3*-c**2`, `1+-b**2` | 9, 1.125, 0.75, 1.25 | `1+-v(n0)**3`: -7 |
+
+So `**` and `^` are `pow(abs(x),y)` in both: the base loses its sign, the
+power binds before a unary minus and from the left. Every other dialect's
+power keeps the sign (4.4, 8.2): `(-2)**3` is -8, and VACASK's `(-1.75)**2.5`
+is NaN, its operating point failing (`expr_power_ngspice.sp`). The ngspice
+grammar now says `means x ** y = pow(abs(x),y)`, and every power out of
+ngspice is written as that, `2**3**2` as `pow(abs(pow(abs(2),3)),2)`. A
+minus right after another operator is left as written: ngspice's reading of
+it (`1+-c**3` is 1 + c**-3 for a name, 1 + 2**3 for a number) is not one
+expression, so `negpow` stays a caveat. ngspice's B-source `pow()` drops
+the sign as well; that function is not rewritten here.
+
+`expr_power_ngspice.sp` into VACASK b2c1551: before, `Homotopy failed`;
+after, v(a) 4.051307, v(c) 5.359375, v(d) 5.359375 (ngspice's), v(e) 1:
+VACASK's `1/3` is integer division (0), so `pow(abs(-8),1/3)` is 1; `1e0/3`
+gives 0.333. Into Xyce 7.10: before 0, -5.359, -5.359, 1; after 4.051,
+5.359, -5.359, 2; v(d) is Xyce's `pwr`, which is `pow` (4.3).
 
 ## 5. Enum spellings (6.5): integration method
 
