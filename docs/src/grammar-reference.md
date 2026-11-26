@@ -234,6 +234,42 @@ noparam jfet level=2 error : ...   # a model parameter (with that value) the
                                    # family's model here refuses: not written, a loss;
                                    # error (the card is another model now, said card
                                    # by card) or warning (the same model, once a file)
+rewrite capacitor ic               # an instance parameter this dialect's device
+  when   vsource                   # does not take (its `params` table lacks it),
+  keep   neg={name}__ic            # said by other statements instead. Applies to
+  add    vsource name=V{name}__ic pos={name}__ic neg={neg} dc={ic}
+  clash  ic.values pos neg : ...   # a statement read in another dialect; the
+  oneway : capacitor '{name}': ... # first block of the kind whose parameter
+end                                # is given decides. `when`: the kinds this
+                                   # dialect must write and the functions it
+                                   # must spell, else the parameter is the
+                                   # loss it was. `keep`: the statement stays,
+                                   # these slots replaced, the parameter gone.
+                                   # `add`: one more statement. `clash`: an
+                                   # error where a statement of that kind
+                                   # names, among the keys of that slot, a
+                                   # node of this one. `oneway`: the note
+rewrite capacitor q
+  when   bsource ddt
+  become bsource name={name} pos={pos} neg={neg} i=[{m}*]ddt({q})
+  loss   : capacitor '{name}': {what} has no place on ...
+  oneway : ...                     # `become`: another statement in its place;
+end                                # every slot and parameter of the original
+                                   # no template names is a `loss` error in
+                                   # the words of the `loss` line, `{what}`
+                                   # being the thing lost.
+                                   # In a template `{x}` is slot or parameter
+                                   # `x` of the original (a parameter a
+                                   # template names is used up); `[...]` is
+                                   # left out when a name inside has no
+                                   # value; in a value slot the text is an
+                                   # expression, and a value that is one is
+                                   # put in parentheses unless it stands
+                                   # alone as an argument. In a message
+                                   # `{to}` and `{from}` are the dialects,
+                                   # `{node}` the node of a clash, and a name
+                                   # the original lacks is that slot of the
+                                   # first statement written
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # how the family's model here computes with
                                    # these parameters, as measured: said, with

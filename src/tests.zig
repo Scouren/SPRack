@@ -7481,6 +7481,64 @@ test "every field of Env is in its JSON form, and back (#71)" {
     try testing.expectEqualStrings(listed.written(), again.written());
 }
 
+// The engine names no device and no dialect for this: what a dialect's device
+// does not take and its other statements can say is a `rewrite` block of its
+// grammar. VACASK's capacitor (ic=, q=) is two such blocks; here a grammar
+// made up for the test does the same for a resistor.
+test "rewrite: a parameter a dialect's device lacks is said by other statements, from grammar lines alone" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const tiny = tinyGrammar(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3 u=-6
+        \\end
+        \\rule resistor = name~"R" pos neg r {...params}
+        \\rule isource  = name~"I" pos neg dc
+        \\rule bsource  = name~"B" pos neg { i=i }
+        \\functions
+        \\  same v
+        \\end
+        \\params resistor
+        \\  same m
+        \\end
+        \\rewrite resistor gleak
+        \\  when   bsource
+        \\  become bsource name={name} pos={pos} neg={neg} i=[{m}*]{gleak}*v({pos},{neg})
+        \\  loss   : resistor '{name}': {what} has no place on the source it is written as for {to}
+        \\  oneway : resistor '{name}': a leak alone is the current {i}
+        \\end
+        \\rewrite resistor leak
+        \\  when   isource
+        \\  keep
+        \\  add    isource name=I{name}__leak pos={pos} neg={neg} dc={leak}
+        \\  oneway : resistor '{name}': {to} has no leak= ({leak}); the source I{name}__leak carries it
+        \\end
+    );
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", "t\nR1 a 0 1k leak=1u m=2\nR2 b 0 gleak={g0*2} m=3\n.end\n", &report);
+    var out: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &tiny, &out.writer, &nl, &report);
+    // The statement stays, without the parameter, and another is added.
+    try has(out.written(), "R1 a 0 1k m=2\nIR1__leak a 0 1u\n");
+    try reported(&report, .info, "resistor 'R1': tiny has no leak= (1u); the source IR1__leak carries it");
+    // Another statement in its place: an expression among operands is
+    // parenthesised, a parameter the template names is used up, and what
+    // has no place is a loss in the grammar's words. (The source is a B
+    // device here, so its name gets the letter, as any renamed device.)
+    try has(out.written(), "BR2 b 0 i=3*(g0*2)*v(b,0)\n");
+    try reported(&report, .info, "resistor 'R2': a leak alone is the current 3*(g0*2)*v(b,0)");
+    try testing.expectEqual(0, report.count(.@"error"));
+
+    // The same netlist for a dialect whose grammar has no such block: the
+    // parameter is the loss it always was.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nR1 a 0 1k leak=1u\n.end\n", &r2);
+    try reported(&r2, .@"error", "'leak=1u' has no spelling in xyce");
+}
+
 /// One file of tests/fixtures: a netlist, the dialects it goes between, and
 /// the output and the report that must come out, byte for byte.
 const Fixture = struct {

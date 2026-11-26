@@ -282,8 +282,8 @@ Every error names a file and a line. What is left, and whose it is:
 
 | what | where | count |
 |---|---|---|
-| End-to-end and unit tests (zig) | `src/tests.zig`, and each module in a test binary of its own | 257 tests |
-| Fixtures: a netlist, and the output and report it must give (zig) | `tests/fixtures/*.case`, `tools/fixture.py` | 12 cases, one more with each fix |
+| End-to-end and unit tests (zig) | `src/tests.zig`, and each module in a test binary of its own | 258 tests |
+| Fixtures: a netlist, and the output and report it must give (zig) | `tests/fixtures/*.case`, `tools/fixture.py` | 15 cases, one more with each fix |
 | The rules the code is held to | `zig build lint` (`lint/`), part of every build and test run | the files listed in `lint/lint.zig` |
 | Byte-identical snapshots, for a change that must move nothing | `tools/golden.py` | 31,034 cases |
 | The command: output and exit status of every subcommand (zig) | `build.zig`, `zig build test-cli` | 35 runs |

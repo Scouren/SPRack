@@ -374,6 +374,44 @@ pub const Omitted = struct {
 pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 =
     "",
     read: bool = false };
+/// `rewrite capacitor ic ... end`: an instance parameter this dialect's
+/// device does not take, said by other statements. A statement of `kind`
+/// read in another dialect that gives `param` is written as `parts`: the
+/// statement itself with some slots replaced (`keep`), or another statement
+/// in its place (`become`), and any number more (`add`).
+pub const Rewrite = struct {
+    kind: Kind,
+    /// The parameter, by its canonical name.
+    param: []const u8,
+    /// `when`: what this dialect must be able to write and to spell for the
+    /// rewrite to apply; without them the parameter is the loss it was.
+    kinds: []const Kind = &.{},
+    functions: []const []const u8 = &.{},
+    /// At least one; only the first may be `keep`.
+    parts: []const Part = &.{},
+    /// `clash`: a statement elsewhere that says the parameter another way.
+    clash: ?Clash = null,
+    /// `loss`: said for each thing of the statement the new one has no
+    /// place for; `{what}` in it is that thing.
+    loss: []const u8 = "",
+    /// `oneway`: said once for the statement.
+    note: []const u8 = "",
+
+    /// One statement written. `keep`: the original, the slots of `sets`
+    /// replaced and the parameter gone; else a new statement of `kind`
+    /// with only those slots.
+    pub const Part = struct { kind: Kind, keep: bool, sets: []const Set };
+
+    /// `slot=template`. In a template `{x}` is slot or parameter `x` of the
+    /// original; `[...]` is left out when a name inside it has no value.
+    pub const Set = struct { slot: u8, template: []const u8 };
+
+    /// `clash ic.values pos neg : text`: an error where a statement of
+    /// `kind` has, among the keys of its `slot`, the name one of the
+    /// original's `nodes` (slot indices) holds.
+    pub const Clash = struct { kind: Kind, slot: u8, nodes: []const u8, text: []const u8 };
+};
+
 /// `inert options post : why`: a parameter that changes no result here; a
 /// translation out of this dialect leaves it out with a note, not an error.
 /// For a kind that is a command (`simctl`), `key` is the command's word.
@@ -578,6 +616,7 @@ pub const Grammar = struct {
     computes: []const Computes = &.{},
     edges: []const Edge = &.{},
     inerts: []const Inert = &.{},
+    rewrites: []const Rewrite = &.{},
     read_index: ReadIndex = .{},
 
     /// The rules that may read a line whose first token is a word of this
@@ -1810,6 +1849,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     var computes: []const Computes = &.{};
     var edges: []const Edge = &.{};
     var inerts: []const Inert = &.{};
+    var rewrites: []const Rewrite = &.{};
 
     while (lines.next()) |line| {
         const head, const rest = splitHead(line);
@@ -2031,6 +2071,16 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                     .{ .kind = kind, .key = key, .text = rest[colon + 3 ..] },
                 );
             }
+        } else if (std.mem.eql(u8, head, "rewrite")) {
+            const rule = try rewriteBlock(c, &lines, rest);
+            // The keys every clash line watches are held in one table.
+            for (rewrites) |other| {
+                const a = other.clash orelse continue;
+                const b = rule.clash orelse continue;
+                if (a.kind != b.kind or a.slot != b.slot)
+                    return c.fail(no, "every clash line of a grammar names one kind.slot", .{});
+            }
+            rewrites = try c.add(Rewrite, rewrites, rule);
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))
@@ -2613,7 +2663,106 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         .computes = computes,
         .edges = edges,
         .inerts = inerts,
+        .rewrites = rewrites,
     };
+}
+
+/// The lines of a `rewrite kind param` block, up to its `end`.
+fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite {
+    const head_line = lines.no;
+    const words = try args(c, head_line, header);
+    if (words.len != 2) return c.fail(head_line, "rewrite is `rewrite kind parameter`", .{});
+    var rule: Rewrite = .{ .kind = try kindOf(c, head_line, words[0]), .param = words[1] };
+    std.debug.assert(rule.param.len > 0);
+    while (lines.next()) |line| {
+        const no = lines.no;
+        if (std.mem.eql(u8, line, "end")) {
+            if (rule.parts.len == 0)
+                return c.fail(no, "rewrite needs a keep or a become line", .{});
+            // What a statement put in the original's place has no room for
+            // must be said: nothing is dropped in silence.
+            if (!rule.parts[0].keep and rule.loss.len == 0)
+                return c.fail(no, "a rewrite with `become` needs a `loss : text` line", .{});
+            return rule;
+        }
+        const verb_end = std.mem.indexOfAny(u8, line, " \t") orelse line.len;
+        const verb = line[0..verb_end];
+        const rest = std.mem.trim(u8, line[verb_end..], " \t");
+        if (std.mem.eql(u8, verb, "when")) {
+            var names = std.mem.tokenizeAny(u8, rest, " \t");
+            while (names.next()) |name| {
+                if (schema.kindFromName(name)) |kind| {
+                    rule.kinds = try c.add(Kind, rule.kinds, kind);
+                } else if (schema.isFunction(name)) {
+                    rule.functions = try c.add([]const u8, rule.functions, name);
+                } else return c.fail(no, "when: '{s}' is neither a kind nor a function", .{name});
+            }
+        } else if (std.mem.eql(u8, verb, "loss") or std.mem.eql(u8, verb, "oneway")) {
+            if (!std.mem.startsWith(u8, rest, ": "))
+                return c.fail(no, "{s} is `{s} : text`", .{ verb, verb });
+            if (verb[0] == 'l') rule.loss = rest[2..] else rule.note = rest[2..];
+        } else if (std.mem.eql(u8, verb, "clash")) {
+            rule.clash = try rewriteClash(c, no, rule.kind, rest);
+        } else {
+            const part = try rewritePart(c, no, rule.kind, verb, rest);
+            const first = rule.parts.len == 0;
+            if (first == std.mem.eql(u8, verb, "add"))
+                return c.fail(
+                    no,
+                    "a rewrite starts with keep or become, and goes on with add",
+                    .{},
+                );
+            rule.parts = try c.add(Rewrite.Part, rule.parts, part);
+        }
+    }
+    return c.fail(head_line, "rewrite is missing 'end'", .{});
+}
+
+/// `keep slot=template ...`, or `become kind slot=template ...`, or `add` likewise.
+fn rewritePart(
+    c: *C,
+    no: u32,
+    original: Kind,
+    verb: []const u8,
+    rest: []const u8,
+) Error!Rewrite.Part {
+    std.debug.assert(verb.len > 0);
+    const keep = std.mem.eql(u8, verb, "keep");
+    if (!keep and !std.mem.eql(u8, verb, "become") and !std.mem.eql(u8, verb, "add"))
+        return c.fail(no, "rewrite: unknown line `{s}`", .{verb});
+    var words = std.mem.tokenizeAny(u8, rest, " \t");
+    const kind = if (keep)
+        original
+    else
+        try kindOf(c, no, words.next() orelse return c.fail(no, "{s} needs a kind", .{verb}));
+    var sets: []const Rewrite.Set = &.{};
+    while (words.next()) |word| {
+        const eq = std.mem.indexOfScalar(u8, word, '=') orelse
+            return c.fail(no, "expected slot=template, found '{s}'", .{word});
+        const slot = try slotNamed(c, no, kind, word[0..eq]);
+        sets = try c.add(Rewrite.Set, sets, .{ .slot = slot, .template = word[eq + 1 ..] });
+    }
+    // A kept statement may stay as it is: the rewrite then only adds to it.
+    if (sets.len == 0 and !keep) return c.fail(no, "{s} needs at least one slot=template", .{verb});
+    return .{ .kind = kind, .keep = keep, .sets = sets };
+}
+
+/// `kind.slot node ... : text`.
+fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.Clash {
+    const colon = std.mem.indexOf(u8, rest, " : ") orelse
+        return c.fail(no, "clash is `clash kind.slot node ... : text`", .{});
+    var words = std.mem.tokenizeAny(u8, rest[0..colon], " \t");
+    const where = words.next() orelse return c.fail(no, "clash needs a kind.slot", .{});
+    const dot = std.mem.indexOfScalar(u8, where, '.') orelse
+        return c.fail(no, "clash needs a kind.slot, found '{s}'", .{where});
+    const kind = try kindOf(c, no, where[0..dot]);
+    const slot = try slotNamed(c, no, kind, where[dot + 1 ..]);
+    if (schema.info(kind).slots[slot].ty != .params)
+        return c.fail(no, "clash: '{s}' is not a key=value slot", .{where});
+    var nodes: []const u8 = &.{};
+    while (words.next()) |name| nodes = try c.add(u8, nodes, try slotNamed(c, no, original, name));
+    if (nodes.len == 0) return c.fail(no, "clash needs the slots whose names it looks for", .{});
+    return .{ .kind = kind, .slot = slot, .nodes = nodes, .text = rest[colon + 3 ..] };
 }
 
 /// `rules` with `ending` set on each rule that starts with its kind's
@@ -2793,6 +2942,22 @@ test "a broken grammar at run time names the file and line" {
         .{
             .src = "dialect x\nlexer\nend\nrequires dc-path error [op resistor] : why\n",
             .msg = "x/bad.spgrammar:4: requires: 'resistor' is not an analysis",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrewrite capacitor ic\n  keep neg={name}__ic\n",
+            .msg = "x/bad.spgrammar:4: rewrite is missing 'end'",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrewrite capacitor q\n  become bsource i=ddt({q})\nend\n",
+            .msg = "x/bad.spgrammar:6: a rewrite with `become` needs a `loss : text` line",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrewrite capacitor ic\n  add vsource dc={ic}\nend\n",
+            .msg = "x/bad.spgrammar:5: a rewrite starts with keep or become, and goes on with add",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrewrite capacitor ic\n  keep bogus={ic}\nend\n",
+            .msg = "x/bad.spgrammar:5: unknown slot 'bogus' for kind 'capacitor'",
         },
     };
     for (cases) |cs| {

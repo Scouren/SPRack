@@ -97,7 +97,7 @@ Each is a place where behaviour varies without that place being edited.
 | S2 kind | which statement | 80 kinds in `schema.zig` | a row (rung 3) |
 | S3 pass | which transformation | ~40, each run by hand in two drivers today | a pass table with one driver (rung 3, planned) |
 | S4 fact | what a dialect means by a slot | `implied`, `caveat`, `omitted`, `no`, ... | facts indexed by kind and slot (rung 3) |
-| S5 rewrite | a statement the target says as other statements | capacitor `ic=`, `q=`, `maxord`, ... in Zig today | rewrite rows in the grammar (rung 3, planned) |
+| S5 rewrite | a statement the target says as other statements | capacitor `ic=` and `q=` into VACASK (two `rewrite` blocks of its grammar); `maxord`, the pole-zero ports and plugin devices still in Zig | `rewrite` blocks in the grammar, one executor (rung 3) |
 | S6 word | a name both dialects have under other spellings | functions, parameters, model types | word tables (rung 3) |
 
 No seam is above rung 3: every variation is data, and no call on the path of
@@ -110,7 +110,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | ID | Change | Source | Edits wanted | Today |
 |---|---|---|---|---|
 | D1 | a model card parameter one target refuses | issues 30, 57, 76; 32 fixes | one grammar row, one fixture; 0 bodies | passes (`noparam`), but precedence between the card directives lives in `unmapModel`, 189 lines |
-| D2 | a device parameter the target says as another device | issue 28 | one rewrite row, one fixture; 0 bodies | fails: 175 lines of Zig for the capacitor alone |
+| D2 | a device parameter the target says as another device | issue 28 | one `rewrite` block, one fixture; 0 bodies | passes: the capacitor is two blocks of vacask.spgrammar, and a test rewrites a resistor from a grammar made up for it |
 | D3 | a new simulator | LTspice (l1, z2) | one `.spgrammar` file; 0 bodies | passes for syntax; fails where the simulator needs a transformation no directive names |
 | D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | fails: two drivers, `write` and `Stream`, are both edited |
 
@@ -150,6 +150,6 @@ tests green and the goldens IDENTICAL unless it says otherwise.
 | 5 | write path: one rendering where the first form says the statement, rules by kind | done; tables by kind for the facts are next | mesh 1.39x to 1.57x, sky130 cells 1.31x to 1.50x fewer instructions |
 | 6 | one pass table, one driver for whole and streamed netlists | | |
 | 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
-| 8 | the special cases of the writer, by mechanism | | 81 hard-coded today |
+| 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`) | 81 hard-coded at the start; 9 moved to grammar lines |
 | 9 | the special cases of the reader and the passes, by mechanism | | |
 | 10 | tests by module, a fixture a fix, fuzz targets a stage | | 55 fixes not fully pinned today |

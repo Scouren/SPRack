@@ -18,6 +18,7 @@ const cond = @import("cond");
 const topology = @import("topology");
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Node = grammar.Node;
 const Kind = schema.Kind;
@@ -1177,8 +1178,8 @@ const Writer = struct {
     /// Lines no rule understood, written back as they were in their own
     /// dialect: one note a file (`keptNote`).
     kept: struct { n: usize = 0, line: u32 = 0 } = .{},
-    /// The nodes the netlist's `.ic` statements set (`capacitorParts`).
-    ic_nodes: ir.CaselessSet = .empty,
+    /// The keys the grammar's `clash` lines watch (`collectClashKeys`).
+    clash_keys: ir.CaselessSet = .empty,
     /// How many subcircuits the statement being written is inside.
     depth: u32 = 0,
     /// The terminals of the instances of each model (`collectTerminals`).
@@ -2186,138 +2187,121 @@ const Writer = struct {
         return copy;
     }
 
-    /// A capacitor's `ic=` or `q=` where the target's capacitor takes
-    /// neither and other devices of the target say it, as measured in
-    /// ngspice 45 and VACASK (docs/verification.md 4.16):
-    ///  - `ic`: the capacitor to a node of its own, `<name>__ic`, and from
-    ///    there to its second node a DC source of the initial voltage. With
-    ///    UIC the capacitor starts at 0 and the pair at `ic`; at an
-    ///    operating point and in AC the source is the short it adds.
-    ///  - `q`: a behavioural source whose current is `ddt` of the charge,
-    ///    times `m`.
-    /// False: the capacitor is written as it is.
-    fn capacitorParts(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!bool {
+    /// A statement the target's grammar says with other statements (a
+    /// `rewrite` block): the parts written in its place, with what the
+    /// rewrite reports. False: no rewrite applies, the statement is written
+    /// as it is.
+    fn rewritten(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!bool {
         const sg = w.sourceGrammar(st) orelse readIn(w.source, st);
-        const parts = capParts(w.g, sg, st);
-        if (!parts.any()) return false;
-        const from = if (sg) |s| s.paramsOf(.capacitor) else null;
-        const name = st.get("name").atom;
+        const hit = rewriteOf(w.g, sg, st) orelse return false;
+        const rule = hit.rule;
+        assert(rule.kind == st.kind);
+        assert(rule.parts.len > 0);
         var em = w.emitter(a, st);
-        var rest: std.ArrayList(ir.Param) = .empty;
-        var m: ?Value = null;
-        for (st.get("params").params) |p| {
-            const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
-            if (parts.q != null and std.ascii.eqlIgnoreCase(canon, "q")) continue;
-            if (parts.ic != null and std.ascii.eqlIgnoreCase(canon, "ic")) continue;
-            if (parts.q != null and std.ascii.eqlIgnoreCase(canon, "m")) {
-                m = p.val;
-                continue;
+        var filled: Fill = .{
+            .a = a,
+            .st = st,
+            .rule = rule,
+            .from = if (sg) |g| g.paramsOf(st.kind) else null,
+            .em = &em,
+            .source = w.sourceOf(st),
+        };
+        try filled.sortParams();
+        if (!rule.parts[0].keep) try w.reportUnplaced(&filled);
+        if (rule.clash) |clash| try w.reportClashes(&filled, clash);
+
+        var parts: std.ArrayList(ir.Stmt) = .empty;
+        for (rule.parts, 0..) |part, i| {
+            var out = if (part.keep) st.* else try ir.newStmt(a, part.kind, st.line);
+            if (part.keep) {
+                try out.own(a);
+                const rest: Value = if (filled.rest.items.len > 0)
+                    .{ .params = filled.rest.items }
+                else
+                    .none;
+                try out.set(a, schema.slotOf(st.kind, "params").?, rest);
+            } else {
+                out.dialect = st.dialect;
+                if (i == 0) out.tail = st.tail;
             }
-            try rest.append(a, p);
+            for (part.sets) |set| try out.set(a, set.slot, try filled.value(part.kind, set));
+            try parts.append(a, out);
         }
-        if (parts.q) |q| {
-            // Whatever else the capacitor gives has no place on the source.
-            if (st.get("c") != .none)
-                w.report.add(
-                    .@"error",
-                    .loss,
-                    st.line,
-                    "capacitor '{s}': 'c={s}' has no place on the behavioural source a " ++
-                        "capacitor given by its charge is written as for {s}",
-                    .{ name, try em.describe(st.get("c")), w.g.name },
-                );
-            if (st.get("master") != .none)
-                w.report.add(
-                    .@"error",
-                    .loss,
-                    st.line,
-                    "capacitor '{s}': the model '{s}' has no place on the behavioural source " ++
-                        "a capacitor given by its charge is written as for {s}",
-                    .{ name, try em.describe(st.get("master")), w.g.name },
-                );
-            for (rest.items) |p| {
-                const shown = if (p.val == .none)
-                    p.key
-                else
-                    try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
-                w.report.add(
-                    .@"error",
-                    .loss,
-                    st.line,
-                    "capacitor '{s}': '{s}' has no place on the behavioural source a " ++
-                        "capacitor given by its charge is written as for {s}",
-                    .{ name, shown, w.g.name },
-                );
-            }
-            const charge = try expr.canonText(a, q);
-            const current = if (m) |mv| blk: {
-                const mt = try expr.canonText(a, mv);
-                break :blk if (mv == .expr)
-                    try a.print("({s})*ddt({s})", .{ mt, charge })
-                else
-                    try a.print("{s}*ddt({s})", .{ mt, charge });
-            } else try a.print("ddt({s})", .{charge});
-            var b = try ir.newStmt(a, .bsource, st.line);
-            b.dialect = st.dialect;
-            b.tail = st.tail;
-            try b.set(a, schema.slot(.bsource, "name"), st.get("name"));
-            try b.set(a, schema.slot(.bsource, "pos"), st.get("pos"));
-            try b.set(a, schema.slot(.bsource, "neg"), st.get("neg"));
-            try b.set(a, schema.slot(.bsource, "i"), .{ .expr = current });
+        filled.made = parts.items;
+        if (rule.note.len > 0)
+            w.report.add(.info, .oneway, st.line, "{s}", .{try filled.message(rule.note, "")});
+        for (parts.items) |*part| try w.leaf(a, part);
+        return true;
+    }
+
+    /// For a rewrite that puts another statement in the original's place:
+    /// every slot and parameter of the original the new one has no
+    /// template for, each a loss in the rewrite's words.
+    fn reportUnplaced(w: *Writer, filled: *Fill) Error!void {
+        const st = filled.st;
+        assert(!filled.rule.parts[0].keep);
+        assert(filled.rule.loss.len > 0);
+        const params_slot = schema.slotOf(st.kind, "params");
+        for (schema.info(st.kind).slots, 0..) |slot, i| {
+            if (st.at(i) == .none or filled.uses(slot.name)) continue;
+            if (params_slot != null and params_slot.? == i) continue;
+            const shown = try filled.em.describe(st.at(i));
+            // A model is named, not given: `the model 'x'`, not `'master=x'`.
+            const what = if (std.mem.eql(u8, slot.name, "master"))
+                try filled.a.print("the model '{s}'", .{shown})
+            else
+                try filled.a.print("'{s}={s}'", .{ slot.name, shown });
             w.report.add(
-                .info,
-                .oneway,
+                .@"error",
+                .loss,
                 st.line,
-                "capacitor '{s}': {s}'s capacitor takes no charge (q=); it is written as a " ++
-                    "behavioural source whose current is {s}, which reads back as that source",
-                .{ name, w.g.name, current },
+                "{s}",
+                .{try filled.message(filled.rule.loss, what)},
             );
-            try w.leaf(a, &b);
-            return true;
         }
-        const ic = parts.ic.?;
-        const pos, const neg = .{ st.get("pos"), st.get("neg") };
-        // ngspice lets the capacitor's ic win over an .ic on one of its
-        // nodes; the source in series adds the two.
-        for ([_]Value{ pos, neg }) |n| {
-            if (n != .atom) continue;
-            const hit = if (w.depth == 0) w.ic_nodes.contains(n.atom) else blk: {
-                var it = w.ic_nodes.keyIterator();
-                while (it.next()) |k| {
-                    const dot = std.mem.lastIndexOfScalar(u8, k.*, '.') orelse continue;
-                    if (std.ascii.eqlIgnoreCase(k.*[dot + 1 ..], n.atom)) break :blk true;
+        for (filled.rest.items) |p| {
+            const what = if (p.val == .none)
+                try filled.a.print("'{s}'", .{p.key})
+            else
+                try filled.a.print("'{s}={s}'", .{ p.key, try filled.em.describe(p.val) });
+            w.report.add(
+                .@"error",
+                .loss,
+                st.line,
+                "{s}",
+                .{try filled.message(filled.rule.loss, what)},
+            );
+        }
+    }
+
+    /// A statement elsewhere that says the rewritten parameter for one of
+    /// the original's nodes too (`clash`): an error for each such node.
+    /// Inside a subcircuit a key of the netlist names the node by its path,
+    /// so its last part is compared.
+    fn reportClashes(w: *Writer, filled: *Fill, clash: grammar.Rewrite.Clash) Error!void {
+        assert(clash.nodes.len > 0);
+        for (clash.nodes) |slot| {
+            assert(slot < schema.info(filled.st.kind).slots.len);
+            const node = filled.st.at(slot);
+            if (node != .atom) continue;
+            const hit = if (w.depth == 0) w.clash_keys.contains(node.atom) else blk: {
+                var keys = w.clash_keys.keyIterator();
+                while (keys.next()) |key| {
+                    const dot = std.mem.lastIndexOfScalar(u8, key.*, '.') orelse continue;
+                    if (std.ascii.eqlIgnoreCase(key.*[dot + 1 ..], node.atom)) break :blk true;
                 }
                 break :blk false;
             };
-            if (hit)
-                w.report.add(.@"error", .invalid, st.line, "capacitor '{s}': ic={s}, and an " ++
-                    ".ic sets node {s} too; {s} takes the capacitor's, and the source in " ++
-                    "series that says it for {s} adds the two", .{
-                    name, try em.describe(ic), n.atom, w.sourceOf(st), w.g.name,
-                });
+            if (!hit) continue;
+            filled.node = node.atom;
+            w.report.add(
+                .@"error",
+                .invalid,
+                filled.st.line,
+                "{s}",
+                .{try filled.message(clash.text, "")},
+            );
         }
-        const node: Value = .{ .atom = try a.print("{s}__ic", .{name}) };
-        var cap = st.*;
-        try cap.own(a);
-        try cap.set(a, schema.slot(.capacitor, "neg"), node);
-        try cap.set(a, schema.slot(.capacitor, "params"), if (rest.items.len > 0)
-            .{ .params = rest.items }
-        else
-            .none);
-        var v = try ir.newStmt(a, .vsource, st.line);
-        v.dialect = st.dialect;
-        try v.set(a, schema.slot(.vsource, "name"), .{ .atom = try a.print("V{s}__ic", .{name}) });
-        try v.set(a, schema.slot(.vsource, "pos"), node);
-        try v.set(a, schema.slot(.vsource, "neg"), neg);
-        try v.set(a, schema.slot(.vsource, "dc"), ic);
-        w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no " ++
-            "initial voltage (ic={s}); it is written to node {s}, with a DC source of {s} " ++
-            "from there to {s}, which reads back as the two", .{
-            name, w.g.name, try em.describe(ic), node.atom, try em.describe(ic), try em.describe(neg),
-        });
-        try w.leaf(a, &cap);
-        try w.leaf(a, &v);
-        return true;
     }
 
     /// Why command `cmd` of a `simctl` statement is left out here: the
@@ -2658,7 +2642,13 @@ const Writer = struct {
             // The dialect the command is of says which of its commands
             // have nothing to say outside it (`inert simctl run ...`).
             if (try w.inertCommand(st, cmd)) |why| {
-                w.report.add(.info, .loss, st.line, "simctl: '{s}' is not written: {s}", .{ said, why });
+                w.report.add(
+                    .info,
+                    .loss,
+                    st.line,
+                    "simctl: '{s}' is not written: {s}",
+                    .{ said, why },
+                );
                 return;
             }
             if (w.g.absentReason(.simctl)) |why| {
@@ -3253,7 +3243,7 @@ const Writer = struct {
                 st = &chosen;
             }
         }
-        if (st.kind == .capacitor and try w.capacitorParts(a, st)) return;
+        if (w.g.rewrites.len > 0 and try w.rewritten(a, st)) return;
         w.ordinals[@backingInt(st.kind)] += 1;
 
         var mapped: ir.Stmt = undefined;
@@ -4505,79 +4495,226 @@ fn takes(table: []const grammar.Spellings, canon: []const u8) bool {
     return false;
 }
 
-/// A capacitor's initial voltage or charge where the target's capacitor
-/// takes neither (VACASK), and other devices of the target say it
-/// (`Writer.capacitorParts`). Empty: written as a capacitor.
-const CapParts = struct {
-    ic: ?Value = null,
-    q: ?Value = null,
+/// A rewrite that applies to a statement, and the value of the parameter
+/// that calls for it.
+const RewriteHit = struct { rule: *const grammar.Rewrite, value: Value };
 
-    fn any(c: CapParts) bool {
-        return c.ic != null or c.q != null;
+/// The first rewrite of `g` for a statement read in another dialect (`sg`)
+/// that gives the rewrite's parameter, where `g`'s device does not take the
+/// parameter and `g` can write and spell what the rewrite needs.
+fn rewriteOf(g: *const Grammar, sg: ?*const Grammar, st: *const ir.Stmt) ?RewriteHit {
+    if (g.rewrites.len == 0) return null;
+    if (sg) |s| if (s == g or std.mem.eql(u8, s.name, g.name)) return null;
+    const table = g.paramsOf(st.kind) orelse return null;
+    const v = st.get("params");
+    if (v != .params) return null;
+    const from = if (sg) |s| s.paramsOf(st.kind) else null;
+    rules: for (g.rewrites) |*rule| {
+        assert(rule.param.len > 0);
+        if (rule.kind != st.kind or takes(table, rule.param)) continue;
+        for (rule.kinds) |kind| if (!g.canWrite(kind)) continue :rules;
+        for (rule.functions) |name| if (spellingsOf(g.functions, name) == null) continue :rules;
+        var value: ?Value = null;
+        for (v.params) |p| {
+            const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
+            if (std.ascii.eqlIgnoreCase(canon, rule.param)) value = p.val;
+        }
+        if (value) |found| return .{ .rule = rule, .value = found };
+    }
+    return null;
+}
+
+/// What a rewrite's templates and messages are filled from: the statement
+/// being rewritten and the statements made for it so far.
+const Fill = struct {
+    a: Allocator,
+    st: *const ir.Stmt,
+    rule: *const grammar.Rewrite,
+    /// The source dialect's parameter table for the kind, if it has one.
+    from: ?[]const grammar.Spellings,
+    em: *Emit,
+    /// The dialect the statement was read in, for `{from}`.
+    source: []const u8,
+    /// The parameters no template names: they stay on a kept statement,
+    /// and have no place on one that replaces it.
+    rest: std.ArrayList(ir.Param) = .empty,
+    /// The node a `clash` message is about, for `{node}`.
+    node: []const u8 = "",
+    /// The statements made, for a message that names one of their slots.
+    made: []const ir.Stmt = &.{},
+
+    /// The canonical name of a parameter key of the statement.
+    fn canon(fill: *const Fill, key: []const u8) []const u8 {
+        return if (fill.from) |t| spellingCanon(t, key) orelse key else key;
+    }
+
+    /// Does some template of the rewrite name `name`?
+    fn uses(fill: *const Fill, name: []const u8) bool {
+        for (fill.rule.parts) |part| for (part.sets) |set| {
+            var rest = set.template;
+            while (std.mem.indexOfScalar(u8, rest, '{')) |open| {
+                const close = std.mem.indexOfScalarPos(u8, rest, open, '}') orelse break;
+                if (std.ascii.eqlIgnoreCase(rest[open + 1 .. close], name)) return true;
+                rest = rest[close + 1 ..];
+            }
+        };
+        return false;
+    }
+
+    /// Fills `rest`: the parameters that are neither the rewrite's own nor
+    /// named by a template.
+    fn sortParams(fill: *Fill) Allocator.Error!void {
+        for (fill.st.get("params").params) |p| {
+            const name = fill.canon(p.key);
+            if (std.ascii.eqlIgnoreCase(name, fill.rule.param) or fill.uses(name)) continue;
+            try fill.rest.append(fill.a, p);
+        }
+    }
+
+    /// Slot or parameter `name` of the statement; the last one given of a
+    /// parameter said twice. Null: the statement gives neither.
+    fn lookup(fill: *const Fill, name: []const u8) ?Value {
+        if (schema.slotIndex(fill.st.kind, name)) |slot| {
+            if (!std.mem.eql(u8, name, "params")) {
+                const v = fill.st.at(slot);
+                return if (v == .none) null else v;
+            }
+        }
+        var found: ?Value = null;
+        for (fill.st.get("params").params) |p| {
+            if (std.ascii.eqlIgnoreCase(fill.canon(p.key), name)) found = p.val;
+        }
+        return found;
+    }
+
+    /// The value a template gives a slot of a statement of `kind`: the
+    /// value itself where the template is one name, else a name made of
+    /// its text, or for a value slot an expression.
+    fn value(fill: *Fill, kind: Kind, set: grammar.Rewrite.Set) Allocator.Error!Value {
+        const t = set.template;
+        if (t.len > 2 and t[0] == '{' and std.mem.indexOfScalar(u8, t, '}') == t.len - 1)
+            return fill.lookup(t[1 .. t.len - 1]) orelse .none;
+        const text = try fill.expand(t, schema.info(kind).slots[set.slot].ty == .value);
+        return if (schema.info(kind).slots[set.slot].ty == .value)
+            .{ .expr = text }
+        else
+            .{ .atom = text };
+    }
+
+    /// `template` with each `{name}` replaced by that slot or parameter in
+    /// canonical text, and each `[...]` left out when a name in it has no
+    /// value. `arithmetic`: the text is an expression, so a value that is
+    /// one is put in parentheses unless it stands alone as an argument.
+    fn expand(fill: *Fill, template: []const u8, arithmetic: bool) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        var i: usize = 0;
+        var group_start: ?usize = null;
+        var group_empty = false;
+        while (i < template.len) : (i += 1) {
+            const c = template[i];
+            if (c == '[') {
+                group_start = out.items.len;
+                group_empty = false;
+            } else if (c == ']') {
+                if (group_empty) out.shrinkRetainingCapacity(group_start.?);
+                group_start = null;
+            } else if (c == '{') {
+                const close = std.mem.indexOfScalarPos(u8, template, i, '}') orelse template.len;
+                const v = fill.lookup(template[i + 1 .. close]);
+                if (v == null) group_empty = true;
+                const text = if (v) |found| try expr.canonText(fill.a, found) else "";
+                const alone = (i > 0 and (template[i - 1] == '(' or template[i - 1] == ',')) and
+                    (close + 1 < template.len and (template[close + 1] == ')' or template[close + 1] == ','));
+                if (arithmetic and v != null and v.? == .expr and !alone) {
+                    try out.print(fill.a, "({s})", .{text});
+                } else try out.appendSlice(fill.a, text);
+                i = close;
+            } else try out.append(fill.a, c);
+        }
+        return out.items;
+    }
+
+    /// A message of the rewrite: `{to}` is the dialect written, `{from}`
+    /// the one read, `{what}` and `{node}` what the caller says; any other
+    /// name is that slot or parameter of the statement as the target
+    /// writes it, or a slot of the first statement made.
+    fn message(fill: *Fill, template: []const u8, what: []const u8) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        var i: usize = 0;
+        while (i < template.len) : (i += 1) {
+            if (template[i] != '{') {
+                try out.append(fill.a, template[i]);
+                continue;
+            }
+            const close = std.mem.indexOfScalarPos(u8, template, i, '}') orelse template.len;
+            const name = template[i + 1 .. close];
+            i = close;
+            const text: []const u8 = if (std.mem.eql(u8, name, "to"))
+                fill.em.g.name
+            else if (std.mem.eql(u8, name, "from"))
+                fill.source
+            else if (std.mem.eql(u8, name, "what"))
+                what
+            else if (std.mem.eql(u8, name, "node"))
+                fill.node
+            else if (fill.lookup(name)) |v|
+                try fill.em.describe(v)
+            else if (fill.made.len > 0 and schema.slotIndex(fill.made[0].kind, name) != null)
+                try expr.canonText(
+                    fill.a,
+                    fill.made[0].at(schema.slotIndex(fill.made[0].kind, name).?),
+                )
+            else
+                "";
+            try out.appendSlice(fill.a, text);
+        }
+        return out.items;
     }
 };
-
-/// `sg`: the dialect the statement was read in.
-fn capParts(g: *const Grammar, sg: ?*const Grammar, st: *const ir.Stmt) CapParts {
-    if (st.kind != .capacitor) return .{};
-    if (sg) |s| if (s == g or std.mem.eql(u8, s.name, g.name)) return .{};
-    const table = g.paramsOf(.capacitor) orelse return .{};
-    const v = st.get("params");
-    if (v != .params) return .{};
-    const from = if (sg) |s| s.paramsOf(.capacitor) else null;
-    var out: CapParts = .{};
-    for (v.params) |p| {
-        const canon = if (from) |t| spellingCanon(t, p.key) orelse p.key else p.key;
-        if (std.ascii.eqlIgnoreCase(
-            canon,
-            "q",
-        ) and !takes(table, "q") and g.canWrite(.bsource) and spellingsOf(
-            g.functions,
-            "ddt",
-        ) != null) out.q = p.val;
-        if (std.ascii.eqlIgnoreCase(canon, "ic") and !takes(table, "ic") and g.canWrite(.vsource))
-            out.ic = p.val;
-    }
-    // A charge has no initial voltage of its own to put in series: that
-    // stays the loss it was.
-    if (out.q != null) out.ic = null;
-    return out;
-}
 
 /// The grammar a statement was read in: its own tag, else the netlist's.
 fn readIn(dialect: []const u8, st: *const ir.Stmt) ?*const Grammar {
     return dialects.find(if (st.dialect != 0) dialects.nameOf(st.dialect) else dialect);
 }
 
-/// The kinds a capacitor is written as where `capParts` applies: a
-/// voltage source or a behavioural one, whose boilerplate (`needs`) the
-/// netlist then needs.
-fn markCapParts(
+/// The kinds statements are written as where a rewrite applies, whose
+/// boilerplate (`needs`) the netlist then needs.
+// tidy: allow-fn(recursion) as deep as blocks nest, which the reader caps at ir.max_depth
+fn markRewrites(
     g: *const Grammar,
     dialect: []const u8,
     stmts: []const ir.Stmt,
     used: *[schema.kind_count]bool,
 ) void {
+    if (g.rewrites.len == 0) return;
     for (stmts) |*s| {
-        const c = capParts(g, readIn(dialect, s), s);
-        if (c.ic != null) used[@backingInt(Kind.vsource)] = true;
-        if (c.q != null) used[@backingInt(Kind.bsource)] = true;
-        markCapParts(g, dialect, s.body, used);
+        if (rewriteOf(g, readIn(dialect, s), s)) |hit| {
+            for (hit.rule.parts) |part| {
+                if (!part.keep) used[@backingInt(part.kind)] = true;
+            }
+        }
+        markRewrites(g, dialect, s.body, used);
     }
 }
 
-/// The nodes an `.ic` statement sets, anywhere in `stmts`.
-fn collectIcNodes(
+/// The keys the `clash` lines of `g`'s rewrites watch (the nodes an `.ic`
+/// statement sets), anywhere in `stmts`.
+// tidy: allow-fn(recursion) as deep as blocks nest, which the reader caps at ir.max_depth
+fn collectClashKeys(
     a: Allocator,
+    g: *const Grammar,
     stmts: []const ir.Stmt,
     out: *ir.CaselessSet,
     src: ?[]const u8,
 ) Allocator.Error!void {
+    const clash = for (g.rewrites) |rule| {
+        if (rule.clash) |c| break c;
+    } else return;
     for (stmts) |*s| {
-        if (s.kind == .ic and s.get("values") == .params) {
-            for (s.get("values").params) |p| try ir.putName(out, a, src, p.key);
+        if (s.kind == clash.kind and s.at(clash.slot) == .params) {
+            for (s.at(clash.slot).params) |p| try ir.putName(out, a, src, p.key);
         }
-        try collectIcNodes(a, s.body, out, src);
+        try collectClashKeys(a, g, s.body, out, src);
     }
 }
 
@@ -5236,7 +5373,7 @@ pub fn write(
     try collectFuncs(arena, nl.stmts, &w.funcs);
     defer w.instances.deinit(ir.big);
     try collectInstances(nl.stmts, &w.instances);
-    try collectIcNodes(arena, nl.stmts, &w.ic_nodes, null);
+    try collectClashKeys(arena, g, nl.stmts, &w.clash_keys, null);
     try collectTerminals(arena, nl.stmts, &w.terminals, null);
     if (env) |e| {
         var it = e.declared.keyIterator();
@@ -5266,7 +5403,7 @@ pub fn write(
     if (!nl.library) {
         var used: [schema.kind_count]bool = if (env) |e| e.used else @splat(false);
         markUsed(nl.stmts, &used);
-        markCapParts(g, nl.dialect, nl.stmts, &used);
+        markRewrites(g, nl.dialect, nl.stmts, &used);
         const said = if (g.preamble_unless) |k| used[@backingInt(k)] else false;
         if (!said) for (g.preamble) |l| try w.line(l);
         var fams: [schema.families.len]bool = if (env) |e| e.families else @splat(false);
@@ -5496,8 +5633,8 @@ pub const Survey = struct {
     refs: Refs = .{},
     /// `collectReserved`.
     reserved: ir.CaselessSet = .empty,
-    /// `collectIcNodes`.
-    ic_nodes: ir.CaselessSet = .empty,
+    /// `collectClashKeys`.
+    clash_keys: ir.CaselessSet = .empty,
     /// `collectTerminals`.
     terminals: TerminalMap = .empty,
 
@@ -5534,8 +5671,8 @@ pub const Survey = struct {
         try collectModules(a, stmts, &sv.modules);
         try collectFuncs(a, stmts, &sv.funcs);
         markUsed(stmts, &sv.used);
-        markCapParts(g, sv.dialect, stmts, &sv.used);
-        try collectIcNodes(a, stmts, &sv.ic_nodes, k.src);
+        markRewrites(g, sv.dialect, stmts, &sv.used);
+        try collectClashKeys(a, g, stmts, &sv.clash_keys, k.src);
         ir.markFamilies(stmts, &sv.fams);
         try collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
         try collectTerminals(a, stmts, &sv.terminals, k.src);
@@ -5643,7 +5780,7 @@ pub const Stream = struct {
         w.modules = sv.modules;
         w.env = env;
         w.funcs = sv.funcs;
-        w.ic_nodes = sv.ic_nodes;
+        w.clash_keys = sv.clash_keys;
         w.terminals = sv.terminals;
         if (env) |e| {
             var it = e.declared.keyIterator();

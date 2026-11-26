@@ -1,0 +1,42 @@
+# issue 28: VACASK's capacitor takes no ic=. Its grammar's `rewrite capacitor ic` block writes the
+# capacitor to a node of its own with a DC source in series, in a subcircuit too; an .ic on one of
+# the capacitor's nodes is an error (the two would add).
+from: ngspice
+to: vacask
+--- input
+t
+C1 a 0 1p ic=0.5
+C2 a b 1p ic=0.5 tc1=1m
+.ic v(a)=1
+.subckt s x y
+Cs x y 1p ic=0.1
+.ends
+X1 a b s
+.tran 1n 50n uic
+.end
+--- output
+t
+ground 0
+load "spice/capacitor.osdi"
+model capacitor sp_capacitor
+model vsource vsource
+C1 (a C1__ic) capacitor c=1p
+VC1__ic (C1__ic 0) vsource dc=0.5
+C2 (a C2__ic) capacitor c=1p tc1=1m
+VC2__ic (C2__ic b) vsource dc=0.5
+subckt s (x y)
+Cs (x Cs__ic) capacitor c=1p
+VCs__ic (Cs__ic y) vsource dc=0.1
+ends s
+X1 (a b) s
+control
+analysis tran1 tran step=1n stop=50n maxstep=1n icmode="uic" ic={"a",1}
+endc
+--- report
+error[invalid]: line 2: capacitor 'C1': ic=0.5, and an .ic sets node a too; ngspice takes the capacitor's, and the source in series that says it for vacask adds the two
+info[oneway]: line 2: capacitor 'C1': vacask's capacitor takes no initial voltage (ic=0.5); it is written to node C1__ic, with a DC source of 0.5 from there to 0, which reads back as the two
+error[invalid]: line 3: capacitor 'C2': ic=0.5, and an .ic sets node a too; ngspice takes the capacitor's, and the source in series that says it for vacask adds the two
+info[oneway]: line 3: capacitor 'C2': vacask's capacitor takes no initial voltage (ic=0.5); it is written to node C2__ic, with a DC source of 0.5 from there to b, which reads back as the two
+info[oneway]: line 6: capacitor 'Cs': vacask's capacitor takes no initial voltage (ic=0.1); it is written to node Cs__ic, with a DC source of 0.1 from there to y, which reads back as the two
+warning[synthesized]: line 9: tran: vacask needs 'maxstep' to behave as ngspice does without it; wrote 1n
+warning[caveat]: line 9: tran.skip_dc: icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
