@@ -457,6 +457,27 @@ pub fn slotIndex(kind: Kind, name: []const u8) ?u8 {
     return null;
 }
 
+/// The index of slot `name` of `kind`, both known when compiling: a
+/// constant, and a compile error where the kind has no such slot.
+pub inline fn slot(comptime kind: Kind, comptime name: []const u8) u8 {
+    return comptime slotIndex(kind, name) orelse
+        @compileError("schema: kind '" ++ @tagName(kind) ++ "' has no slot '" ++ name ++ "'");
+}
+
+/// The index of slot `name` in a kind known only when running: one load from
+/// a table made for the name when compiling. Null where the kind has none.
+pub fn slotOf(kind: Kind, comptime name: []const u8) ?u8 {
+    const none = std.math.maxInt(u8);
+    const by_kind: [kind_count]u8 = comptime blk: {
+        @setEvalBranchQuota(1_000_000);
+        var indices: [kind_count]u8 = undefined;
+        for (&indices, table) |*index, row| index.* = slotIndex(row.kind, name) orelse none;
+        break :blk indices;
+    };
+    const index = by_kind[@backingInt(kind)];
+    return if (index == none) null else index;
+}
+
 pub fn kindFromName(name: []const u8) ?Kind {
     return std.meta.stringToEnum(Kind, name);
 }
@@ -563,6 +584,12 @@ pub fn familyKind(name: []const u8) ?Kind {
 test "schema table" {
     try std.testing.expectEqual(Kind.tran, info(.tran).kind);
     try std.testing.expectEqual(@as(?u8, 2), slotIndex(.tran, "stop"));
+    try std.testing.expectEqual(2, slot(.tran, "stop"));
+    for (table) |row| {
+        try std.testing.expectEqual(slotIndex(row.kind, "name"), slotOf(row.kind, "name"));
+        try std.testing.expectEqual(slotIndex(row.kind, "params"), slotOf(row.kind, "params"));
+        try std.testing.expectEqual(@as(?u8, null), slotOf(row.kind, "no_such_slot"));
+    }
     try std.testing.expect(slotIndex(.tran, "tstop") == null);
     try std.testing.expect(info(.vsource).slots[slotIndex(.vsource, "pwl").?].list);
     try std.testing.expect(isFunction("ln") and !isFunction("log"));

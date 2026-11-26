@@ -56,7 +56,7 @@ pub fn prepare(arena: Allocator, g: *const Grammar, stmts: []const Stmt, report:
     if (g.isRerun(.alter)) {
         var analyses: std.ArrayList(Stmt) = .empty;
         for (rest.items) |s| if (isAnalysis(&s)) try analyses.append(arena, s);
-        const name = schema.slotIndex(.alter, "name").?;
+        const name = schema.slot(.alter, "name");
         for (alters.items) |a| {
             var head = a;
             // A label is a name in a block dialect; an HSPICE title may be words.
@@ -87,7 +87,7 @@ fn unnamed(arena: Allocator, s: Stmt) Allocator.Error!Stmt {
     var out = s;
     try out.own(arena);
     out.tail = "";
-    if (schema.slotIndex(s.kind, "name")) |i| try out.set(arena, i, .none);
+    if (schema.slotOf(s.kind, "name")) |i| try out.set(arena, i, .none);
     var body = try arena.alloc(Stmt, s.body.len);
     for (s.body, 0..) |b, i| body[i] = if (isAnalysis(&b)) try unnamed(arena, b) else b;
     out.body = body;
@@ -121,7 +121,7 @@ const Edits = struct { params: []const Param, temp: Value, other: ?*const Stmt }
 fn edits(arena: Allocator, a: *const Stmt) Allocator.Error!Edits {
     var ps: std.ArrayList(Param) = .empty;
     var temp: Value = .none;
-    const ti = schema.slotIndex(.options, "temp").?;
+    const ti = schema.slot(.options, "temp");
     for (a.body) |*s| switch (s.kind) {
         .comment => {},
         .param => if (s.get("params") == .params) try ps.appendSlice(arena, s.get("params").params),
@@ -152,7 +152,7 @@ fn flatten(arena: Allocator, g: *const Grammar, a: *const Stmt, temp: *Value, re
     }
     if (e.temp != .none) temp.* = e.temp;
     var out: Stmt = .{ .kind = .alter, .line = a.line, .tail = a.tail };
-    try out.set(arena, schema.slotIndex(.alter, "name").?, a.get("name"));
+    try out.set(arena, schema.slot(.alter, "name"), a.get("name"));
     var keys: std.ArrayList(Value) = .empty;
     var vals: std.ArrayList(Value) = .empty;
     for (e.params) |p| {
@@ -160,10 +160,10 @@ fn flatten(arena: Allocator, g: *const Grammar, a: *const Stmt, temp: *Value, re
         try vals.append(arena, p.val);
     }
     if (keys.items.len > 0) {
-        try out.set(arena, schema.slotIndex(.alter, "keys").?, .{ .list = keys.items });
-        try out.set(arena, schema.slotIndex(.alter, "vals").?, .{ .list = vals.items });
+        try out.set(arena, schema.slot(.alter, "keys"), .{ .list = keys.items });
+        try out.set(arena, schema.slot(.alter, "vals"), .{ .list = vals.items });
     }
-    try out.set(arena, schema.slotIndex(.alter, "temp").?, temp.*);
+    try out.set(arena, schema.slot(.alter, "temp"), temp.*);
     return out;
 }
 
@@ -238,11 +238,11 @@ fn dataStep(arena: Allocator, g: *const Grammar, rest: []const Stmt, alters: []c
     for (cols.items) |c| try names.append(arena, .{ .atom = c });
     if (with_temp) try names.append(arena, .{ .atom = "temp" });
     var data: Stmt = .{ .kind = .data, .line = alters[0].line };
-    try data.set(arena, schema.slotIndex(.data, "name").?, .{ .atom = table });
-    try data.set(arena, schema.slotIndex(.data, "cols").?, .{ .list = names.items });
-    try data.set(arena, schema.slotIndex(.data, "values").?, .{ .list = values.items });
+    try data.set(arena, schema.slot(.data, "name"), .{ .atom = table });
+    try data.set(arena, schema.slot(.data, "cols"), .{ .list = names.items });
+    try data.set(arena, schema.slot(.data, "values"), .{ .list = values.items });
     var step: Stmt = .{ .kind = .step, .line = alters[0].line };
-    try step.set(arena, schema.slotIndex(.step, "data").?, .{ .atom = table });
+    try step.set(arena, schema.slot(.step, "data"), .{ .atom = table });
     var body: std.ArrayList(Stmt) = .empty;
     var out: std.ArrayList(Stmt) = .empty;
     var at: ?usize = null;

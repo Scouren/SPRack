@@ -47,11 +47,44 @@ fn startsWithAny(s: []const u8, markers: []const []const u8) ?usize {
     return null;
 }
 
+/// What a byte can open where `tailStart` looks for a trailing comment: for
+/// most bytes nothing, and the scan steps over them without a comparison.
+const ByteClass = packed struct(u8) {
+    quote: bool = false,
+    /// The first byte of an expression's opening delimiter.
+    expr_open: bool = false,
+    /// The first byte of a trailing-comment marker.
+    tail_mark: bool = false,
+    _: u5 = 0,
+
+    const Table = [256]ByteClass;
+
+    fn table(cfg: *const LexCfg) Table {
+        var classes: Table = @splat(.{});
+        classes['"'].quote = true;
+        for (cfg.expr_delims) |d| {
+            // An empty opening delimiter starts an expression anywhere.
+            if (d[0].len == 0) {
+                for (&classes) |*class| class.expr_open = true;
+            } else classes[d[0][0]].expr_open = true;
+        }
+        for (cfg.tail_comments) |m| {
+            if (m.len > 0) classes[m[0]].tail_mark = true;
+        }
+        return classes;
+    }
+};
+
 /// Where a trailing comment starts. A marker only counts at the start of the
 /// line or after a blank, and never inside a string or an expression.
 /// `open` carries a string or expression left open at the end of a line
 /// into its continuation: the closing delimiter still to come.
-fn tailStart(cfg: *const LexCfg, line: []const u8, open: *[]const u8) ?struct { usize, usize } {
+fn tailStart(
+    cfg: *const LexCfg,
+    classes: *const ByteClass.Table,
+    line: []const u8,
+    open: *[]const u8,
+) ?struct { usize, usize } {
     if (cfg.tail_comments.len == 0) return null;
     var i: usize = 0;
     if (open.len > 0) {
@@ -60,6 +93,11 @@ fn tailStart(cfg: *const LexCfg, line: []const u8, open: *[]const u8) ?struct { 
     }
     while (i < line.len) {
         const c = line[i];
+        const class = classes[c];
+        if (@as(u8, @bitCast(class)) == 0) {
+            i += 1;
+            continue;
+        }
         if (c == '"') {
             i = (std.mem.indexOfScalarPos(u8, line, i + 1, '"') orelse {
                 open.* = "\"";
@@ -68,7 +106,7 @@ fn tailStart(cfg: *const LexCfg, line: []const u8, open: *[]const u8) ?struct { 
             continue;
         }
         var skipped = false;
-        for (cfg.expr_delims) |d| {
+        if (class.expr_open) for (cfg.expr_delims) |d| {
             if (std.mem.startsWith(u8, line[i..], d[0])) {
                 const close = std.mem.indexOfPos(u8, line, i + d[0].len, d[1]) orelse {
                     open.* = d[1];
@@ -78,9 +116,9 @@ fn tailStart(cfg: *const LexCfg, line: []const u8, open: *[]const u8) ?struct { 
                 skipped = true;
                 break;
             }
-        }
+        };
         if (skipped) continue;
-        if (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t') {
+        if (class.tail_mark and (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t')) {
             if (startsWithAny(line[i..], cfg.tail_comments)) |n| return .{ i, n };
         }
         i += 1;
@@ -103,6 +141,8 @@ fn commentText(s: []const u8) []const u8 {
 /// it holds is released.
 pub const Lines = struct {
     cfg: *const LexCfg,
+    /// What each byte can open in a line's text, from `cfg`.
+    classes: ByteClass.Table,
     src: []const u8,
     title: []const u8 = "",
     keep: ?Allocator,
@@ -139,7 +179,14 @@ pub const Lines = struct {
     want_switch: bool = false,
 
     pub fn init(cfg: *const LexCfg, src: []const u8, keep: ?Allocator) Lines {
-        return .{ .cfg = cfg, .src = src, .keep = keep, .gens = .{ .init(ir.big), .init(ir.big) }, .it = std.mem.splitScalar(u8, src, '\n') };
+        return .{
+            .cfg = cfg,
+            .classes = ByteClass.table(cfg),
+            .src = src,
+            .keep = keep,
+            .gens = .{ .init(ir.big), .init(ir.big) },
+            .it = std.mem.splitScalar(u8, src, '\n'),
+        };
     }
 
     pub fn deinit(l: *Lines) void {
@@ -360,7 +407,7 @@ pub const Lines = struct {
         var tail: []const u8 = "";
         const continues = l.trail or (cfg.cont_lead.len > 0 and std.mem.startsWith(u8, lead, cfg.cont_lead));
         if (!continues) l.open_delim = "";
-        if (tailStart(cfg, lead, &l.open_delim)) |cut| {
+        if (tailStart(cfg, &l.classes, lead, &l.open_delim)) |cut| {
             body = lead[0..cut[0]];
             tail = commentText(lead[cut[0] + cut[1] ..]);
         }

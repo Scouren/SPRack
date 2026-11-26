@@ -191,9 +191,9 @@ fn normalize(arena: std.mem.Allocator, nl: ir.Netlist, drop_noise: bool) !ir.Net
         if (drop_noise and s.kind == .noise) continue;
         var c = s;
         try c.own(arena);
-        if (schema.info(s.kind).class == .analysis) try c.set(arena, schema.slotIndex(s.kind, "name").?, .none);
+        if (schema.info(s.kind).class == .analysis) try c.set(arena, schema.slotOf(s.kind, "name").?, .none);
         if (s.kind == .noise) {
-            const ri = schema.slotIndex(.noise, "ref").?;
+            const ri = schema.slot(.noise, "ref");
             if (c.at(ri) == .atom and std.mem.eql(u8, c.at(ri).atom, "0")) try c.set(arena, ri, .none);
         }
         try out.append(arena, c);
@@ -396,7 +396,7 @@ test "caps: every kind has a rule, a place or a reason in every dialect" {
             if (r.kind == info.kind and r.dir != .read and r.within != null) break true;
         } else false;
         const said = g.canWrite(info.kind) or scoped or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
-            (info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null);
+            (info.class == .device and g.canWrite(.instance) and schema.slotOf(info.kind, "master") != null);
         if (!said) {
             std.debug.print("{s} has no rule for '{s}' and no `no {s} : reason` line\n", .{ g.name, @tagName(info.kind), @tagName(info.kind) });
             return error.TestCapsGap;
@@ -473,7 +473,7 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
                 // the kind; where the grammar says why, the reason is given.
                 const g = sprack.find(to).?;
                 // (A device with a model may be written as an instance of it: `inst` in `sprack caps`.)
-                const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null;
+                const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotOf(info.kind, "master") != null;
                 // Nothing to write is not a loss: an options statement that is
                 // only a heading.
                 const empty = info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package");
@@ -570,7 +570,7 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
             var st = try sampleStmt(a, no.kind, null);
             try st.set(a, no.slot, .{ .num = .init("1", 0) });
             // A sweep's kind as a dialect spells it, not the sample's atom.
-            if (schema.slotIndex(no.kind, "sweep")) |i| try st.set(a, i, .{ .atom = "dec" });
+            if (schema.slotOf(no.kind, "sweep")) |i| try st.set(a, i, .{ .atom = "dec" });
             var stmts = [_]ir.Stmt{st};
             const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
             var rr: ir.Report = .init(a);
@@ -779,7 +779,7 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
             const back = try readAs(a, to, text, &report2);
             try testing.expectEqual(0, countKind(back, .@"opaque"));
             // VACASK is given SPICE's step cap explicitly (a `synthesized` warning).
-            const mi = schema.slotIndex(.tran, "maxstep").?;
+            const mi = schema.slot(.tran, "maxstep");
             const src_tran = for (src_nl.stmts) |s| {
                 if (s.kind == .tran) break s;
             } else null;
@@ -6342,7 +6342,7 @@ test "y1: HSPICE's step cap is .OPTION DELMAX, and a fourth .TRAN number is noth
     var r0: ir.Report = .init(a);
     const nl = try readAs(a, "hspice", "t\nr1 a 0 1k\n.tran 2n 50n\n.end\n", &r0);
     for (@constCast(nl.stmts)) |*st| {
-        if (st.kind == .tran) try st.set(a, sprack.schema.slotIndex(.tran, "maxstep").?, .{ .num = .init("50", -12) });
+        if (st.kind == .tran) try st.set(a, sprack.schema.slot(.tran, "maxstep"), .{ .num = .init("50", -12) });
     }
     var aw: std.Io.Writer.Allocating = .init(a);
     try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r0);

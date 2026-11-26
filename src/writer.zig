@@ -1090,7 +1090,7 @@ const Writer = struct {
                         var out = st.*;
                         try out.own(a);
                         const rest = try std.mem.concat(a, ir.Param, &.{ ps[0..i], ps[i + 1 ..] });
-                        try out.set(a, schema.slotIndex(.model, "params").?, if (rest.len > 0) .{ .params = rest } else .none);
+                        try out.set(a, schema.slot(.model, "params"), if (rest.len > 0) .{ .params = rest } else .none);
                         return out;
                     };
                 } else if (w.g.absentReason(.device)) |why| {
@@ -1104,7 +1104,7 @@ const Writer = struct {
         if (std.mem.eql(u8, fam.atom, ir.unlisted_builtin)) {
             var plain = st.*;
             try plain.own(a);
-            try plain.set(a, schema.slotIndex(.model, "family").?, .none);
+            try plain.set(a, schema.slot(.model, "family"), .none);
             if (!same) w.report.add(.@"error", .unsupported, st.line, "model '{s}': '{s}' is a built-in {s} model type that the {s} models table does not list, so its {s} name is unknown; written as it was", .{
                 st.get("name").atom, st.get("type").atom, w.sourceOf(st), w.sourceOf(st), w.g.name,
             });
@@ -1118,7 +1118,7 @@ const Writer = struct {
                 if (schema.familyKind(fam.atom)) |k| {
                     // Only a kind whose instances name no model can do without
                     // the card; a MESFET still points at its (HFET) model.
-                    if (w.g.canWrite(k) and schema.slotIndex(k, "master") == null) {
+                    if (w.g.canWrite(k) and schema.slotOf(k, "master") == null) {
                         w.report.add(.info, .cosmetic, st.line, "model '{s}' only names a built-in {s}; {s} needs no such line", .{ st.get("name").atom, fam.atom, w.g.name });
                         return error.Skip;
                     }
@@ -1163,9 +1163,9 @@ const Writer = struct {
         out.mask = st.mask;
         out.bound = st.bound;
         try out.own(a);
-        try out.set(a, schema.slotIndex(.model, "type").?, .{ .atom = sp.type });
-        try out.set(a, schema.slotIndex(.model, "family").?, .none);
-        try out.set(a, schema.slotIndex(.model, "polarity").?, .none);
+        try out.set(a, schema.slot(.model, "type"), .{ .atom = sp.type });
+        try out.set(a, schema.slot(.model, "family"), .none);
+        try out.set(a, schema.slot(.model, "polarity"), .none);
         var ps: std.ArrayList(ir.Param) = .empty;
         for (sp.kv) |kv| {
             if (kv.absent or kv.min) continue;
@@ -1233,7 +1233,7 @@ const Writer = struct {
             break;
         };
         if (th.no_half) w.report.add(.@"error", .loss, st.line, "model '{s}': a switch with no hysteresis has no {s} form; its on and off levels would be equal", .{ st.get("name").atom, w.g.name });
-        try out.set(a, schema.slotIndex(.model, "params").?, if (th.params.len > 0) .{ .params = th.params } else .none);
+        try out.set(a, schema.slot(.model, "params"), if (th.params.len > 0) .{ .params = th.params } else .none);
         if (!same and st.get("params") == .params) {
             if (w.copied.n == 0) w.copied = .{ .name = try w.perm.dupe(u8, st.get("name").atom), .family = fam.atom, .source = w.sourceOf(st), .line = st.line };
             w.copied.n += 1;
@@ -1490,7 +1490,7 @@ const Writer = struct {
         }
         if (!any) return null;
         const a = w.arena;
-        const pi = schema.slotIndex(.subckt, "params").?;
+        const pi = schema.slot(.subckt, "params");
         var ps: std.ArrayList(ir.Param) = .empty;
         if (st.at(pi) == .params) try ps.appendSlice(a, st.at(pi).params);
         var body: std.ArrayList(ir.Stmt) = try .initCapacity(a, st.body.len);
@@ -1527,7 +1527,7 @@ const Writer = struct {
     /// device does not take is a loss, not copied. Null: nothing changes.
     fn instParams(w: *Writer, a: Allocator, st: *const ir.Stmt) Allocator.Error!?ir.Stmt {
         if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return null;
-        const idx = schema.slotIndex(st.kind, "params") orelse return null;
+        const idx = schema.slotOf(st.kind, "params") orelse return null;
         const v = st.at(idx);
         if (v != .params) return null;
         const from = if (w.sourceGrammar(st)) |sg| sg.paramsOf(st.kind) else null;
@@ -1644,10 +1644,10 @@ const Writer = struct {
             var b = try ir.newStmt(a, .bsource, st.line);
             b.dialect = st.dialect;
             b.tail = st.tail;
-            try b.set(a, schema.slotIndex(.bsource, "name").?, st.get("name"));
-            try b.set(a, schema.slotIndex(.bsource, "pos").?, st.get("pos"));
-            try b.set(a, schema.slotIndex(.bsource, "neg").?, st.get("neg"));
-            try b.set(a, schema.slotIndex(.bsource, "i").?, .{ .expr = current });
+            try b.set(a, schema.slot(.bsource, "name"), st.get("name"));
+            try b.set(a, schema.slot(.bsource, "pos"), st.get("pos"));
+            try b.set(a, schema.slot(.bsource, "neg"), st.get("neg"));
+            try b.set(a, schema.slot(.bsource, "i"), .{ .expr = current });
             w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no charge (q=); it is written as a behavioural source whose current is {s}, which reads back as that source", .{ name, w.g.name, current });
             try w.leaf(a, &b);
             return true;
@@ -1673,14 +1673,14 @@ const Writer = struct {
         const node: Value = .{ .atom = try a.print("{s}__ic", .{name}) };
         var cap = st.*;
         try cap.own(a);
-        try cap.set(a, schema.slotIndex(.capacitor, "neg").?, node);
-        try cap.set(a, schema.slotIndex(.capacitor, "params").?, if (rest.items.len > 0) .{ .params = rest.items } else .none);
+        try cap.set(a, schema.slot(.capacitor, "neg"), node);
+        try cap.set(a, schema.slot(.capacitor, "params"), if (rest.items.len > 0) .{ .params = rest.items } else .none);
         var v = try ir.newStmt(a, .vsource, st.line);
         v.dialect = st.dialect;
-        try v.set(a, schema.slotIndex(.vsource, "name").?, .{ .atom = try a.print("V{s}__ic", .{name}) });
-        try v.set(a, schema.slotIndex(.vsource, "pos").?, node);
-        try v.set(a, schema.slotIndex(.vsource, "neg").?, neg);
-        try v.set(a, schema.slotIndex(.vsource, "dc").?, ic);
+        try v.set(a, schema.slot(.vsource, "name"), .{ .atom = try a.print("V{s}__ic", .{name}) });
+        try v.set(a, schema.slot(.vsource, "pos"), node);
+        try v.set(a, schema.slot(.vsource, "neg"), neg);
+        try v.set(a, schema.slot(.vsource, "dc"), ic);
         w.report.add(.info, .oneway, st.line, "capacitor '{s}': {s}'s capacitor takes no initial voltage (ic={s}); it is written to node {s}, with a DC source of {s} from there to {s}, which reads back as the two", .{
             name, w.g.name, try em.describe(ic), node.atom, try em.describe(ic), try em.describe(neg),
         });
@@ -1785,13 +1785,13 @@ const Writer = struct {
 
     /// Does this dialect name the Verilog-A module on the instance (Xyce `Y<module>`)?
     fn namesModule(w: *const Writer) bool {
-        const mi = schema.slotIndex(.device, "module").?;
+        const mi = schema.slot(.device, "module");
         for (w.g.rules) |*r| if (r.kind == .device and r.dir != .read and mentions(r.pat, mi)) return true;
         return false;
     }
 
     fn withModule(w: *Writer, st: *const ir.Stmt) Error!WithModule {
-        const mi = schema.slotIndex(.device, "module").?;
+        const mi = schema.slot(.device, "module");
         if (!w.namesModule()) return .keep;
         const master = if (st.get("master") == .atom) st.get("master").atom else return .keep;
         const module = w.modules.get(master) orelse (if (w.env) |e| e.modules.get(master) else null) orelse return .keep;
@@ -1815,7 +1815,7 @@ const Writer = struct {
         // a subcircuit's m nor IHP's own `mult` (r3_cmc.va:327, only its
         // mismatch) changes the current of IHP's rsil (#52). At 1 it is the
         // same device.
-        const pi = schema.slotIndex(.device, "params").?;
+        const pi = schema.slot(.device, "params");
         if (d.at(pi) == .params) for (d.at(pi).params, 0..) |p, i| if (std.ascii.eqlIgnoreCase(p.key, "m")) {
             if (p.val != .num or p.val.num.toFloat() != 1) {
                 var em = w.emitter(w.arena, st);
@@ -2049,7 +2049,7 @@ const Writer = struct {
             try w.comment(try std.fmt.allocPrint(w.arena, "[sprack] '{s}' where {s}", .{ name, x.cond }));
             var one = st.*;
             try one.own(w.arena);
-            try one.set(w.arena, schema.slotIndex(.subckt, "name").?, .{ .atom = x.name });
+            try one.set(w.arena, schema.slot(.subckt, "name"), .{ .atom = x.name });
             one.body = x.body;
             const from = w.report.items.items.len;
             w.variant = true;
@@ -2220,8 +2220,8 @@ const Writer = struct {
     fn binnedModel(w: *Writer, st: *const ir.Stmt) Error!void {
         const b = w.g.blockOf(.model).?;
         const a = w.arena;
-        const ti = schema.slotIndex(.model, "type").?;
-        const ni = schema.slotIndex(.model, "name").?;
+        const ti = schema.slot(.model, "type");
+        const ni = schema.slot(.model, "name");
         var bins: std.ArrayList(ir.Stmt) = .empty;
         var head = st.*;
         head.body = &.{};
@@ -2322,7 +2322,7 @@ const Writer = struct {
             if (!std.ascii.eqlIgnoreCase(name, st.get("master").atom)) {
                 chosen = st.*;
                 try chosen.own(a);
-                try chosen.set(a, schema.slotIndex(.instance, "master").?, .{ .atom = name });
+                try chosen.set(a, schema.slot(.instance, "master"), .{ .atom = name });
                 st = &chosen;
             }
         }
@@ -2627,8 +2627,8 @@ const Writer = struct {
             if (o.given != grammar.no_slot and st.at(o.given) == .none) {
                 if (!w.g.checksSlot(st.kind, o.slot)) continue;
                 // A run with no step (Spectre's `tran stop=`): a hundredth of it.
-                const step = firstValue(all, .tran, schema.slotIndex(.tran, "step").?) orelse
-                    try expr.arith(w.arena, .div, firstValue(all, .tran, schema.slotIndex(.tran, "stop").?) orelse continue, .{ .num = .init("100", 0) });
+                const step = firstValue(all, .tran, schema.slot(.tran, "step")) orelse
+                    try expr.arith(w.arena, .div, firstValue(all, .tran, schema.slot(.tran, "stop")) orelse continue, .{ .num = .init("100", 0) });
                 try cur.own(w.arena);
                 try cur.set(w.arena, o.slot, step);
                 changed = true;
@@ -3126,7 +3126,7 @@ fn renameMasters(w: *Writer, stmts: []ir.Stmt, renames: *const CaselessMap, told
             }
         }
         const class = schema.info(st.kind).class;
-        const slot: ?u8 = if (st.kind == .model) schema.slotIndex(.model, "name") else if (class == .device and st.kind != .instance) schema.slotIndex(st.kind, "master") else null;
+        const slot: ?u8 = if (st.kind == .model) (comptime schema.slotOf(.model, "name")) else if (class == .device and st.kind != .instance) schema.slotOf(st.kind, "master") else null;
         if (slot) |si| if (cur.at(si) == .atom) {
             const old = cur.at(si).atom;
             const base = if (st.kind == .model) ir.binBase(old) orelse old else old;
@@ -3204,7 +3204,7 @@ fn groupBins(arena: Allocator, stmts: []const ir.Stmt) Allocator.Error![]const i
         if (binBase(s)) |base| {
             if ((try done.getOrPut(arena, base)).found_existing) continue;
             var parent = try ir.newStmt(arena, .model, s.line);
-            try parent.set(arena, schema.slotIndex(.model, "name").?, .{ .atom = base });
+            try parent.set(arena, schema.slot(.model, "name"), .{ .atom = base });
             parent.body = groups.get(base).?.items;
             try out.append(arena, parent);
             continue;
@@ -3332,7 +3332,7 @@ fn spellingText(a: Allocator, sp: grammar.ModelSpelling) Allocator.Error![]const
 /// terminals of those instances (`when nodes>=n`).
 fn collectTerminals(a: Allocator, stmts: []const ir.Stmt, out: *TerminalMap, src: ?[]const u8) Allocator.Error!void {
     for (stmts) |*s| {
-        if (schema.info(s.kind).class == .device) if (schema.slotIndex(s.kind, "master")) |mi| if (s.at(mi) == .atom) {
+        if (schema.info(s.kind).class == .device) if (schema.slotOf(s.kind, "master")) |mi| if (s.at(mi) == .atom) {
             const n = terminalCount(s);
             const gop = try out.getOrPut(a, s.at(mi).atom);
             if (gop.found_existing) {
@@ -3469,8 +3469,8 @@ const PzForm = struct { writes: bool = false, by_src: bool = false, by_sig: bool
 /// Whether `g` writes a pole-zero analysis, and does with a source for the
 /// input and a signal for the output.
 fn pzForm(g: *const Grammar) PzForm {
-    const src_i = schema.slotIndex(.pz, "src").?;
-    const out_i = schema.slotIndex(.pz, "out").?;
+    const src_i = schema.slot(.pz, "src");
+    const out_i = schema.slot(.pz, "out");
     var f: PzForm = .{};
     for (g.rules) |r| if (r.kind == .pz and r.dir != .read) {
         f.writes = true;
@@ -3490,14 +3490,14 @@ fn pzForm(g: *const Grammar) PzForm {
 /// node of v(a,b) only: measured, docs/verification.md.
 fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
     const g = w.g;
-    const src_i = schema.slotIndex(.pz, "src").?;
-    const out_i = schema.slotIndex(.pz, "out").?;
-    const ip_i = schema.slotIndex(.pz, "in_pos").?;
-    const in_i = schema.slotIndex(.pz, "in_neg").?;
-    const op_i = schema.slotIndex(.pz, "out_pos").?;
-    const on_i = schema.slotIndex(.pz, "out_neg").?;
-    const tr_i = schema.slotIndex(.pz, "transfer").?;
-    const fi_i = schema.slotIndex(.pz, "find").?;
+    const src_i = schema.slot(.pz, "src");
+    const out_i = schema.slot(.pz, "out");
+    const ip_i = schema.slot(.pz, "in_pos");
+    const in_i = schema.slot(.pz, "in_neg");
+    const op_i = schema.slot(.pz, "out_pos");
+    const on_i = schema.slot(.pz, "out_neg");
+    const tr_i = schema.slot(.pz, "transfer");
+    const fi_i = schema.slot(.pz, "find");
     const form = pzForm(g);
     if (!form.writes) return stmts;
     const by_src, const by_sig = .{ form.by_src, form.by_sig };
@@ -3623,8 +3623,8 @@ fn pzPorts(arena: Allocator, w: *const Writer, stmts: []const ir.Stmt, report: *
 /// ngspice's gear of order 3 to 6 is measured to change nothing,
 /// docs/verification.md). Said as an info either way.
 fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
-    const mo = schema.slotIndex(.options, "maxord").?;
-    const me = schema.slotIndex(.options, "method").?;
+    const mo = schema.slot(.options, "maxord");
+    const me = schema.slot(.options, "method");
     for (g.rules) |r| if (r.kind == .options and r.dir != .read and mentions(r.pat, mo)) return stmts;
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
@@ -3648,14 +3648,14 @@ fn foldMaxord(arena: Allocator, g: *const Grammar, stmts: []const ir.Stmt, repor
 /// `v` in `slot` of `st` is a `.tran` step ceiling at or above the stop
 /// time, which limits nothing.
 fn idleCeiling(st: *const ir.Stmt, slot: usize, v: Value) bool {
-    if (st.kind != .tran or slot != schema.slotIndex(.tran, "maxstep").?) return false;
+    if (st.kind != .tran or slot != schema.slot(.tran, "maxstep")) return false;
     return v == .num and st.get("stop") == .num and !(v.num.toFloat() < st.get("stop").num.toFloat());
 }
 
 /// A `.tran` step ceiling at or above the stop time limits nothing, and in
 /// HSPICE a fourth number above the stop is a second segment: not written.
 fn idleCeilings(arena: Allocator, stmts: []const ir.Stmt, report: *ir.Report) Allocator.Error![]const ir.Stmt {
-    const mi = schema.slotIndex(.tran, "maxstep").?;
+    const mi = schema.slot(.tran, "maxstep");
     var list: ?[]ir.Stmt = null;
     for (stmts, 0..) |*st, k| {
         if (!idleCeiling(st, mi, st.at(mi))) continue;

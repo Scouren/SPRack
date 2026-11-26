@@ -111,7 +111,7 @@ pub const Stmt = struct {
     }
 
     pub fn get(s: *const Stmt, comptime slot: []const u8) Value {
-        const i = schema.slotIndex(s.kind, slot) orelse return .none;
+        const i = schema.slotOf(s.kind, slot) orelse return .none;
         return s.at(i);
     }
 
@@ -573,7 +573,7 @@ fn groupOf(s: *const Stmt) Group {
 /// without meaning anything different: compare what they add up to.
 fn optionsEql(a: []const Stmt, b: []const Stmt) bool {
     const slots = schema.info(.options).slots;
-    const package = schema.slotIndex(.options, "package").?;
+    const package = schema.slot(.options, "package");
     for (slots, 0..) |sl, i| {
         if (i == package) continue;
         if (sl.ty == .params) {
@@ -851,7 +851,7 @@ fn markUsers(arena: Allocator, stmts: []const Stmt, models: *const std.StringHas
         const master = s.get("master");
         if (master != .atom) continue;
         const m = models.get(master.atom) orelse continue;
-        try m.set(arena, schema.slotIndex(.model, "family").?, .{ .atom = unlisted_builtin });
+        try m.set(arena, schema.slot(.model, "family"), .{ .atom = unlisted_builtin });
     }
 }
 
@@ -967,7 +967,7 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
         }
         // What a SPICE line says positionally (`D1 a k dmod 2`) an instance
         // line says by name (`area=2`): put it where the device kind keeps it.
-        const pi = schema.slotIndex(target, "params");
+        const pi = schema.slotOf(target, "params");
         if (pi != null and vals[pi.?] == .params) {
             var kept: std.ArrayList(Param) = .empty;
             for (vals[pi.?].params) |p| {
@@ -988,7 +988,7 @@ pub fn retag(arena: Allocator, stmts: []Stmt, models: *const std.StringHashMapUn
 /// Returns null when that would lose a value (a resistor's `r`, say).
 pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt {
     if (schema.info(s.kind).class != .device or s.kind == .instance) return null;
-    if (schema.slotIndex(s.kind, "master") == null) return null;
+    if (schema.slotOf(s.kind, "master") == null) return null;
     if (s.kind == .device) {
         var same = s.*;
         same.kind = .instance;
@@ -1007,9 +1007,9 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
         if (sl.ty == .node) {
             try nodes.append(arena, v);
         } else if (std.mem.eql(u8, sl.name, "name")) {
-            vals[schema.slotIndex(.instance, "name").?] = v;
+            vals[schema.slot(.instance, "name")] = v;
         } else if (std.mem.eql(u8, sl.name, "master")) {
-            vals[schema.slotIndex(.instance, "master").?] = v;
+            vals[schema.slot(.instance, "master")] = v;
         } else if (sl.ty == .params) {
             if (v == .params) try params.appendSlice(arena, v.params);
         } else if (sl.ty == .value) {
@@ -1018,9 +1018,9 @@ pub fn demoteToInstance(arena: Allocator, s: *const Stmt) Allocator.Error!?Stmt 
             extra += 1;
         } else return null;
     }
-    if (vals[schema.slotIndex(.instance, "master").?] == .none) return null;
-    vals[schema.slotIndex(.instance, "nodes").?] = .{ .list = try nodes.toOwnedSlice(arena) };
-    if (params.items.len > 0) vals[schema.slotIndex(.instance, "params").?] = .{ .params = try params.toOwnedSlice(arena) };
+    if (vals[schema.slot(.instance, "master")] == .none) return null;
+    vals[schema.slot(.instance, "nodes")] = .{ .list = try nodes.toOwnedSlice(arena) };
+    if (params.items.len > 0) vals[schema.slot(.instance, "params")] = .{ .params = try params.toOwnedSlice(arena) };
     try out.pack(arena, vals);
     return out;
 }

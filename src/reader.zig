@@ -963,8 +963,8 @@ fn signalSpace(form: []const u8, k: usize) ?Space {
 }
 
 fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
-    const ti = schema.slotIndex(.model, "type").?;
-    const pi = schema.slotIndex(.model, "params").?;
+    const ti = schema.slot(.model, "type");
+    const pi = schema.slot(.model, "params");
     var buf: [schema.max_slots]Value = undefined;
     const vals = st.unpack(&buf);
     if (vals[ti] != .atom) return;
@@ -1009,8 +1009,8 @@ fn mapModel(arena: Allocator, g: *const Grammar, st: *ir.Stmt, report: *ir.Repor
             report.add(.warning, .caveat, st.line, "model type '{s}' with {s}={s}: {s} takes it as the {s} model (it warns that the value is out of range)", .{ ty, kv.key, try describeNum(arena, p.val), g.name, hit.e.family });
         };
     };
-    vals[schema.slotIndex(.model, "family").?] = .{ .atom = hit.e.family };
-    if (hit.e.polarity.len > 0) vals[schema.slotIndex(.model, "polarity").?] = .{ .atom = hit.e.polarity };
+    vals[schema.slot(.model, "family")] = .{ .atom = hit.e.family };
+    if (hit.e.polarity.len > 0) vals[schema.slot(.model, "polarity")] = .{ .atom = hit.e.polarity };
     vals[ti] = .none;
     // The statement was just built and owns its list: filter it in place.
     // A PDK's models carry most of its text in their parameters.
@@ -1296,8 +1296,8 @@ const Spelling = struct {
 /// A function's arguments and their uses in its body share one spelling,
 /// the argument's (#72): `.func f(X) {X*2}` folded is `f(x) {x*2}`.
 fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void {
-    const ai = schema.slotIndex(.func, "args").?;
-    const ei = schema.slotIndex(.func, "expr").?;
+    const ai = schema.slot(.func, "args");
+    const ei = schema.slot(.func, "expr");
     if (vals[ei] != .expr) return;
     const Args = struct {
         args: []const Value,
@@ -1546,8 +1546,8 @@ const Reader = struct {
                             try text.append(self.arena, '\n');
                         }
                         var st = try ir.newStmt(self.arena, .embed, line.no);
-                        try st.set(self.arena, schema.slotIndex(.embed, "path").?, path);
-                        try st.set(self.arena, schema.slotIndex(.embed, "text").?, .{ .atom = try text.toOwnedSlice(self.arena) });
+                        try st.set(self.arena, schema.slot(.embed, "path"), path);
+                        try st.set(self.arena, schema.slot(.embed, "text"), .{ .atom = try text.toOwnedSlice(self.arena) });
                         try out.append(self.arena, st);
                         return .more;
                     };
@@ -1706,7 +1706,7 @@ const Reader = struct {
         // another key is one the simulator refuses (HSPICE drops an .FFT
         // with one it does not know).
         if (schema.info(st.kind).class != .device) if (self.g.paramsOf(st.kind)) |table| if (!grammar.paramsOpen(table)) {
-            if (schema.slotIndex(st.kind, "params")) |pi| if (vals[pi] == .params) for (vals[pi].params) |p| {
+            if (schema.slotOf(st.kind, "params")) |pi| if (vals[pi] == .params) for (vals[pi].params) |p| {
                 const known = blk: {
                     for (table) |e| for (e.spellings) |sp| if (std.ascii.eqlIgnoreCase(sp, p.key)) break :blk true;
                     break :blk false;
@@ -1902,7 +1902,7 @@ fn rebindParams(g: *const Grammar, arena: Allocator, stmts: []ir.Stmt) Allocator
     for (stmts) |*st| {
         try rebindParams(g, arena, st.body);
         if (schema.info(st.kind).class != .device or st.kind == .instance) continue;
-        const pi = schema.slotIndex(st.kind, "params") orelse continue;
+        const pi = schema.slotOf(st.kind, "params") orelse continue;
         if (st.at(pi) != .params) continue;
         var kept: std.ArrayList(ir.Param) = .empty;
         for (st.at(pi).params) |p| {
@@ -2013,7 +2013,7 @@ fn undoMerges(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt)
 
 /// Several option statements under one heading are one set of options.
 pub fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.Error!void {
-    const package = schema.slotIndex(.options, "package").?;
+    const package = schema.slot(.options, "package");
     var i: usize = 0;
     while (i < list.items.len) : (i += 1) {
         if (list.items[i].kind != .options) continue;
@@ -2040,8 +2040,8 @@ pub fn mergeOptions(arena: Allocator, list: *std.ArrayList(ir.Stmt)) Allocator.E
 /// A binned model block (`model nch bsim4 { 1: ... }`) is the model cards
 /// `nch.1`, `nch.2`, ... of the SPICE dialects, each with the block's type.
 fn flattenBins(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt), report: *ir.Report) Allocator.Error!void {
-    const ni = schema.slotIndex(.model, "name").?;
-    const ti = schema.slotIndex(.model, "type").?;
+    const ni = schema.slot(.model, "name");
+    const ti = schema.slot(.model, "type");
     var i: usize = 0;
     while (i < list.items.len) : (i += 1) {
         const parent = list.items[i];
@@ -2174,8 +2174,8 @@ fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: 
     const name = target orelse {
         var st = try ir.newStmt(arena, if (std.mem.eql(u8, key, "temp")) .options else .param, alt.line);
         if (st.kind == .options) {
-            try st.set(arena, schema.slotIndex(.options, "temp").?, val);
-        } else try st.set(arena, schema.slotIndex(.param, "params").?, .{ .params = try arena.dupe(ir.Param, &.{.{ .key = key, .val = val }}) });
+            try st.set(arena, schema.slot(.options, "temp"), val);
+        } else try st.set(arena, schema.slot(.param, "params"), .{ .params = try arena.dupe(ir.Param, &.{.{ .key = key, .val = val }}) });
         return st;
     };
     // The latest version: an earlier alter's copy, else the netlist's.
@@ -2203,7 +2203,7 @@ fn oneChange(g: *const Grammar, arena: Allocator, before: []const ir.Stmt, alt: 
             return st;
         }
     }
-    const pi = schema.slotIndex(st.kind, "params") orelse {
+    const pi = schema.slotOf(st.kind, "params") orelse {
         report.add(.@"error", .invalid, alt.line, "alter: {s} '{s}' has no parameter '{s}' here", .{ @tagName(st.kind), name, key });
         return null;
     };
@@ -2232,9 +2232,9 @@ fn namedAs(st: *const ir.Stmt, name: []const u8) bool {
 /// stops at 10n, `.tran 1n 10n 2n 20n` at 20n) and takes the second as
 /// nothing.
 fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator.Error!void {
-    const seg = schema.slotIndex(.tran, "segments").?;
-    const si = schema.slotIndex(.tran, "step").?;
-    const ti = schema.slotIndex(.tran, "stop").?;
+    const seg = schema.slot(.tran, "segments");
+    const si = schema.slot(.tran, "step");
+    const ti = schema.slot(.tran, "stop");
     for (list) |*st| {
         if (st.kind != .tran or st.at(seg) != .list) continue;
         var items = st.at(seg).list;
@@ -2246,7 +2246,7 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
         };
         if (std.ascii.eqlIgnoreCase(last, "uic")) {
             items = items[0 .. items.len - 1];
-            try st.set(arena, schema.slotIndex(.tran, "skip_dc").?, .{ .atom = "yes" });
+            try st.set(arena, schema.slot(.tran, "skip_dc"), .{ .atom = "yes" });
         }
         const rises = items.len >= 2 and items.len % 2 == 0 and for (0..items.len / 2) |k| {
             const prev = if (k == 0) st.at(ti) else items[2 * k - 1];
@@ -2259,7 +2259,7 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
                 report.add(.@"error", .invalid, st.line, "tran: {d} numbers after the step and stop are neither rising step and stop pairs nor a start time and a step ceiling", .{items.len});
                 continue;
             }
-            if (items.len > 0) try st.set(arena, schema.slotIndex(.tran, "start").?, items[0]);
+            if (items.len > 0) try st.set(arena, schema.slot(.tran, "start"), items[0]);
             // Measured (docs/verification.md 4.18): the same samples with
             // and without it; `.option delmax` is what caps the step.
             if (items.len > 1) report.add(.info, .caveat, st.line, "tran: HSPICE takes a fourth .TRAN number that is no second segment as nothing (its step cap is .OPTION DELMAX), so it is left out", .{});
@@ -2289,7 +2289,7 @@ fn foldSegments(arena: Allocator, list: []ir.Stmt, report: *ir.Report) Allocator
 /// Xyce's `Yr3_cmc n1 ...`: the module without its letter, and none at all
 /// where the model card the instance names says it.
 fn foldModules(arena: Allocator, list: []ir.Stmt, all: []const ir.Stmt) Allocator.Error!void {
-    const mi = schema.slotIndex(.device, "module").?;
+    const mi = schema.slot(.device, "module");
     for (list) |*st| {
         if (st.body.len > 0) try foldModules(arena, @constCast(st.body), all);
         if (st.kind != .device or st.at(mi) != .atom) continue;
@@ -2334,15 +2334,15 @@ fn floatNum(arena: Allocator, f: f64) Allocator.Error!Value {
 }
 
 fn foldPeriod(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
-    const pi = schema.slotIndex(.pss, "period").?;
-    const ri = schema.slotIndex(.pss, "tres").?;
+    const pi = schema.slot(.pss, "period");
+    const ri = schema.slot(.pss, "tres");
     const period = st.at(pi);
     const tres = st.at(ri);
     if (period == .none) return;
     try st.set(arena, pi, .none);
     try st.set(arena, ri, .none);
-    const fi = schema.slotIndex(.pss, "fund").?;
-    const hi = schema.slotIndex(.pss, "harms").?;
+    const fi = schema.slot(.pss, "fund");
+    const hi = schema.slot(.pss, "harms");
     if (period == .num) {
         try st.set(arena, fi, try floatNum(arena, 1.0 / period.num.toFloat()));
     } else try st.set(arena, fi, .{ .expr = try std.fmt.allocPrint(arena, "1/({s})", .{try numText(arena, period)}) });
@@ -2354,7 +2354,7 @@ fn foldPeriod(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
 
 /// HSPICE `is=10%`, the percent glued to the number: as `is=10 %`.
 fn foldPercent(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
-    const si = schema.slotIndex(.vary, "std").?;
+    const si = schema.slot(.vary, "std");
     const v = st.at(si);
     const t: []const u8 = switch (v) {
         .expr, .atom => |x| std.mem.trim(u8, x, " "),
@@ -2364,11 +2364,11 @@ fn foldPercent(arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
     const digits = std.mem.trim(u8, t[0 .. t.len - 1], " ");
     _ = std.fmt.parseFloat(f64, digits) catch return;
     try st.set(arena, si, .{ .num = ir.Number.init(digits, 0) });
-    try st.set(arena, schema.slotIndex(.vary, "rel").?, .{ .atom = "yes" });
+    try st.set(arena, schema.slot(.vary, "rel"), .{ .atom = "yes" });
 }
 
 fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Error!void {
-    const ri = schema.slotIndex(.montecarlo, "runs").?;
+    const ri = schema.slot(.montecarlo, "runs");
     const v = st.at(ri);
     if (v != .expr) return;
     const e = std.mem.trim(u8, v.expr, " ");
@@ -2385,7 +2385,7 @@ fn foldTrials(arena: Allocator, st: *ir.Stmt, report: *ir.Report) Allocator.Erro
     }
     if (items.items.len == 0) return;
     try st.set(arena, ri, .none);
-    try st.set(arena, schema.slotIndex(.montecarlo, "trials").?, .{ .list = items.items });
+    try st.set(arena, schema.slot(.montecarlo, "trials"), .{ .list = items.items });
 }
 
 /// The words of a line no kind holds: the first, then each blank-separated
@@ -2432,15 +2432,15 @@ fn nativeOf(arena: Allocator, g: *const Grammar, text: []const u8, line_no: u32,
     }
     var st = try ir.newStmt(arena, .native, line_no);
     st.tail = tail;
-    try st.set(arena, schema.slotIndex(.native, "of").?, .{ .atom = g.name });
-    try st.set(arena, schema.slotIndex(.native, "word").?, .{ .atom = if (words.items.len > 0) words.items[0] else "" });
-    if (args.items.len > 0) try st.set(arena, schema.slotIndex(.native, "args").?, .{ .list = args.items });
-    if (ps.items.len > 0) try st.set(arena, schema.slotIndex(.native, "params").?, .{ .params = ps.items });
+    try st.set(arena, schema.slot(.native, "of"), .{ .atom = g.name });
+    try st.set(arena, schema.slot(.native, "word"), .{ .atom = if (words.items.len > 0) words.items[0] else "" });
+    if (args.items.len > 0) try st.set(arena, schema.slot(.native, "args"), .{ .list = args.items });
+    if (ps.items.len > 0) try st.set(arena, schema.slot(.native, "params"), .{ .params = ps.items });
     return st;
 }
 
 fn numericSegments(st: *const ir.Stmt) bool {
-    const v = st.at(schema.slotIndex(.tran, "segments").?);
+    const v = st.at(schema.slot(.tran, "segments"));
     if (v != .list) return true;
     for (v.list, 0..) |it, i| {
         if (it == .num) continue;
@@ -2471,7 +2471,7 @@ pub fn lastAnalysis(list: []const ir.Stmt, before: ?[]const u8) ?[]const u8 {
 }
 
 fn measureWith(arena: Allocator, list: []ir.Stmt, last: ?[]const u8) Allocator.Error!void {
-    const ai = schema.slotIndex(.measure, "analysis").?;
+    const ai = schema.slot(.measure, "analysis");
     const name = last orelse return;
     for (list) |*st| {
         if (st.kind == .measure and st.at(ai) == .none) try st.set(arena, ai, .{ .atom = name });

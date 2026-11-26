@@ -507,19 +507,19 @@ const Run = struct {
             // search directories are no longer needed.
             if (st.kind == .options and st.get("search") != .none) {
                 try st.own(scratch);
-                try st.set(scratch, schema.slotIndex(.options, "search").?, .none);
+                try st.set(scratch, schema.slot(.options, "search"), .none);
                 report.add(.info, .cosmetic, st.line, "options.search: the includes it finds are written as paths to their translated copies", .{});
             }
             const p = pathOf(st) orelse if (st.kind == .hdl and st.get("path") == .str) st.get("path").str else null;
             if (p) |path| {
                 const target = try r.locate(scratch, dir, path);
                 try st.own(scratch);
-                try st.set(scratch, schema.slotIndex(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
+                try st.set(scratch, schema.slotOf(st.kind, "path").?, .{ .str = try relative(scratch, dir, target) });
                 // The section as the file that defines it spells it.
                 const sec = sectionOf(st);
                 if (st.kind == .lib and sec.len > 0) {
                     if (r.spellings.get(try spellingKey(scratch, target, sec))) |sp| {
-                        try st.set(scratch, schema.slotIndex(.lib, "section").?, .{ .atom = sp });
+                        try st.set(scratch, schema.slot(.lib, "section"), .{ .atom = sp });
                     }
                 }
             }

@@ -176,7 +176,7 @@ pub fn main(init: std.process.Init) !void {
                     "param"
                 else if (g.absentReason(info.kind) != null)
                     "none"
-                else if (info.class == .device and g.canWrite(.instance) and sprack.schema.slotIndex(info.kind, "master") != null)
+                else if (info.class == .device and g.canWrite(.instance) and sprack.schema.slotOf(info.kind, "master") != null)
                     "inst"
                 else
                     "-";

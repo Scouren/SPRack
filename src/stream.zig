@@ -302,7 +302,7 @@ const Survey = struct {
     /// left them: the first under a heading is all of them, the others go.
     fn takeOptions(sv: *Survey, list: *std.ArrayList(Stmt)) void {
         if (!sv.merged) return;
-        const package = schema.slotIndex(.options, "package").?;
+        const package = schema.slot(.options, "package");
         var i: usize = 0;
         while (i < list.items.len) {
             const st = &list.items[i];

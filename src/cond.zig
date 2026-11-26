@@ -459,17 +459,17 @@ fn passDown(arena: Allocator, body: []const ir.Stmt, known: []const Known) Alloc
             var hit: std.ArrayList([]const u8) = .empty;
             const c = try expr.rename(arena, v.cond, Lower{ .map = &subst, .a = arena }, &hit);
             if (vi == 0) {
-                try block.set(arena, schema.slotIndex(.cond_if, "cond").?, .{ .expr = c });
+                try block.set(arena, schema.slot(.cond_if, "cond"), .{ .expr = c });
             } else if (vi + 1 < k.variants.list.len) {
                 var el = try ir.newStmt(arena, .cond_elif, s.line);
-                try el.set(arena, schema.slotIndex(.cond_elif, "cond").?, .{ .expr = c });
+                try el.set(arena, schema.slot(.cond_elif, "cond"), .{ .expr = c });
                 try kids.append(arena, el);
             } else {
                 try kids.append(arena, try ir.newStmt(arena, .cond_else, s.line));
             }
             var inst = s.*;
             try inst.own(arena);
-            try inst.set(arena, schema.slotIndex(.instance, "master").?, .{ .atom = v.name });
+            try inst.set(arena, schema.slot(.instance, "master"), .{ .atom = v.name });
             // Its subcircuit is chosen: the writer takes the name as it is.
             inst.raw = chosen;
             try kids.append(arena, inst);

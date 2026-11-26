@@ -1677,7 +1677,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             const kind = try kindOf(c, no, kname);
             if (family.len > 0) {
                 if (schema.familyKind(family) == null) return c.fail(no, "unknown model family '{s}'", .{family});
-                if (schema.slotIndex(kind, "master") == null) return c.fail(no, "'{s}' names no model, so it cannot depend on a family", .{kname});
+                if (schema.slotOf(kind, "master") == null) return c.fail(no, "'{s}' names no model, so it cannot depend on a family", .{kname});
             }
             const dir: Dir = if (head[0] == 'r' and head[1] == 'u') .both else if (head[0] == 'r') .read else .write;
             rules = try c.add(Rule, rules, .{
@@ -1926,7 +1926,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             operators = try parseSpellings(c, &lines, false, "operator", &schema.operators);
         } else if (std.mem.eql(u8, head, "params")) {
             const kind = try kindOf(c, no, rest);
-            if (schema.slotIndex(kind, "params") == null) return c.fail(no, "params needs a kind with parameters", .{});
+            if (schema.slotOf(kind, "params") == null) return c.fail(no, "params needs a kind with parameters", .{});
             params = try c.add(ParamTable, params, .{ .kind = kind, .names = try parseSpellings(c, &lines, fold, "parameter", null) });
         } else if (std.mem.eql(u8, head, "modelparams")) {
             const only = std.mem.endsWith(u8, rest, " only");

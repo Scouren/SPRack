@@ -137,7 +137,7 @@ pub fn usesDevLot(stmts: []const Stmt) bool {
 /// `n` counts them, for `asFunctions`.
 pub fn devLot(arena: Allocator, stmts: []const Stmt, report: *ir.Report, n: *usize) Allocator.Error![]const Stmt {
     const out = try arena.dupe(Stmt, stmts);
-    const pi = schema.slotIndex(.param, "params").?;
+    const pi = schema.slot(.param, "params");
     for (out) |*st| {
         if (st.body.len > 0) st.body = @constCast(try devLot(arena, st.body, report, n));
         if (st.kind != .param or st.at(pi) != .params) continue;
@@ -354,8 +354,8 @@ const Lower = struct {
     fn vary(l: *Lower, name: []const u8, dist: []const u8, spread: []const u8, line: u32) Allocator.Error!Stmt {
         const a = l.perm();
         var st = try ir.newStmt(a, .vary, line);
-        try st.set(a, schema.slotIndex(.vary, "param").?, .{ .atom = try l.kept(name) });
-        try st.set(a, schema.slotIndex(.vary, "dist").?, .{ .atom = dist });
+        try st.set(a, schema.slot(.vary, "param"), .{ .atom = try l.kept(name) });
+        try st.set(a, schema.slot(.vary, "dist"), .{ .atom = dist });
         const slot = if (std.mem.eql(u8, dist, "gauss")) "std" else "range";
         try st.set(a, schema.slotIndex(.vary, slot).?, .{ .expr = try l.kept(spread) });
         return st;
@@ -420,7 +420,7 @@ const Lower = struct {
 
     /// A top-level `p = agauss(nom, a, n)`: `p = nom`, varied per run.
     fn wholeParam(l: *Lower, acc: *Acc, st: *Stmt) Allocator.Error!void {
-        const pi = schema.slotIndex(.param, "params").?;
+        const pi = schema.slot(.param, "params");
         if (st.at(pi) != .params) return;
         const out = try l.arena.dupe(ir.Param, st.at(pi).params);
         var changed = false;
@@ -459,7 +459,7 @@ const Lower = struct {
         var all: std.ArrayList(Stmt) = .empty;
         if (acc.zeros.items.len > 0) {
             var ps = try ir.newStmt(l.arena, .param, line);
-            try ps.set(l.arena, schema.slotIndex(.param, "params").?, .{ .params = acc.zeros.items });
+            try ps.set(l.arena, schema.slot(.param, "params"), .{ .params = acc.zeros.items });
             try all.append(l.arena, ps);
         }
         var groups: std.ArrayList(Stmt) = .empty;
@@ -467,7 +467,7 @@ const Lower = struct {
             const items = @field(acc, scope).items;
             if (items.len > 0) {
                 var grp = try ir.newStmt(l.arena, .statgroup, line);
-                try grp.set(l.arena, schema.slotIndex(.statgroup, "scope").?, .{ .atom = scope });
+                try grp.set(l.arena, schema.slot(.statgroup, "scope"), .{ .atom = scope });
                 grp.body = items;
                 try groups.append(l.arena, grp);
             }
@@ -579,7 +579,7 @@ fn foldOne(arena: Allocator, list: []Stmt, v: *const Stmt, report: *ir.Report) A
     if (!gaussian and !std.mem.eql(u8, dist, "unif")) return false;
     const spread = if (gaussian) v.get("std") else v.get("range");
     if (spread == .none) return false;
-    const pi = schema.slotIndex(.param, "params").?;
+    const pi = schema.slot(.param, "params");
     for (list) |*st| {
         if (st.kind != .param or st.at(pi) != .params) continue;
         for (st.at(pi).params, 0..) |p, k| {
