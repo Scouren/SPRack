@@ -19,7 +19,10 @@ const std = @import("std");
 /// Files and directories held to layers 2 and 3, relative to the build root.
 pub const clean_paths = [_][]const u8{
     "lint/lint.zig",
+    "src/capi.zig",
     "src/dialects.zig",
+    "src/root.zig",
+    "src/schema.zig",
     "tools/grammar_gen.zig",
 };
 
