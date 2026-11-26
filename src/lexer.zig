@@ -546,6 +546,8 @@ fn tokenizeLine(arena: Allocator, keep: Allocator, list_gpa: Allocator, cfg: *co
             continue;
         };
         for (cfg.expr_delims) |d| {
+            // Most tokens start with no delimiter's first byte.
+            if (d[0].len > 0 and d[0][0] != c) continue;
             if (!std.mem.startsWith(u8, text[i..], d[0])) continue;
             const j = delimClose(text, i, d);
             const inner = text[i + d[0].len .. @min(j, text.len)];
@@ -642,7 +644,13 @@ fn delimClose(text: []const u8, i: usize, d: [2][]const u8) usize {
     var depth: usize = 1;
     var j = i + d[0].len;
     const same = std.mem.eql(u8, d[0], d[1]);
+    // Only a byte that begins one of the two delimiters is looked at twice.
+    const plain_skip = d[0].len > 0 and d[1].len > 0;
     while (j < text.len) {
+        if (plain_skip and text[j] != d[1][0] and (same or text[j] != d[0][0])) {
+            j += 1;
+            continue;
+        }
         if (std.mem.startsWith(u8, text[j..], d[1])) {
             depth -= 1;
             if (depth == 0) break;
