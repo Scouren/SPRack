@@ -17,10 +17,8 @@ const reader = @import("reader");
 const tables = @import("tables.zig");
 
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Node = grammar.Node;
-const Kind = schema.Kind;
 const Value = ir.Value;
 const spellingsOf = tables.spellingsOf;
 const idleCeiling = tables.idleCeiling;

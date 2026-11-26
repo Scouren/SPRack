@@ -10,14 +10,10 @@ const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
 const ir = @import("ir");
-const dialects = @import("dialects");
 const expr = @import("expr");
-const lexer = @import("lexer");
 const stats = @import("stats");
-const tables = @import("tables.zig");
 
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Value = ir.Value;
