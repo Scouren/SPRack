@@ -13,7 +13,9 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # The PDK devices step took 3 h 47 min on 16 cores (sky130 in ngspice, 258
+    # devices); the whole job took 5 to 8 min before it. 360 is the most a hosted runner allows.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -58,8 +60,9 @@ jobs:
             [ ! -e .zig-cache/f/crash ] || { echo "a fuzz test failed: input in .zig-cache/f/crash"; exit 1; }
             [ $rc -eq 0 ] || [ $rc -eq 124 ]'
 
-      # Every catalogue device of sky130, IHP and GF180 in ngspice against its
-      # Xyce and VACASK translation (issue 61); a changed verdict fails.
+      # Every catalogue device of the five PDKs in ngspice (none for the two
+      # HSPICE PDKs) against its Xyce and VACASK translation (issue 61); a
+      # changed verdict fails. sky130 and IHP from the installed trees.
       - name: PDK devices
         if: always()
         run: |

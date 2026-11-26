@@ -443,12 +443,30 @@ capacitor's AC current at 1 MHz, a diode's forward current, a BJT's
 collector current) in the PDK's own simulator and in each target's
 translation, and writes one row per device, target and quantity with a
 verdict: same (within 1e-4 relative), differs, refused, no model, no
-reference or not run. The nightly workflow runs it for sky130, IHP and
-GF180 into Xyce and VACASK against `tools/pdk-devices-baseline.tsv` and
-fails when a verdict changes, either way. The table of counts per verdict
-is generated from that file once the first nightly run has written it;
-VACASK's results have no reader in the harness yet (its rows say not
-run), and HSPICE and Spectre are measured by hand (issues 56 and 57).
+reference or not run. sky130 and IHP are read from the installed trees
+(`SPRACK_TEST_PDKS_INSTALLED`), which ngspice loads as they are. The two
+HSPICE PDKs have no source run here: a translation that loads is "no
+reference", with the target's value. The nightly workflow runs it for the
+five PDKs into Xyce and VACASK against `tools/pdk-devices-baseline.tsv` and
+fails when a verdict changes, either way. HSPICE and Spectre are measured
+by hand (issues 56 and 57).
+
+The baseline's rows (a device and a quantity) by verdict, from
+`python3 -I tools/pdk_devices.py --table tools/pdk-devices-baseline.tsv`
+(ngspice 45, Xyce 7.10, VACASK b2c1551; default corners):
+
+| PDK | target | devices | same | differs | refused | no model | no reference | not run |
+|---|---|---|---|---|---|---|---|---|
+| sky130A | xyce | 258 | 137 | 152 | 2 | 0 | 88 | 0 |
+| sky130A | vacask | 258 | 0 | 0 | 291 | 0 | 88 | 0 |
+| ihp-sg13g2 | xyce | 60 | 19 | 27 | 0 | 12 | 11 | 0 |
+| ihp-sg13g2 | vacask | 60 | 0 | 0 | 46 | 12 | 11 | 0 |
+| gf180mcuD | xyce | 79 | 9 | 24 | 12 | 14 | 33 | 0 |
+| gf180mcuD | vacask | 79 | 0 | 0 | 45 | 14 | 33 | 0 |
+| ASAP7 | xyce | 8 | 0 | 0 | 0 | 0 | 16 | 0 |
+| ASAP7 | vacask | 8 | 0 | 0 | 16 | 0 | 0 | 0 |
+| FreePDK45 | xyce | 8 | 0 | 0 | 0 | 0 | 16 | 0 |
+| FreePDK45 | vacask | 8 | 0 | 0 | 0 | 0 | 16 | 0 |
 
 `tools/pdk_smoke.py` is the smaller check it grew from: one inverter per PDK,
 its switching point (the input where the output crosses VDD/2) found in the
