@@ -10,16 +10,9 @@
 //! - `pub fn refusals(w: *Writer) void`
 
 const std = @import("std");
-const grammar = @import("grammar");
-const schema = @import("schema");
-const ir = @import("ir");
 const statement = @import("statement.zig");
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Grammar = grammar.Grammar;
-const Kind = schema.Kind;
 const Writer = statement.Writer;
-const Error = Writer.Error;
 
 /// After the last statement: an instance whose subcircuit may be
 /// written once for each branch in its own file, said once.

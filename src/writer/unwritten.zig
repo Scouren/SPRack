@@ -8,14 +8,12 @@
 //!   also: []const u8) Error!void`
 
 const std = @import("std");
-const grammar = @import("grammar");
 const schema = @import("schema");
 const ir = @import("ir");
 const output = @import("output.zig");
 const statement = @import("statement.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Writer = statement.Writer;
 const Error = Writer.Error;
