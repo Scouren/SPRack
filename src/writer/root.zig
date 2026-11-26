@@ -4,7 +4,8 @@
 //! The pieces: `emit.zig` turns one statement and one pattern into text;
 //! `statement.zig` chooses the pattern and writes the statement; what a
 //! statement is turned into first is a file a subject (`cards.zig`,
-//! `instparams.zig`, `plugins.zig`, `variants.zig`, `rewrite.zig`); the
+//! `bins.zig`, `instparams.zig`, `plugins.zig`, `variants.zig`,
+//! `rewrite.zig`; `facts.zig` what a card's spelling learns of the netlist); the
 //! passes over a netlist (`names.zig`, `analyses.zig`, `defaults.zig`)
 //! change the statements before that; `frame.zig` writes what stands
 //! around them; `driver.zig` runs the passes in order, over a netlist held
@@ -20,6 +21,8 @@
 //! - `pub const checkCase`, `pub const foldMaxord`
 
 const cards = @import("cards.zig");
+const bins = @import("bins.zig");
+const facts = @import("facts.zig");
 const emit = @import("emit.zig");
 const tables = @import("tables.zig");
 const rewrite = @import("rewrite.zig");
@@ -41,7 +44,7 @@ pub const Refs = refs.Refs;
 pub const Survey = driver.Survey;
 pub const Driver = driver.Driver;
 pub const Target = driver.Target;
-pub const Terminals = cards.Terminals;
+pub const Terminals = facts.Terminals;
 pub const defaultOptions = analyses.defaultOptions;
 pub const collectReserved = names.collectReserved;
 pub const checkCase = names.checkCase;
@@ -59,6 +62,8 @@ test {
     _ = variants;
     _ = defaults;
     _ = cards;
+    _ = bins;
+    _ = facts;
     _ = driver;
     _ = refs;
     _ = frame;

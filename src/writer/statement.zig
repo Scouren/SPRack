@@ -6,8 +6,8 @@
 //! `Writer.stmt` writes one statement and what it holds; `Writer.leaf`
 //! chooses the rule a statement without a body is written by. What a
 //! statement is turned into before that is in the files beside this one:
-//! `cards.zig` (model cards), `instparams.zig`, `plugins.zig`,
-//! `variants.zig`, `defaults.zig`, `rewrite.zig`. `driver.zig` owns the
+//! `cards.zig` (model cards), `bins.zig` (binned ones), `instparams.zig`,
+//! `plugins.zig`, `variants.zig`, `defaults.zig`, `rewrite.zig`. `driver.zig` owns the
 //! order of the passes and calls `Writer.stmt` for each statement.
 
 const std = @import("std");
@@ -26,6 +26,8 @@ const Kind = schema.Kind;
 const instparams = @import("instparams.zig");
 const variants = @import("variants.zig");
 const cards = @import("cards.zig");
+const bins = @import("bins.zig");
+const facts = @import("facts.zig");
 const plugins = @import("plugins.zig");
 const emit = @import("emit.zig");
 const Refs = @import("refs.zig").Refs;
@@ -110,7 +112,7 @@ pub const Writer = struct {
     /// How many subcircuits the statement being written is inside.
     depth: u32 = 0,
     /// The terminals of the instances of each model (`collectTerminals`).
-    terminals: cards.TerminalMap = .empty,
+    terminals: facts.TerminalMap = .empty,
 
     pub const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 =
         "",
@@ -522,7 +524,7 @@ pub const Writer = struct {
     }
 
     pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
-        if (st.kind == .model and st.body.len > 0) return cards.binnedModel(w, st);
+        if (st.kind == .model and st.body.len > 0) return bins.binnedModel(w, st);
         // A control script where there is none: its analyses and outputs
         // are the deck's own; its other commands are said one by one.
         if (st.kind == .script and !w.g.canWrite(.script) and for (st.body) |c| {

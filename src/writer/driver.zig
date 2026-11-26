@@ -32,7 +32,8 @@ const alter = @import("alter");
 const topology = @import("topology");
 const variants = @import("variants.zig");
 const defaults = @import("defaults.zig");
-const cards = @import("cards.zig");
+const bins = @import("bins.zig");
+const card_facts = @import("facts.zig");
 const emit = @import("emit.zig");
 const statement = @import("statement.zig");
 const analysis_passes = @import("analyses.zig");
@@ -86,8 +87,8 @@ pub const Survey = struct {
     reserved: ir.CaselessSet = .empty,
     /// `rewrite.collectClashKeys`.
     clash_keys: ir.CaselessSet = .empty,
-    /// `cards.collectTerminals`.
-    terminals: cards.TerminalMap = .empty,
+    /// `card_facts.collectTerminals`.
+    terminals: card_facts.TerminalMap = .empty,
 
     /// Learn what `stmts`, the next top-level statements, hold: what the
     /// writing of any netlist asks.
@@ -100,14 +101,14 @@ pub const Survey = struct {
         const a = k.perm;
         try name_passes.collectDeclared(a, stmts, &sv.declared);
         try ir.collectFamilies(a, stmts, &sv.families, k.src);
-        try cards.collectModules(a, stmts, &sv.modules);
+        try card_facts.collectModules(a, stmts, &sv.modules);
         try name_passes.collectFuncs(a, stmts, &sv.funcs);
         statement.markUsed(stmts, &sv.used);
         rewrite.markUsed(g, sv.dialect, stmts, &sv.used);
         try rewrite.collectClashKeys(a, g, stmts, &sv.clash_keys, k.src);
         ir.markFamilies(stmts, &sv.fams);
         try name_passes.collectMasters(a, stmts, &sv.models, &sv.subckts, k.src);
-        try cards.collectTerminals(a, stmts, &sv.terminals, k.src);
+        try card_facts.collectTerminals(a, stmts, &sv.terminals, k.src);
         try name_passes.collectReserved(a, g, stmts, &sv.reserved, k.src);
         try name_passes.collectAnalyses(a, g, stmts, &sv.counted);
     }
@@ -513,7 +514,7 @@ pub const Driver = struct {
             try expr.convert(a, g, list, true);
             stmts = list;
         }
-        if (g.blockOf(.model) != null) stmts = try cards.groupBins(a, stmts);
+        if (g.blockOf(.model) != null) stmts = try bins.groupBins(a, stmts);
         stmts = try s.statistics(stmts);
         if (s.whole) stmts = try analysis_passes.pzPorts(a, g, w.origin(), stmts, w.report);
         try s.last(stmts);
@@ -591,7 +592,7 @@ pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
         .pz => "a pole-zero analysis",
         // `analyses.foldMaxord`.
         .options => if (st.get("maxord") != .none) "a maximum order of integration" else null,
-        // `cards.groupBins`: the bins of one model come a group each.
+        // `bins.groupBins`: the bins of one model come a group each.
         .model => if (g.blockOf(.model) != null and st.get("name") == .atom and
             ir.binBase(st.get("name").atom) != null) "a binned model" else null,
         else => null,
