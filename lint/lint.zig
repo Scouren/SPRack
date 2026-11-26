@@ -1,11 +1,13 @@
 //! Lint step: the files of `clean_paths` → a `lint` build step that fails
-//! when one of them breaks a rule. Three layers, each a failure on its own:
+//! when one of them breaks a rule. Four layers, each a failure on its own:
 //!   1. `zig fmt --check` over every Zig file of the tree.
 //!   2. `perf_tidy.py`: the rules of the performance guide the compiler does
 //!      not check (function and line length, assertions, recursion,
 //!      allocation and I/O in loops, struct layout, swallowed errors).
 //!   3. `check_style.py`: the order of a file (header and Contents, imports,
 //!      public before private, tests last) and its size.
+//!   4. `no_dialect_names.py`, over every source file: no string of the
+//!      engine is a dialect's name (docs/dev/ARCHITECTURE.md, the rule).
 //!
 //! A file joins `clean_paths` when its module is moved to the house style
 //! (docs/dev/ARCHITECTURE.md, block 3); from then on it cannot slide back.
@@ -38,6 +40,8 @@ const format_paths = [_][]const u8{ "build.zig", "src", "tools", "lint" };
 
 /// Adds the `lint` step and returns it, so other steps can depend on it.
 pub fn addTo(b: *std.Build) *std.Build.Step {
+    // A gate that holds no file passes whatever is written.
+    std.debug.assert(clean_paths.len > 0);
     const step = b.step("lint", "Check formatting, the performance rules and the file order");
 
     var formatted: [format_paths.len]std.Build.LazyPath = undefined;
@@ -52,5 +56,11 @@ pub fn addTo(b: *std.Build) *std.Build.Step {
         run.has_side_effects = true; // the sources are not declared inputs: check on every build
         step.dependOn(&run.step);
     }
+    const names = b.addSystemCommand(&.{ "python3", "-I" });
+    names.addFileArg(b.path("lint/no_dialect_names.py"));
+    names.addArgs(&.{ "grammars", "src" });
+    names.setCwd(b.path("."));
+    names.has_side_effects = true;
+    step.dependOn(&names.step);
     return step;
 }

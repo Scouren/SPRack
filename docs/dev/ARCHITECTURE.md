@@ -15,7 +15,9 @@ by a mechanism that works for any kind and slot. A fix for a reported netlist
 is then a grammar row and a fixture, and the next netlist of the same shape
 passes without anyone having met it.
 
-Where the code breaks that rule today is counted, not guessed: 180 special
+The first half is held by the build: a string of the engine that is a
+dialect's name fails `zig build lint`. Where the code breaks the rest of
+that rule today is counted, not guessed: 180 special
 cases in the writer (81 of them a device, a dialect or an issue written out in
 Zig), and their like in the reader and the passes. The blocks below remove
 them by mechanism, never one by one.
@@ -137,7 +139,7 @@ Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
 | goldens | `python3 -I tools/golden.py snapshot` then `diff`; again with `SPRACK_WHOLE=1` set for both snapshots | IDENTICAL for a refactor, read as a stream and read whole; a behaviour change names the cases it moved |
 | format | `zig fmt --check build.zig src tools` | clean |
 | speed | `python3 -I tools/bench.py <sprack> [<other>]`, with `perf` on PATH | instructions a line no higher than the last recorded |
-| lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths` |
+| lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths`; and in every source file, no string that is a dialect's name outside a test |
 
 ## Where a change goes
 
