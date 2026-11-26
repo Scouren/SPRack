@@ -6,7 +6,7 @@ Each inverter is built with sprack.Circuit, swept with .dc, and its switching
 point (the input where the output crosses VDD/2) is found in ngspice from the
 netlist in the PDK's own dialect or its ngspice translation, and in Xyce from
 the Xyce translation. sky130 runs natively from sprack's ngspice copy of its
-library, because the sky130_fd_pr checkout has two lines ngspice rejects. ASAP7 is BSIM-CMG, which ngspice has only as OSDI, so it
+library (ngspice 45 takes 132 s to load the checkout's tt itself; docs/verification.md 4.28). ASAP7 is BSIM-CMG, which ngspice has only as OSDI, so it
 runs in Xyce alone.
 """
 import os, re, subprocess, sys, tempfile

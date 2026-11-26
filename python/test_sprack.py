@@ -379,28 +379,32 @@ def test_pdk_sky130():
     raises(AttributeError, lambda: c.nfet_1v8, "Did you mean: nfet_01v8")
     # Another dialect: the library itself is translated, once, and referenced.
     e = raises(sprack.Unsupported, lambda: c.netlist("xyce"))
-    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 48, str(e)
+    assert all(x.file for x in e.report.errors) and len(e.report.errors) <= 312, str(e)
     xy = c.netlist("xyce", strict=False)
-    # The twelve resistor cards with dw (ngspice's NARROW,
-    # with no SHORT), which no Xyce card computes, the twelve diode cards of ngspice's level 3,
+    # The thirteen resistor cards with dw (ngspice's NARROW,
+    # with no SHORT), which no Xyce card computes, the eighteen diode cards of ngspice's level 3,
     # which Xyce's diode has not, and the parameters Xyce's cards do not take: twenty on resistor
-    # cards (nine of them the card's own value) and three temperature coefficients of the pnp.
+    # cards (ten of them the card's own value) and 261 on the BJT cards of the five npn and pnp
+    # files tt reaches (temperature coefficients, dcap, subs, gap1, gap2, ...).
     # (A parameter named vt, which Xyce refuses, is renamed.)
     codes = sorted(x.code for x in xy.report.errors)
-    # The two lines ngspice itself refuses (#25) are read through the manifest's errata.
-    assert codes == ["loss"] * 47, codes
+    # The pinned sky130_fd_pr has the two lines of #25 corrected; the third
+    # (the pfet_pass alias) is read through the manifest's errata.
+    assert codes == ["loss"] * 312, codes
     losses = [x.message for x in xy.report.errors if x.code == "loss"]
-    assert sum("__res_generic_" in m and "dw=" in m for m in losses) == 12
-    assert sum("level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002" in m for m in losses) == 12
-    assert sum("r not written: Xyce lists R" in m for m in losses) == 9
-    assert sum("the resistor card of xyce takes no such parameter" in m for m in losses) == 11
-    assert sum("the bjt card of xyce takes no such parameter" in m for m in losses) == 3
+    assert sum("__res_generic_" in m and "dw=" in m for m in losses) == 13
+    assert sum("level not written: Xyce 7.10's diode has levels 1, 2, 200 and 2002" in m for m in losses) == 18
+    assert sum("r not written: Xyce lists R" in m for m in losses) == 10
+    assert sum("the resistor card of xyce takes no such parameter" in m for m in losses) == 10
+    assert sum("the bjt card of xyce takes no such parameter" in m for m in losses) == 261
     tree = p.translate("xyce", strict=False)
     assert f'.lib "{tree}/models/sky130.lib.spice" tt\n' in unwrap(xy)
     assert "warning[caveat]: read through an erratum of the PDK" in open(os.path.join(tree, "sprack.log")).read()
     lib = open(os.path.join(tree, "models", "sky130.lib.spice")).read()
-    assert '.include "../cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"' in lib
-    assert os.path.isfile(os.path.join(tree, "cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.corner.spice"))
+    assert '.include "corners/tt.spice"' in lib
+    tt = open(os.path.join(tree, "models", "corners", "tt.spice")).read()
+    assert '.include "../../cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.pm3.spice"' in tt
+    assert os.path.isfile(os.path.join(tree, "cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.pm3.spice"))
     assert ".options parser scale=1.0u" in open(os.path.join(tree, "models", "all.spice")).read()
 
 

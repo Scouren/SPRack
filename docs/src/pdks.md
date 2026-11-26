@@ -177,36 +177,35 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-150 files, 49 errors, 109 warnings
+170 files, 313 errors, 121 warnings
 ```
 
-Status 1: two lines and forty-seven model card parameters of the library have
+Status 1: one line and 312 model card parameters of the library have
 no form in Xyce. Each error names its file and line, and says what is wrong:
 
 ```text
-pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"
-pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:33: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: sky130_fd_pr__res_generic_po r0 r1 sky130_fd_pr__res_generic_po__monte r = {r_tot} tc1r = {tc1} tc2r = {tc2}
+pdks/sky130_fd_pr/cells/special_pfet_latch/sky130_fd_pr__special_pfet_latch.pm3.spice:350: error[untranslated]: no ngspice rule understood this line; it is in the output only as a comment: xsky130_fd_pr__special_pfet_pass d g s b  l = {l} w = {w} ad = {ad} as = {as} pd = {pd} ps = {ps}  nrd = {nrd} nrs = {nrs} mult = {mult} sa = {sa} sb = {sb} sd = {sd}  sky130_fd_pr__special_pfet_latch
 ```
 
-Both are lines of the library that are not ngspice syntax, and ngspice
-itself refuses them (issue 25). The sky130A manifest's errata say what to
-read instead, as open_pdks installs them; `--errata` takes them (the
+It is a line of the library that ngspice itself refuses (issue 25): the
+`special_pfet_pass` alias names its subcircuit after its parameters. The
+sky130A manifest's errata say what to read instead; `--errata` takes them (the
 manifests are in the Python package's `pdks` directory):
 
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --errata "$(python -c 'import os, sprack; print(os.path.dirname(sprack.__file__))')/pdks/sky130A.json" --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
-pdks/sky130_fd_pr/cells/nfet_05v0_nvt/sky130_fd_pr__nfet_05v0_nvt.pm3.spice:16: warning[caveat]: read through an erratum of the PDK: 'include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"': ngspice refuses an include without its dot (Not enough parameters, fatal), and no file has that name; the ESD transistor is in ../esd_nfet_05v0_nvt; read as '.include "../esd_nfet_05v0_nvt/sky130_fd_pr__esd_nfet_05v0_nvt.pm3.spice"'
+pdks/sky130_fd_pr/cells/special_pfet_latch/sky130_fd_pr__special_pfet_latch.pm3.spice:350: warning[caveat]: read through an erratum of the PDK: 'xsky130_fd_pr__special_pfet_pass d g s b': the subcircuit's name comes after its parameters, and ngspice refuses the instance (unknown subckt); read as 'xsky130_fd_pr__special_pfet_pass d g s b sky130_fd_pr__special_pfet_latch'
 ...
 ```
 
-`sprack.PDK` reads them from its manifest by itself. Twelve more
-are the resistor models that narrow the width by `dw`, one entry each:
+`sprack.PDK` reads them from its manifest by itself. Thirteen of the
+errors are the resistor models that narrow the width by `dw`, one entry each:
 
 ```text
 pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:130: error[loss]: model 'sky130_fd_pr__res_generic_nd': dw="-tol_nfom/2-nfom_dw/2" not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 ```
 
-The other twelve are diode cards of ngspice's level 3, which Xyce's diode
+Eighteen are diode cards of ngspice's level 3, which Xyce's diode
 does not have:
 
 ```text
@@ -219,12 +218,18 @@ parameter for:
 
 ```text
 pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:143: error[loss]: model 'mrcn': r not written: Xyce lists R among its resistor card's parameters, but not what a device without a value of its own takes from it; give the value on the instance
-pdks/sky130_fd_pr/models/r+c.mrp1monte.spice:34: error[loss]: model 'sky130_fd_pr__res_generic_po__monte': tref=30.0 not written: the resistor card of xyce takes no such parameter; it takes narrow, defw, r, rsh, tc1, tc2, tce, tnom
+pdks/sky130_fd_pr/cells/res_high_po/sky130_fd_pr__res_high_po.model.spice:45: error[loss]: model 'rhead_model': sw_et=0 not written: the resistor card of xyce takes no such parameter; it takes narrow, defw, r, rsh, tc1, tc2, tce, tnom
 ```
 
-The last three are temperature coefficients of the pnp's card (`tnf1`,
-`tnf2`, `tikf1`) that Xyce's BJT does not have. Names Xyce's model lacks at
-the value that is ngspice's default (the BSIM3 cards' `rd=0` and `ldif=0`)
+The other 261 are parameters of the five npn and pnp cards (temperature
+coefficients such as `tnf1` and `tikf1`, `dcap`, `subs`, `gap1`) that
+Xyce's BJT does not have:
+
+```text
+pdks/sky130_fd_pr/cells/pnp_05v5/sky130_fd_pr__pnp_05v5_W0p68L0p68.model.spice:32: error[loss]: model 'sky130_fd_pr__pnp_05v5_W0p68L0p68__model': tikf1=-0.0037823 not written: the bjt card of xyce takes no such parameter; it takes tnom, is, nf, nr, nc, rb, rbm, re, rc, cje, tf, xtf, vtf, ptf, cjc, tr, eg, kf, af, fc, c2, c4, bf, va, ikf, ise, ne, br, var, ikr, isc, irb, vje, mje, itf, vjc, mjc, xcjc, cjs, vjs, mjs, xtb, xti, nk
+```
+
+Names Xyce's model lacks at the value that is ngspice's default (the BSIM3 cards' `rd=0` and `ldif=0`)
 are warnings: they change nothing.
 
 The rest of the tree is translated (a parameter named `vt`, which Xyce
@@ -248,7 +253,7 @@ print(pdk.device("nfet_01v8")["ports"])
 ```text
 PDK('sky130A', root='…/pdks/sky130_fd_pr', corner='tt', dialect='ngspice')
 ('tt', 'ff', 'ss', 'sf', 'fs', 'll', 'hh', 'hl', 'lh')
-237 devices
+258 devices
 ['d', 'g', 's', 'b']
 ```
 
@@ -288,9 +293,9 @@ or without the PDK's prefix (`sky130_fd_pr__`), in any case.
 
 The catalogue is what the corner's library reaches, not every directory of
 the checkout. In sky130_fd_pr, `sky130.lib.spice` section `tt` reaches files
-in 67 of the 125 `cells/` directories; the other 58 (the 20 V transistors,
-most `cap_vpp` capacitors, the inductors, the RF test coils and aura cells,
-the 5.5 V and 11 V NPNs) are in no file the corner includes, so they are not
+in 76 of the 129 `cells/` directories; the other 53 (most `cap_vpp`
+capacitors, the inductors, the RF test coils and aura cells, the RF and ESD
+20 V transistors, the RF bipolars) are in no file the corner includes, so they are not
 devices of `sky130A`. A cell outside the corner is still usable by including
 its file in the circuit.
 
@@ -316,8 +321,8 @@ for call in (lambda: c.nfet_01v8("M3", "a", "b", 0),
 
 ```text
 sky130_fd_pr__nfet_01v8 has 4 terminals (d, g, s, b), got 3
-sky130_fd_pr__nfet_01v8 has no parameter 'fingers'; it has: l, w, ad, as, pd, ps, nrd, nrs, sa, sb, sd, mult, nf
-'nfet_01v9' is neither a statement kind nor a device of sky130A. Did you mean: nfet_01v8, pfet_01v8, nfet_01v8_lvt, esd_nfet_01v8, pfet_01v8_mvt?
+sky130_fd_pr__nfet_01v8 has no parameter 'fingers'; it has: l, w, nf, ad, as, pd, ps, nrd, nrs, sa, sb, sd, mult
+'nfet_01v9' is neither a statement kind nor a device of sky130A. Did you mean: nfet_01v8, pfet_01v8, nfet_20v0, nfet_01v8_lvt, esd_nfet_01v8?
 ```
 
 The instance name is written as given. Where the target tells devices apart
@@ -340,7 +345,7 @@ except sprack.Unsupported as err:
 ```
 
 ```text
-47 errors
+312 errors
 error[loss]: pdks/sky130_fd_pr/models/sky130_fd_pr__model__r+c.model.spice:line 130: model 'sky130_fd_pr__res_generic_nd': dw="-tol_nfom/2-nfom_dw/2" not written: xyce has the one parameter 'narrow' for narrow and short, and they are not equal here (one left out is 0): xyce computes R = RSH (L - NARROW) / (W - NARROW), with no SHORT (a warning, and it is ignored); ngspice computes R = RSH (L - 2 SHORT) / (W - 2 NARROW)
 ```
 
@@ -364,7 +369,7 @@ XMn out in 0 0 sky130_fd_pr__nfet_01v8 params: w=0.5 l=0.15
 .tran 10p 8n
 .end
 
-47 errors in the report
+312 errors in the report
 ```
 
 A circuit on a PDK means the temperature of the PDK's own simulator: HSPICE

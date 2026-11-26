@@ -1713,6 +1713,33 @@ drain. The sky130A manifest holds the three as errata; sky130 to HSPICE,
 Spectre and VACASK is then 0 errors, and the installed sky130A loses its
 Xyce error of the third.
 
+Google's sky130_fd_pr is archived (2024) at f62031a; FOSSi Foundation's
+continues it, and its main (29b5515) has the first line removed (8ed2664,
+as open_pdks does) and the second in open_pdks' form (dfcebee). ngspice 45,
+`.lib .../models/sky130.lib.spice tt` with an inverter, an
+`nfet_05v0_nvt w=10 l=2` at 5 V and a `res_generic_po w=0.33 l=10` at 1 V:
+
+| tree | ngspice 45 |
+|---|---|
+| f62031a | `Error in line include "sky130_fd_pr__esd_nfet_05v0_nvt.pm3"`, fatal |
+| f62031a, the include line removed | `Error on line 2270 or its substitute`, interrupted |
+| f62031a, both lines as in 29b5515 | v(out) 0.3355476, i(vd5) -2.23202e-04, i(vr) -5.68465e-04; 3 s |
+| 29b5515 | v(out) 0.3355476, i(vd5) -2.23202e-04, i(vr) -5.69985e-04; 132 s |
+
+The third line is in 29b5515 too
+(`cells/special_pfet_latch/sky130_fd_pr__special_pfet_latch.pm3.spice:350`):
+`Too many parameters for subcircuit type "sky130_fd_pr__special_pfet_latch"
+(instance: xxp.xsky130_fd_pr__special_pfet_pass)`, interrupted; with the
+name before the parameters, an `XP` of `special_pfet_pass` and an `XL` of
+`special_pfet_latch` (`w=0.14 l=0.15`, 1.8 V on drain and body) load and
+draw i(vdd) -4.16290e-05. Its erratum names the file alone, so it applies
+to both layouts. With the flake on 29b5515, sky130 (319 files, all
+corners) to ngspice, HSPICE and VACASK is 0 errors, to Spectre 2 (the
+`q=` capacitors of `cap_var_lvt` and `cap_var_hvt`; f62031a has the first,
+1), and to Xyce 312, all `loss`: 261 BJT parameters of the five npn and pnp files the
+corners now reach, 18 level 3 diodes, 13 `dw`, 20 resistor card
+parameters.
+
 ### 4.29 ngspice forms the reader did not take (#43)
 
 Lines ngspice 45 loads that the ngspice reader kept as text (60 corpus

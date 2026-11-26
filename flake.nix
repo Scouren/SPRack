@@ -20,7 +20,10 @@
     vacask-src.url = "git+https://codeberg.org/arpadbuermen/VACASK?rev=b2c15511a1a7c6246cca6bcfd8d38bfb3c750d7a";
     vacask-src.flake = false;
     # PDK model libraries for the PDK tests in python/test_sprack.py.
-    sky130_fd_pr.url = "github:google/skywater-pdk-libs-sky130_fd_pr";
+    # FOSSi Foundation's repository, where sky130_fd_pr is maintained since
+    # Google's was archived (2024): its main has the two lines of issue 25
+    # corrected (8ed2664, dfcebee), as open_pdks ships them.
+    sky130_fd_pr.url = "github:fossi-foundation/skywater-pdk-libs-sky130_fd_pr";
     sky130_fd_pr.flake = false;
     ihp.url = "github:IHP-GmbH/IHP-Open-PDK";
     ihp.flake = false;
