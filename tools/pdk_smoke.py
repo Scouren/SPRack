@@ -21,6 +21,11 @@ work = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="pdk_smoke.
 def inverter(name, sub, vdd, n, p, **kw):
     pdk = sprack.PDK(name, root=os.path.join(PDKS, sub), cache_dir=os.path.join(work, "cache"))
     c = sprack.Circuit(f"{name} inverter", pdk=pdk)
+    # At the PDK's own simulator's temperature, said, so every target runs
+    # the same one (an unset one is an error where the defaults differ).
+    # ponytail: HSPICE's 25 and 27 elsewhere, as the grammars' `implied` lines say.
+    t = 25 if pdk.dialect == "hspice" else 27
+    c.options(temp=t, tnom=t)
     c.V("dd", "vdd", 0, vdd)
     c.V("in", "in", 0, 0)
     getattr(c, p[0])("Mp", "out", "in", "vdd", "vdd", **p[1])

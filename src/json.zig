@@ -198,6 +198,10 @@ pub fn writeNetlist(w: *Writer, nl: *const ir.Netlist) Writer.Error!void {
     try str(w, nl.title);
     try w.writeAll(",\"dialect\":");
     try str(w, nl.dialect);
+    if (nl.defaults.len > 0) {
+        try w.writeAll(",\"defaults\":");
+        try str(w, nl.defaults);
+    }
     if (nl.folds_case) try w.writeAll(",\"folds_case\":true");
     try w.writeAll(",\"stmts\":");
     try stmts(w, nl.stmts);
@@ -631,6 +635,9 @@ pub fn parseDocument(arena: Allocator, text: []const u8, report: *ir.Report) All
     };
     if (root.object.get("dialect")) |t| if (t == .string) {
         nl.dialect = t.string;
+    };
+    if (root.object.get("defaults")) |t| if (t == .string) {
+        nl.defaults = t.string;
     };
     if (root.object.get("folds_case")) |t| nl.folds_case = t == .bool and t.bool;
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);

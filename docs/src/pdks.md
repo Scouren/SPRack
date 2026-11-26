@@ -367,6 +367,14 @@ XMn out in 0 0 sky130_fd_pr__nfet_01v8 params: w=0.5 l=0.15
 47 errors in the report
 ```
 
+A circuit on a PDK means the temperature of the PDK's own simulator: HSPICE
+assumes 25 degrees (TEMP and TNOM), ngspice, Xyce, Spectre, VACASK and
+LTspice 27. A circuit that sets none, written for a target that assumes
+another, is an error, since the result then depends on the simulator that
+runs it (ASAP7's `nmos_rvt` in Xyce: 113.55 uA at 25, 113.40 uA at 27).
+Say it with `c.options(temp=25, tnom=25)`. A netlist translated from a
+dialect gets that dialect's defaults written out instead, with a warning.
+
 `pdk.translate(dialect, strict=False)` does the translation alone and
 returns the directory; the full log is `sprack.log` in it.
 `pdk.library_errors(dialect)` returns the errors as a report.
@@ -440,13 +448,13 @@ run), and HSPICE and Spectre are measured by hand (issues 56 and 57).
 `tools/pdk_smoke.py` is the smaller check it grew from: one inverter per PDK,
 its switching point (the input where the output crosses VDD/2) found in the
 PDK's own simulator and in Xyce. A run with no points or no crossing fails.
-Measured:
+Each inverter runs at its PDK simulator's temperature, said in the circuit
+(25 degrees for the HSPICE PDKs, 27 for the ngspice one): a circuit that
+sets none is an error where the target assumes another. Measured with
+ngspice 45 and Xyce 7.10:
 
-| PDK | ngspice 42 | Xyce |
-|---|---|---|
-| sky130A | 0.8551763 V | 0.85518 V |
-| FreePDK45 | 0.5216183 V | 0.5216184 V |
-| ASAP7 | (BSIM-CMG: OSDI only) | 0.34753 V |
-
-The Xyce column is from the run reported in issue 67 (version not recorded);
-the ngspice column was rerun for this page.
+| PDK | temperature | ngspice | Xyce |
+|---|---|---|---|
+| sky130A | 27 | 0.8551763 V | 0.8551763 V |
+| FreePDK45 | 25 | 0.5216142 V | 0.5216143 V |
+| ASAP7 | 25 | (BSIM-CMG: OSDI only) | 0.3422805 V |

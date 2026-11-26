@@ -475,6 +475,10 @@ pub const Netlist = struct {
     title: []const u8 = "",
     /// Name of the dialect this was read from.
     dialect: []const u8 = "",
+    /// The dialect whose defaults the netlist means where it sets none
+    /// (the temperature), when that is not `dialect`'s: a circuit built on
+    /// a PDK means its PDK's. Empty: `dialect`'s.
+    defaults: []const u8 = "",
     library: bool = false,
     /// Names differing only by case are one name although the dialect is
     /// case sensitive: the file said so (`header folded`), or part of it is

@@ -3675,6 +3675,33 @@ pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist
     return if (any) st else null;
 }
 
+/// A netlist built with no dialect of its own on a PDK (`ir.Netlist.defaults`)
+/// that sets no temperature, written for a target whose defaults differ
+/// from the PDK simulator's (HSPICE's 25 against 27 elsewhere): an error,
+/// since the result then depends on the simulator that runs it. Nothing is
+/// written for it. A netlist read in a dialect gets that dialect's defaults
+/// written instead (`defaultOptions`).
+fn reportDefaults(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist, report: *ir.Report) Allocator.Error!void {
+    if (nl.defaults.len == 0) return;
+    var as = nl.*;
+    as.dialect = nl.defaults;
+    const d = try defaultOptions(arena, g, &as) orelse return;
+    const sg = sprack.find(nl.defaults) orelse return;
+    var keys: std.ArrayList(u8) = .empty;
+    var said: std.ArrayList(u8) = .empty;
+    var theirs: std.ArrayList(u8) = .empty;
+    for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {
+        const first = said.items.len == 0;
+        try keys.print(arena, "{s}{s}", .{ if (first) "" else " or ", sl.name });
+        try said.print(arena, "{s}{s}={s}", .{ if (first) "" else ", ", sl.name, try describeValue(arena, d.at(i)) });
+        const have = impliedValue(arena, g, sg, nl.stmts, @intCast(i), 0);
+        try theirs.print(arena, "{s}{s}={s}", .{ if (first) "" else ", ", sl.name, if (have) |h| try describeValue(arena, h) else "its own" });
+    };
+    report.add(.@"error", .ambiguous, 0, "options: the circuit sets no {s}; its PDK's simulator ({s}) assumes {s} and {s} assumes {s}, so the result depends on the simulator that runs it: set them in the circuit", .{
+        keys.items, nl.defaults, said.items, g.name, theirs.items,
+    });
+}
+
 /// Whether `nl` is written back in its own dialect: read in `g`, or built
 /// (Python, JSON) from statements read in `g` (`Stmt.dialect`) and others
 /// that name no dialect, such as a subcircuit built around them.
@@ -3805,6 +3832,7 @@ pub fn write(
     }
     var gathered = try ir.gatherSteps(arena, filled);
     if (g.canWrite(.step)) w.checkSteps(gathered);
+    try reportDefaults(arena, g, nl, report);
     // Before the alters are laid out, so a run that changes no temperature
     // is at the source's.
     if (try defaultOptions(arena, g, nl)) |d| {
@@ -4132,6 +4160,7 @@ pub const Stream = struct {
         var opts = nl.*;
         opts.stmts = sv.options;
         report.phase = ir.Phase.options;
+        try reportDefaults(perm, g, &opts, report);
         if (try defaultOptions(perm, g, &opts)) |d| {
             var names: std.ArrayList(u8) = .empty;
             for (schema.info(.options).slots, 0..) |sl, i| if (d.at(i) != .none) {

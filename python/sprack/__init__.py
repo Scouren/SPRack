@@ -609,6 +609,11 @@ class Circuit(_Scope):
             # What the PDK's libraries declare: the writer sees their names
             # only, and a model or a function of theirs is one it knows.
             doc["env"] = self.pdk._env
+        if self.pdk is not None and not self._source_dialect:
+            # A circuit of no dialect on a PDK means the defaults of the
+            # PDK's simulator (its temperature): the writer reports a target
+            # that assumes others.
+            doc["defaults"] = self.pdk.dialect
         return doc
 
     def to_json(self, dialect: str | None = None, *, strict: bool = True) -> str:

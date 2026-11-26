@@ -89,7 +89,12 @@ def deck(pdk, dev, kind, ptype, vdd):
         return call("1", *nodes)
 
     def new():
-        return sprack.Circuit(f"{dev['name']} {kind}", pdk=pdk)
+        c = sprack.Circuit(f"{dev['name']} {kind}", pdk=pdk)
+        # The PDK simulator's temperature, said, so the target runs the same
+        # one. ponytail: HSPICE's 25 and 27 elsewhere (the grammars' `implied` lines).
+        t = 25 if pdk.dialect == "hspice" else 27
+        c.options(temp=t, tnom=t)
+        return c
 
     if kind == "mosfet":
         for tag, vg, vd in (("id_on", vdd, vdd), ("id_half", vdd / 2, vdd / 2)):

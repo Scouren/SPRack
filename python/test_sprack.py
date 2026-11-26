@@ -417,6 +417,10 @@ def test_pdk_ihp():
     ng = unwrap(c.netlist("ngspice"))
     assert ng.count(".lib ") == 6 and '/cornerMOSlv.lib" mos_tt\n' in ng and '/cornerHBT.lib" hbt_typ\n' in ng
     assert "XM1 out in 0 0 sg13_lv_nmos w=1u l=0.13u ng=1\n" in ng
+    # A circuit that sets no temperature means its PDK simulator's (ngspice's
+    # TNOM 27), which HSPICE does not assume: an error, until it says it.
+    raises(sprack.Unsupported, lambda: c.netlist("hspice"), "the circuit sets no tnom; its PDK's simulator (ngspice) assumes tnom=27 and hspice assumes tnom=25")
+    c.options(temp=27, tnom=27)
     hs = unwrap(c.netlist("hspice"))  # translates the library: conditionals and all
     assert '/cornerMOSlv.lib\' mos_tt\n' in hs or '/cornerMOSlv.lib" mos_tt\n' in hs
     # Spectre has no agauss(): written as statistics variations. Conditional
@@ -438,6 +442,10 @@ def test_pdk_asap7():
     c.tran("1p", "1n")
     hs = unwrap(c.netlist("hspice"))
     assert f'.include "{p.root}/models/hspice/7nm_FF.pm"\n' in hs and "M1 out in 0 0 nmos_rvt nfin=3\n" in hs
+    # HSPICE runs the PDK at 25 degrees, the others at 27: until the circuit
+    # says its temperature, that is an error (Xyce: 113.55 uA at 25, 113.40 at 27).
+    raises(sprack.Unsupported, lambda: c.netlist("spectre"), "its PDK's simulator (hspice) assumes temp=25, tnom=25 and spectre assumes temp=27, tnom=27")
+    c.options(temp=25, tnom=25)
     sp = c.netlist("spectre")
     assert "M1 (out in 0 0) nmos_rvt nfin=3\n" in sp
     tree = p.translate("spectre")
@@ -457,6 +465,8 @@ def test_pdk_freepdk45():
     c.NMOS_VTL("M1", "out", "in", 0, 0, w="90n", l="50n")
     c.pmos_vtl("M2", "out", "in", "vdd", "vdd", w="180n", l="50n")       # any case
     c.tran("1p", "1n")
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "its PDK's simulator (hspice) assumes temp=25, tnom=25 and ngspice assumes temp=27")
+    c.options(temp=25, tnom=25)
     ng = c.netlist("ngspice")
     assert "M1 out in 0 0 NMOS_VTL w=90n l=50n\n" in ng and "M2 out in vdd vdd PMOS_VTL w=180n l=50n\n" in ng
     tree = p.translate("ngspice")

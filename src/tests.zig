@@ -5035,6 +5035,35 @@ test "c4: a dialect's default TNOM and TEMP are written where the target's diffe
     _ = try sameBack(a, "hspice", "spectre", "t\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n", &r6);
 }
 
+test "a circuit on a PDK that sets no temperature is an error where the PDK's simulator assumes another" {
+    // ASAP7 is an HSPICE PDK (25 degrees); a sprack.Circuit on it written for
+    // Xyce ran at Xyce's 27 with nothing said: nmos_rvt 113.40477 uA against
+    // 113.55035 uA at 25 in Xyce 7.10 (issue 31).
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const circuit = "{\"title\":\"t\",\"dialect\":\"sprack\",\"defaults\":\"hspice\",\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1k\"},{\"kind\":\"op\"}]}";
+    var r1: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, circuit, &r1);
+    const xy = try writeAs(a, "xyce", &nl, &r1);
+    try reported(&r1, .@"error", "options: the circuit sets no temp or tnom; its PDK's simulator (hspice) assumes temp=25, tnom=25 and xyce assumes temp=27, tnom=27");
+    try testing.expect(std.mem.indexOf(u8, xy, "temp") == null);
+    // The PDK's own simulator, or a circuit that says its temperatures: nothing to report.
+    var r2: ir.Report = .init(a);
+    _ = try writeAs(a, "hspice", &nl, &r2);
+    try testing.expectEqual(0, r2.count(.@"error"));
+    const set = "{\"title\":\"t\",\"dialect\":\"sprack\",\"defaults\":\"hspice\",\"stmts\":[{\"kind\":\"options\",\"temp\":25,\"tnom\":25},{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1k\"},{\"kind\":\"op\"}]}";
+    var r3: ir.Report = .init(a);
+    const nl3 = try sprack.json.parseNetlist(a, set, &r3);
+    _ = try writeAs(a, "xyce", &nl3, &r3);
+    try testing.expectEqual(0, r3.count(.@"error"));
+    // A circuit with no PDK means no simulator's defaults: nothing to report.
+    var r4: ir.Report = .init(a);
+    const bare = try sprack.json.parseNetlist(a, "{\"title\":\"t\",\"stmts\":[{\"kind\":\"op\"}]}", &r4);
+    _ = try writeAs(a, "xyce", &bare, &r4);
+    try testing.expectEqual(0, r4.count(.@"error"));
+}
+
 test "c4: SFFM argument order, HSPICE and Xyce against ngspice" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
