@@ -273,17 +273,13 @@ pub const Driver = struct {
         try frame.open(w, &frameFacts(sv, to.env));
         if (s.foreign) to.report.phase = ir.Phase.params;
         if (s.foreign) try s.beginRenames(sv);
-        if (s.foreign and !s.whole) s.topo = try topology.Stream.init(
-            ir.big,
-            perm,
-            g,
-            to.report,
-            k.src.?,
-            sv.library,
-            sv.facts,
-            sv.globals.items,
-            sv.early.items,
-        );
+        if (s.foreign and !s.whole) s.topo = try topology.Stream.init(ir.big, perm, g, to.report, .{
+            .src = k.src.?,
+            .library = sv.library,
+            .facts = sv.facts,
+            .globals = sv.globals.items,
+            .early = sv.early.items,
+        });
         if (!s.whole) try s.assumedFirst(sv);
     }
 
