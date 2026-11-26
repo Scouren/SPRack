@@ -3,6 +3,14 @@
 //!
 //! Contents:
 //! - `pub const Grammar = struct`
+//!   - reading: `readCandidates`, `rulesOf`, `ruleHere`, `isEnding`, `canRead`
+//!   - writing: `canWrite`, `canWriteRule`, `writesSlot`, `checksSlot`,
+//!     `blockOf`, `rawOf`, `wrapOf`, `movedTo`, `isSpread`, `spreadWord`,
+//!     `isRerun`, `enumOf`, `impliedOf`
+//!   - what has no form: `ownReason`, `ownModelReason`, `noFamilyReason`,
+//!     `absentReason`, `slotAbsentReason`, `inertReason`
+//!   - model cards: `hasModel`, `paramsOf`, `modelParamsOf`, `modelParamsOnly`,
+//!     `edgeText`, `computesText`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -177,19 +185,25 @@ pub const Grammar = struct {
     /// (`own`), by its first word.
     pub fn ownReason(g: *const Grammar, line: []const u8) ?[]const u8 {
         const t = std.mem.trimStart(u8, line, " \t");
-        var end: usize = 0;
-        while (end < t.len and t[end] != ' ' and t[end] != '\t' and t[end] != '\n' and
-            t[end] != '(' and t[end] != '=')
-            end += 1;
-        const first = t[0..end];
+        const first = t[0 .. std.mem.indexOfAny(u8, t, " \t\n(=") orelse t.len];
         for (g.owns) |o| {
             if (o.model) continue;
-            if (o.word.len > 1 and o.word[o.word.len - 1] == '*') {
-                const pre = o.word[0 .. o.word.len - 1];
-                if (first.len > pre.len and (if (g.lex.case_sensitive) std.mem.startsWith(u8, first, pre) else std.ascii.startsWithIgnoreCase(first, pre))) return o.reason;
-            } else if (if (g.lex.case_sensitive) std.mem.eql(u8, first, o.word) else std.ascii.eqlIgnoreCase(first, o.word)) return o.reason;
+            // `"S*"`: every word that starts so, but not the bare prefix.
+            const wild = o.word.len > 1 and o.word[o.word.len - 1] == '*';
+            const word = if (wild) o.word[0 .. o.word.len - 1] else o.word;
+            const hit = if (wild)
+                first.len > word.len and g.sameWord(first[0..word.len], word)
+            else
+                g.sameWord(first, word);
+            if (hit) return o.reason;
         }
         return null;
+    }
+
+    /// Are two words the same, by this dialect's case rule?
+    fn sameWord(g: *const Grammar, a: []const u8, b: []const u8) bool {
+        if (g.lex.case_sensitive) return std.mem.eql(u8, a, b);
+        return std.ascii.eqlIgnoreCase(a, b);
     }
 
     pub fn noFamilyReason(g: *const Grammar, family: []const u8) ?[]const u8 {

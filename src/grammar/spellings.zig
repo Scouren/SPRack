@@ -1,139 +1,146 @@
-//! Sections that list spellings, one a line up to `end`: `models`,
-//! `functions`, `variables`, `operators`, `params`, `modelparams`, `signals`.
+//! Directives of how a dialect spells and means names: the sections
+//! `functions`, `variables`, `operators`, `params`, `modelparams` and
+//! `signals`, one name a line up to `end`, and the lines `differs` and `means`.
 //!
 //! Contents:
-//! - `pub fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry`
-//! - `pub fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8,
-//!   known: ?[]const []const u8) Error![]const Spellings`
-//! - `pub fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm`
+//! - `pub fn functions(c: *C, g: *Grammar, lines: *Lines) Error!void`
+//! - `pub fn variables(c: *C, g: *Grammar, lines: *Lines) Error!void`
+//! - `pub fn operators(c: *C, g: *Grammar, lines: *Lines) Error!void`
+//! - `pub fn params(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
+//! - `pub fn modelparams(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
+//! - `pub fn signals(c: *C, g: *Grammar, lines: *Lines) Error!void`
+//! - `pub fn differs(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
+//! - `pub fn means(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 
 const std = @import("std");
 const schema = @import("schema");
+const Kind = schema.Kind;
 const context = @import("context.zig");
+const tables = @import("tables.zig");
 const types = @import("types.zig");
 const C = context.C;
 const Error = context.Error;
 const Lines = context.Lines;
 const args = context.args;
-const isNumber = context.isNumber;
-const ModelEntry = types.ModelEntry;
-const ModelKv = types.ModelKv;
-const ModelSpelling = types.ModelSpelling;
-const ModelWhen = types.ModelWhen;
+const kindOf = context.kindOf;
+const Grammar = tables.Grammar;
+const Differs = types.Differs;
+const Means = types.Means;
+const ModelParamTable = types.ModelParamTable;
+const ParamTable = types.ParamTable;
 const SignalForm = types.SignalForm;
 const Spellings = types.Spellings;
 
-pub fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry {
-    var out: []const ModelEntry = &.{};
-    while (lines.next()) |line| {
-        if (std.mem.eql(u8, line, "end")) return out;
-        const eq = std.mem.indexOf(u8, line, " = ") orelse return c.fail(
-            lines.no,
-            "model lines are `family [polarity] = spelling | spelling`",
-            .{},
-        );
-        const lhs = try args(c, lines.no, line[0..eq]);
-        if (lhs.len < 1 or lhs.len > 2)
-            return c.fail(lines.no, "expected `family [polarity]` before '='", .{});
-        if (schema.familyKind(lhs[0]) == null)
-            return c.fail(lines.no, "unknown model family '{s}'", .{lhs[0]});
-        var spellings: []const ModelSpelling = &.{};
-        var rhs = std.mem.trimEnd(u8, line[eq + 3 ..], " \t");
-        const provided = std.mem.endsWith(u8, rhs, " provided");
-        if (provided) rhs = rhs[0 .. rhs.len - " provided".len];
-        var it = std.mem.splitScalar(u8, rhs, '|');
-        while (it.next()) |alt| {
-            const w = try args(c, lines.no, alt);
-            if (w.len == 0) return c.fail(lines.no, "empty model spelling", .{});
-            var kv: []const ModelKv = &.{};
-            var when: []const ModelWhen = &.{};
-            var conds = false;
-            for (w[1..]) |pair| {
-                if (std.mem.eql(u8, pair, "when")) {
-                    conds = true;
-                    continue;
-                }
-                if (conds) {
-                    const ge = std.mem.indexOf(u8, pair, ">=");
-                    const pe = ge orelse (std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
-                        lines.no,
-                        "expected key=value or nodes>=n after `when` in '{s}'",
-                        .{pair},
-                    ));
-                    const key = pair[0..pe];
-                    const val = pair[pe + @as(usize, if (ge != null) 2 else 1) ..];
-                    if (val.len == 0 or !isNumber(val))
-                        return c.fail(lines.no, "a `when` value is a number: '{s}'", .{pair});
-                    if (ge != null and !std.mem.eql(u8, key, "nodes"))
-                        return c.fail(
-                            lines.no,
-                            "only `nodes>=n` compares; a parameter is `key=value`: '{s}'",
-                            .{pair},
-                        );
-                    when = try c.add(
-                        ModelWhen,
-                        when,
-                        .{ .key = try c.foldIf(fold, key), .val = val, .ge = ge != null },
-                    );
-                    continue;
-                }
-                if (pair[0] == '!') {
-                    kv = try c.add(
-                        ModelKv,
-                        kv,
-                        .{ .key = try c.foldIf(fold, pair[1..]), .val = "", .absent = true },
-                    );
-                } else if (std.mem.indexOf(u8, pair, ">=")) |ge| {
-                    if (!isNumber(pair[ge + 2 ..]))
-                        return c.fail(lines.no, "`key>=n` takes a number: '{s}'", .{pair});
-                    kv = try c.add(
-                        ModelKv,
-                        kv,
-                        .{
-                            .key = try c.foldIf(fold, pair[0..ge]),
-                            .val = pair[ge + 2 ..],
-                            .absent = false,
-                            .min = true,
-                        },
-                    );
-                } else {
-                    const pe = std.mem.indexOfScalar(u8, pair, '=') orelse return c.fail(
-                        lines.no,
-                        "expected key=value or !key in '{s}'",
-                        .{pair},
-                    );
-                    kv = try c.add(
-                        ModelKv,
-                        kv,
-                        .{
-                            .key = try c.foldIf(fold, pair[0..pe]),
-                            .val = pair[pe + 1 ..],
-                            .absent = false,
-                        },
-                    );
-                }
-            }
-            if (conds and when.len == 0)
-                return c.fail(lines.no, "`when` with no condition after it", .{});
-            spellings = try c.add(
-                ModelSpelling,
-                spellings,
-                .{ .type = try c.foldIf(fold, w[0]), .kv = kv, .when = when },
-            );
-        }
-        out = try c.add(ModelEntry, out, .{
-            .family = lhs[0],
-            .polarity = if (lhs.len == 2) lhs[1] else "",
-            .spellings = spellings,
-            .provided = provided,
-        });
-    }
-    return c.fail(lines.no, "models section is missing 'end'", .{});
+pub fn functions(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    const fold = !g.lex.case_sensitive;
+    g.functions = try parseSpellings(c, lines, fold, "function", &schema.functions);
 }
+
+pub fn variables(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    const fold = !g.lex.case_sensitive;
+    g.variables = try parseSpellings(c, lines, fold, "variable", &schema.variables);
+}
+
+/// Operators are spelled as written, whatever the case of the dialect.
+pub fn operators(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    g.operators = try parseSpellings(c, lines, false, "operator", &schema.operators);
+}
+
+/// `params kind`, then its parameters up to `end`.
+pub fn params(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
+    const fold = !g.lex.case_sensitive;
+    const kind = try kindOf(c, lines.no, rest);
+    if (schema.slotOf(kind, "params") == null)
+        return c.fail(lines.no, "params needs a kind with parameters", .{});
+    g.params = try c.add(
+        ParamTable,
+        g.params,
+        .{ .kind = kind, .names = try parseSpellings(c, lines, fold, "parameter", null) },
+    );
+}
+
+/// `modelparams family [only]`, then its parameters up to `end`.
+pub fn modelparams(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
+    const fold = !g.lex.case_sensitive;
+    const only = std.mem.endsWith(u8, rest, " only");
+    const fam = if (only) rest[0 .. rest.len - " only".len] else rest;
+    if (schema.familyKind(fam) == null)
+        return c.fail(lines.no, "unknown model family '{s}'", .{fam});
+    g.modelparams = try c.add(
+        ModelParamTable,
+        g.modelparams,
+        .{
+            .family = fam,
+            .names = try parseSpellings(c, lines, fold, "model parameter", null),
+            .only = only,
+        },
+    );
+}
+
+/// `signals`, then `form = "template"` lines up to `end`.
+pub fn signals(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    g.signals = try parseSignals(c, lines, !g.lex.case_sensitive);
+}
+
+/// `differs function-or-operator : reason`.
+pub fn differs(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+        no,
+        "differs is `differs function-or-operator : reason`",
+        .{},
+    );
+    const canon = std.mem.trim(u8, rest[0..colon], " \t");
+    var known = false;
+    for (schema.functions) |k| known = known or std.mem.eql(u8, k, canon);
+    for (schema.operators) |k| known = known or std.mem.eql(u8, k, canon);
+    if (!known) return c.fail(no, "unknown function or operator '{s}'", .{canon});
+    g.differs = try c.add(Differs, g.differs, .{ .canon = canon, .text = rest[colon + 3 ..] });
+}
+
+/// `means [kind] f(x, y) = expression`.
+pub fn means(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const eq = std.mem.indexOf(u8, rest, " = ") orelse return c.fail(
+        no,
+        "means is `means [kind] f(x, y) = expression`",
+        .{},
+    );
+    var lhs = std.mem.trim(u8, rest[0..eq], " \t");
+    var kind: ?Kind = null;
+    if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp|
+        if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
+            kind = try kindOf(c, no, lhs[0..sp]);
+            lhs = std.mem.trim(u8, lhs[sp + 1 ..], " \t");
+        };
+    const open = std.mem.indexOfScalar(u8, lhs, '(') orelse return c.fail(
+        no,
+        "means needs `f(x, y)` before '='",
+        .{},
+    );
+    if (lhs[lhs.len - 1] != ')') return c.fail(no, "means needs `f(x, y)` before '='", .{});
+    const canon = lhs[0..open];
+    if (!schema.isFunction(canon)) return c.fail(no, "unknown function '{s}'", .{canon});
+    // `lhs` ends in ')' and holds a '(': the arguments lie between them.
+    std.debug.assert(open < lhs.len - 1);
+    var margs: []const []const u8 = &.{};
+    var it = std.mem.splitScalar(u8, lhs[open + 1 .. lhs.len - 1], ',');
+    while (it.next()) |a| margs = try c.add([]const u8, margs, std.mem.trim(u8, a, " \t"));
+    g.means = try c.add(
+        Means,
+        g.means,
+        .{
+            .kind = kind,
+            .canon = canon,
+            .args = margs,
+            .body = std.mem.trim(u8, rest[eq + 3 ..], " \t"),
+        },
+    );
+}
+
+// ---- private ----
 
 /// `known` null: any name goes (instance parameters), and `name>0` marks
 /// one that must be positive.
-pub fn parseSpellings(
+fn parseSpellings(
     c: *C,
     lines: *Lines,
     fold: bool,
@@ -144,6 +151,8 @@ pub fn parseSpellings(
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;
         const a = try args(c, lines.no, line);
+        // A line `Lines.next` gives starts with a character that is no blank.
+        std.debug.assert(a.len > 0);
         var names: []const []const u8 = &.{};
         var spell: []const []const u8 = &.{};
         if (std.mem.eql(u8, a[0], "same")) {
@@ -185,7 +194,7 @@ pub fn parseSpellings(
     return c.fail(lines.no, "{s} section is missing 'end'", .{what});
 }
 
-pub fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm {
+fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm {
     var out: []const SignalForm = &.{};
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) return out;

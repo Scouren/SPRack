@@ -1,19 +1,14 @@
 //! The `rewrite kind param ... end` and `plugin ... end` blocks.
 //!
 //! Contents:
-//! - `pub fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin`
-//! - `pub fn pluginDrop(c: *C, no: u32, words: []const []const u8,
-//!   text: []const u8) Error!Plugin.Drop`
-//! - `pub fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite`
-//! - `pub fn rewritePart(c: *C, no: u32, original: Kind, verb: []const u8,
-//!   rest: []const u8) Error!Rewrite.Part`
-//! - `pub fn pairedBrackets(template: []const u8) bool`
-//! - `pub fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.Clash`
+//! - `pub fn rewrite(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
+//! - `pub fn plugin(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 
 const std = @import("std");
 const schema = @import("schema");
 const Kind = schema.Kind;
 const context = @import("context.zig");
+const tables = @import("tables.zig");
 const types = @import("types.zig");
 const C = context.C;
 const Error = context.Error;
@@ -21,11 +16,34 @@ const Lines = context.Lines;
 const args = context.args;
 const kindOf = context.kindOf;
 const slotNamed = context.slotNamed;
+const Grammar = tables.Grammar;
 const Plugin = types.Plugin;
 const Rewrite = types.Rewrite;
 
+/// `rewrite kind param`, then its lines up to `end`.
+pub fn rewrite(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
+    const no = lines.no;
+    const rule = try rewriteBlock(c, lines, rest);
+    // The keys every clash line watches are held in one table.
+    for (g.rewrites) |other| {
+        const a = other.clash orelse continue;
+        const b = rule.clash orelse continue;
+        if (a.kind != b.kind or a.slot != b.slot)
+            return c.fail(no, "every clash line of a grammar names one kind.slot", .{});
+    }
+    g.rewrites = try c.add(Rewrite, g.rewrites, rule);
+}
+
+/// `plugin`, then its lines up to `end`; a grammar has one.
+pub fn plugin(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
+    if (g.plugin != null) return c.fail(lines.no, "a grammar has one plugin block", .{});
+    g.plugin = try pluginBlock(c, lines, rest);
+}
+
+// ---- private ----
+
 /// The lines of a `plugin` block, up to its `end`.
-pub fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin {
+fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin {
     const head_line = lines.no;
     if (header.len > 0) return c.fail(head_line, "plugin takes nothing on its own line", .{});
     var missing: []const u8 = "";
@@ -40,6 +58,8 @@ pub fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin {
         }
         const colon = std.mem.indexOf(u8, line, " : ") orelse
             return c.fail(no, "a line of plugin is `what : text`", .{});
+        // `Lines.next` trims the line, so it does not start with the blank of " : ".
+        std.debug.assert(colon > 0);
         const text = std.mem.trim(u8, line[colon + 3 ..], " \t");
         if (text.len == 0) return c.fail(no, "a line of plugin needs its text", .{});
         const words = try args(c, no, line[0..colon]);
@@ -55,7 +75,7 @@ pub fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin {
 }
 
 /// `card key error|warning` or `instance key[=value] error|warning`, and its text.
-pub fn pluginDrop(c: *C, no: u32, words: []const []const u8, text: []const u8) Error!Plugin.Drop {
+fn pluginDrop(c: *C, no: u32, words: []const []const u8, text: []const u8) Error!Plugin.Drop {
     std.debug.assert(text.len > 0);
     const card = words.len == 3 and std.mem.eql(u8, words[0], "card");
     if (!card and !(words.len == 3 and std.mem.eql(u8, words[0], "instance")))
@@ -79,7 +99,7 @@ pub fn pluginDrop(c: *C, no: u32, words: []const []const u8, text: []const u8) E
 }
 
 /// The lines of a `rewrite kind param` block, up to its `end`.
-pub fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite {
+fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite {
     const head_line = lines.no;
     const words = try args(c, head_line, header);
     if (words.len != 2) return c.fail(head_line, "rewrite is `rewrite kind parameter`", .{});
@@ -131,7 +151,7 @@ pub fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite {
 }
 
 /// `keep slot=template ...`, or `become kind slot=template ...`, or `add` likewise.
-pub fn rewritePart(
+fn rewritePart(
     c: *C,
     no: u32,
     original: Kind,
@@ -164,33 +184,26 @@ pub fn rewritePart(
 
 /// Does every `{` of a template close before the next opens, and every
 /// `[` likewise, with no `[` inside another?
-pub fn pairedBrackets(template: []const u8) bool {
+fn pairedBrackets(template: []const u8) bool {
     var in_name = false;
     var in_group = false;
-    for (template) |ch| switch (ch) {
-        '{' => {
-            if (in_name) return false;
-            in_name = true;
-        },
-        '}' => {
-            if (!in_name) return false;
-            in_name = false;
-        },
-        '[' => {
-            if (in_group or in_name) return false;
-            in_group = true;
-        },
-        ']' => {
-            if (!in_group or in_name) return false;
-            in_group = false;
-        },
-        else => {},
-    };
+    for (template) |ch| {
+        const ok = switch (ch) {
+            '{' => !in_name,
+            '}' => in_name,
+            '[' => !in_group and !in_name,
+            ']' => in_group and !in_name,
+            else => true,
+        };
+        if (!ok) return false;
+        if (ch == '{' or ch == '}') in_name = ch == '{';
+        if (ch == '[' or ch == ']') in_group = ch == '[';
+    }
     return !in_name and !in_group;
 }
 
 /// `kind.slot node ... : text`.
-pub fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.Clash {
+fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.Clash {
     const colon = std.mem.indexOf(u8, rest, " : ") orelse
         return c.fail(no, "clash is `clash kind.slot node ... : text`", .{});
     var words = std.mem.tokenizeAny(u8, rest[0..colon], " \t");

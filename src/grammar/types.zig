@@ -26,10 +26,10 @@
 //! - `pub const Threshold = struct`
 //! - `pub const Check = struct`
 //! - `pub const Fill = struct`
-//! - `pub const Omitted = struct`
+//! - `pub const Omitted = struct`: `Op`, `Term`
 //! - `pub const Caveat = struct`
-//! - `pub const Plugin = struct`
-//! - `pub const Rewrite = struct`
+//! - `pub const Plugin = struct`: `Drop`
+//! - `pub const Rewrite = struct`: `Part`, `Set`, `Clash`
 //! - `pub const Inert = struct`
 //! - `pub const Implied = struct`
 //! - `pub const EnumPair = struct`
@@ -50,7 +50,7 @@
 //! - `pub const Require = struct`
 //! - `pub const UniqueAnalysis = struct`
 //! - `pub const ModelKv = struct`
-//! - `pub const ModelWhen = struct`
+//! - `pub const ModelWhen = struct`: `isNodes`
 //! - `pub const ModelSpelling = struct`
 //! - `pub const ModelEntry = struct`
 //! - `pub fn paramsOpen(table: []const Spellings) bool`
@@ -65,6 +65,7 @@ pub const Scale = struct { suffix: []const u8, exp10: i32 };
 /// integer times a power of ten so applying it stays exact.
 pub const OddScale = struct { suffix: []const u8, mant: u64, exp10: i32 };
 
+// tidy: allow(bool-heavy-struct) one a grammar, never in an array
 pub const LexCfg = struct {
     case_sensitive: bool = false,
     /// First line of the file is a title, not a statement.
@@ -144,6 +145,7 @@ pub const NodeTag = enum {
 /// and is not ground (VACASK's `out` of a noise analysis).
 pub const BagForm = enum { plain, quoted, vector, fixed, rest, call, pairs, pair };
 
+// tidy: allow(bool-heavy-struct) some 160 a grammar, built once and read by field name
 pub const BagEntry = struct {
     key: []const u8 = "",
     slot: u8 = no_slot,
@@ -176,6 +178,7 @@ pub const BagEntry = struct {
     suffix: []const u8 = "",
 };
 
+// tidy: allow(bool-heavy-struct) some 1000 a grammar, built once and read by field name
 pub const Node = struct {
     tag: NodeTag,
     /// Literal text.

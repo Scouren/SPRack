@@ -5,8 +5,8 @@
 //! Contents:
 //! - `pub const Error`
 //! - `pub const Diag = struct`
-//! - `pub const C = struct`
-//! - `pub const Lines = struct`
+//! - `pub const C = struct`: `fail`, `add`, `cat`, `lower`, `foldIf`
+//! - `pub const Lines = struct`: `next`
 //! - `pub fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct`
 //! - `pub fn stripComment(line: []const u8) []const u8`
 //! - `pub fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8`
@@ -100,11 +100,17 @@ pub const Lines = struct {
 
     /// Next non-blank line with comments removed, or null at end of file.
     pub fn next(l: *Lines) ?[]const u8 {
-        while (l.pos < l.src.len) {
-            const eol = std.mem.indexOfScalarPos(u8, l.src, l.pos, '\n') orelse l.src.len;
-            const raw = l.src[l.pos..eol];
-            l.pos = eol + 1;
-            l.no += 1;
+        var pos = l.pos;
+        var no = l.no;
+        defer {
+            l.pos = pos;
+            l.no = no;
+        }
+        while (pos < l.src.len) {
+            const eol = std.mem.indexOfScalarPos(u8, l.src, pos, '\n') orelse l.src.len;
+            const raw = l.src[pos..eol];
+            pos = eol + 1;
+            no += 1;
             const t = std.mem.trim(u8, stripComment(raw), " \t\r");
             if (t.len > 0) return t;
         }
@@ -178,6 +184,8 @@ pub fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8 {
         } else {
             var j = i;
             while (j < line.len and line[j] != ' ' and line[j] != '\t') j += 1;
+            // `line[i]` is neither a blank nor a quote: the word is not empty.
+            std.debug.assert(j > i);
             out = try c.add([]const u8, out, line[i..j]);
             i = j;
         }

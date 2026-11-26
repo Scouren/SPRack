@@ -3,7 +3,7 @@
 //! marks `spread` endings.
 //!
 //! Contents:
-//! - `pub const ReadIndex = struct`
+//! - `pub const ReadIndex = struct`: `KindSet`, `kindBit`
 //! - `pub fn anyWrites(rules: []const Rule, kind: Kind, slot: u8) bool`
 //! - `pub fn mentions(nodes: []const Node, slot: u8) bool`
 //! - `pub fn markEndings(c: *C, rules: []const Rule, spreads: []const Spread) Error![]const Rule`
