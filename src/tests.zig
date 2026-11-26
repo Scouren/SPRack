@@ -6688,6 +6688,31 @@ test "z2: a PWL's repeat into LTspice: from the first point REPEAT FOREVER, from
     try reported(&r5, .@"error", "isource: 'r=1k' has no spelling in ngspice");
 }
 
+test "#73: an instance parameter LTspice 26.0.2 does not take is a loss into it, and its own are a loss out" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const lt = try tr(a, "ngspice", "ltspice", "t\nR1 a b 1k tc=1m dtemp=2 m=2\nC1 b 0 1p tc1=1m ic=0\nL1 b c 1u tc1=1m\nD1 a 0 dm l=1u off\nQ1 c b 0 qm areab=2 m=2\nJ1 c b 0 jm l=1u\n.model dm d\n.model qm npn\n.model jm njf\n.op\n.end\n", &r1);
+    try has(lt, "R1 a b 1k tc=1m m=2\nC1 b 0 1p ic=0\nL1 b c 1u tc1=1m\nD1 a 0 dm off\nQ1 c b 0 qm m=2\nJ1 c b 0 jm\n");
+    try reported(&r1, .@"error", "resistor: 'dtemp=2' has no spelling in ltspice");
+    try reported(&r1, .@"error", "capacitor: 'tc1=1m' has no spelling in ltspice");
+    try reported(&r1, .@"error", "diode: 'l=1u' has no spelling in ltspice");
+    try reported(&r1, .@"error", "bjt: 'areab=2' has no spelling in ltspice");
+    try reported(&r1, .@"error", "jfet: 'l=1u' has no spelling in ltspice");
+    try testing.expectEqual(5, r1.countCode(.loss));
+    // LTspice's own: kept in LTspice, a loss in ngspice; noiseless is read.
+    const src = "t\nR1 a b 1k noiseless\nC1 b 0 1p Rser=1 Lser=1n\nL1 b 0 1u Rpar=1k\nD1 a 0 dm n=2\n.model dm d\n.op\n.end\n";
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ltspice", src, &r2), "R1 a b 1k noiseless\nC1 b 0 1p rser=1 lser=1n\nL1 b 0 1u rpar=1k\nD1 a 0 dm n=2\n");
+    try clean(&r2);
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ltspice", "ngspice", src, &r3), "C1 b 0 1p\nL1 b 0 1u\nD1 a 0 dm\n");
+    try reported(&r3, .@"error", "resistor: 'noiseless' has no spelling in ngspice");
+    try reported(&r3, .@"error", "capacitor: 'rser=1' has no spelling in ngspice");
+    try reported(&r3, .@"error", "diode: 'n=2' has no spelling in ngspice");
+}
+
 test "z2: the cycles of an LTspice sine have a slot, and are a loss where a sine has none" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

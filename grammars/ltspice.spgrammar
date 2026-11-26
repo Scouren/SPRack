@@ -3,9 +3,10 @@
 # Checked against LTspice 26.0.2 run in batch mode on decks written for the
 # check (docs/verification.md, section 8): every table below, the statements
 # under `no`, the source waveforms and the topologies under `requires`.
-# Not checked: the instance parameters of devices other than sources. The MOS
-# levels other than 1, 2, 3, 8, 14, 49 and 54 are placed by the parameter
-# names they know (section 8.12), and are not in the models table.
+# Not checked: the instance parameters of a MOSFET, which depend on its level
+# (8.15). The MOS levels other than 1, 2, 3, 8, 14, 49 and 54 are placed by
+# the parameter names they know (section 8.12), and are not in the models
+# table.
 #
 # Differences from ngspice captured here: `;` is the only trailing comment,
 # there is no atto suffix, sources write their waveform before the AC spec
@@ -75,7 +76,7 @@ rule  measure   = ( ".meas" | ".measure" ) analysis name op:"param"=param ~"=" e
 rule  measure   = ( ".meas" | ".measure" ) analysis name spec...
 caveat measure spec : carried as text: the probes, expressions and numbers in it were not translated
 
-rule  resistor  = name~"R" pos neg r {...params}
+rule  resistor  = name~"R" pos neg r {...params?}
 rule  capacitor = name~"C" pos neg c {...params}
 rule  inductor  = name~"L" pos neg l {...params}
 rule  mutual    = name~"K" l1 l2 k
@@ -151,6 +152,31 @@ params vsource
 end
 params isource
   same load
+end
+# Instance parameters each device takes, by canonical (ngspice) name: a
+# deck with one instance per name, each name LTspice does not take is
+# "Unknown parameter" at its line and the deck does not run (verification.md
+# 8.15). Rser, Lser, Rpar, Cpar, RLshunt, noiseless and a diode's n are
+# LTspice's own, a loss elsewhere. A MOSFET has no table: level 1 takes
+# temp and not nf, sa, sb, sd, delvto; level 14 the other way round.
+params resistor
+  same ac l m noiseless tc2 tce temp w
+  tc1 = tc1 tc
+end
+params capacitor
+  same cpar ic l lser m rlshunt rpar rser temp w
+end
+params inductor
+  same cpar ic m rpar rser tc1 tc2 temp
+end
+params diode
+  same area ic m n off perim temp
+end
+params bjt
+  same area ic m off temp
+end
+params jfet
+  same area ic m off temp
 end
 no vsource repeat : LTspice repeats a PWL from its first point only (PWL REPEAT FOREVER); a repeat from a later point has no form
 no isource repeat : LTspice repeats a PWL from its first point only (PWL REPEAT FOREVER); a repeat from a later point has no form

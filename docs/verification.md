@@ -2639,8 +2639,9 @@ LTspice's `Rser=`, `Cpar=` and a current source's `load` are slots too, so
 into another dialect they are a loss rather than parameters copied as
 written; and LTspice's `r=` on a current source, which is no repeat there,
 is not written as ngspice's or Xyce's `r=` (both read that as one): it is
-a loss. Not run: whether LTspice loads `REPEAT FOREVER` written in lower
-case, as SPRack writes it (LTspice reads keywords in any case elsewhere).
+a loss. Written in lower case, as SPRack writes it, `V1 a 0 pwl repeat forever (0
+0 1m 1 2m 0) endrepeat` loads and repeats the same: 0.5 at 0.5 ms, 0.5 at
+2.5 ms, 1 at 3 ms.
 
 ### 8.10 A choice with blanks around its operators
 
@@ -2651,6 +2652,10 @@ was not read, in an LTspice deck or an ngspice one. An expression after `=`
 now goes on across a blank next to `?`, `:`, a comparison (`<`, `>`, `<=`,
 `>=`, `==`, `!=`) or `&`, `|`; the `=` of a comparison does not start the
 next parameter (`.param p = 1 >= 0 ? 5 : 6 q = 2` is two parameters).
+
+The line itself, run (#73): `B1 0 a I=v(c) > 0.5 ? 1m : 2m` into 1k, with
+`V1 c 0 pwl(0 0 1m 1)` and `.tran 10u 1m`, loads and reads 2 V at 0.25 ms
+(v(c) = 0.25, the false branch) and 1 V at 0.75 ms (the true branch).
 
 ### 8.11 The cycles of a sine, the pulses of a pulse
 
@@ -2730,6 +2735,38 @@ LTspice's own sources take (`Rser`, `Cpar`, `load`, and `R=` on a current
 source, a load resistance) is copied into the other dialects as written;
 `R=` there is ngspice's repeat. The instance parameters of the other
 devices were not checked. The levels of 8.12 are not in the models table.
+
+### 8.15 The instance parameters of the other devices
+
+One deck per kind, one instance per name, each on nodes of its own: `R1 a
+b 1k`, `C1 b 0 1u`, `L1 a b 1m`, `D1 a 0 dd`, `Q1 c b 0 qq`, `J1 d g 0
+jj`, `M1 d g 0 0 mm W=1u L=1u`, followed by the name (`name=2`; `ic=0.1`,
+`m=2`, `temp=100`, `dtemp=50`, `tc1=0.01`, `tc=0.01`, `area=2`; `off` and
+`noiseless` bare). The names tried are every name of the other dialects'
+`params` tables for the kind, `trise`, and the ones LTspice's help lists.
+LTspice names each line it does not take, "Unknown parameter" under the
+name, and runs nothing; a line `bogus=2` in every deck is the control.
+
+| device | taken | "Unknown parameter" |
+|---|---|---|
+| resistor | `ac l m noise noiseless tc tc1 tc2 tce temp w` | `bv_max c dtemp isnoisy noisy rser scale tc3 trise` |
+| capacitor | `cpar ic l lser m rlshunt rpar rser temp w` | `bv_max dtemp q scale tc1 tc2 trise` |
+| inductor | `cpar ic m rpar rser tc1 tc2 temp` | `dtemp nt r scale trise` |
+| diode | `area ic m n off perim temp` | `dtemp l lm lp mult pj trise w wm wp` |
+| bjt | `area ic m off temp` | `areab areac dtemp mult trise` |
+| jfet | `area ic m off temp` | `dtemp l trise w` |
+| mosfet, level 1 | `ad as ic m nrd nrs off pd ps temp` (and `w l`) | `delvto dtemp geomod min mult nf rbodymod rgatemod sa sb scale sd trise` |
+| mosfet, level 8 | as level 1 without `temp` | as level 1, and `temp` |
+| mosfet, level 14 | `ad as delvto geomod ic m min nf nrd nrs off pd ps rbodymod rgatemod sa sb sd` | `dtemp mult scale temp trise` |
+
+These are the `params` tables of the grammar for the first six, so a name
+LTspice does not take is a `loss` error crossing in, and LTspice's own
+(`Rser`, `Lser`, `Rpar`, `Cpar`, `RLshunt`, `noiseless`, a diode's `n`) a
+loss crossing out. A resistor's bare `noiseless` is read now; before, the
+line was not. `noise` is left out: that it is ngspice's `noisy` was not
+measured. A MOSFET's names depend on its level, and a table is one for all
+levels, so the MOSFET has none and is not checked. Only whether a name
+loads was observed, not what it does.
 
 ### 8.14 Lines from LTspice's help, not run
 
