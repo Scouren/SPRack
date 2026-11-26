@@ -1716,9 +1716,17 @@ lines, 13 statements of gf180mcu's test decks), from the issue's runs:
 | `Vin1 I1 0 dc pulse(...)` | runs, 141 rows | `dc` with no value before a waveform is read |
 | `.print ac ii(v1)` | ngspice 42 here: `no such function as ii` | not read: ngspice refuses it |
 
-Not done: `.tf i(Vmeasure) Vin`, a current as the output, which needs the
-Spectre and VACASK forms measured, and the URC element (`U1 in out 0 umod
-L=100u N=10`), which needs a kind and a reason in every other grammar.
+A current as the output of .tf, and the URC element:
+
+| form | measured | now |
+|---|---|---|
+| `.tf i(Vmeasure) Vin`; Vin 1 V, R1 in-out 1k, R2 out-0 3k, R3 out-out2 2k, `Vmeasure out2 0 0` | ngspice 45: transfer_function = 2.727273e-04, vin#input_impedance = 2.2e+03; with `Vmeasure 0 out2 0`, -2.72727e-04 | `tf` with `iout` (new slot), the source whose current is the output |
+| the same into VACASK b2c1551 | `analysis tf1 dcxf out="Vmeasure:flow(br)"`: tf(Vin) = 2.727272727272728e-04, zin(Vin) = 2.2e+03; reversed, -2.727e-04. `out` names the branch unknown, which `getDiffNodePair` (`lib/core.cpp:451`) finds as a node; `Vnone:flow(br)` stops the analysis ("Node 'Vnone:flow(br)' not found.") | `out="iout:flow(br)"`, a quoted entry with text after the slot |
+| into HSPICE, LTspice, Spectre | not run here | `no tf iout`: an error naming the run it waits for |
+| into Xyce | `.tf` is not an analysis of Xyce 7.10 ("No analysis specified.") | `no tf`, as before |
+| `U1 in out 0 umod L=100u N=10`, `.model umod URC(K=1.5 FMAX=1G RPERL=1000 CPERL=1p)` | ngspice 45: `show u1` gives "URC: Uniform R.C. line"; 1 V DC into RL 10k: v(out) = 9.999900e-01. The corpus deck `tran/device_urc.sp` and its ngspice-to-ngspice translation give v(out) = 9.999900e-01 at 30 ns and -6.560431e-24 at 60 ns, both | `lossyline` of the new family `urc`, letter U |
+| the same into Xyce 7.10 | refused: "Unrecognized parameter OUT for device UIN!1" (Xyce's U is a digital device) | `no model urc` |
+| into HSPICE, LTspice | not run here | `no model urc`, naming the run it waits for; Spectre, VACASK and CDL already have `no lossyline` |
 
 ### 4.30 HSPICE analysis forms of kinds the schema has (#45)
 

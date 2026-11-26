@@ -185,6 +185,10 @@ rule  noise     = "analysis" name?noise$# "noise" { out=[out ref] in="src" from=
 # docs/cmd-analysis-dcxf.md: the transfer function to `out` from every source.
 # It reports tf() and zin() for every source by default (docs/cmd-analysis-dcxf.md:47-49):
 # the source SPICE names is among them.
+# A current as the output: out names the source's branch unknown, which
+# getDiffNodePair (lib/core.cpp:451) finds as a node; measured equal to
+# ngspice's .tf i(), sign included (docs/verification.md 4.29).
+rule  tf        = "analysis" name?tf$# "dcxf" -src { out="iout:flow(br)"! nodeset={nodeset} ...params }
 rule  tf        = "analysis" name?tf$# "dcxf" -src { out=[out ref] nodeset={nodeset} ...params }
 rule  hb        = "analysis" name?hb$# "hb" { freq=[freqs] nharm=[harms] nodeset={nodeset} ...params }
 # docs/cmd-analysis-acsp.md, cmd-analysis-acstb.md, cmd-analysis-pss.md.
@@ -348,6 +352,7 @@ requires no-lloop  error : VACASK's operating point fails on it, where ngspice a
 
 caveat tran skip_dc : icmode="uic" starts every node without an ic at 0, so the first time point differs from SPICE's UIC
 caveat tf out : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
+caveat tf iout : dcxf reports tf(), zin() and yin() for every independent source; SPICE's output resistance has no counterpart
 caveat tf src : dcxf reports tf() and zin() for every independent source, the one SPICE names among them; it is not named
 caveat pac fstart : VACASK's pac is driven by each source's spur, smag and sphase; the ac mag and phase have no effect there (docs/cmd-analysis-pac.md)
 caveat sp sweep : acsp names its ports in ports=["vsrc", "rseries", ...]; SPICE's portnum and z0 on a source have no VACASK form

@@ -298,7 +298,9 @@ const defs = [_]Def{
     .{ .tran, .analysis, "name step:value stop:value start:value maxstep:value skip_dc:atom method:atom params:params ic:params" ++ ns ++ " segments:value*" },
     // `interval`: a noise summary every this many frequency points.
     .{ .noise, .analysis, "name out:node ref:node src:ref " ++ sweep_spec ++ " interval:value params:params" ++ ns ++ " values:value*" },
-    .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns },
+    // `iout`: the voltage source whose current is the output (ngspice
+    // `.tf i(vm) vin`), in place of the node pair `out` and `ref`.
+    .{ .tf, .analysis, "name out:node ref:node src:ref params:params" ++ ns ++ " iout:ref" },
     // Either the input and output ports by node (SPICE), or an output
     // signal and the input source (HSPICE, Spectre).
     .{ .pz, .analysis, "name in_pos:node in_neg:node out_pos:node out_neg:node transfer:atom find:atom out:signal src:ref params:params" },
@@ -506,6 +508,8 @@ pub const families = [_]Family{
     .{ .name = "txl", .kind = .lossyline },
     .{ .name = "cpl", .kind = .lossyline },
     .{ .name = "rlgc", .kind = .lossyline },
+    // The uniform distributed RC line (ngspice U).
+    .{ .name = "urc", .kind = .lossyline },
 };
 
 /// Functions an expression may call, by canonical name. A grammar's

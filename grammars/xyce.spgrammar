@@ -770,6 +770,7 @@ no model b3soifd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read he
 no model b3soidd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read here as bsimsoi; ngspice's dynamically depleted B3SOIDD 2.1 is another model
 no model b3soipd : Xyce's BSIM3SOI (levels 10 and 57) is version 3.2 and read here as bsimsoi; that it takes ngspice's B3SOIPD 2.2.3 cards unchanged is not measured
 no model mesa : Xyce's MESFET (Z) has one level (N_DEV_MESFET.C registers z level 1), not MESA
+no model urc : Xyce's U is a digital device; `U1 in out 0 umod L=100u N=10` stops Xyce 7.10 ("Unrecognized parameter OUT for device UIN!1", docs/verification.md 4.29)
 no script : Xyce has no control script; its analyses and outputs are netlist lines
 no csparam : only a control script reads a .csparam vector, and xyce has none
 no native : the statement is another dialect's own, which no kind holds; only that dialect writes it

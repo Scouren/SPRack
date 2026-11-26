@@ -159,6 +159,9 @@ rule  instance  = name~"X" nodes+ master {...params}
 
 rule  op        = ".op"
 rule  tf        = ".tf" "v" ~"(" out [ ~"," ref ] ~")" src
+# A current as the output: ngspice 45 runs `.tf i(Vmeasure) Vin`
+# (docs/verification.md 4.29).
+rule  tf        = ".tf" "i" ~"(" iout ~")" src
 # A source, a resistor or the temperature, in each of the two loops.
 rule  dc        = ".dc" ( var:"temp" | src ) start stop step [ ( var2:"temp" | src2 ) start2 stop2 step2 ]
 rule  ac        = ".ac" ( sweep:"dec" | sweep:"oct" | sweep:"lin" ) points fstart fstop
@@ -371,6 +374,7 @@ models
   ltra       = ltra
   txl        = txl
   cpl        = cpl
+  urc        = urc
 end
 
 # devices and outputs (b4)
@@ -380,6 +384,9 @@ end
 rule  lossyline[ltra] = name~"O" nodes+ master {...params}
 rule  lossyline[txl]  = name~"Y" nodes+ master {...params}
 rule  lossyline[cpl]  = name~"P" nodes+ master {...params}
+# U for the uniform RC line: ngspice 45 expands `U1 in out 0 umod L=100u N=10`
+# into ten lumps (docs/verification.md 4.29).
+rule  lossyline[urc]  = name~"U" nodes+ master {...params}
 # Controlled sources in POLY and TABLE form; checked to load in ngspice 45.
 rule  ctlsrc    = name~"E" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+
 rule  ctlsrc    = name~"G" pos neg form:"poly" ~"(" dim?1 ~")" ( cpos cneg )#dim coeffs+

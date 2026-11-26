@@ -144,6 +144,9 @@ pub const BagEntry = struct {
     /// `maxstep=maxstep?$step`: written, from another dialect's statement
     /// only, when the slot is empty; `$slot` expands.
     default: []const u8 = "",
+    /// `out="iout:flow(br)"`: a quoted value is the slot's value and then
+    /// this text; read, a value without it is not this entry's.
+    suffix: []const u8 = "",
 };
 
 pub const Node = struct {
@@ -1185,7 +1188,13 @@ const P = struct {
                 },
                 '"' => {
                     e.form = .quoted;
-                    e.slot = try p.slotOf(try p.string());
+                    // `out="iout:flow(br)"`: the slot's name, then text
+                    // written after its value (VACASK's branch current).
+                    const s = try p.string();
+                    var n: usize = 0;
+                    while (n < s.len and (std.ascii.isAlphanumeric(s[n]) or s[n] == '_')) n += 1;
+                    e.slot = try p.slotOf(s[0..n]);
+                    e.suffix = s[n..];
                 },
                 '{' => {
                     p.i += 1;

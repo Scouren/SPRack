@@ -230,6 +230,7 @@ enum isource wave : pulse=pulse sine=sine exp=exp pwl=pwl
 implied noise ref = 0
 
 no lossyline : this grammar has no form for Spectre's lossy lines; their models are not SPICE LTRA, TXL, CPL or RLGC cards
+no tf iout   : this grammar has no Spectre form for a current as the output of xf; that xf's probe= gives the current through that source, and with which sign, is not established without a Spectre run
 no simctl  : Spectre has no control commands of this kind; its analyses and options are netlist statements
 no disto   : Spectre has no SPICE-style .DISTO analysis; distortion is found with pss/pac or hb
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator

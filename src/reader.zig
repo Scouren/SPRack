@@ -745,7 +745,9 @@ const Matcher = struct {
                 },
                 .quoted => {
                     if (vt.tag != .str and vt.tag != .word) return false;
-                    try self.log.append(self.arena, .{ .slot = e.slot, .val = .{ .atom = try self.own(vt) } });
+                    const text = try self.own(vt);
+                    if (e.suffix.len > 0 and (text.len <= e.suffix.len or !std.mem.endsWith(u8, text, e.suffix))) return false;
+                    try self.log.append(self.arena, .{ .slot = e.slot, .val = .{ .atom = text[0 .. text.len - e.suffix.len] } });
                 },
                 .vector => {
                     if (vt.tag != .vec) return false;

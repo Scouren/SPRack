@@ -995,6 +995,51 @@ test "ngspice forms ngspice 45 takes: .opt, .opts, .width, .parameters, % and \\
     try has(try tr(a, "ngspice", "ngspice", "t\n.param p2=10 \\ 3\n.end\n", &r3), ".param p2={10 \\ 3}\n");
 }
 
+test "a current as the output of .tf: ngspice i(), VACASK's branch unknown, an error where it is not measured" {
+    // Issue 43, docs/verification.md 4.29.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nVin in 0 1\nR1 in out 1k\nVmeasure out 0 0\n.tf i(Vmeasure) Vin\n.end\n";
+    var r1: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r1);
+    try testing.expectEqual(1, countKind(nl, .tf));
+    try has(try tr(a, "ngspice", "ngspice", src, &r1), ".tf i(Vmeasure) Vin\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", src, &r2);
+    try has(va, "analysis tf1 dcxf out=\"Vmeasure:flow(br)\"\n");
+    try testing.expectEqual(0, r2.count(.@"error"));
+    // Read back, the suffix marks the current; a plain node is still `out`.
+    var r3: ir.Report = .init(a);
+    const back = try readAs(a, "vacask", va, &r3);
+    try testing.expectEqual(1, countKind(back, .tf));
+    for (back.stmts) |st| if (st.kind == .tf) try testing.expectEqualStrings("Vmeasure", st.get("iout").atom);
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nR1 a 0 1k\n.tf v(a) V1\n.end\n", &r4), "analysis tf1 dcxf out=\"a\"\n");
+    var r5: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", src, &r5);
+    try reported(&r5, .@"error", "tf.iout: this grammar has no HSPICE form for a current as the output of .TF");
+}
+
+test "the URC line: ngspice's U is a lossyline of family urc; Xyce's U is digital" {
+    // Issue 43, docs/verification.md 4.29.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nV1 in 0 1\nU1 in out 0 umod L=100u N=10\nRL out 0 10k\n.model umod URC(K=1.5 FMAX=1G RPERL=1000 CPERL=1p)\n.op\n.end\n";
+    var r1: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r1);
+    try testing.expectEqual(1, countKind(nl, .lossyline));
+    const same = try tr(a, "ngspice", "ngspice", src, &r1);
+    try has(same, "U1 in out 0 umod l=100u n=10\n");
+    try has(same, ".model umod urc k=1.5 fmax=1g rperl=1000 cperl=1p\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", src, &r2);
+    try reported(&r2, .@"error", "Xyce's U is a digital device");
+}
+
 test "small forms a target has: print all and .plot into Xyce, HB harmonics, maxord into Spectre" {
     // Issue 44.
     var arena_state: Arena = .init(testing.allocator);

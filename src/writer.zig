@@ -788,6 +788,8 @@ const Emit = struct {
                             // unwritten, and reported as such.
                             const vt = if (b.form == .vector and e.val(b.slot) == .list)
                                 try e.vectorText(e.val(b.slot))
+                            else if (b.suffix.len > 0)
+                                try e.arena.print("\"{s}{s}\"", .{ (try e.slotText(b.slot, false)) orelse continue, b.suffix })
                             else
                                 (try e.slotText(b.slot, b.form == .quoted)) orelse continue;
                             const text = if (b.form == .vector)
@@ -2371,6 +2373,14 @@ const Writer = struct {
             }
         }
         const rule = best orelse {
+            // A value no form takes, whose `no kind slot` line says why
+            // (`.tf i(vm) vin` into HSPICE): that, not the first form's miss.
+            for (0..schema.info(st.kind).slots.len) |i| {
+                if (st.at(i) == .none) continue;
+                const absent = w.g.slotAbsentReason(st.kind, @intCast(i)) orelse continue;
+                w.report.add(.@"error", .unsupported, st.line, "{s}.{s}: {s}", .{ @tagName(st.kind), schema.info(st.kind).slots[i].name, absent });
+                return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
+            }
             if (why.len > 0) {
                 w.report.add(.@"error", .unsupported, st.line, "{s}: no {s} form of this statement can say {s}", .{ @tagName(st.kind), w.g.name, why });
             } else {
