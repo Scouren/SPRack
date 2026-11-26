@@ -12,6 +12,7 @@ const signals = @import("signals.zig");
 const Matcher = matcher.Matcher;
 const signalCanon = signals.signalCanon;
 const isVersion = signals.isVersion;
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Tok = lexer.Tok;
 const Value = ir.Value;
@@ -34,6 +35,8 @@ pub fn number(self: *const Matcher, t: Tok) ?ir.Number {
 }
 
 pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Error!?Value {
+    // The lexer marks only a word as the key of a `key=value`.
+    assert(!t.f.key or t.tag == .word);
     if (t.f.key and !self.allow_key) return null;
     const cfg = &self.g.lex;
     switch (ty) {
@@ -97,6 +100,7 @@ pub const Sig = struct { v: Value, n: usize };
 
 /// One recorded signal starting at `ti`: `v(out)`, `v(a,b)`, `out`, `v1:p`.
 pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig {
+    assert(ti < self.toks().len);
     const t = self.toks()[ti];
     if (t.f.key) return null;
     if (t.tag == .expr) return .{ .v = .{ .expr = t.text }, .n = 1 };
@@ -254,5 +258,7 @@ pub fn pairs(self: *Matcher, into: u8, vt: Tok) Allocator.Error!bool {
         );
     } else if (names.items.len == 0 and self.log.items.len > start) return true;
     self.log.shrinkRetainingCapacity(start);
+    // Refused, the log is as it was.
+    assert(self.log.items.len == start);
     return false;
 }

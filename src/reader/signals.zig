@@ -5,6 +5,7 @@ const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
 const expr = @import("expr");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Space = schema.Space;
@@ -43,6 +44,7 @@ fn matchTemplate(
         n += 1;
         pos = end + lit.len;
     }
+    assert(n <= args.len);
     return if (pos == folded.len and seen == n) n else null;
 }
 
@@ -59,6 +61,7 @@ pub fn signalCanon(
         // An expression is told by its syntax, not by a template.
         if (std.mem.eql(u8, sf.form, "expr")) continue;
         const n = matchTemplate(sf.template, folded, text, &args) orelse continue;
+        assert(n <= args.len);
         if (std.mem.eql(u8, sf.form, "all")) return "all";
         // A terminal (`ID(M1)`'s D) is no name: one spelling, the folded one.
         if (!g.lex.case_sensitive) for (args[0..n], 0..) |*a, k| {

@@ -11,6 +11,8 @@ const lexer = @import("lexer");
 const dialects = @import("dialects");
 const values = @import("values.zig");
 const capture = @import("capture.zig");
+const bag = @import("bag.zig");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Node = grammar.Node;
@@ -73,6 +75,7 @@ pub const Matcher = struct {
                 else => {},
             }
         }
+        assert(ti < self.toks().len);
         self.kind = kind;
         self.log.clearRetainingCapacity();
         self.stack_top = @frameAddress();
@@ -98,7 +101,7 @@ pub const Matcher = struct {
     pub const joinRaw = capture.joinRaw;
     pub const joinTokens = capture.joinTokens;
     pub const capOne = capture.capOne;
-    pub const bagEntry = capture.bagEntry;
+    pub const bagEntry = bag.bagEntry;
 
     pub fn slot(self: *const Matcher, idx: u8) schema.Slot {
         return schema.info(self.kind).slots[idx];
@@ -147,6 +150,7 @@ pub const Matcher = struct {
         return false;
     }
 
+    // tidy: allow(recursion) bounded by the nesting of a pattern (the grammar parser's max_depth)
     pub fn startsWithLit(items: []const Node, t: Tok) bool {
         for (items) |*n| {
             switch (n.tag) {
@@ -164,8 +168,14 @@ pub const Matcher = struct {
         return false;
     }
 
+    /// Match `items` and then what `k` goes on with, from token `ti` to the
+    /// `nl` that ends the statement. True leaves the captures in `log` and
+    /// that `nl` in `end`; false leaves `log` as it was.
+    // tidy: allow(recursion) bounded by max_stack, the stack a match may use (checked first)
     pub fn m(self: *Matcher, items: []const Node, ti: usize, k: ?*const Cont) Allocator.Error!bool {
         if (self.stack_top -% @frameAddress() > max_stack) return false;
+        // Entered only through `run`, which marks where the match began.
+        assert(self.stack_top != 0);
         if (items.len == 0) {
             if (k) |c| return self.m(c.items, ti, c.next);
             if (self.toks()[ti].tag != .nl) return false;
@@ -178,151 +188,11 @@ pub const Matcher = struct {
         const mark = self.log.items.len;
         switch (node.tag) {
             .lit => return litMatches(node, t) and try self.m(rest, ti + 1, k),
-            .glue => {
-                // The lexer already dropped commas, and parentheses too in SPICE dialects.
-                const dropped = std.mem.eql(u8, node.text, ",") or
-                    (self.g.lex.parens_are_space and (std.mem.eql(u8, node.text, "(") or std.mem.eql(u8, node.text, ")")));
-                if (dropped and node.text[0] == '(') self.paren_open = ti;
-                if (dropped and node.text[0] == ')' and ti > self.paren_open + 1) {
-                    // Where parentheses are blanks the lexer still noted where
-                    // they close. `sin(0 1 1k) ac 1`: the group ends at `1k`,
-                    // so `ac` and `1` are not its fourth and fifth values.
-                    for (self.toks()[self.paren_open .. ti - 1]) |inner| {
-                        if (inner.closes > 0) return false;
-                    }
-                }
-                if (dropped) return self.m(rest, ti, k);
-                return litMatches(node, t) and try self.m(rest, ti + 1, k);
-            },
+            .glue => return self.glue(node, rest, ti, k),
             .drop => return self.m(rest, ti, k),
-            .nl => {
-                if (t.tag != .nl) return false;
-                // Comment lines inside a multi-line statement do not break it.
-                var j = ti + 1;
-                while (try self.win.has(j) and (self.toks()[j].tag == .comment or self.toks()[j].tag == .blank)) j += 2;
-                return try self.win.has(j) and try self.m(rest, j, k);
-            },
-            .taglit => {
-                if (!litMatches(node, t)) return false;
-                const num = if (self.slot(node.slot).ty == .value)
-                    lexer.parseNumber(self.arena, &self.g.lex, node.atom)
-                else
-                    null;
-                try self.log.append(self.arena, .{ .slot = node.slot, .val = if (num) |n|
-                    .{ .num = n }
-                else
-                    .{ .atom = node.atom } });
-                if (try self.m(rest, ti + 1, k)) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return false;
-            },
-            .cap => {
-                if (node.slot != grammar.wild_slot and self.slot(node.slot).ty == .signal) {
-                    // Signals may span several tokens, so they are taken
-                    // greedily and never given back.
-                    var j = ti;
-                    var n: usize = 0;
-                    while (try self.signalAt(j)) |sig| {
-                        try self.log.append(self.arena, .{ .slot = node.slot, .val = sig.v });
-                        j += sig.n;
-                        n += 1;
-                        if (!(node.star or node.plus)) break;
-                    }
-                    if (n == 0 and !node.star) return false;
-                    if (try self.m(rest, j, k)) return true;
-                    self.log.shrinkRetainingCapacity(mark);
-                    return false;
-                }
-                self.allow_key = beforeEq(rest);
-                defer self.allow_key = false;
-                if (node.count != grammar.no_slot) {
-                    const want = self.countOf(node.count) orelse return false;
-                    for (0..want) |i| {
-                        const v = (try self.capOne(node, self.toks()[ti + i])) orelse {
-                            self.log.shrinkRetainingCapacity(mark);
-                            return false;
-                        };
-                        try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
-                    }
-                    if (try self.m(rest, ti + want, k)) return true;
-                    self.log.shrinkRetainingCapacity(mark);
-                    return false;
-                }
-                if (node.star or node.plus) {
-                    // Greedy, then give items back one at a time. An item
-                    // of a list of words may be a `key=value` among them
-                    // (a PAT source's `r=1 rb=2` between its bit groups):
-                    // one item of three tokens, so the ends are kept.
-                    var ends: std.ArrayList(usize) = .empty;
-                    var at = ti;
-                    const wild = node.slot == grammar.wild_slot;
-                    // Not where an `=` follows the list (`.param f(x)='x'`).
-                    const words = !wild and self.slot(node.slot).ty == .atom and !self.allow_key;
-                    while (true) {
-                        const t0 = self.toks()[at];
-                        if (words and ends.items.len > 0 and t0.f.key and self.toks()[at + 1].tag == .eq and (self.toks()[at + 2].tag == .word or self.toks()[at + 2].tag == .expr)) {
-                            try self.log.append(
-                                self.arena,
-                                .{
-                                    .slot = node.slot,
-                                    .val = .{ .atom = try self.joinTokens(at, at + 3) },
-                                },
-                            );
-                            at += 3;
-                            try ends.append(self.arena, at);
-                            continue;
-                        }
-                        const v = (try self.capOne(node, t0)) orelse break;
-                        if (followLit(rest, t0)) break;
-                        if (!wild)
-                            try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
-                        at += 1;
-                        try ends.append(self.arena, at);
-                    }
-                    const least: usize = if (node.plus) 1 else 0;
-                    while (true) {
-                        const n = ends.items.len;
-                        if (n >= least and try self.m(
-                            rest,
-                            if (n == 0) ti else ends.items[n - 1],
-                            k,
-                        )) return true;
-                        if (n <= least) break;
-                        _ = ends.pop();
-                        if (!wild) self.log.shrinkRetainingCapacity(mark + n - 1);
-                    }
-                    self.log.shrinkRetainingCapacity(mark);
-                    return false;
-                }
-                const one = try self.capOne(node, t);
-                if (one) |v| {
-                    if (followLit(rest, t)) return false;
-                    if (node.slot != grammar.wild_slot)
-                        try self.log.append(self.arena, .{ .slot = node.slot, .val = v });
-                    if (try self.m(rest, ti + 1, k)) return true;
-                    self.log.shrinkRetainingCapacity(mark);
-                }
-                // `if (a > 1)`: where a dialect lexes parentheses as tokens
-                // and the pattern closes one right after a value, everything
-                // up to that `)` is the expression, whether its first token
-                // is no value (`(`) or one the `)` does not follow (`a`).
-                const close = rest.len > 0 and rest[0].tag == .lit and std.mem.eql(
-                    u8,
-                    rest[0].text,
-                    ")",
-                );
-                if (!close or node.slot == grammar.wild_slot or self.slot(node.slot).ty != .value)
-                    return false;
-                const j = self.parenRun(ti) orelse return false;
-                if (one != null and j == ti + 1) return false;
-                try self.log.append(
-                    self.arena,
-                    .{ .slot = node.slot, .val = .{ .expr = try self.joinRaw(ti, j) } },
-                );
-                if (try self.m(rest, j, k)) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return false;
-            },
+            .nl => return self.newline(rest, ti, k),
+            .taglit => return self.tagLit(node, rest, ti, k),
+            .cap => return capture.cap(self, node, rest, ti, k),
             .opt => {
                 const c: Cont = .{ .items = rest, .next = k };
                 if (try self.m(node.kids, ti, &c)) return true;
@@ -341,181 +211,127 @@ pub const Matcher = struct {
                 const c: Cont = .{ .items = rest, .next = k };
                 return self.m(node.kids, ti, &c);
             },
-            .rep => if (node.count != grammar.no_slot) {
-                // Exactly as many passes as the count says: written out.
-                const want = self.countOf(node.count) orelse return false;
-                var seq: std.ArrayList(Node) = .empty;
-                for (0..want) |i| {
-                    if (i > 0) try seq.appendSlice(self.arena, node.sep);
-                    try seq.appendSlice(self.arena, node.kids);
-                }
-                const c: Cont = .{ .items = rest, .next = k };
-                if (try self.m(seq.items, ti, &c)) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return false;
-            } else {
-                // Greedy: one more pass, then this node again; else stop
-                // here. `star` on the node marks a pass already taken, so
-                // the next one starts with the separator.
-                var again = node.*;
-                again.star = true;
-                again.plus = false;
-                const tail = [1]Node{again};
-                const after: Cont = .{ .items = rest, .next = k };
-                const loop: Cont = .{ .items = &tail, .next = &after };
-                const pass: Cont = .{ .items = node.kids, .next = &loop };
-                const ok = if (node.star)
-                    try self.m(node.sep, ti, &pass)
-                else
-                    try self.m(node.kids, ti, &loop);
-                if (ok) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return !node.plus and try self.m(rest, ti, k);
-            },
-            .rest => {
-                const line = self.lines.get(t.lno).text;
-                var text: []const u8 = "";
-                if (t.tag != .nl) {
-                    // From the end of the token before, so that an opening
-                    // parenthesis the lexer treated as a blank is kept.
-                    var off = @intFromPtr(t.raw.ptr) - @intFromPtr(line.ptr);
-                    if (ti > 0 and self.toks()[ti - 1].lno == t.lno and
-                        self.toks()[ti - 1].tag != .nl)
-                    {
-                        const prev = self.toks()[ti - 1].raw;
-                        off = @intFromPtr(prev.ptr) + prev.len - @intFromPtr(line.ptr);
-                    }
-                    text = std.mem.trim(u8, line[off..], " \t");
-                }
-                var j = ti;
-                while (self.toks()[j].tag != .nl) j += 1;
-                if (node.slot != grammar.wild_slot) {
-                    if (self.slot(node.slot).ty == .value) {
-                        // The rest of the line is one expression: `.if (a > b)`.
-                        if (text.len == 0) return false;
-                        if (text.len >= 2 and text[0] == '(' and text[text.len - 1] == ')') {
-                            var depth: usize = 0;
-                            var whole = true;
-                            for (text[0 .. text.len - 1]) |ch| {
-                                if (ch == '(') depth += 1;
-                                if (ch == ')') depth -= 1;
-                                if (depth == 0) whole = false;
-                            }
-                            if (whole) text = std.mem.trim(u8, text[1 .. text.len - 1], " \t");
-                        }
-                        try self.log.append(
-                            self.arena,
-                            .{ .slot = node.slot, .val = .{ .expr = text } },
-                        );
-                    } else if (text.len > 0) try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = text } });
-                }
-                if (try self.m(rest, j, k)) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return false;
-            },
-            .bag => {
-                var j = ti;
-                while (self.toks()[j].tag == .word) {
-                    const kt = self.toks()[j];
-                    if (kt.f.key and self.toks()[j + 1].tag == .eq) {
-                        const vt = self.toks()[j + 2];
-                        if (vt.tag == .nl or vt.tag == .eq) break;
-                        const before = self.log.items.len;
-                        if (!try self.bagEntry(node, kt.text, kt.raw, vt)) break;
-                        j += 3;
-                        // `R=0.2 0 0.2`: the numbers after one open-ended
-                        // key are its matrix (CPL and RLGC line models).
-                        const last: *Capture = if (self.log.items.len > before)
-                            &self.log.items[self.log.items.len - 1]
-                        else
-                            continue;
-                        if (last.key.len > 0 and last.val == .num and
-                            self.toks()[j].tag == .word and !self.toks()[j].f.key and
-                            self.number(self.toks()[j]) != null)
-                        {
-                            var matrix: std.ArrayList(Value) = .empty;
-                            try matrix.append(self.arena, last.val);
-                            while (self.toks()[j].tag == .word and !self.toks()[j].f.key) : (j += 1) {
-                                try matrix.append(
-                                    self.arena,
-                                    .{ .num = self.number(self.toks()[j]) orelse break },
-                                );
-                            }
-                            last.val = .{ .list = matrix.items };
-                        }
-                        continue;
-                    }
-                    if (kt.f.call) {
-                        // `v(out)=1`
-                        const entry = for (node.bag) |e| {
-                            if (e.form == .call and std.mem.eql(u8, e.key, kt.text)) break e;
-                        } else break;
-                        const tokens = !self.g.lex.parens_are_space;
-                        var a = j + 1;
-                        if (tokens) {
-                            if (self.toks()[a].tag != .lparen) break;
-                            a += 1;
-                        }
-                        const nt = self.toks()[a];
-                        if (nt.tag != .word) break;
-                        var b = a + 1;
-                        if (tokens) {
-                            if (self.toks()[b].tag != .rparen) break;
-                            b += 1;
-                        }
-                        if (self.toks()[b].tag != .eq) break;
-                        const v = (try self.anyValue(self.toks()[b + 1], "")) orelse break;
-                        try self.log.append(
-                            self.arena,
-                            .{ .slot = entry.slot, .key = nt.raw, .val = v },
-                        );
-                        j = b + 2;
-                        continue;
-                    }
-                    // `n1 1`: a bare key and its value, where the bag takes them.
-                    if (for (node.bag) |e| {
-                        if (e.form == .call and e.bare_pairs) break e;
-                    } else null) |entry| {
-                        const vt = self.toks()[j + 1];
-                        if (vt.tag != .word or vt.f.key) break;
-                        const v = (try self.anyValue(vt, kt.text)) orelse break;
-                        try self.log.append(
-                            self.arena,
-                            .{ .slot = entry.slot, .key = kt.raw, .val = v },
-                        );
-                        j += 2;
-                        continue;
-                    }
-                    // A bare word is a flag where the bag accepts flags.
-                    const flags = for (node.bag) |e| {
-                        if (e.form == .rest and e.flags) break e;
-                    } else break;
-                    // A declared model is no flag: a longer form names it
-                    // (`Q c b e s tj model`).
-                    if (!lexer.isIdent(kt.text) or self.declared.contains(kt.text)) break;
-                    try self.log.append(
-                        self.arena,
-                        .{ .slot = flags.slot, .key = kt.raw, .val = .none },
-                    );
-                    j += 1;
-                }
-                for (node.bag) |e| {
-                    if (!e.required) continue;
-                    var seen = false;
-                    const want = if (e.form == .fixed) e.tag_slot else e.slot;
-                    for (self.log.items[mark..]) |c| {
-                        if (c.slot == want and c.key.len == 0) seen = true;
-                    }
-                    if (!seen) {
-                        self.log.shrinkRetainingCapacity(mark);
-                        return false;
-                    }
-                }
-                if (try self.m(rest, j, k)) return true;
-                self.log.shrinkRetainingCapacity(mark);
-                return false;
-            },
+            .rep => return if (node.count != grammar.no_slot)
+                self.repCount(node, rest, ti, k)
+            else
+                self.repGreedy(node, rest, ti, k),
+            .rest => return capture.restOfLine(self, node, rest, ti, k),
+            .bag => return bag.bag(self, node, rest, ti, k),
         }
+    }
+
+    /// A literal glued to its neighbours: matched where the lexer kept it,
+    /// passed over where the lexer dropped it.
+    inline fn glue(
+        self: *Matcher,
+        node: *const Node,
+        rest: []const Node,
+        ti: usize,
+        k: ?*const Cont,
+    ) Allocator.Error!bool {
+        // The lexer already dropped commas, and parentheses too in SPICE dialects.
+        const dropped = std.mem.eql(u8, node.text, ",") or
+            (self.g.lex.parens_are_space and
+                (std.mem.eql(u8, node.text, "(") or std.mem.eql(u8, node.text, ")")));
+        if (dropped and node.text[0] == '(') self.paren_open = ti;
+        if (dropped and node.text[0] == ')' and ti > self.paren_open + 1) {
+            // Where parentheses are blanks the lexer still noted where
+            // they close. `sin(0 1 1k) ac 1`: the group ends at `1k`,
+            // so `ac` and `1` are not its fourth and fifth values.
+            for (self.toks()[self.paren_open .. ti - 1]) |inner| {
+                if (inner.closes > 0) return false;
+            }
+        }
+        if (dropped) return self.m(rest, ti, k);
+        return litMatches(node, self.toks()[ti]) and try self.m(rest, ti + 1, k);
+    }
+
+    /// The end of a line inside a statement, and the comment lines after it.
+    inline fn newline(
+        self: *Matcher,
+        rest: []const Node,
+        ti: usize,
+        k: ?*const Cont,
+    ) Allocator.Error!bool {
+        if (self.toks()[ti].tag != .nl) return false;
+        // Comment lines inside a multi-line statement do not break it.
+        var j = ti + 1;
+        while (try self.win.has(j) and
+            (self.toks()[j].tag == .comment or self.toks()[j].tag == .blank)) j += 2;
+        return try self.win.has(j) and try self.m(rest, j, k);
+    }
+
+    /// A literal that also sets a slot to the value it stands for.
+    inline fn tagLit(
+        self: *Matcher,
+        node: *const Node,
+        rest: []const Node,
+        ti: usize,
+        k: ?*const Cont,
+    ) Allocator.Error!bool {
+        if (!litMatches(node, self.toks()[ti])) return false;
+        const mark = self.log.items.len;
+        const num = if (self.slot(node.slot).ty == .value)
+            lexer.parseNumber(self.arena, &self.g.lex, node.atom)
+        else
+            null;
+        try self.log.append(self.arena, .{ .slot = node.slot, .val = if (num) |n|
+            .{ .num = n }
+        else
+            .{ .atom = node.atom } });
+        if (try self.m(rest, ti + 1, k)) return true;
+        self.log.shrinkRetainingCapacity(mark);
+        return false;
+    }
+
+    /// Exactly as many passes of a repeated group as the count says: written out.
+    inline fn repCount(
+        self: *Matcher,
+        node: *const Node,
+        rest: []const Node,
+        ti: usize,
+        k: ?*const Cont,
+    ) Allocator.Error!bool {
+        assert(node.count != grammar.no_slot);
+        const mark = self.log.items.len;
+        const want = self.countOf(node.count) orelse return false;
+        var seq: std.ArrayList(Node) = .empty;
+        for (0..want) |i| {
+            if (i > 0) try seq.appendSlice(self.arena, node.sep);
+            try seq.appendSlice(self.arena, node.kids);
+        }
+        const c: Cont = .{ .items = rest, .next = k };
+        if (try self.m(seq.items, ti, &c)) return true;
+        self.log.shrinkRetainingCapacity(mark);
+        return false;
+    }
+
+    /// Greedy: one more pass, then this node again; else stop here. `star`
+    /// on the node marks a pass already taken, so the next one starts with
+    /// the separator.
+    inline fn repGreedy(
+        self: *Matcher,
+        node: *const Node,
+        rest: []const Node,
+        ti: usize,
+        k: ?*const Cont,
+    ) Allocator.Error!bool {
+        assert(node.count == grammar.no_slot);
+        const mark = self.log.items.len;
+        var again = node.*;
+        again.star = true;
+        again.plus = false;
+        const tail = [1]Node{again};
+        const after: Cont = .{ .items = rest, .next = k };
+        const loop: Cont = .{ .items = &tail, .next = &after };
+        const pass: Cont = .{ .items = node.kids, .next = &loop };
+        const ok = if (node.star)
+            try self.m(node.sep, ti, &pass)
+        else
+            try self.m(node.kids, ti, &loop);
+        if (ok) return true;
+        self.log.shrinkRetainingCapacity(mark);
+        return !node.plus and try self.m(rest, ti, k);
     }
 
     /// The count captured earlier in this match for `#slot`; at most 64.
@@ -537,6 +353,7 @@ pub const Matcher = struct {
     pub fn applyTo(self: *const Matcher, st: *ir.Stmt) Allocator.Error!void {
         const slots = schema.info(st.kind).slots;
         var buf: [schema.max_slots]Value = undefined;
+        assert(slots.len <= buf.len);
         const vals = st.unpack(&buf);
         for (slots, 0..) |sl, i| {
             if (sl.ty == .params) {

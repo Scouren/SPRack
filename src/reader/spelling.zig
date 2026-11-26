@@ -206,7 +206,12 @@ pub const Spelling = struct {
         }
     }
 
-    pub fn atom(sp: *const Spelling, arena: Allocator, space: Space, v: Value) Allocator.Error!Value {
+    pub fn atom(
+        sp: *const Spelling,
+        arena: Allocator,
+        space: Space,
+        v: Value,
+    ) Allocator.Error!Value {
         switch (v) {
             .atom => |a| return .{ .atom = try sp.spell(arena, space, a) },
             .list => |items| {
@@ -280,7 +285,11 @@ pub const Spelling = struct {
         return sp.lookup(in, low, low);
     }
 
-    pub fn signal(sp: *const Spelling, arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
+    pub fn signal(
+        sp: *const Spelling,
+        arena: Allocator,
+        text: []const u8,
+    ) Allocator.Error![]const u8 {
         var args: [3][]const u8 = undefined;
         const form, const n = signalParts(text, &args) orelse return text;
         if (n == 0) return text;
