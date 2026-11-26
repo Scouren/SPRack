@@ -140,6 +140,10 @@ caveat read options gmin : ...     # said when a netlist of this dialect is
                                    # translated out, not into it
 inert options post : ...           # a parameter that changes no result here:
                                    # left out crossing out, with an info note
+inert simctl run quit : a netlist for {to} runs its analyses without it
+                                   # several keys share a reason; for a kind
+                                   # that is a command, the key is its word;
+                                   # `{to}` is the dialect being written
 threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
 convert pss : fund = 1 / fund      # a value this dialect says differently:
 convert vsource wave=exp : td2 = td2 - td1    # a = b, a = a +/- c, a = 1 / a;

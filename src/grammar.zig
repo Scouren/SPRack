@@ -376,6 +376,8 @@ pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []co
     read: bool = false };
 /// `inert options post : why`: a parameter that changes no result here; a
 /// translation out of this dialect leaves it out with a note, not an error.
+/// For a kind that is a command (`simctl`), `key` is the command's word.
+/// `{to}` in `text` stands for the dialect being written.
 pub const Inert = struct { kind: Kind, key: []const u8, text: []const u8 };
 
 /// A value the dialect assumes when the statement does not say it;
@@ -584,6 +586,15 @@ pub const Grammar = struct {
         const word = first_word orelse return g.read_index.all;
         if (word.len == 0) return g.read_index.all;
         return g.read_index.by_byte[word[0]];
+    }
+
+    /// Why `key` of a `kind` statement changes no result in this dialect
+    /// (an `inert` line), case ignored; null where no line says so.
+    pub fn inertReason(g: *const Grammar, kind: Kind, key: []const u8) ?[]const u8 {
+        for (g.inerts) |in| {
+            if (in.kind == kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
+        }
+        return null;
     }
 
     /// The rules of `kind`, read or write, as indices into `rules` in file order.
@@ -2011,12 +2022,15 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
                 .{},
             );
             const e = try args(c, no, rest[0..colon]);
-            if (e.len != 2) return c.fail(no, "inert needs a kind and a parameter", .{});
-            inerts = try c.add(
-                Inert,
-                inerts,
-                .{ .kind = try kindOf(c, no, e[0]), .key = e[1], .text = rest[colon + 3 ..] },
-            );
+            if (e.len < 2) return c.fail(no, "inert needs a kind and a parameter", .{});
+            const kind = try kindOf(c, no, e[0]);
+            for (e[1..]) |key| {
+                inerts = try c.add(
+                    Inert,
+                    inerts,
+                    .{ .kind = kind, .key = key, .text = rest[colon + 3 ..] },
+                );
+            }
         } else if (std.mem.eql(u8, head, "threshold")) {
             const e = try args(c, no, rest);
             if (e.len != 7 or !std.mem.eql(u8, e[1], ":") or !std.mem.eql(u8, e[4], "="))

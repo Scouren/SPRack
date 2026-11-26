@@ -570,6 +570,9 @@ rule  measure@script = ( "meas" | "measure" ) analysis name ( op:"avg"=avg | op:
 rule  measure@script = ( "meas" | "measure" ) analysis name op:"param"=param ~"=" expr
 rule  measure@script = ( "meas" | "measure" ) analysis name spec...
 rule  simctl@script    = cmd [ args... ]
+# The commands that only drive the run of the script itself: outside
+# ngspice's control language they have nothing to say.
+inert simctl run quit exit reset destroy remcirc : a netlist for {to} runs its analyses without it
 # `.csparam freq = {freq}`: the parameter's value, as a vector of the same
 # name in the control script.
 rule  csparam   = ".csparam" {...params}

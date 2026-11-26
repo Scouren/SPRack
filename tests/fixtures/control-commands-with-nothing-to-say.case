@@ -1,0 +1,25 @@
+# The commands ngspice's grammar lists as inert in its control language (run, quit) are left
+# out with a note; any other command (print) is an error that names the language it is of.
+from: ngspice
+to: xyce
+--- input
+t
+R1 a 0 1k
+.control
+op
+run
+print v(a)
+quit
+.endc
+.end
+--- output
+t
+R1 a 0 1k
+.op
+* [sprack] not written: print v(a)
+.end
+--- report
+info[oneway]: line 3: script: xyce has no control script; the ngspice script's analyses and outputs are written as the netlist's own, in order
+info[loss]: line 5: simctl: 'run' is not written: a netlist for xyce runs its analyses without it
+error[unsupported]: line 6: simctl: 'print v(a)' is a command of ngspice's control language and cannot be written for xyce: Xyce has no control language besides its dot commands
+info[loss]: line 7: simctl: 'quit' is not written: a netlist for xyce runs its analyses without it

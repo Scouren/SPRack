@@ -249,7 +249,7 @@ def main():
     snap.add_argument("--suite", default="")
     snap.add_argument("--pdks", default="")
     snap.add_argument("--mutants", type=int, default=2)
-    snap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    snap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1))
     snap.add_argument("--only", default="")
     snap.set_defaults(run=snapshot)
     compare = commands.add_parser("diff")

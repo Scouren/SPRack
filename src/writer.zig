@@ -23,6 +23,13 @@ const Node = grammar.Node;
 const Kind = schema.Kind;
 const Value = ir.Value;
 
+/// A grammar's reason with `{to}` in it replaced by the dialect being
+/// written; the text itself where it has no such place.
+fn reasonFor(arena: Allocator, text: []const u8, to: []const u8) Allocator.Error![]const u8 {
+    if (std.mem.indexOf(u8, text, "{to}") == null) return text;
+    return std.mem.replaceOwned(u8, arena, text, "{to}", to);
+}
+
 /// `3.3.0`: digits with more than one point.
 fn malformedNumber(t: []const u8) bool {
     if (t.len == 0 or !std.ascii.isDigit(t[0])) return false;
@@ -996,11 +1003,12 @@ const Emit = struct {
     }
 
     /// Why the source dialect's parameter changes no result (`inert`), if it does not.
-    fn inert(e: *const Emit, key: []const u8) ?[]const u8 {
+    /// Why the source dialect's `key` of this statement changes no result
+    /// (its `inert` line), with `{to}` in it the dialect being written.
+    fn inert(e: *const Emit, key: []const u8) Allocator.Error!?[]const u8 {
         const sg = e.sourceGrammar() orelse return null;
-        for (sg.inerts) |in|
-            if (in.kind == e.st.kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
-        return null;
+        const text = sg.inertReason(e.st.kind, key) orelse return null;
+        return try reasonFor(e.arena, text, e.g.name);
     }
 
     fn lossCount(e: *Emit) Allocator.Error!usize {
@@ -1069,7 +1077,7 @@ const Emit = struct {
             if (e.slot(idx).ty == .params and v == .params) {
                 // One entry per parameter: each is a separate thing the target cannot say.
                 for (v.params) |p| {
-                    if (e.inert(p.key)) |why| {
+                    if (try e.inert(p.key)) |why| {
                         e.report.add(
                             .info,
                             .loss,
@@ -2110,7 +2118,7 @@ const Writer = struct {
                     p.key
                 else
                     try a.print("{s}={s}", .{ p.key, try em.describe(p.val) });
-                if (em.inert(p.key)) |why| {
+                if (try em.inert(p.key)) |why| {
                     // A loss all the same: the statement reads back without it.
                     w.report.add(
                         .info,
@@ -2310,6 +2318,21 @@ const Writer = struct {
         try w.leaf(a, &cap);
         try w.leaf(a, &v);
         return true;
+    }
+
+    /// Why command `cmd` of a `simctl` statement is left out here: the
+    /// `inert` line of the dialect it was read in, with this dialect named
+    /// where the line says `{to}`. A statement of no dialect this binary
+    /// has a grammar for (one built from JSON or Python) is every
+    /// built-in dialect's: the first that lists the command decides.
+    fn inertCommand(w: *Writer, st: *const ir.Stmt, cmd: []const u8) Allocator.Error!?[]const u8 {
+        const why = if (w.sourceGrammar(st)) |sg|
+            sg.inertReason(st.kind, cmd)
+        else for (if (w.caps) |c| c.grammars else &.{}) |*g| {
+            if (g.inertReason(st.kind, cmd)) |text| break text;
+        } else null;
+        const text = why orelse return null;
+        return try reasonFor(w.arena, text, w.g.name);
     }
 
     fn emitter(w: *Writer, a: Allocator, st: *const ir.Stmt) Emit {
@@ -2632,18 +2655,12 @@ const Writer = struct {
                 " "
             else
                 "", args });
-            for ([_][]const u8{ "run", "quit", "exit", "reset", "destroy", "remcirc" }) |q|
-                if (std.ascii.eqlIgnoreCase(cmd, q)) {
-                    w.report.add(
-                        .info,
-                        .loss,
-                        st.line,
-                        "simctl: '{s}' is not written: a netlist for {s} runs its analyses " ++
-                            "without it",
-                        .{ said, w.g.name },
-                    );
-                    return;
-                };
+            // The dialect the command is of says which of its commands
+            // have nothing to say outside it (`inert simctl run ...`).
+            if (try w.inertCommand(st, cmd)) |why| {
+                w.report.add(.info, .loss, st.line, "simctl: '{s}' is not written: {s}", .{ said, why });
+                return;
+            }
             if (w.g.absentReason(.simctl)) |why| {
                 w.report.add(
                     .@"error",
