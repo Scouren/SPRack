@@ -1,41 +1,28 @@
 //! What every part of the compiler shares: the context `C` that allocates
 //! and reports, the error and the diagnostic, the line reader, and the
 //! small parsers of words, kinds, slots and numbers a directive is made of.
+//!
+//! Contents:
+//! - `pub const Error`
+//! - `pub const Diag = struct`
+//! - `pub const C = struct`
+//! - `pub const Lines = struct`
+//! - `pub fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct`
+//! - `pub fn stripComment(line: []const u8) []const u8`
+//! - `pub fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8`
+//! - `pub fn splitHead(line: []const u8) struct`
+//! - `pub fn kindOf(c: *C, line: u32, name: []const u8) Error!Kind`
+//! - `pub fn kindSlot(c: *C, line: u32, kind_name: []const u8, slot_name: []const u8) Error!struct`
+//! - `pub fn dotted(c: *C, line: u32, text: []const u8) Error!struct`
+//! - `pub fn literalLines(c: *C, lines: *Lines) Error![]const []const u8`
+//! - `pub fn slotNamed(c: *C, line: u32, kind: Kind, s: []const u8) Error!u8`
+//! - `pub fn condition(c: *C, line: u32, kind: Kind, text: []const u8) Error!struct`
+//! - `pub fn isNumber(text: []const u8) bool`
 
 const std = @import("std");
 const schema = @import("schema");
 const Kind = schema.Kind;
 const Allocator = std.mem.Allocator;
-
-pub fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct { u64, i32 } {
-    var mant: u64 = 0;
-    var exp: i32 = 0;
-    var i: usize = 0;
-    var seen_point = false;
-    while (i < text.len and (std.ascii.isDigit(text[i]) or text[i] == '.')) : (i += 1) {
-        if (text[i] == '.') {
-            seen_point = true;
-            continue;
-        }
-        mant = std.math.mul(u64, mant, 10) catch return c.fail(
-            line,
-            "bad multiplier '{s}'",
-            .{text},
-        );
-        mant += text[i] - '0';
-        if (seen_point) exp -= 1;
-    }
-    if (i < text.len) {
-        if (text[i] != 'e' and text[i] != 'E') return c.fail(line, "bad multiplier '{s}'", .{text});
-        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch return c.fail(
-            line,
-            "bad multiplier '{s}'",
-            .{text},
-        );
-    }
-    if (mant == 0) return c.fail(line, "bad multiplier '{s}'", .{text});
-    return .{ mant, exp };
-}
 
 pub const Error = error{ BadGrammar, OutOfMemory };
 
@@ -106,21 +93,6 @@ pub const C = struct {
     }
 };
 
-/// Strip a `#` comment (only at line start or after a blank, outside quotes).
-pub fn stripComment(line: []const u8) []const u8 {
-    var quote: u8 = 0;
-    for (line, 0..) |ch, i| {
-        if (quote != 0) {
-            if (ch == quote) quote = 0;
-        } else if (ch == '"' or ch == '\'') {
-            quote = ch;
-        } else if (ch == '#' and (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t')) {
-            return line[0..i];
-        }
-    }
-    return line;
-}
-
 pub const Lines = struct {
     src: []const u8,
     pos: usize = 0,
@@ -139,6 +111,51 @@ pub const Lines = struct {
         return null;
     }
 };
+
+pub fn parseDecimal(c: *C, line: u32, text: []const u8) Error!struct { u64, i32 } {
+    var mant: u64 = 0;
+    var exp: i32 = 0;
+    var i: usize = 0;
+    var seen_point = false;
+    while (i < text.len and (std.ascii.isDigit(text[i]) or text[i] == '.')) : (i += 1) {
+        if (text[i] == '.') {
+            seen_point = true;
+            continue;
+        }
+        mant = std.math.mul(u64, mant, 10) catch return c.fail(
+            line,
+            "bad multiplier '{s}'",
+            .{text},
+        );
+        mant += text[i] - '0';
+        if (seen_point) exp -= 1;
+    }
+    if (i < text.len) {
+        if (text[i] != 'e' and text[i] != 'E') return c.fail(line, "bad multiplier '{s}'", .{text});
+        exp += std.fmt.parseInt(i32, text[i + 1 ..], 10) catch return c.fail(
+            line,
+            "bad multiplier '{s}'",
+            .{text},
+        );
+    }
+    if (mant == 0) return c.fail(line, "bad multiplier '{s}'", .{text});
+    return .{ mant, exp };
+}
+
+/// Strip a `#` comment (only at line start or after a blank, outside quotes).
+pub fn stripComment(line: []const u8) []const u8 {
+    var quote: u8 = 0;
+    for (line, 0..) |ch, i| {
+        if (quote != 0) {
+            if (ch == quote) quote = 0;
+        } else if (ch == '"' or ch == '\'') {
+            quote = ch;
+        } else if (ch == '#' and (i == 0 or line[i - 1] == ' ' or line[i - 1] == '\t')) {
+            return line[0..i];
+        }
+    }
+    return line;
+}
 
 /// Split a directive line into words and quoted strings.
 pub fn args(c: *C, line_no: u32, line: []const u8) Error![]const []const u8 {

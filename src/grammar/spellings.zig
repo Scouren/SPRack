@@ -1,5 +1,11 @@
 //! Sections that list spellings, one a line up to `end`: `models`,
 //! `functions`, `variables`, `operators`, `params`, `modelparams`, `signals`.
+//!
+//! Contents:
+//! - `pub fn parseModels(c: *C, lines: *Lines, fold: bool) Error![]const ModelEntry`
+//! - `pub fn parseSpellings(c: *C, lines: *Lines, fold: bool, what: []const u8,
+//!   known: ?[]const []const u8) Error![]const Spellings`
+//! - `pub fn parseSignals(c: *C, lines: *Lines, fold: bool) Error![]const SignalForm`
 
 const std = @import("std");
 const schema = @import("schema");

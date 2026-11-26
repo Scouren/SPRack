@@ -1,6 +1,15 @@
 //! The read index of a grammar (which rules can read a line, from its first
 //! byte; which kinds are read and written) and the pass over the rules that
 //! marks `spread` endings.
+//!
+//! Contents:
+//! - `pub const ReadIndex = struct`
+//! - `pub fn anyWrites(rules: []const Rule, kind: Kind, slot: u8) bool`
+//! - `pub fn mentions(nodes: []const Node, slot: u8) bool`
+//! - `pub fn markEndings(c: *C, rules: []const Rule, spreads: []const Spread) Error![]const Rule`
+//! - `pub fn readIndex(c: *C, rules: []const Rule, blocks: []const Block,
+//!   raws: []const RawBlock) Error!ReadIndex`
+//! - `pub fn startsWith(rule: *const Rule, byte: u8) bool`
 
 const std = @import("std");
 const schema = @import("schema");

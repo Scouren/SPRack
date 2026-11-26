@@ -5,6 +5,66 @@
 //! mistake comes back as `error.BadGrammar` with `file:line: message` in
 //! the `Diag`; `zig build` runs it on every file of `grammars/`, so a
 //! mistake in a built-in grammar still stops the build.
+//!
+//! Contents:
+//! - `pub const Diag`
+//! - `pub const Error`
+//! - `pub const ReadIndex`
+//! - `pub const mentions`
+//! - `pub const Grammar`
+//! - `pub const Absent`
+//! - `pub const BagEntry`
+//! - `pub const BagForm`
+//! - `pub const Block`
+//! - `pub const Caveat`
+//! - `pub const Check`
+//! - `pub const Computes`
+//! - `pub const Convert`
+//! - `pub const Differs`
+//! - `pub const Dir`
+//! - `pub const Edge`
+//! - `pub const EnumMap`
+//! - `pub const EnumPair`
+//! - `pub const Fill`
+//! - `pub const Implied`
+//! - `pub const Inert`
+//! - `pub const LexCfg`
+//! - `pub const Means`
+//! - `pub const Merge`
+//! - `pub const ModelEntry`
+//! - `pub const ModelKv`
+//! - `pub const ModelParamTable`
+//! - `pub const ModelSpelling`
+//! - `pub const ModelWhen`
+//! - `pub const Move`
+//! - `pub const Needs`
+//! - `pub const NoFamily`
+//! - `pub const NoParam`
+//! - `pub const Node`
+//! - `pub const NodeTag`
+//! - `pub const OddScale`
+//! - `pub const Omitted`
+//! - `pub const Own`
+//! - `pub const ParamTable`
+//! - `pub const Plugin`
+//! - `pub const RawBlock`
+//! - `pub const Require`
+//! - `pub const Reserved`
+//! - `pub const Rewrite`
+//! - `pub const Rule`
+//! - `pub const Scale`
+//! - `pub const SignalForm`
+//! - `pub const Spellings`
+//! - `pub const Spread`
+//! - `pub const Switch`
+//! - `pub const Threshold`
+//! - `pub const Topo`
+//! - `pub const UniqueAnalysis`
+//! - `pub const Wrap`
+//! - `pub const no_slot`
+//! - `pub const paramsOpen`
+//! - `pub const wild_slot`
+//! - `pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) Error!Grammar`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -18,64 +78,6 @@ const rewrite = @import("rewrite.zig");
 const spellings = @import("spellings.zig");
 const tables = @import("tables.zig");
 const types = @import("types.zig");
-
-pub const Diag = context.Diag;
-pub const Error = context.Error;
-pub const ReadIndex = index.ReadIndex;
-pub const mentions = index.mentions;
-pub const Grammar = tables.Grammar;
-pub const Absent = types.Absent;
-pub const BagEntry = types.BagEntry;
-pub const BagForm = types.BagForm;
-pub const Block = types.Block;
-pub const Caveat = types.Caveat;
-pub const Check = types.Check;
-pub const Computes = types.Computes;
-pub const Convert = types.Convert;
-pub const Differs = types.Differs;
-pub const Dir = types.Dir;
-pub const Edge = types.Edge;
-pub const EnumMap = types.EnumMap;
-pub const EnumPair = types.EnumPair;
-pub const Fill = types.Fill;
-pub const Implied = types.Implied;
-pub const Inert = types.Inert;
-pub const LexCfg = types.LexCfg;
-pub const Means = types.Means;
-pub const Merge = types.Merge;
-pub const ModelEntry = types.ModelEntry;
-pub const ModelKv = types.ModelKv;
-pub const ModelParamTable = types.ModelParamTable;
-pub const ModelSpelling = types.ModelSpelling;
-pub const ModelWhen = types.ModelWhen;
-pub const Move = types.Move;
-pub const Needs = types.Needs;
-pub const NoFamily = types.NoFamily;
-pub const NoParam = types.NoParam;
-pub const Node = types.Node;
-pub const NodeTag = types.NodeTag;
-pub const OddScale = types.OddScale;
-pub const Omitted = types.Omitted;
-pub const Own = types.Own;
-pub const ParamTable = types.ParamTable;
-pub const Plugin = types.Plugin;
-pub const RawBlock = types.RawBlock;
-pub const Require = types.Require;
-pub const Reserved = types.Reserved;
-pub const Rewrite = types.Rewrite;
-pub const Rule = types.Rule;
-pub const Scale = types.Scale;
-pub const SignalForm = types.SignalForm;
-pub const Spellings = types.Spellings;
-pub const Spread = types.Spread;
-pub const Switch = types.Switch;
-pub const Threshold = types.Threshold;
-pub const Topo = types.Topo;
-pub const UniqueAnalysis = types.UniqueAnalysis;
-pub const Wrap = types.Wrap;
-pub const no_slot = types.no_slot;
-pub const paramsOpen = types.paramsOpen;
-pub const wild_slot = types.wild_slot;
 const C = context.C;
 const Lines = context.Lines;
 const args = context.args;
@@ -98,6 +100,138 @@ const rewriteBlock = rewrite.rewriteBlock;
 const parseModels = spellings.parseModels;
 const parseSignals = spellings.parseSignals;
 const parseSpellings = spellings.parseSpellings;
+
+pub const Diag = context.Diag;
+
+pub const Error = context.Error;
+
+pub const ReadIndex = index.ReadIndex;
+
+pub const mentions = index.mentions;
+
+pub const Grammar = tables.Grammar;
+
+pub const Absent = types.Absent;
+
+pub const BagEntry = types.BagEntry;
+
+pub const BagForm = types.BagForm;
+
+pub const Block = types.Block;
+
+pub const Caveat = types.Caveat;
+
+pub const Check = types.Check;
+
+pub const Computes = types.Computes;
+
+pub const Convert = types.Convert;
+
+pub const Differs = types.Differs;
+
+pub const Dir = types.Dir;
+
+pub const Edge = types.Edge;
+
+pub const EnumMap = types.EnumMap;
+
+pub const EnumPair = types.EnumPair;
+
+pub const Fill = types.Fill;
+
+pub const Implied = types.Implied;
+
+pub const Inert = types.Inert;
+
+pub const LexCfg = types.LexCfg;
+
+pub const Means = types.Means;
+
+pub const Merge = types.Merge;
+
+pub const ModelEntry = types.ModelEntry;
+
+pub const ModelKv = types.ModelKv;
+
+pub const ModelParamTable = types.ModelParamTable;
+
+pub const ModelSpelling = types.ModelSpelling;
+
+pub const ModelWhen = types.ModelWhen;
+
+pub const Move = types.Move;
+
+pub const Needs = types.Needs;
+
+pub const NoFamily = types.NoFamily;
+
+pub const NoParam = types.NoParam;
+
+pub const Node = types.Node;
+
+pub const NodeTag = types.NodeTag;
+
+pub const OddScale = types.OddScale;
+
+pub const Omitted = types.Omitted;
+
+pub const Own = types.Own;
+
+pub const ParamTable = types.ParamTable;
+
+pub const Plugin = types.Plugin;
+
+pub const RawBlock = types.RawBlock;
+
+pub const Require = types.Require;
+
+pub const Reserved = types.Reserved;
+
+pub const Rewrite = types.Rewrite;
+
+pub const Rule = types.Rule;
+
+pub const Scale = types.Scale;
+
+pub const SignalForm = types.SignalForm;
+
+pub const Spellings = types.Spellings;
+
+pub const Spread = types.Spread;
+
+pub const Switch = types.Switch;
+
+pub const Threshold = types.Threshold;
+
+pub const Topo = types.Topo;
+
+pub const UniqueAnalysis = types.UniqueAnalysis;
+
+pub const Wrap = types.Wrap;
+
+pub const no_slot = types.no_slot;
+
+pub const paramsOpen = types.paramsOpen;
+
+pub const wild_slot = types.wild_slot;
+
+const tiny =
+    \\dialect tiny
+    \\lexer
+    \\  case insensitive
+    \\  comment line "*"
+    \\  continue lead "+"
+    \\  scale MEG=6 K=3 M=-3
+    \\end
+    \\rule resistor = name~"R" pos neg r {...params}
+    \\rule tran = ".TRAN" step?'$stop/1000' stop [start?0 [maxstep]] [skip_dc:"UIC"=yes]
+    \\rule ac = ".ac" (sweep:"dec" | sweep:"lin") points fstart fstop
+    \\models
+    \\  bsim4 n = nmos level=14 | nmos level=54
+    \\  mos1 n = nmos level=1 | nmos !level
+    \\  vbic npn = npn level=12 when nodes>=4 | npn level=11
+    \\end
+;
 
 /// Turn the text of a `.spgrammar` file into a `Grammar`.
 ///
@@ -994,23 +1128,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
     };
 }
 
-const tiny =
-    \\dialect tiny
-    \\lexer
-    \\  case insensitive
-    \\  comment line "*"
-    \\  continue lead "+"
-    \\  scale MEG=6 K=3 M=-3
-    \\end
-    \\rule resistor = name~"R" pos neg r {...params}
-    \\rule tran = ".TRAN" step?'$stop/1000' stop [start?0 [maxstep]] [skip_dc:"UIC"=yes]
-    \\rule ac = ".ac" (sweep:"dec" | sweep:"lin") points fstart fstop
-    \\models
-    \\  bsim4 n = nmos level=14 | nmos level=54
-    \\  mos1 n = nmos level=1 | nmos !level
-    \\  vbic npn = npn level=12 when nodes>=4 | npn level=11
-    \\end
-;
+// ---- private ----
 
 fn expectTiny(g: Grammar) !void {
     try std.testing.expectEqualStrings("tiny", g.name);

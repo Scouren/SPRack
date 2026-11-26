@@ -1,5 +1,59 @@
 //! The rows of a compiled grammar: pattern nodes, rules, blocks, and one
 //! struct per directive whose lines become a table of `Grammar`.
+//!
+//! Contents:
+//! - `pub const Scale = struct`
+//! - `pub const OddScale = struct`
+//! - `pub const LexCfg = struct`
+//! - `pub const no_slot: u8`
+//! - `pub const wild_slot: u8`
+//! - `pub const NodeTag = enum`
+//! - `pub const BagForm = enum`
+//! - `pub const BagEntry = struct`
+//! - `pub const Node = struct`
+//! - `pub const Dir = enum`
+//! - `pub const Rule = struct`
+//! - `pub const Block = struct`
+//! - `pub const Wrap = struct`
+//! - `pub const RawBlock = struct`
+//! - `pub const NoFamily = struct`
+//! - `pub const Own = struct`
+//! - `pub const Needs = struct`
+//! - `pub const Convert = struct`
+//! - `pub const Computes = struct`
+//! - `pub const Edge = struct`
+//! - `pub const NoParam = struct`
+//! - `pub const Threshold = struct`
+//! - `pub const Check = struct`
+//! - `pub const Fill = struct`
+//! - `pub const Omitted = struct`
+//! - `pub const Caveat = struct`
+//! - `pub const Plugin = struct`
+//! - `pub const Rewrite = struct`
+//! - `pub const Inert = struct`
+//! - `pub const Implied = struct`
+//! - `pub const EnumPair = struct`
+//! - `pub const EnumMap = struct`
+//! - `pub const Move = struct`
+//! - `pub const Merge = struct`
+//! - `pub const SignalForm = struct`
+//! - `pub const Spellings = struct`
+//! - `pub const ParamTable = struct`
+//! - `pub const ModelParamTable = struct`
+//! - `pub const Differs = struct`
+//! - `pub const Means = struct`
+//! - `pub const Absent = struct`
+//! - `pub const Switch = struct`
+//! - `pub const Spread = struct`
+//! - `pub const Reserved = struct`
+//! - `pub const Topo = enum`
+//! - `pub const Require = struct`
+//! - `pub const UniqueAnalysis = struct`
+//! - `pub const ModelKv = struct`
+//! - `pub const ModelWhen = struct`
+//! - `pub const ModelSpelling = struct`
+//! - `pub const ModelEntry = struct`
+//! - `pub fn paramsOpen(table: []const Spellings) bool`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -186,8 +240,12 @@ pub const Wrap = struct { open: []const u8, close: []const u8, kinds: []const Ki
 /// `reason`: why no other dialect can take it (`raw "embed" ">>>FILE" : ...`).
 /// `as embed`: the region is a statement of that kind (a named file and
 /// its text), not text.
-pub const RawBlock =
-    struct { open: []const u8, close: []const u8, reason: []const u8 = "", kind: ?Kind = null };
+pub const RawBlock = struct {
+    open: []const u8,
+    close: []const u8,
+    reason: []const u8 = "",
+    kind: ?Kind = null,
+};
 
 /// `own ".check" ".dout" : reason`: statements of this dialect that no kind
 /// of the schema holds, and why no other dialect gets them. Read as text,
@@ -244,11 +302,21 @@ pub const Computes = struct { family: []const u8, keys: []const []const u8, text
 /// out of the dialect is a caveat with the text.
 pub const Edge = struct { family: []const u8, key: []const u8, text: []const u8 };
 
-pub const NoParam =
-    struct { family: []const u8, key: []const u8, value: []const u8, err: bool, text: []const u8 };
+pub const NoParam = struct {
+    family: []const u8,
+    key: []const u8,
+    value: []const u8,
+    err: bool,
+    text: []const u8,
+};
 
-pub const Threshold =
-    struct { family: []const u8, on: []const u8, off: []const u8, mid: []const u8, half: []const u8 };
+pub const Threshold = struct {
+    family: []const u8,
+    on: []const u8,
+    off: []const u8,
+    mid: []const u8,
+    half: []const u8,
+};
 
 /// `invalid kind slot[=0] [slot=atom] : text`: a statement without that slot
 /// (or, with `=0`, with it zero) means something else here; an error
@@ -319,9 +387,13 @@ pub const Omitted = struct {
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
 /// `caveat hdl path=*.osdi : ...` holds only where the value ends so.
 /// `read`: said when a translation reads this dialect, not writes it.
-pub const Caveat = struct { kind: Kind, slot: u8, text: []const u8, suffix: []const u8 =
-    "",
-    read: bool = false };
+pub const Caveat = struct {
+    kind: Kind,
+    slot: u8,
+    text: []const u8,
+    suffix: []const u8 = "",
+    read: bool = false,
+};
 
 /// `plugin ... end`: this dialect takes a Verilog-A module only compiled,
 /// as a plugin, and names the module on the instance (a device rule that
@@ -394,10 +466,13 @@ pub const Inert = struct { kind: Kind, key: []const u8, text: []const u8 };
 
 /// A value the dialect assumes when the statement does not say it;
 /// `wave=exp` after it: only where that atom slot holds that word.
-pub const Implied =
-    struct { kind: Kind, slot: u8, text: []const u8, when_slot: u8 =
-        no_slot,
-    when_atom: []const u8 = "" };
+pub const Implied = struct {
+    kind: Kind,
+    slot: u8,
+    text: []const u8,
+    when_slot: u8 = no_slot,
+    when_atom: []const u8 = "",
+};
 
 pub const EnumPair = struct { canon: []const u8, spelling: []const u8 };
 
@@ -444,14 +519,11 @@ pub const ParamTable = struct { kind: Kind, names: []const Spellings };
 /// 0); a name listed without itself among its spellings is not taken here.
 /// `modelparams family [only]`: with `only`, the table lists every
 /// parameter the family's card takes here, and any other is a loss.
-pub const ModelParamTable =
-    struct { family: []const u8, names: []const Spellings, only: bool = false };
-
-/// Does a `params` table end in `same ...`: unlisted parameters are not checked?
-pub fn paramsOpen(table: []const Spellings) bool {
-    for (table) |e| if (std.mem.eql(u8, e.canon, "...")) return true;
-    return false;
-}
+pub const ModelParamTable = struct {
+    family: []const u8,
+    names: []const Spellings,
+    only: bool = false,
+};
 
 /// A function or operator this dialect spells like the others but
 /// evaluates differently (HSPICE `pow` truncates its exponent).
@@ -460,9 +532,12 @@ pub const Differs = struct { canon: []const u8, text: []const u8 };
 /// `means [kind] f(x, y) = body`: what this dialect means by a function,
 /// in canonical functions, for a target that lacks it; with a kind, in
 /// statements of that kind only (a behavioural source).
-pub const Means = struct { kind: ?Kind =
-    null,
-    canon: []const u8, args: []const []const u8, body: []const u8 };
+pub const Means = struct {
+    kind: ?Kind = null,
+    canon: []const u8,
+    args: []const []const u8,
+    body: []const u8,
+};
 
 /// A kind the simulator itself lacks, and why; with a slot, the one value
 /// of a kind it has (`no options vntol : why`), the reason ending the error.
@@ -478,8 +553,11 @@ pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `reserved [shadowed] name ... : reason`. `shadowed`: the simulator
 /// takes a parameter of the name, but the word in an expression is its
 /// variable, so the parameter is renamed all the same.
-pub const Reserved =
-    struct { names: []const []const u8, reason: []const u8, shadowed: bool = false };
+pub const Reserved = struct {
+    names: []const []const u8,
+    reason: []const u8,
+    shadowed: bool = false,
+};
 
 /// A circuit topology the simulator cannot solve (`src/topology.zig`):
 /// nodes with no DC path to ground, or a loop of voltage sources only, of
@@ -492,14 +570,21 @@ pub const Topo = enum { @"dc-path", @"no-vloop", @"no-vlloop", @"no-lloop", cuts
 /// here, an error when the simulator fails on it, a warning when it solves it
 /// its own way. Only in a netlist with one of `analyses` (`tran`: one without
 /// UIC); with none listed, with any analysis.
-pub const Require =
-    struct { what: Topo, err: bool, analyses: []const Kind = &.{}, reason: []const u8 };
+pub const Require = struct {
+    what: Topo,
+    err: bool,
+    analyses: []const Kind = &.{},
+    reason: []const u8,
+};
 
 /// `kinds`: the statements that count as an analysis. More than one in a
 /// netlist is refused, except two when one is of the kind `beside` (it
 /// counts too), which is then loaded and not run.
-pub const UniqueAnalysis =
-    struct { kinds: []const Kind = &.{}, beside: ?Kind = null, reason: []const u8 };
+pub const UniqueAnalysis = struct {
+    kinds: []const Kind = &.{},
+    beside: ?Kind = null,
+    reason: []const u8,
+};
 
 /// `level>=99`: read only, any number from `val` up (what the dialect itself
 /// takes as another level); never written.
@@ -521,8 +606,11 @@ pub const ModelWhen = struct {
     }
 };
 
-pub const ModelSpelling =
-    struct { type: []const u8, kv: []const ModelKv, when: []const ModelWhen = &.{} };
+pub const ModelSpelling = struct {
+    type: []const u8,
+    kv: []const ModelKv,
+    when: []const ModelWhen = &.{},
+};
 
 /// `provided`: the dialect has the family only as a compiled module the
 /// translation is given (`--provide family=FILE`); without one it is an
@@ -533,3 +621,9 @@ pub const ModelEntry = struct {
     spellings: []const ModelSpelling,
     provided: bool = false,
 };
+
+/// Does a `params` table end in `same ...`: unlisted parameters are not checked?
+pub fn paramsOpen(table: []const Spellings) bool {
+    for (table) |e| if (std.mem.eql(u8, e.canon, "...")) return true;
+    return false;
+}

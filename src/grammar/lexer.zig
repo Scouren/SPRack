@@ -1,4 +1,7 @@
 //! The `lexer ... end` section of a grammar into a `LexCfg`.
+//!
+//! Contents:
+//! - `pub fn parseLexer(c: *C, lines: *Lines) Error!LexCfg`
 
 const std = @import("std");
 const context = @import("context.zig");

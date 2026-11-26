@@ -1,5 +1,8 @@
 //! `Grammar`: the tables `compile` makes of a `.spgrammar` file, and the
 //! questions the reader and writer ask of them.
+//!
+//! Contents:
+//! - `pub const Grammar = struct`
 
 const std = @import("std");
 const schema = @import("schema");

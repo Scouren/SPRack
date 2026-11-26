@@ -1,4 +1,14 @@
 //! The `rewrite kind param ... end` and `plugin ... end` blocks.
+//!
+//! Contents:
+//! - `pub fn pluginBlock(c: *C, lines: *Lines, header: []const u8) Error!Plugin`
+//! - `pub fn pluginDrop(c: *C, no: u32, words: []const []const u8,
+//!   text: []const u8) Error!Plugin.Drop`
+//! - `pub fn rewriteBlock(c: *C, lines: *Lines, header: []const u8) Error!Rewrite`
+//! - `pub fn rewritePart(c: *C, no: u32, original: Kind, verb: []const u8,
+//!   rest: []const u8) Error!Rewrite.Part`
+//! - `pub fn pairedBrackets(template: []const u8) bool`
+//! - `pub fn rewriteClash(c: *C, no: u32, original: Kind, rest: []const u8) Error!Rewrite.Clash`
 
 const std = @import("std");
 const schema = @import("schema");

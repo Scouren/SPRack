@@ -1,6 +1,13 @@
 //! The pattern parser: the text after `rule kind =` (and a block's
 //! `open`/`inner`/`close`) into `Node`s, groups nested at most `P.max_depth`
 //! deep and at most `P.max_nodes` nodes, defines expanded.
+//!
+//! Contents:
+//! - `pub const Def = struct`
+//! - `pub const P = struct`
+//! - `pub fn canBeEmpty(items: []const Node) bool`
+//! - `pub fn pattern(c: *C, line: u32, kind: Kind, fold: bool, text: []const u8,
+//!   defs: []const Def) Error![]const Node`
 
 const std = @import("std");
 const schema = @import("schema");
