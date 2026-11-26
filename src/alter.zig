@@ -16,9 +16,9 @@
 //!   parameters and temperature only.
 
 const std = @import("std");
-const schema = @import("schema.zig");
+const schema = @import("schema");
 const ir = @import("ir.zig");
-const grammar = @import("grammar.zig");
+const grammar = @import("grammar");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;

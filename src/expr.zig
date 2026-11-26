@@ -11,8 +11,8 @@
 //! sections of the grammar.
 
 const std = @import("std");
-const grammar = @import("grammar.zig");
-const schema = @import("schema.zig");
+const grammar = @import("grammar");
+const schema = @import("schema");
 const lexer = @import("lexer.zig");
 const ir = @import("ir.zig");
 
@@ -1072,7 +1072,11 @@ test "a condition over known parameters" {
 }
 
 test "expressions between two small tables" {
-    const spice = grammar.compileBuiltin(
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: grammar.Diag = .{};
+    const spice = try grammar.compile(a,
         \\dialect a
         \\lexer
         \\  case insensitive
@@ -1088,8 +1092,8 @@ test "expressions between two small tables" {
         \\variables
         \\  temper = temper
         \\end
-    );
-    const spectre = grammar.compileBuiltin(
+    , "", &diag);
+    const spectre = try grammar.compile(a,
         \\dialect b
         \\lexer
         \\  case sensitive
@@ -1106,10 +1110,7 @@ test "expressions between two small tables" {
         \\variables
         \\  temper = temp
         \\end
-    );
-    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
+    , "", &diag);
     var problems: std.ArrayList(Problem) = .empty;
 
     const canon = try read(a, &spice, "2M * LOG(x)^2 + Temper", .{}, &problems);

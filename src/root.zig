@@ -1,15 +1,15 @@
 //! sprack: SPICE dialect translator.
 //!
-//! Each file in `grammars/` is compiled at build time into a reader and a
-//! writer for one dialect. Any dialect can be read into the shared IR and
+//! Each file in `grammars/` is compiled when the binary is built into the
+//! tables a reader and a writer for one dialect run on. Any dialect can be read into the shared IR and
 //! written back out as any other.
 
 const std = @import("std");
 const registry = @import("registry");
 
-pub const schema = @import("schema.zig");
+pub const schema = @import("schema");
 pub const ir = @import("ir.zig");
-pub const grammar = @import("grammar.zig");
+pub const grammar = @import("grammar");
 pub const lexer = @import("lexer.zig");
 pub const reader = @import("reader.zig");
 pub const writer = @import("writer.zig");
@@ -23,15 +23,14 @@ pub const stream = @import("stream.zig");
 const Allocator = std.mem.Allocator;
 pub const Grammar = grammar.Grammar;
 
-pub const dialect_count = registry.sources.len;
+pub const dialect_count = registry.grammars.len;
 
-/// One compiled grammar per `.spgrammar` file. A mistake in any of them
-/// stops the build here.
-pub const grammars: [dialect_count]Grammar = blk: {
-    var out: [dialect_count]Grammar = undefined;
-    for (registry.sources, 0..) |src, i| out[i] = grammar.compileBuiltin(src);
-    break :blk out;
-};
+/// One compiled grammar per `.spgrammar` file, in file name order. They are
+/// compiled when the binary is built, by `tools/grammar_gen.zig` with the
+/// compiler a grammar file given by path goes through (`grammar.compile`),
+/// and written out as the tables of the `registry` module: a mistake in any
+/// of them stops the build there.
+pub const grammars: [dialect_count]Grammar = registry.grammars;
 
 /// Which dialects can write each kind and each model family, worked out at
 /// compile time from the grammars themselves.

@@ -17,7 +17,7 @@
 
 const std = @import("std");
 const ir = @import("ir.zig");
-const schema = @import("schema.zig");
+const schema = @import("schema");
 const expr = @import("expr.zig");
 
 const Allocator = std.mem.Allocator;

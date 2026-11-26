@@ -26,11 +26,11 @@
 //! `[key, value]` pairs.
 
 const std = @import("std");
-const schema = @import("schema.zig");
+const schema = @import("schema");
 const ir = @import("ir.zig");
 /// The dialect table (`internDialect`, `dialectName`).
 const sprack = @import("root.zig");
-const grammar = @import("grammar.zig");
+const grammar = @import("grammar");
 const lexer = @import("lexer.zig");
 const reader = @import("reader.zig");
 

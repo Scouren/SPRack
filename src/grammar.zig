@@ -1,14 +1,13 @@
 //! Compiles a `.spgrammar` file into reader/writer tables.
 //!
-//! The same `compile` runs at compile time (the built-in grammars, where a
-//! mistake is a compile error naming the file and line) and at run time (a
-//! grammar file given by path, where the mistake comes back as
-//! `error.BadGrammar` with `file:line: message` in the `Diag`). Each step
-//! that allocates branches on `@inComptime()`: `++` at compile time, the
-//! allocator at run time.
+//! `compile` runs at run time only, for the built-in grammars (their text
+//! is embedded in the binary) as for a grammar file given by path. A
+//! mistake comes back as `error.BadGrammar` with `file:line: message` in
+//! the `Diag`; `zig build` runs it on every file of `grammars/`, so a
+//! mistake in a built-in grammar still stops the build.
 
 const std = @import("std");
-const schema = @import("schema.zig");
+const schema = @import("schema");
 const Kind = schema.Kind;
 const Allocator = std.mem.Allocator;
 
@@ -710,10 +709,6 @@ const C = struct {
     const Grown = struct { len: usize, cap: usize };
 
     fn fail(c: *C, line: u32, comptime fmt: []const u8, a: anytype) Error {
-        if (@inComptime()) {
-            const f = if (c.file.len > 0) c.file else c.name ++ ".spgrammar";
-            @compileError(std.fmt.comptimePrint("{s}:{d}: ", .{ f, line }) ++ std.fmt.comptimePrint(fmt, a));
-        }
         const where = if (c.file.len > 0)
             try std.fmt.allocPrint(c.gpa, "{s}:{d}: ", .{ c.file, line })
         else
@@ -726,7 +721,6 @@ const C = struct {
     /// copying it on every append made a long line cost O(n^2) memory, and
     /// a mutated grammar of 6 KB took more than 1 GB.
     fn add(c: *C, comptime T: type, list: []const T, item: T) Error![]const T {
-        if (@inComptime()) return list ++ &[_]T{item};
         if (list.len > 0) if (c.grown.getPtr(@intFromPtr(list.ptr))) |g| {
             // Only the newest slice of a list may take the room after it;
             // an older, shorter slice of the same list is copied.
@@ -745,17 +739,10 @@ const C = struct {
     }
 
     fn cat(c: *C, a: []const u8, b: []const u8) Error![]const u8 {
-        if (@inComptime()) return a ++ b;
         return std.mem.concat(c.gpa, u8, &.{ a, b });
     }
 
     fn lower(c: *C, s: []const u8) Error![]const u8 {
-        if (@inComptime()) {
-            var buf: [s.len]u8 = undefined;
-            for (s, 0..) |ch, i| buf[i] = std.ascii.toLower(ch);
-            const final = buf;
-            return &final;
-        }
         return std.ascii.allocLowerString(c.gpa, s);
     }
 
@@ -855,7 +842,6 @@ const P = struct {
     const max_nodes = 10_000;
 
     fn err(p: *P, comptime fmt: []const u8, a: anytype) Error {
-        if (@inComptime()) return p.c.fail(p.line, fmt ++ " in pattern `{s}`", a ++ .{p.s});
         return p.c.fail(p.line, "{s} in pattern `{s}`", .{ try std.fmt.allocPrint(p.c.gpa, fmt, a), p.s });
     }
 
@@ -1488,13 +1474,11 @@ fn literalLines(c: *C, lines: *Lines) Error![]const []const u8 {
 
 /// Turn the text of a `.spgrammar` file into a `Grammar`.
 ///
-/// At compile time a mistake is a compile error and `gpa` is never used
-/// (pass `undefined`). At run time the grammar's tables are allocated from
-/// `gpa` and point into `src`, so both must outlive it: pass an arena. A
-/// mistake returns `error.BadGrammar` with `file:line: message` in `diag`;
-/// `file` names the grammar in messages (empty: `<dialect>.spgrammar`).
+/// The grammar's tables are allocated from `gpa` and point into `src`, so
+/// both must outlive it: pass an arena. A mistake returns
+/// `error.BadGrammar` with `file:line: message` in `diag`; `file` names the
+/// grammar in messages (empty: `<dialect>.spgrammar`).
 pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) Error!Grammar {
-    @setEvalBranchQuota(20_000_000);
     var ctx: C = .{ .gpa = gpa, .diag = diag, .file = file };
     const c = &ctx;
     var lines: Lines = .{ .src = src };
@@ -2040,15 +2024,6 @@ fn condition(c: *C, line: u32, kind: Kind, text: []const u8) Error!struct { u8, 
     return .{ slot, text[eq + 1 ..] };
 }
 
-/// `compile` for a built-in grammar, evaluated at compile time.
-pub fn compileBuiltin(comptime src: []const u8) Grammar {
-    const g = comptime blk: {
-        var diag: Diag = .{};
-        break :blk compile(undefined, src, "", &diag) catch unreachable;
-    };
-    return g;
-}
-
 const tiny =
     \\dialect tiny
     \\lexer
@@ -2085,8 +2060,7 @@ fn expectTiny(g: Grammar) !void {
     try std.testing.expect(g.canWrite(.tran) and !g.canWrite(.noise));
 }
 
-test "compile a small grammar at comptime and at run time" {
-    try expectTiny(compileBuiltin(tiny));
+test "compile a small grammar" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var diag: Diag = .{};

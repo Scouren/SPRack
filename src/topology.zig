@@ -19,8 +19,8 @@
 
 const std = @import("std");
 const ir = @import("ir.zig");
-const schema = @import("schema.zig");
-const grammar = @import("grammar.zig");
+const schema = @import("schema");
+const grammar = @import("grammar");
 const Allocator = std.mem.Allocator;
 const Stmt = ir.Stmt;
 const Value = ir.Value;

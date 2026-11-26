@@ -285,6 +285,14 @@ fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
     return g;
 }
 
+/// A small grammar for one test, compiled now; it lives until the process ends.
+fn tinyGrammar(comptime src: []const u8) sprack.Grammar {
+    var diag: sprack.grammar.Diag = .{};
+    return sprack.grammar.compile(loaded_arena.allocator(), src, "", &diag) catch |e| {
+        std.debug.panic("{s}: {s}", .{ @errorName(e), diag.msg });
+    };
+}
+
 /// What holds for any input at all, damaged ones included: `out` is `src`
 /// read as `from` and written as `to`.
 ///  - Twice gives the same bytes.
@@ -371,8 +379,9 @@ test "all grammars compiled" {
     for (dialects) |n| try testing.expect(sprack.find(n) != null);
 }
 
-test "each grammar file compiled at run time is the grammar compiled into the binary" {
-    // One compiler, run twice: every table of every dialect, field for field.
+test "each grammar file compiled at run time is the grammar built into the binary" {
+    // One compiler, run when the binary is built and again now: every table
+    // of every dialect, field for field.
     for (dialects) |d| {
         errdefer std.debug.print("dialect {s}\n", .{d});
         try testing.expectEqualDeep(sprack.find(d).?.*, (try loadedGrammar(d)).*);
@@ -848,7 +857,7 @@ test "an analysis the target cannot express is an error naming who can, and why"
 
     // Where the grammar simply has no rule, it says that instead.
     // No shipped grammar has such a gap any more; a tiny one does.
-    const tiny = comptime sprack.grammar.compileBuiltin(
+    const tiny = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\  title yes
@@ -2597,7 +2606,7 @@ test "corpus: a VACASK deck the way upstream writes them" {
 }
 
 test "define: a named pattern compiles to the same nodes as writing it out" {
-    const g = sprack.grammar.compileBuiltin(
+    const g = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\end
@@ -2644,7 +2653,7 @@ test "HSPICE .ac plus .noise is one noise analysis" {
 }
 
 test "repeated groups: list slots in lockstep, with a separator" {
-    const g = sprack.grammar.compileBuiltin(
+    const g = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\  title yes

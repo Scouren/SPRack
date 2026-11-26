@@ -3,7 +3,7 @@
 //! expression delimiters and scale factors are data, not code.
 
 const std = @import("std");
-const grammar = @import("grammar.zig");
+const grammar = @import("grammar");
 const ir = @import("ir.zig");
 const Allocator = std.mem.Allocator;
 const LexCfg = grammar.LexCfg;

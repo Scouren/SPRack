@@ -5,8 +5,8 @@
 //! reported; nothing is dropped quietly.
 
 const std = @import("std");
-const grammar = @import("grammar.zig");
-const schema = @import("schema.zig");
+const grammar = @import("grammar");
+const schema = @import("schema");
 const ir = @import("ir.zig");
 /// The dialect table (`internDialect`, `dialectName`).
 const sprack = @import("root.zig");

@@ -6,8 +6,8 @@
 //! value without trying the alternatives.
 
 const std = @import("std");
-const grammar = @import("grammar.zig");
-const schema = @import("schema.zig");
+const grammar = @import("grammar");
+const schema = @import("schema");
 const ir = @import("ir.zig");
 const lexer = @import("lexer.zig");
 const expr = @import("expr.zig");

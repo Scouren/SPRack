@@ -2,7 +2,7 @@
 //! consumed by every writer.
 
 const std = @import("std");
-const schema = @import("schema.zig");
+const schema = @import("schema");
 const Allocator = std.mem.Allocator;
 pub const Kind = schema.Kind;
 

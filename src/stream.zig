@@ -26,8 +26,8 @@
 
 const std = @import("std");
 const ir = @import("ir.zig");
-const schema = @import("schema.zig");
-const grammar = @import("grammar.zig");
+const schema = @import("schema");
+const grammar = @import("grammar");
 const reader = @import("reader.zig");
 const writer = @import("writer.zig");
 const stats = @import("stats.zig");
