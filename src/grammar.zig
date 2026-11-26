@@ -206,6 +206,8 @@ pub const ReadIndex = struct {
     /// Bit `k` is set when some rule is `@k`: for lines inside a block of
     /// kind `k` only, where the rules without `@` are then not used.
     own_rules: KindSet = 0,
+    /// For each kind, its rules, read or write: indices into `Grammar.rules`.
+    by_kind: [schema.kind_count][]const u16 = @splat(&.{}),
 
     pub const KindSet = u128;
 
@@ -559,6 +561,11 @@ pub const Grammar = struct {
         const word = first_word orelse return g.read_index.all;
         if (word.len == 0) return g.read_index.all;
         return g.read_index.by_byte[word[0]];
+    }
+
+    /// The rules of `kind`, read or write, as indices into `rules` in file order.
+    pub fn rulesOf(g: *const Grammar, kind: Kind) []const u16 {
+        return g.read_index.by_kind[@backingInt(kind)];
     }
 
     /// Does this dialect give the slot a meaning of its own when it is
@@ -2082,11 +2089,20 @@ fn readIndex(c: *C, rules: []const Rule) Error!ReadIndex {
     for (rules) |rule| {
         if (rule.within) |kind| index.own_rules |= ReadIndex.kindBit(kind);
     }
-    var scratch = try c.gpa.alloc(u16, rules.len);
+    const scratch = try c.gpa.alloc(u16, rules.len);
     for (&index.by_byte, 0..) |*list, byte| {
         var n: usize = 0;
         for (rules, 0..) |*rule, i| {
             if (!startsWith(rule, @intCast(byte))) continue;
+            scratch[n] = @intCast(i);
+            n += 1;
+        }
+        list.* = try c.gpa.dupe(u16, scratch[0..n]);
+    }
+    for (&index.by_kind, schema.table) |*list, row| {
+        var n: usize = 0;
+        for (rules, 0..) |rule, i| {
+            if (rule.kind != row.kind) continue;
             scratch[n] = @intCast(i);
             n += 1;
         }

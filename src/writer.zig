@@ -191,26 +191,32 @@ const Emit = struct {
 
     fn valueText(e: *Emit, v: Value, quoted: bool) Allocator.Error![]const u8 {
         const cfg = &e.g.lex;
-        var aw: std.Io.Writer.Allocating = .init(e.arena);
-        const w = &aw.writer;
+        // The values a device line is made of need no writer: a name is its
+        // own text, and a number or an expression is at most one copy.
         switch (v) {
-            .none => {},
-            .atom => |s| if (quoted) w.print("\"{s}\"", .{s}) catch return error.OutOfMemory else w.writeAll(s) catch return error.OutOfMemory,
-            .num => |n| lexer.renderNumber(w, cfg, n) catch return error.OutOfMemory,
+            .none => return "",
+            .atom => |s| return if (quoted) std.mem.concat(e.arena, u8, &.{ "\"", s, "\"" }) else s,
+            .num => |n| if (n.exp10 == 0) return n.digits(),
             .expr => |canon| {
                 const s = try e.exprText(canon);
                 // A bracketed vector a SPICE reader kept as text
                 // (`hblin=[1, -1]`) is written as it was, not as arithmetic.
-                if (s.len >= 2 and s[0] == '[' and s[s.len - 1] == ']') {
-                    w.writeAll(s) catch return error.OutOfMemory;
-                } else if (cfg.bare_expr) {
+                if (s.len >= 2 and s[0] == '[' and s[s.len - 1] == ']') return s;
+                if (cfg.bare_expr) {
                     const needs_parens = std.mem.indexOfAny(u8, s, " \t") != null;
-                    (if (needs_parens) w.print("({s})", .{s}) else w.writeAll(s)) catch return error.OutOfMemory;
-                } else if (cfg.expr_delims.len > 0) {
-                    w.print("{s}{s}{s}", .{ cfg.expr_delims[0][0], s, cfg.expr_delims[0][1] }) catch return error.OutOfMemory;
-                } else w.writeAll(s) catch return error.OutOfMemory;
+                    return if (needs_parens) std.mem.concat(e.arena, u8, &.{ "(", s, ")" }) else s;
+                }
+                if (cfg.expr_delims.len == 0) return s;
+                return std.mem.concat(e.arena, u8, &.{ cfg.expr_delims[0][0], s, cfg.expr_delims[0][1] });
             },
-            .str => |s| w.print("\"{s}\"", .{s}) catch return error.OutOfMemory,
+            .str => |s| return std.mem.concat(e.arena, u8, &.{ "\"", s, "\"" }),
+            .list, .params => {},
+        }
+        var aw: std.Io.Writer.Allocating = .init(e.arena);
+        const w = &aw.writer;
+        switch (v) {
+            .none, .atom, .expr, .str => unreachable,
+            .num => |n| lexer.renderNumber(w, cfg, n) catch return error.OutOfMemory,
             .list => |items| for (items, 0..) |it, i| {
                 if (i > 0) w.writeByte(' ') catch return error.OutOfMemory;
                 w.writeAll(try e.valueText(it, false)) catch return error.OutOfMemory;
@@ -2372,25 +2378,38 @@ const Writer = struct {
         const fam: []const u8 = if (st.get("master") == .atom) w.familyOf(st.get("master").atom) else "";
         // A model this file does not declare: the plain forms first, then
         // any form at all rather than none.
+        // The first form tried is written for real, what it reports
+        // included: most statements are said whole by it, and then it is
+        // the one written (`written`). Where another form is chosen, what
+        // it reported is taken back and that form written after the loop.
+        var written: ?Emit = null;
+        const reported = w.report.items.items.len;
+        var tried: usize = 0;
+        const spreads = w.g.spreadWord(st.kind) != null;
         for ([_]bool{ false, true }) |loose| {
             if (best != null or (loose and fam.len > 0)) break;
-            for (w.g.rules) |*rule| {
-                if (rule.kind != st.kind or rule.dir == .read) continue;
+            for (w.g.rulesOf(st.kind)) |ri| {
+                const rule = &w.g.rules[ri];
+                if (rule.dir == .read) continue;
                 if (!w.g.ruleHere(rule, w.within)) continue;
-                if (w.g.spreadWord(st.kind) != null and w.g.isEnding(rule) != w.ending) continue;
+                if (spreads and w.g.isEnding(rule) != w.ending) continue;
                 if (rule.family.len > 0 and !std.mem.eql(u8, rule.family, fam) and !loose) {
                     if (why.len == 0 and fam.len > 0) why = try a.print("a model of family '{s}'", .{fam});
                     continue;
                 }
                 var e = w.emitter(a, st);
-                e.quiet = true;
+                const first = tried == 0;
+                tried += 1;
+                e.quiet = !first;
                 if (!try e.seq(rule.pat)) {
+                    if (first) w.report.items.shrinkRetainingCapacity(reported);
                     if (why.len == 0) why = e.why;
                     continue;
                 }
                 // The form of the model's own family, whatever a plain one keeps.
                 if (rule.family.len > 0 and std.mem.eql(u8, rule.family, fam)) {
                     best = rule;
+                    if (first) written = e;
                     break;
                 }
                 // Least lost first; among equals, the form that keeps the name.
@@ -2399,8 +2418,12 @@ const Writer = struct {
                     best = rule;
                     best_loss = loss;
                     best_renames = e.renames;
-                    if (best_loss == 0 and best_renames == 0) break;
+                    if (best_loss == 0 and best_renames == 0) {
+                        if (first) written = e;
+                        break;
+                    }
                 }
+                if (first) w.report.items.shrinkRetainingCapacity(reported);
             }
         }
         const rule = best orelse {
@@ -2419,8 +2442,11 @@ const Writer = struct {
             }
             return w.comment(try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
         };
-        var e = w.emitter(a, st);
-        _ = try e.seq(rule.pat);
+        var e = written orelse blk: {
+            var again = w.emitter(a, st);
+            _ = try again.seq(rule.pat);
+            break :blk again;
+        };
         // ngspice reads .lib and .include before it joins continuation lines.
         w.nowrap = st.kind == .include or st.kind == .lib or st.kind == .hdl;
         defer w.nowrap = false;
