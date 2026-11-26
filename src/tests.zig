@@ -390,7 +390,7 @@ test "each grammar file compiled at run time is the grammar built into the binar
 
 test "caps: every kind has a rule, a place or a reason in every dialect" {
     // `sprack caps` shows no `-`.
-    for (&sprack.grammars) |*g| for (schema.table) |info| {
+    for (sprack.grammars) |*g| for (schema.table) |info| {
         if (info.kind == .@"opaque" or info.kind == .comment) continue;
         const scoped = for (g.rules) |r| {
             if (r.kind == info.kind and r.dir != .read and r.within != null) break true;
@@ -501,7 +501,7 @@ test "every `no` line: the kind is an error in that dialect, and the reason is t
     const a = arena_state.allocator();
     var count: usize = 0;
     var bad: usize = 0;
-    for (&sprack.grammars) |*g| for (g.absent) |no| {
+    for (sprack.grammars) |*g| for (g.absent) |no| {
         // Two kinds a dialect without the statement may still say another
         // way, so their reason is only given when that way fails: variations
         // as agauss() in the parameter (`stats.zig`), alters of parameters as
@@ -560,7 +560,7 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
     try reported(&r4, .@"error", "options.chgtol = 1e-20 has no spelling in xyce: Xyce's step control bounds the error of each unknown, not of a charge");
     try testing.expectEqual(3, r4.count(.@"error"));
     // Every such line of a grammar ends the error of its slot.
-    for (&sprack.grammars) |*g| for (g.absent) |no| {
+    for (sprack.grammars) |*g| for (g.absent) |no| {
         if (no.slot == sprack.grammar.no_slot) continue;
         if (std.mem.eql(u8, g.name, "xyce") and no.kind == .options) {
             try testing.expect(r4.contains(.@"error", no.reason));
@@ -7409,4 +7409,74 @@ test "#76: HSPICE's floor resistance and Xyce's inductor multiplier are said" {
     try reported(&r2, .@"error", "Xyce's inductor card L multiplies the line's inductance");
     var r3: ir.Report = .init(a);
     try has(try tr(a, "xyce", "xyce", xy, &r3), ".model lmod l l=3 tc1=0.01\n");
+}
+
+test "a netlist says what the files it names declare" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // What a library declares, as its project's catalogue lists it.
+    const lib = try sprack.json.parseNetlist(a,
+        \\{"stmts":[{"kind":"model","name":"Rmod","family":"resistor"},{"kind":"func","name":"twice","args":["x"],"body":"2*x"},
+        \\ {"kind":"subckt","name":"cell","ports":["a"],"body":[{"kind":"model","name":"nch.1","family":"bsim4"}]}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&listed.writer, &env);
+
+    // A netlist of its own that uses them, written for HSPICE with and without.
+    for ([_][]const u8{ "", listed.written() }) |e| {
+        const text = try std.fmt.allocPrint(a,
+            \\{{"stmts":[{{"kind":"resistor","name":"R1","pos":"a","neg":0,"master":"rmod","params":{{"w":"1u"}}}},
+            \\ {{"kind":"resistor","name":"R2","pos":"a","neg":0,"master":"nowhere","params":{{"w":"1u"}}}},
+            \\ {{"kind":"vsource","name":"V1","pos":"a","neg":0,"dc":{{"expr":"twice(1)"}}}}]{s}{s}}}
+        , .{ if (e.len > 0) ",\"env\":" else "", e });
+        var r: ir.Report = .init(a);
+        const nl = try sprack.json.parseNetlist(a, text, &r);
+        if (nl.env) |back| {
+            // Nothing is lost on the way.
+            var again: std.Io.Writer.Allocating = .init(a);
+            try sprack.json.writeEnv(&again.writer, back);
+            try testing.expectEqualStrings(listed.written(), again.written());
+        }
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r);
+        try testing.expect(r.contains(.warning, "'nowhere' on R2 is a model name in sprack, but no model of that name is declared here"));
+        try testing.expectEqual(e.len == 0, r.contains(.warning, "'rmod' on R1"));
+        try testing.expectEqual(e.len == 0, r.contains(.@"error", "function 'twice' has no spelling in hspice"));
+    }
+}
+
+test "every field of Env is in its JSON form, and back (#71)" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const lib = try sprack.json.parseNetlist(a,
+        \\{"stmts":[{"kind":"param","params":{"vt":"0.4"}},{"kind":"model","name":"nch","family":"bsim4","params":{"vth0":{"expr":"vt"}}},
+        \\ {"kind":"model","name":"rpoly","type":"r3_cmc"}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    for (sprack.grammars) |*g| try sprack.writer.collectReserved(a, g, lib.stmts, &env.params, null);
+    try testing.expect(env.params.contains("vt"));
+    try testing.expectEqualStrings("bsim4", env.family_of.get("nch").?);
+    try testing.expectEqualStrings("r3_cmc", env.modules.get("rpoly").?);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&listed.writer, &env);
+    // `provided` is what the command line gives, not what a file declares.
+    inline for (@typeInfo(ir.Env).@"struct".field_names) |name| {
+        if (comptime std.mem.eql(u8, name, "provided")) continue;
+        if (std.mem.indexOf(u8, listed.written(), "\"" ++ name ++ "\":") == null) {
+            std.debug.print("Env.{s} is not in its JSON form\n", .{name});
+            return error.TestUnexpectedResult;
+        }
+    }
+    var r: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, try std.fmt.allocPrint(a, "{{\"stmts\":[],\"env\":{s}}}", .{listed.written()}), &r);
+    var again: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&again.writer, nl.env.?);
+    try testing.expectEqualStrings(listed.written(), again.written());
 }

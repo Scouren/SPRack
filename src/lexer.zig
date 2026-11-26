@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const grammar = @import("grammar");
-const ir = @import("ir.zig");
+const ir = @import("ir");
 const Allocator = std.mem.Allocator;
 const LexCfg = grammar.LexCfg;
 

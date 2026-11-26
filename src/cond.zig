@@ -16,9 +16,9 @@
 //! (`choose`).
 
 const std = @import("std");
-const ir = @import("ir.zig");
+const ir = @import("ir");
 const schema = @import("schema");
-const expr = @import("expr.zig");
+const expr = @import("expr");
 
 const Allocator = std.mem.Allocator;
 

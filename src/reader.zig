@@ -8,9 +8,10 @@
 const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
-const ir = @import("ir.zig");
-const lexer = @import("lexer.zig");
-const expr = @import("expr.zig");
+const ir = @import("ir");
+const lexer = @import("lexer");
+const expr = @import("expr");
+const dialects = @import("dialects");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -2524,7 +2525,6 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
     };
     // Only the header naming the file's own language: nothing to switch.
     if (!other) return null;
-    const root = @import("root.zig");
     var out: std.ArrayList(ir.Stmt) = .empty;
     var title: []const u8 = "";
     var from: usize = 0;
@@ -2544,7 +2544,7 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
             const nl = try readPlain(cur, arena, text.items, report, seg_opts);
             if (from == 0) title = nl.title;
             folds = folds or nl.folds_case or !cur.lex.case_sensitive;
-            const tag: u8 = if (cur == g) 0 else (try root.internDialect(cur.name)) orelse 0;
+            const tag: u8 = if (cur == g) 0 else (try dialects.intern(cur.name)) orelse 0;
             for (nl.stmts) |st| {
                 // The blanked lines read as blank lines; they are not the file's.
                 if (st.kind == .comment and std.mem.eql(u8, st.raw, ir.blank_line) and (st.line < from + 1 or st.line > to)) continue;
@@ -2557,7 +2557,7 @@ fn readSwitched(g: *const Grammar, arena: Allocator, src: []const u8, report: *i
         const sw = switchOf(g, lines.items[starts.items[k]]).?;
         // Back to the file's own language is back to `g`, which may be a
         // grammar loaded from a file, not the built-in of the same name.
-        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name)) g else root.find(sw.dialect) orelse g;
+        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name)) g else dialects.find(sw.dialect) orelse g;
         const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
         for (cur.header_folded) |l| folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
         from = starts.items[k] + 1;

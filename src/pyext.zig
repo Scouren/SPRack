@@ -87,7 +87,7 @@ fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
             error.OutOfMemory => return error.OutOfMemory,
             error.UnknownDialect => {
                 w.print("unknown dialect '{s}'. Built in:", .{name[0..@min(name.len, 40)]}) catch {};
-                for (&sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
+                for (sprack.grammars) |*g| w.print(" {s}", .{g.name}) catch {};
                 w.writeAll("; or a path to a .spgrammar file") catch {};
             },
             error.CannotRead, error.BadGrammar, error.TooManyDialects => w.writeAll(diag.msg) catch {},
@@ -127,7 +127,7 @@ fn call(comptime body: fn (Allocator, ?*PyObject) Fail!*PyObject, args: ?*PyObje
 
 fn infoBody(arena: Allocator, _: ?*PyObject) Fail!*PyObject {
     var aw: std.Io.Writer.Allocating = .init(arena);
-    try sprack.json.writeInfo(&aw.writer, &sprack.grammars);
+    try sprack.json.writeInfo(&aw.writer, sprack.grammars);
     return text(aw.written());
 }
 

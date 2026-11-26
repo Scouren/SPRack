@@ -25,13 +25,13 @@
 //! are kept from one more pass, between the survey and the writing.
 
 const std = @import("std");
-const ir = @import("ir.zig");
+const ir = @import("ir");
 const schema = @import("schema");
 const grammar = @import("grammar");
-const reader = @import("reader.zig");
-const writer = @import("writer.zig");
-const stats = @import("stats.zig");
-const topology = @import("topology.zig");
+const reader = @import("reader");
+const writer = @import("writer");
+const stats = @import("stats");
+const topology = @import("topology");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;

@@ -15,11 +15,12 @@
 const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
-const ir = @import("ir.zig");
-const reader = @import("reader.zig");
-const writer = @import("writer.zig");
-const stream = @import("stream.zig");
-const json = @import("json.zig");
+const ir = @import("ir");
+const reader = @import("reader");
+const writer = @import("writer");
+const stream = @import("stream");
+const json = @import("json");
+const dialects = @import("dialects");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -712,7 +713,7 @@ const Run = struct {
             // built-in dialect keeps for itself (#71).
             if (r.opts.to) |gt| {
                 try writer.collectReserved(r.arena, gt, nl.stmts, &r.env.params, "");
-            } else for (&@import("root.zig").grammars) |*g| {
+            } else for (&dialects.grammars) |*g| {
                 try writer.collectReserved(r.arena, g, nl.stmts, &r.env.params, "");
             }
             try r.findIncludes(path, nl.stmts, scratch, i < r.opts.tops.len);
@@ -876,8 +877,8 @@ test "errata: a line the PDK's own simulator refuses is read as the manifest say
         \\]}
     );
     try std.testing.expectEqual(2, errata.len);
-    const ngspice = @import("root.zig").find("ngspice").?.*;
-    const xyce = @import("root.zig").find("xyce").?.*;
+    const ngspice = dialects.find("ngspice").?.*;
+    const xyce = dialects.find("xyce").?.*;
     var log: Writer.Allocating = .init(a);
     const sum = try run(io, std.testing.allocator, .{
         .from = &ngspice,
@@ -907,7 +908,7 @@ test "an include that is no regular file is refused, not read until memory runs 
     const a = arena_state.allocator();
     const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     try tmp.dir.writeFile(io, .{ .sub_path = "top.sp", .data = "t\n.include /dev/zero\nR1 a 0 1k\n.end\n" });
-    const ngspice = @import("root.zig").find("ngspice").?.*;
+    const ngspice = dialects.find("ngspice").?.*;
     var log: Writer.Allocating = .init(a);
     const sum = try run(io, std.testing.allocator, .{
         .from = &ngspice,
@@ -942,8 +943,8 @@ test "one section for a target that opens every section: the others' includes ar
         \\
     });
     try tmp.dir.writeFile(io, .{ .sub_path = "in/tt.mod", .data = "* tt\n.model nch nmos level=1\n" });
-    const ngspice = @import("root.zig").find("ngspice").?.*;
-    const xyce = @import("root.zig").find("xyce").?.*;
+    const ngspice = dialects.find("ngspice").?.*;
+    const xyce = dialects.find("xyce").?.*;
     for ([_]*const Grammar{ &ngspice, &xyce }) |to| {
         var log: Writer.Allocating = .init(a);
         const out = try std.fmt.allocPrint(a, "{s}/out-{s}", .{ base, to.name });
@@ -1007,8 +1008,8 @@ test "a small project: includes followed, declarations shared, tree copied" {
         \\
     });
 
-    const hspice = @import("root.zig").find("hspice").?.*;
-    const spectre = @import("root.zig").find("spectre").?.*;
+    const hspice = dialects.find("hspice").?.*;
+    const spectre = dialects.find("spectre").?.*;
 
     var log: Writer.Allocating = .init(a);
     var expanded: Writer.Allocating = .init(a);

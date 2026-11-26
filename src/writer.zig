@@ -7,16 +7,15 @@
 const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
-const ir = @import("ir.zig");
-/// The dialect table (`internDialect`, `dialectName`).
-const sprack = @import("root.zig");
-const lexer = @import("lexer.zig");
-const expr = @import("expr.zig");
-const reader = @import("reader.zig");
-const stats = @import("stats.zig");
-const alter = @import("alter.zig");
-const cond = @import("cond.zig");
-const topology = @import("topology.zig");
+const ir = @import("ir");
+const dialects = @import("dialects");
+const lexer = @import("lexer");
+const expr = @import("expr");
+const reader = @import("reader");
+const stats = @import("stats");
+const alter = @import("alter");
+const cond = @import("cond");
+const topology = @import("topology");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
@@ -1039,7 +1038,7 @@ const Writer = struct {
 
     /// The dialect `st` was read in.
     fn sourceOf(w: *const Writer, st: *const ir.Stmt) []const u8 {
-        return if (st.dialect != 0) sprack.dialectName(st.dialect) else w.source;
+        return if (st.dialect != 0) dialects.nameOf(st.dialect) else w.source;
     }
 
     fn familyOf(w: *const Writer, model: []const u8) []const u8 {
@@ -3278,7 +3277,7 @@ fn capParts(g: *const Grammar, sg: ?*const Grammar, st: *const ir.Stmt) CapParts
 
 /// The grammar a statement was read in: its own tag, else the netlist's.
 fn readIn(dialect: []const u8, st: *const ir.Stmt) ?*const Grammar {
-    return sprack.find(if (st.dialect != 0) sprack.dialectName(st.dialect) else dialect);
+    return dialects.find(if (st.dialect != 0) dialects.nameOf(st.dialect) else dialect);
 }
 
 /// The kinds a capacitor is written as where `capParts` applies: a
@@ -3704,7 +3703,7 @@ fn impliedValue(arena: Allocator, g: *const Grammar, sg: *const Grammar, stmts: 
 // ponytail: an option set only in an included file is not seen here; pass it via ir.Env if that matters.
 pub fn defaultOptions(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist) Allocator.Error!?ir.Stmt {
     if (nl.library or std.mem.eql(u8, nl.dialect, g.name) or !g.canWrite(.options)) return null;
-    const sg = sprack.find(nl.dialect) orelse return null;
+    const sg = dialects.find(nl.dialect) orelse return null;
     var st = try ir.newStmt(arena, .options, 0);
     var any = false;
     for (sg.implied) |im| {
@@ -3728,7 +3727,7 @@ fn reportDefaults(arena: Allocator, g: *const Grammar, nl: *const ir.Netlist, re
     var as = nl.*;
     as.dialect = nl.defaults;
     const d = try defaultOptions(arena, g, &as) orelse return;
-    const sg = sprack.find(nl.defaults) orelse return;
+    const sg = dialects.find(nl.defaults) orelse return;
     var keys: std.ArrayList(u8) = .empty;
     var said: std.ArrayList(u8) = .empty;
     var theirs: std.ArrayList(u8) = .empty;
@@ -3756,7 +3755,7 @@ fn sameDialect(nl: *const ir.Netlist, g: *const grammar.Grammar) bool {
 fn allFrom(stmts: []const ir.Stmt, name: []const u8, tagged: *bool) bool {
     for (stmts) |*s| {
         if (s.dialect != 0) {
-            if (!std.ascii.eqlIgnoreCase(sprack.dialectName(s.dialect), name)) return false;
+            if (!std.ascii.eqlIgnoreCase(dialects.nameOf(s.dialect), name)) return false;
             tagged.* = true;
         }
         if (!allFrom(s.body, name, tagged)) return false;
@@ -3806,7 +3805,7 @@ pub fn write(
     // A case-sensitive target told to fold case (`header folded`) merges
     // names the way a case-insensitive one does.
     const fold_header = g.header_folded.len > 0 and (nl.folds_case or
-        if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
+        if (dialects.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
     if (!g.lex.case_sensitive or fold_header) {
         var seen: CaseMaps = .{};
         defer seen.deinit();
@@ -4152,7 +4151,7 @@ pub const Stream = struct {
         // The netlist's own make it be written whole (`stream.zig`).
         if (env) |e| if (!g.canWrite(.cond_if)) try w.noteAllSplits(e.conditional.items, null);
         const fold_header = g.header_folded.len > 0 and (nl.folds_case or
-            if (sprack.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
+            if (dialects.find(nl.dialect)) |sg| !sg.lex.case_sensitive else false);
         s.case = (!g.lex.case_sensitive or fold_header) and sv.check_case;
         if (g.lex.title and !nl.library) {
             try out.print("{s}{s}\n", .{ g.lex.title_prefix, if (nl.title.len > 0) nl.title else "untitled" });

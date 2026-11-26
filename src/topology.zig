@@ -18,7 +18,7 @@
 //! only where one of them is present.
 
 const std = @import("std");
-const ir = @import("ir.zig");
+const ir = @import("ir");
 const schema = @import("schema");
 const grammar = @import("grammar");
 const Allocator = std.mem.Allocator;

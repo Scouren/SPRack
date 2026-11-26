@@ -13,8 +13,8 @@
 const std = @import("std");
 const grammar = @import("grammar");
 const schema = @import("schema");
-const lexer = @import("lexer.zig");
-const ir = @import("ir.zig");
+const lexer = @import("lexer");
+const ir = @import("ir");
 
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;

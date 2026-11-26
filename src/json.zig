@@ -27,12 +27,11 @@
 
 const std = @import("std");
 const schema = @import("schema");
-const ir = @import("ir.zig");
-/// The dialect table (`internDialect`, `dialectName`).
-const sprack = @import("root.zig");
+const ir = @import("ir");
+const dialects = @import("dialects");
 const grammar = @import("grammar");
-const lexer = @import("lexer.zig");
-const reader = @import("reader.zig");
+const lexer = @import("lexer");
+const reader = @import("reader");
 
 const Allocator = std.mem.Allocator;
 const Value = ir.Value;
@@ -195,7 +194,7 @@ fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
         }
         if (s.dialect != 0) {
             try w.writeAll(",\"dialect\":");
-            try str(w, sprack.dialectName(s.dialect));
+            try str(w, dialects.nameOf(s.dialect));
         }
         for (schema.info(s.kind).slots, 0..) |sl, k| {
             if (s.at(k) == .none) continue;
@@ -557,7 +556,7 @@ const Parser = struct {
                     if (val == .string) st.tail = val.string;
                 } else if (std.mem.eql(u8, key, "dialect")) {
                     if (val == .string and val.string.len > 0) {
-                        st.dialect = (try sprack.internDialect(val.string)) orelse blk: {
+                        st.dialect = (try dialects.intern(val.string)) orelse blk: {
                             p.fail(st.line, "dialect '{s}' is one more than the 255 dialect names a process can hold", .{val.string});
                             break :blk 0;
                         };
@@ -708,74 +707,4 @@ test "IR to JSON and back" {
     _ = try parseNetlist(a, "{\"stmts\":[{\"kind\":\"resistor\",\"nmae\":\"R1\"},{\"kind\":\"zener\"}]}", &r3);
     try std.testing.expect(r3.contains(.@"error", "'resistor' has no 'nmae'; it has: name pos neg r master params"));
     try std.testing.expect(r3.contains(.@"error", "unknown statement kind 'zener'"));
-}
-
-test "a netlist says what the files it names declare" {
-    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
-    var report: ir.Report = .init(a);
-    // What a library declares, as its project's catalogue lists it.
-    const lib = try parseNetlist(a,
-        \\{"stmts":[{"kind":"model","name":"Rmod","family":"resistor"},{"kind":"func","name":"twice","args":["x"],"body":"2*x"},
-        \\ {"kind":"subckt","name":"cell","ports":["a"],"body":[{"kind":"model","name":"nch.1","family":"bsim4"}]}]}
-    , &report);
-    var env: ir.Env = .{};
-    try env.absorb(a, lib.stmts);
-    var listed: std.Io.Writer.Allocating = .init(a);
-    try writeEnv(&listed.writer, &env);
-
-    // A netlist of its own that uses them, written for HSPICE with and without.
-    for ([_][]const u8{ "", listed.written() }) |e| {
-        const text = try std.fmt.allocPrint(a,
-            \\{{"stmts":[{{"kind":"resistor","name":"R1","pos":"a","neg":0,"master":"rmod","params":{{"w":"1u"}}}},
-            \\ {{"kind":"resistor","name":"R2","pos":"a","neg":0,"master":"nowhere","params":{{"w":"1u"}}}},
-            \\ {{"kind":"vsource","name":"V1","pos":"a","neg":0,"dc":{{"expr":"twice(1)"}}}}]{s}{s}}}
-        , .{ if (e.len > 0) ",\"env\":" else "", e });
-        var r: ir.Report = .init(a);
-        const nl = try parseNetlist(a, text, &r);
-        if (nl.env) |back| {
-            // Nothing is lost on the way.
-            var again: std.Io.Writer.Allocating = .init(a);
-            try writeEnv(&again.writer, back);
-            try std.testing.expectEqualStrings(listed.written(), again.written());
-        }
-        var aw: std.Io.Writer.Allocating = .init(a);
-        try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r);
-        try std.testing.expect(r.contains(.warning, "'nowhere' on R2 is a model name in sprack, but no model of that name is declared here"));
-        try std.testing.expectEqual(e.len == 0, r.contains(.warning, "'rmod' on R1"));
-        try std.testing.expectEqual(e.len == 0, r.contains(.@"error", "function 'twice' has no spelling in hspice"));
-    }
-}
-
-test "every field of Env is in its JSON form, and back (#71)" {
-    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
-    var report: ir.Report = .init(a);
-    const lib = try parseNetlist(a,
-        \\{"stmts":[{"kind":"param","params":{"vt":"0.4"}},{"kind":"model","name":"nch","family":"bsim4","params":{"vth0":{"expr":"vt"}}},
-        \\ {"kind":"model","name":"rpoly","type":"r3_cmc"}]}
-    , &report);
-    var env: ir.Env = .{};
-    try env.absorb(a, lib.stmts);
-    for (&sprack.grammars) |*g| try sprack.writer.collectReserved(a, g, lib.stmts, &env.params, null);
-    try std.testing.expect(env.params.contains("vt"));
-    try std.testing.expectEqualStrings("bsim4", env.family_of.get("nch").?);
-    try std.testing.expectEqualStrings("r3_cmc", env.modules.get("rpoly").?);
-    var listed: std.Io.Writer.Allocating = .init(a);
-    try writeEnv(&listed.writer, &env);
-    // `provided` is what the command line gives, not what a file declares.
-    inline for (@typeInfo(ir.Env).@"struct".field_names) |name| {
-        if (comptime std.mem.eql(u8, name, "provided")) continue;
-        if (std.mem.indexOf(u8, listed.written(), "\"" ++ name ++ "\":") == null) {
-            std.debug.print("Env.{s} is not in its JSON form\n", .{name});
-            return error.TestUnexpectedResult;
-        }
-    }
-    var r: ir.Report = .init(a);
-    const nl = try parseNetlist(a, try std.fmt.allocPrint(a, "{{\"stmts\":[],\"env\":{s}}}", .{listed.written()}), &r);
-    var again: std.Io.Writer.Allocating = .init(a);
-    try writeEnv(&again.writer, nl.env.?);
-    try std.testing.expectEqualStrings(listed.written(), again.written());
 }

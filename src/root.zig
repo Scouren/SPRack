@@ -5,32 +5,29 @@
 //! written back out as any other.
 
 const std = @import("std");
-const registry = @import("registry");
+const dialects = @import("dialects");
 
 pub const schema = @import("schema");
-pub const ir = @import("ir.zig");
+pub const ir = @import("ir");
 pub const grammar = @import("grammar");
-pub const lexer = @import("lexer.zig");
-pub const reader = @import("reader.zig");
-pub const writer = @import("writer.zig");
-pub const expr = @import("expr.zig");
-pub const json = @import("json.zig");
-pub const project = @import("project.zig");
-pub const stats = @import("stats.zig");
-pub const alter = @import("alter.zig");
-pub const stream = @import("stream.zig");
+pub const lexer = @import("lexer");
+pub const reader = @import("reader");
+pub const writer = @import("writer");
+pub const expr = @import("expr");
+pub const json = @import("json");
+pub const project = @import("project");
+pub const stats = @import("stats");
+pub const alter = @import("alter");
+pub const stream = @import("stream");
 
 const Allocator = std.mem.Allocator;
 pub const Grammar = grammar.Grammar;
 
-pub const dialect_count = registry.grammars.len;
+pub const dialect_count = dialects.count;
 
-/// One compiled grammar per `.spgrammar` file, in file name order. They are
-/// compiled when the binary is built, by `tools/grammar_gen.zig` with the
-/// compiler a grammar file given by path goes through (`grammar.compile`),
-/// and written out as the tables of the `registry` module: a mistake in any
-/// of them stops the build there.
-pub const grammars: [dialect_count]Grammar = registry.grammars;
+/// One compiled grammar per `.spgrammar` file, in file name order: the
+/// table itself, so a grammar found by name is one of these by address.
+pub const grammars: *const [dialect_count]Grammar = &dialects.grammars;
 
 /// Which dialects can write each kind and each model family, worked out at
 /// compile time from the grammars themselves.
@@ -66,43 +63,13 @@ pub const caps: writer.Caps = blk: {
             if (s.len > 0) words = words ++ &[_]writer.Caps.WordCap{.{ .name = name, .dialects = s }};
         }
     }
-    break :blk .{ .kinds = kinds, .families = fams, .words = words, .grammars = &grammars };
+    break :blk .{ .kinds = kinds, .families = fams, .words = words, .grammars = grammars };
 };
 
-pub fn find(name: []const u8) ?*const Grammar {
-    for (&grammars) |*g| if (std.ascii.eqlIgnoreCase(g.name, name)) return g;
-    return null;
-}
-
-/// Every dialect name a statement can carry (`ir.Stmt.dialect`), by index.
-/// 0 is "the netlist's"; the built-ins take 1..dialect_count in registry
-/// order; names met later (a grammar loaded at run time, a name in JSON) are
-/// added and keep their index for the life of the process.
-// ponytail: one process-wide table, not locked; a host that reads from
-// several threads at once needs a mutex around `internDialect`.
-var dialect_names: [256][]const u8 = blk: {
-    var t: [256][]const u8 = @splat("");
-    for (grammars, 1..) |g, i| t[i] = g.name;
-    break :blk t;
-};
-var dialect_len: usize = dialect_count + 1;
-
-/// The index of dialect `name` (case ignored), added to the table if new.
-/// Null when the table is full (255 names).
-pub fn internDialect(name: []const u8) Allocator.Error!?u8 {
-    std.debug.assert(name.len > 0);
-    for (dialect_names[1..dialect_len], 1..) |n, i| if (std.ascii.eqlIgnoreCase(n, name)) return @intCast(i);
-    if (dialect_len == dialect_names.len) return null;
-    dialect_names[dialect_len] = try std.heap.page_allocator.dupe(u8, name);
-    dialect_len += 1;
-    return @intCast(dialect_len - 1);
-}
-
-/// The name behind an index from `internDialect`; "" for 0.
-pub fn dialectName(i: u8) []const u8 {
-    std.debug.assert(i < dialect_len);
-    return dialect_names[i];
-}
+pub const find = dialects.find;
+/// The index a statement carries for dialect `name` (`ir.Stmt.dialect`).
+pub const internDialect = dialects.intern;
+pub const dialectName = dialects.nameOf;
 
 /// Whether a dialect argument names a grammar file rather than a built-in.
 pub fn isGrammarPath(name: []const u8) bool {

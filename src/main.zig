@@ -85,7 +85,7 @@ fn dialect(io: std.Io, arena: std.mem.Allocator, name: ?[]const u8, flag: []cons
     return sprack.resolve(arena, io, n, &diag) catch |e| switch (e) {
         error.UnknownDialect => {
             var known: std.ArrayList(u8) = .empty;
-            for (&sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
+            for (sprack.grammars) |*g| known.print(arena, " {s}", .{g.name}) catch {};
             die(io, "unknown dialect '{s}'. Built in:{s}; or a path to a .spgrammar file\n", .{ n, known.items });
         },
         error.CannotRead, error.BadGrammar, error.TooManyDialects => die(io, "{s}\n", .{diag.msg}),
@@ -155,21 +155,21 @@ pub fn main(init: std.process.Init) !void {
     const cmd = argv[1];
 
     if (std.mem.eql(u8, cmd, "dialects")) {
-        for (&sprack.grammars) |*g| try out.print("{s}\n", .{g.name});
+        for (sprack.grammars) |*g| try out.print("{s}\n", .{g.name});
         return out.flush();
     }
     if (std.mem.eql(u8, cmd, "info")) {
-        try sprack.json.writeInfo(out, &sprack.grammars);
+        try sprack.json.writeInfo(out, sprack.grammars);
         return out.flush();
     }
     if (std.mem.eql(u8, cmd, "caps")) {
         try out.print("{s:<12}", .{""});
-        for (&sprack.grammars) |*g| try out.print("{s:<9}", .{g.name});
+        for (sprack.grammars) |*g| try out.print("{s:<9}", .{g.name});
         try out.writeByte('\n');
         for (sprack.schema.table) |info| {
             if (info.kind == .@"opaque" or info.kind == .comment) continue;
             try out.print("{s:<12}", .{@tagName(info.kind)});
-            for (&sprack.grammars) |*g| {
+            for (sprack.grammars) |*g| {
                 const mark: []const u8 = if (g.canWrite(info.kind))
                     "yes"
                 else if (g.movedTo(info.kind) != null)

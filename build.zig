@@ -38,22 +38,34 @@ pub fn build(b: *std.Build) void {
     for (names.items) |n| grammar_gen.addFileArg(b.path(b.fmt("grammars/{s}", .{n})));
 
     const grammar = grammarModule(b, target, optimize);
-    const schema = grammar.import_table.get("schema").?;
     const registry = b.createModule(.{
         .root_source_file = registry_source,
         .imports = &.{.{ .name = "grammar", .module = grammar }},
     });
 
-    const sprack = b.addModule("sprack", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "schema", .module = schema },
-            .{ .name = "grammar", .module = grammar },
-            .{ .name = "registry", .module = registry },
-        },
-    });
+    // The module graph, leaves first: each module is handed only modules
+    // defined above it, so an import cycle cannot be written, and each has
+    // a test binary of its own, compiled against only what it imports.
+    var modules: std.StringArrayHashMapUnmanaged(*std.Build.Module) = .empty;
+    modules.put(b.allocator, "schema", grammar.import_table.get("schema").?) catch @panic("OOM");
+    modules.put(b.allocator, "grammar", grammar) catch @panic("OOM");
+    modules.put(b.allocator, "registry", registry) catch @panic("OOM");
+    const test_step = b.step("test", "Run all tests");
+    for (module_specs) |spec| {
+        const module = b.createModule(.{ .root_source_file = b.path(spec.path), .target = target, .optimize = optimize });
+        for (spec.imports) |dep| {
+            const dep_module = modules.get(dep) orelse
+                std.debug.panic("module '{s}' imports '{s}', which is not above it in module_specs", .{ spec.name, dep });
+            module.addImport(dep, dep_module);
+        }
+        modules.put(b.allocator, spec.name, module) catch @panic("OOM");
+    }
+    for (modules.keys(), modules.values()) |name, module| {
+        if (std.mem.eql(u8, name, "registry")) continue;
+        test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
+    }
+    const sprack = modules.get("sprack").?;
+    b.modules.put(b.graph.arena, "sprack", sprack) catch @panic("OOM");
 
     const exe = b.addExecutable(.{
         .name = "sprack",
@@ -134,12 +146,6 @@ pub fn build(b: *std.Build) void {
     run.addPassthruArgs();
     b.step("run", "Run the sprack command line tool").dependOn(&run.step);
 
-    const tests = b.addTest(.{ .root_module = sprack });
-    const test_step = b.step("test", "Run all tests");
-    test_step.dependOn(&b.addRunArtifact(tests).step);
-    // Each module's own tests, compiled against only what it imports.
-    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = schema })).step);
-    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = grammar })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = lib.root_module })).step);
     // Line coverage of src/ by the Zig tests (issue 65): the test binary
     // built with the LLVM backend (kcov reads its DWARF line table), run
@@ -156,6 +162,28 @@ pub fn build(b: *std.Build) void {
     cliTests(.{ .b = b, .step = cli_step, .exe = exe });
     test_step.dependOn(cli_step);
 }
+
+const ModuleSpec = struct { name: []const u8, path: []const u8, imports: []const []const u8 };
+
+/// The modules of `src/` above `schema`, `grammar` and `registry` (which
+/// `build` makes itself), leaves first. A module may import only modules
+/// listed above it.
+const module_specs = [_]ModuleSpec{
+    .{ .name = "ir", .path = "src/ir.zig", .imports = &.{"schema"} },
+    .{ .name = "dialects", .path = "src/dialects.zig", .imports = &.{ "grammar", "registry" } },
+    .{ .name = "lexer", .path = "src/lexer.zig", .imports = &.{ "grammar", "ir" } },
+    .{ .name = "expr", .path = "src/expr.zig", .imports = &.{ "schema", "grammar", "ir", "lexer" } },
+    .{ .name = "cond", .path = "src/cond.zig", .imports = &.{ "schema", "ir", "expr" } },
+    .{ .name = "alter", .path = "src/alter.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "stats", .path = "src/stats.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "topology", .path = "src/topology.zig", .imports = &.{ "schema", "grammar", "ir" } },
+    .{ .name = "reader", .path = "src/reader.zig", .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "expr" } },
+    .{ .name = "writer", .path = "src/writer.zig", .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "expr", "reader", "stats", "alter", "cond", "topology" } },
+    .{ .name = "stream", .path = "src/stream.zig", .imports = &.{ "schema", "grammar", "ir", "reader", "writer", "stats", "topology" } },
+    .{ .name = "json", .path = "src/json.zig", .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "reader" } },
+    .{ .name = "project", .path = "src/project.zig", .imports = &.{ "schema", "grammar", "ir", "dialects", "reader", "writer", "stream", "json" } },
+    .{ .name = "sprack", .path = "src/root.zig", .imports = &.{ "schema", "grammar", "ir", "dialects", "lexer", "expr", "alter", "stats", "reader", "writer", "stream", "json", "project" } },
+};
 
 /// The `grammar` module (the `.spgrammar` compiler) over the `schema` module
 /// (the canonical vocabulary), for the target or for the build host.
