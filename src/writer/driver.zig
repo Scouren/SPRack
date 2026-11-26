@@ -139,7 +139,7 @@ pub const Survey = struct {
     }
 
     /// Keeps the value of `slot` on the netlist's first statement of `kind`
-    /// that has one, for `Writer.fill`.
+    /// that has one, for `defaults.fill`.
     fn takeFirst(
         sv: *Survey,
         k: ir.Keep,
