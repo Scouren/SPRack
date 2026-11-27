@@ -129,10 +129,15 @@
                 ./build.zig.zon
                 ./src
                 ./grammars
+                # build.zig imports the lint step and runs the grammar compiler;
+                # the lint step runs its Python checkers.
+                ./lint
+                ./tools/grammar_gen.zig
+                ./tools/derive_grammar.py
                 (pkgs.lib.fileset.fileFilter (f: f.hasExt "py" || f.hasExt "json") ./python/sprack)
               ];
             };
-            nativeBuildInputs = [ zig ];
+            nativeBuildInputs = [ zig pkgs.python3 ];
             dontConfigure = true;
             dontInstall = true;
             # The binary is for elsewhere (another OS, or any Linux): no
