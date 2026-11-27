@@ -185,6 +185,9 @@ def run(job):
     if kinds:
         return (rel, to, "skip", "", "oracle check kind not ported: " + ",".join(sorted(kinds)))
     t = subprocess.run([sprack, "translate", "--from", "ngspice", "--to", to, path], capture_output=True, timeout=60)
+    # Xyce refuses -r beside .LIN (it writes Touchstone files), so there is no raw to compare.
+    if to == "xyce" and re.search(rb"^\.lin\b", t.stdout, re.I | re.M):
+        return (rel, to, "skip", "", "Xyce writes .LIN results as Touchstone, not a raw file")
     src = judge(oracle, *simulate("ngspice", path, None, timeout, work), False)
     dst = judge(resample(oracle, rtol), *simulate(to, path, t.stdout.decode(), timeout, work), True)
     s_ok, d_ok = all(ok for _, ok, _ in src), all(ok for _, ok, _ in dst)

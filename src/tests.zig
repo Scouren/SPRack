@@ -8127,3 +8127,17 @@ test "annotation: a device keeps its name in a hint where the target keeps it" {
     , &report);
     try has(out, "*@ order m1 m2\nM1 d g 0 0 nch");
 }
+
+test "a statement the target refuses beside another kind is an error and not written (apart)" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r: ir.Report = .init(a);
+    const x = try tr(a, "ngspice", "xyce", "t\nR1 a 0 1k\n.nodeset v(a)=1\n.ic v(a)=0.2\n.tran 1n 10n\n.end\n", &r);
+    try has(x, ".ic v(a)=0.2\n");
+    try testing.expect(std.mem.indexOf(u8, x, ".nodeset") == null);
+    try reported(&r, .@"error", "nodeset beside ic: Xyce 7.10 stops on a netlist with both");
+    // Alone, a nodeset is written.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\nR1 a 0 1k\n.nodeset v(a)=1\n.op\n.end\n", &r2), ".nodeset v(a)=1\n");
+}

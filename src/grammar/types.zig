@@ -46,6 +46,7 @@
 //! - `pub const Means = struct`
 //! - `pub const Absent = struct`
 //! - `pub const Switch = struct`
+//! - `pub const Apart = struct`
 //! - `pub const Each = struct`
 //! - `pub const Spread = struct`
 //! - `pub const Reserved = struct`
@@ -613,6 +614,10 @@ pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `slot`; the slots the two kinds share are copied.
 /// `each from -> to.slot kind[=word]... : text`: `words[i]` is what `per[i]`
 /// writes in the slot (its own name unless `=word` says another).
+/// `apart first second : text`: the simulator refuses a netlist with both
+/// kinds; each statement of `second` beside a `first` is not written.
+pub const Apart = struct { first: Kind, second: Kind, text: []const u8 };
+
 pub const Each = struct {
     from: Kind,
     to: Kind,

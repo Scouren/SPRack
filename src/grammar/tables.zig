@@ -140,6 +140,7 @@ pub const Grammar = struct {
     /// they are written again after each statement of the kind (Spectre's
     /// `altergroup`).
     reruns: []const Kind = &.{},
+    aparts: []const types.Apart = &.{},
     reserved: []const Reserved = &.{},
     requires: []const Require = &.{},
     switches: []const Switch = &.{},

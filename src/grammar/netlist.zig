@@ -14,6 +14,7 @@
 //! - `pub fn spread(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn rerun(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
+//! - `pub fn apart(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -31,6 +32,7 @@ const Require = types.Require;
 const Reserved = types.Reserved;
 const Spread = types.Spread;
 const Each = types.Each;
+const Apart = types.Apart;
 const Switch = types.Switch;
 const Topo = types.Topo;
 const UniqueAnalysis = types.UniqueAnalysis;
@@ -40,6 +42,19 @@ pub fn libsections(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     if (!std.mem.startsWith(u8, rest, "opened : "))
         return c.fail(no, "libsections is `libsections opened : reason`", .{});
     g.libsections_opened = rest["opened : ".len..];
+}
+
+/// `apart first second : text`.
+pub fn apart(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const colon = std.mem.indexOf(u8, rest, " : ") orelse
+        return c.fail(no, "apart is `apart kind kind : why`", .{});
+    const a = try args(c, no, rest[0..colon]);
+    if (a.len != 2) return c.fail(no, "apart is `apart kind kind : why`", .{});
+    g.aparts = try c.add(Apart, g.aparts, .{
+        .first = try kindOf(c, no, a[0]),
+        .second = try kindOf(c, no, a[1]),
+        .text = rest[colon + 3 ..],
+    });
 }
 
 /// `variation inline`.

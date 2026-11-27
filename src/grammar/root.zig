@@ -168,6 +168,7 @@ const Head = enum {
     spread,
     each,
     rerun,
+    apart,
     no,
 };
 
@@ -298,6 +299,7 @@ fn directive(
         .reserved => try netlist.reserved(c, g, no, rest),
         .spread => try netlist.spread(c, g, no, rest),
         .rerun => try netlist.rerun(c, g, no, rest),
+        .apart => try netlist.apart(c, g, no, rest),
         .each => try netlist.each(c, g, no, rest),
         .models => try models.models(c, g, lines),
         .signals => try spellings.signals(c, g, lines),

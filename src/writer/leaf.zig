@@ -88,7 +88,7 @@ pub fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
     }
 
     if (!w.canWriteHere(st.kind)) return notHere(w, a, st);
-    if (try selector.unchosen(w, a, st)) return;
+    if (try apart(w, a, st) or try selector.unchosen(w, a, st)) return;
     const choice = try choose(w, a, st);
     const rule = choice.rule orelse return noForm(w, a, st, choice.why);
     var e = choice.written orelse blk: {
@@ -495,6 +495,21 @@ fn unknownRefs(w: *Writer, st: *const ir.Stmt) Error!void {
                 },
             );
     }
+}
+
+/// A statement the target refuses beside one of another kind the netlist
+/// holds (`apart first second`): an error, and not written.
+fn apart(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!bool {
+    for (w.g.aparts) |p| {
+        if (p.second != st.kind or !w.used[@backingInt(p.first)]) continue;
+        w.report.add(.@"error", .unsupported, st.line, "{s} beside {s}: {s}; the {s} is " ++
+            "not written", .{
+            @tagName(st.kind), @tagName(p.first), p.text, @tagName(st.kind),
+        });
+        try output.comment(w, try a.print("[sprack] not written: {s}", .{@tagName(st.kind)}));
+        return true;
+    }
+    return false;
 }
 
 /// A resistor or capacitor of another dialect whose value is a model name

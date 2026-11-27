@@ -178,6 +178,7 @@ no stb    : Xyce has no loop-stability analysis
 no sens   : Xyce's .SENS takes an objective function and a parameter list, not an output variable
 # A save is said as a .print of each analysis the netlist runs (Xyce's
 # .PRINT types); with none of them, the save has no form here.
+apart ic nodeset : Xyce 7.10 stops on a netlist with both ("Cannot set both .IC and .NODESET simultaneously"), and the .ic is the one that changes the result
 each save -> print.analysis op=dc dc ac tran noise : Xyce records only what .PRINT lists, and .PRINT needs an analysis type
 no save   : Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give
 no hdl    : Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist

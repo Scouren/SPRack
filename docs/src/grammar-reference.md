@@ -265,6 +265,10 @@ variation inline                   # a parameter's variation is an entry of its
                                    # own after it (`p=1 dev/gauss=0.1`): written
                                    # so here, a random function in the
                                    # parameter's definition anywhere else
+apart ic nodeset : ...             # the simulator refuses a netlist with
+                                   # both kinds: each statement of the second
+                                   # beside one of the first is an error and
+                                   # is not written
 each save -> print.analysis op=dc dc ac tran noise : ...   # a kind said
                                    # here only for an analysis: written as
                                    # the other kind once for each of these
