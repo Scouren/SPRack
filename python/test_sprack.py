@@ -102,7 +102,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl", "cktimg"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl", "cktimg", "espice"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
@@ -1572,6 +1572,43 @@ def test_device_parameter_signal():
     r.rename("m1", "mx", space="instance")
     assert ".save @mx[gm]\n" in r.netlist("ngspice", strict=False)
     assert 'c.save("p(m1,gm)")' in sprack.to_python("t\n.save @m1[gm]\n.end\n", "ngspice")
+
+
+def _dig_tb():
+    # Schemify's dig_tb: an inverter of Verilog at the top and in a subcircuit.
+    c = sprack.Circuit("dig_tb")
+    inv = dict(file="dinv.v", pins=["A", "Y"], dirs=["in", "out"])
+    c.verilog("UX", "q[0]", "qb", "dinv", code="module dinv(input A, output Y);\n  assign Y = ~A;\nendmodule", **inv)
+    c.instance("B[0]", "d[0]", "q[0]", "dbuf")
+    c.instance("B[1]", "d[1]", "q[1]", "dbuf")
+    with c.subckt("dbuf", "A", "Y") as s:
+        s.verilog("U1", "A", "net_0w0001", "dinv", **inv)
+        s.verilog("U2", "net_0w0001", "Y", "dinv", **inv)
+    return c
+
+
+def test_schemify_verilog_is_d_cosim_in_ngspice_and_an_n_card_in_espice():
+    out = _dig_tb().netlist("ngspice")
+    assert "AUX [ q[0] ] [ qb ] dinv\nXB[0] d[0] q[0] dbuf\n" in out, out
+    assert "AU1 [ A ] [ net_0w0001 ] dinv\n" in out, out
+    assert '.ends dbuf\n.model dinv d_cosim simulation="dinv.vvp"\n.end\n' in out, out
+    # sar_tb: a bus bit by bit from its left index, the bridge's parameters.
+    c = sprack.Circuit("sar_tb")
+    c.hdl("cdac.va")
+    c.model("cdac_m", type="cdac")
+    c.N("DAC", *[f"d[{i}]" for i in range(7, -1, -1)], "vdac", "cdac_m")
+    bits = [f"d[{i}]" for i in range(7, -1, -1)]
+    c.verilog("U1", "clk", "rst", "cmp", *bits, "eoc", "sar_m", module="sar", file="sar.v",
+              pins=["clk", "rst", "cmp"] + ["d"] * 8 + ["eoc"], dirs=["in"] * 3 + ["out"] * 9,
+              vdd=1.8, vth=0.9, rout=100)
+    es = c.netlist("espice")
+    assert "NDAC d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] vdac cdac_m\n" in es, es
+    assert "NU1 clk rst cmp d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] eoc sar_m vdd=1.8 vth=0.9 rout=100\n" in es, es
+    assert '.hdl "cdac.va"\n.model cdac_m cdac\n' in es and '.model sar_m sar\n.verilog "sar.v"\n.end\n' in es, es
+    ng = c.netlist("ngspice", strict=False)
+    assert "AU1 [ clk rst cmp ] [ d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] eoc ] sar_m\n" in ng, ng
+    # A dialect without Verilog refuses it, naming who has it.
+    raises(sprack.Unsupported, lambda: _dig_tb().netlist("xyce"), "Xyce has no digital Verilog", "ngspice")
 
 
 if __name__ == "__main__":

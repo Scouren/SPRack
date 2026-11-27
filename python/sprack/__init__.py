@@ -402,7 +402,7 @@ _POSITIONAL = {
     "vccs": ["pos", "neg", "cpos", "cneg", "gm"], "cccs": ["pos", "neg", "vsrc", "gain"],
     "ccvs": ["pos", "neg", "vsrc", "gain"], "tline": ["p1", "n1", "p2", "n2"],
     "diode": "*", "bjt": "*", "mosfet": "*", "jfet": "*", "mesfet": "*", "vswitch": "*", "cswitch": "*",
-    "device": "*", "instance": "*",
+    "device": "*", "instance": "*", "verilog": "*",
     # analyses and the rest
     "op": [], "dc": ["src", "start", "stop", "step"], "ac": ["sweep", "points", "fstart", "fstop"],
     "tran": ["step", "stop", "start", "maxstep"], "noise": ["out", "src", "sweep", "points", "fstart", "fstop"],
