@@ -32,6 +32,7 @@ const paths = @import("paths.zig");
 const errata_ = @import("errata.zig");
 const run_ = @import("run.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;
 const Run = run_.Run;
@@ -69,6 +70,8 @@ pub fn run(io: std.Io, gpa: Allocator, opts: Options) (Allocator.Error || Writer
     try r.process();
     try r.staleErrata();
     if (opts.expanded) |w| try r.writeExpanded(w);
+    // A file is read in the second pass or missing in the first, not both.
+    assert(r.sum.files + r.sum.missing <= r.files.items.len);
     return r.sum;
 }
 
@@ -94,7 +97,8 @@ test "errata: a line the PDK's own simulator refuses is read as the manifest say
     );
     const errata = try parseErrata(a,
         \\{"name": "x", "errata": [
-        \\  {"file": "cells/r.spice", "was": "res a b rm r = 1k tc1r = 1m", "read": "Rres a b rm r = 1k tc1 = 1m", "why": "a switch to ngspice"},
+        \\  {"file": "cells/r.spice", "was": "res a b rm r = 1k tc1r = 1m",
+        \\   "read": "Rres a b rm r = 1k tc1 = 1m", "why": "a switch to ngspice"},
         \\  {"file": "cells/r.spice", "was": "gone a b 1k", "read": "Rgone a b 1k"}
         \\]}
     );
@@ -363,12 +367,13 @@ test "a small project: includes followed, declarations shared, tree copied" {
         std.mem.indexOf(
             u8,
             cat.written(),
-            "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\",\"family\":\"bsim4\",\"polarity\":\"n\"",
+            "\"section\":\"\",\"kind\":\"model\",\"device\":\"mosfet\"," ++
+                "\"family\":\"bsim4\",\"polarity\":\"n\"",
         ) != null,
     );
 }
 
-test "files translated at once: the tree, the log and the names expanded are those of one at a time" {
+test "files translated at once: the tree, the log and the names expanded are as one at a time" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

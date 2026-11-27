@@ -14,6 +14,7 @@ const std = @import("std");
 const ir = @import("ir");
 const run_ = @import("run.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Run = run_.Run;
 
 /// `was`, whole lines of a file whose path ends in `file`, is read as
@@ -83,6 +84,7 @@ pub fn load(r: *const Run, path: []const u8, a: Allocator) Loaded {
             .{ir.max_input >> 20},
         ) };
     var text = cwd.readFileAlloc(r.io, path, a, .limited(ir.max_input)) catch return .{};
+    assert(text.len <= ir.max_input);
     var hits: std.ArrayList(Loaded.Hit) = .empty;
     for (r.opts.errata, 0..) |e, i| {
         if (!std.mem.endsWith(u8, path, e.file)) continue;
@@ -94,14 +96,17 @@ pub fn load(r: *const Run, path: []const u8, a: Allocator) Loaded {
         }
         hits.append(a, hit) catch return .{};
     }
+    assert(hits.items.len <= r.opts.errata.len);
     return .{ .text = text, .hits = hits.items };
 }
 
 /// What `load` found of the PDK's errata in `path`, taken by the run:
 /// which were met, and each one read through said once a file.
 pub fn noteErrata(r: *Run, path: []const u8, hits: []const Loaded.Hit) Allocator.Error!void {
+    assert(r.errata_seen.len == r.opts.errata.len);
     for (hits) |hit| {
         const i = hit.erratum;
+        assert(i < r.opts.errata.len);
         const e = r.opts.errata[i];
         r.errata_seen[i] = true;
         const line = hit.line orelse continue;

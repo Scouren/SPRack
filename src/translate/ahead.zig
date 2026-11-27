@@ -66,19 +66,15 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
         pub fn init(a: *Self, r: *const Run) Allocator.Error!void {
             const jobs = @max(1, r.opts.jobs);
             const slots = try r.arena.alloc(Slot, if (jobs > 1) jobs * slots_a_worker else 1);
+            // A slot for each worker at least.
+            assert(slots.len >= jobs);
             for (slots) |*slot| {
                 slot.value.init(r.gpa);
                 slot.done = false;
             }
             a.* = .{ .r = r, .slots = slots };
             if (jobs == 1) return;
-            a.mutex.lockUncancelable(r.io);
-            for (0..jobs) |_| {
-                // rare: an `io` with nothing to run a task on at once.
-                a.group.concurrent(r.io, worker, .{a}) catch break;
-                a.workers += 1;
-            }
-            if (a.workers == 0) a.mutex.unlock(r.io);
+            start(a, jobs);
         }
 
         /// The result of file `next`. Blocks until it is there.
@@ -88,7 +84,7 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
             const slot = &a.slots[a.next % a.slots.len];
             if (a.workers == 0) {
                 slot.value.reset();
-                work(r, a.fileAt(a.next), &slot.value);
+                work(r, fileAt(r, a.next), &slot.value);
                 return &slot.value;
             }
             // The files the run has come to know since the last are
@@ -107,32 +103,12 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
 
         /// Lets the workers end (each finishes the file it has), and
         /// frees the slots.
-        pub fn deinit(a: *Self) void {
-            const io = a.r.io;
-            if (a.workers > 0) {
-                a.stop = true;
-                a.changed.broadcast(io);
-                a.mutex.unlock(io);
-                // Nothing asks the workers to stop but `stop`.
-                a.group.await(io) catch |e| switch (e) {
-                    error.Canceled => {},
-                };
-            }
-            for (a.slots) |*slot| slot.value.deinit();
-        }
-
-        fn fileAt(a: *const Self, index: usize) File {
-            const r = a.r;
-            return .{
-                .path = r.files.items[index],
-                .library = r.opts.library or index >= r.opts.tops.len,
-            };
-        }
+        pub const deinit = stopAll;
 
         fn worker(a: *Self) void {
             const r = a.r;
             a.mutex.lockUncancelable(r.io);
-            // What ends it: `stop`, which `deinit` sets.
+            // Bound: none of its own; it runs until `stop`, which `deinit` sets.
             while (true) {
                 // Waits for a file no worker has, within a turn of the
                 // slots from the one the run takes next.
@@ -141,10 +117,12 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
                     a.changed.waitUncancelable(r.io, &a.mutex);
                 if (a.stop) break;
                 const index = a.claimed;
+                // tidy: allow(member-accumulator) `claimed` is shared by the workers and
+                // taken under the mutex: a local count would not be seen by the others.
                 a.claimed += 1;
                 const slot = &a.slots[index % a.slots.len];
                 assert(!slot.done);
-                const file = a.fileAt(index);
+                const file = fileAt(r, index);
                 a.mutex.unlock(r.io);
                 slot.value.reset();
                 work(r, file, &slot.value);
@@ -155,4 +133,43 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
             a.mutex.unlock(r.io);
         }
     };
+}
+
+// ---- private ----
+
+fn fileAt(r: *const Run, index: usize) File {
+    return .{
+        .path = r.files.items[index],
+        .library = r.opts.library or index >= r.opts.tops.len,
+    };
+}
+
+/// `Ahead(..).init`, once the slots are there: `jobs` workers started,
+/// as many as `io` can run at once.
+fn start(a: anytype, jobs: usize) void {
+    const r = a.r;
+    a.mutex.lockUncancelable(r.io);
+    var workers: usize = 0;
+    for (0..jobs) |_| {
+        // rare: an `io` with nothing to run a task on at once.
+        a.group.concurrent(r.io, @TypeOf(a.*).worker, .{a}) catch break;
+        workers += 1;
+    }
+    a.workers = workers;
+    if (a.workers == 0) a.mutex.unlock(r.io);
+}
+
+/// `Ahead(..).deinit`.
+fn stopAll(a: anytype) void {
+    const io = a.r.io;
+    if (a.workers > 0) {
+        a.stop = true;
+        a.changed.broadcast(io);
+        a.mutex.unlock(io);
+        // Nothing asks the workers to stop but `stop`.
+        a.group.await(io) catch |e| switch (e) {
+            error.Canceled => {},
+        };
+    }
+    for (a.slots) |*slot| slot.value.deinit();
 }

@@ -4,9 +4,8 @@
 //! Contents:
 //! - `pub const Includes = struct`
 //! - `pub fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool`
-//! - `pub fn rewriteIncludes(r: *const Run, path_of_file: []const u8, dir: []const u8,
-//!   stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report,
-//!   fresh: *Fresh) Allocator.Error!void`
+//! - `pub fn rewriteIncludes(in: *const Includes, stmts: []ir.Stmt, scratch: Allocator,
+//!   report: *ir.Report) Allocator.Error!void`
 //! - `pub fn includes(ctx: *anyopaque, a: Allocator, stmts: []ir.Stmt,
 //!   report: *ir.Report) Allocator.Error!void`
 
@@ -16,13 +15,17 @@ const ir = @import("ir");
 const paths = @import("paths.zig");
 const run_ = @import("run.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Run = run_.Run;
 const Fresh = Run.Fresh;
 const relative = paths.relative;
+const dirOf = paths.dirOf;
 const pathOf = Run.pathOf;
 const sectionOf = Run.sectionOf;
 const spellingKey = Run.spellingKey;
 
+/// The file whose include lines are rewritten: its path and directory, and
+/// where the `$NAME`s they name are noted.
 pub const Includes = struct { r: *const Run, path: []const u8, dir: []const u8, fresh: *Fresh };
 
 /// A section of `path` not followed, where the target opens the
@@ -41,15 +44,18 @@ pub fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool {
     return false;
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn rewriteIncludes(
-    r: *const Run,
-    path_of_file: []const u8,
-    dir: []const u8,
+    in: *const Includes,
     stmts: []ir.Stmt,
     scratch: Allocator,
     report: *ir.Report,
-    fresh: *Fresh,
 ) Allocator.Error!void {
+    assert(std.mem.eql(u8, in.dir, dirOf(in.path)));
+    const r = in.r;
+    const path_of_file = in.path;
+    const dir = in.dir;
+    const fresh = in.fresh;
     for (stmts) |*st| {
         if (r.emptied(path_of_file, st)) {
             var n: usize = 0;
@@ -97,7 +103,7 @@ pub fn rewriteIncludes(
                 }
             }
         }
-        try r.rewriteIncludes(path_of_file, dir, st.body, scratch, report, fresh);
+        try rewriteIncludes(in, st.body, scratch, report);
     }
 }
 
@@ -108,12 +114,13 @@ pub fn includes(
     report: *ir.Report,
 ) Allocator.Error!void {
     const in: *Includes = @ptrCast(@alignCast(ctx));
-    try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report, in.fresh);
+    try rewriteIncludes(in, stmts, a, report);
 }
 
 // ---- private ----
 
 /// The includes of an emptied section, as comments.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn commentIncludes(scratch: Allocator, stmts: []ir.Stmt, n: *usize) Allocator.Error!void {
     for (stmts) |*st| {
         if (pathOf(st)) |p| {

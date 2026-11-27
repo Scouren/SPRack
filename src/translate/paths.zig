@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 pub const windows = @import("builtin").os.tag == .windows;
 
 /// Remove `.` and resolve `..` without touching the file system.
@@ -41,9 +42,13 @@ pub fn resolve(
 
 /// The path that leads from `from_dir` to `to`, both normalized.
 pub fn relative(arena: Allocator, from_dir: []const u8, to: []const u8) Allocator.Error![]const u8 {
+    // Normalized: no part is `.` but a path that is `.` alone.
+    assert(std.mem.indexOf(u8, from_dir, "/./") == null);
+    assert(std.mem.indexOf(u8, to, "/./") == null);
     var a = std.mem.tokenizeScalar(u8, from_dir, '/');
     var b = std.mem.tokenizeScalar(u8, to, '/');
     var out: std.ArrayList(u8) = .empty;
+    // Bound: the parts of the shorter path; until the first part the two do not share.
     while (true) {
         const save_a = a.index;
         const save_b = b.index;
@@ -79,7 +84,9 @@ pub fn commonDir(arena: Allocator, paths: []const []const u8) Allocator.Error![]
     var common = dirOf(paths[0]);
     for (paths[1..]) |p| {
         const d = dirOf(p);
-        while (!(std.mem.eql(u8, common, d) or (std.mem.startsWith(u8, d, common) and d.len > common.len and (d[common.len] == '/' or common.len == rootLen(common))))) {
+        while (!(std.mem.eql(u8, common, d) or (std.mem.startsWith(u8, d, common) and
+            d.len > common.len and (d[common.len] == '/' or common.len == rootLen(common)))))
+        {
             if (std.mem.eql(u8, common, ".") or common.len == rootLen(common)) break;
             common = dirOf(common);
             if (std.mem.eql(u8, common, ".")) break;
@@ -120,7 +127,11 @@ fn normalizeOn(win: bool, arena: Allocator, path: []const u8) Allocator.Error![]
             _ = parts.pop();
         } else if (std.mem.eql(u8, part, "..") and absolute) {
             continue;
-        } else try parts.append(arena, part);
+        } else {
+            // `..` stops at the root of an absolute path.
+            if (absolute) assert(!std.mem.eql(u8, part, ".."));
+            try parts.append(arena, part);
+        }
     }
     const joined = try std.mem.join(arena, "/", parts.items);
     if (absolute) return std.fmt.allocPrint(arena, "{s}{s}", .{ root, joined });
@@ -143,7 +154,7 @@ fn resolveOn(
     return normalizeOn(win, arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ base_dir, p }));
 }
 
-test "paths as Windows has them, on any host: a drive or a share is a root, a backslash a separator" {
+test "paths as Windows has them, on any host: a drive or share is a root, a backslash a separator" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();

@@ -22,6 +22,7 @@ const errata_ = @import("errata.zig");
 const ahead_ = @import("ahead.zig");
 const run_ = @import("run.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Run = run_.Run;
 const Ref = Run.Ref;
 const Fresh = Run.Fresh;
@@ -70,6 +71,7 @@ pub fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!
     try r.search.append(r.arena, sd);
 }
 
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn findIncludes(
     r: *Run,
     file: []const u8,
@@ -77,6 +79,8 @@ pub fn findIncludes(
     scratch: Allocator,
     top: bool,
 ) Allocator.Error!void {
+    // A file the run could not read is "", and is not walked.
+    assert(file.len > 0);
     const dir = dirOf(file);
     for (stmts) |*st| {
         if (st.kind == .libsection and st.get("name") == .atom) {
@@ -113,6 +117,7 @@ pub fn findIncludes(
 }
 
 /// What a skipped section would reach, to follow if it is named later.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn collectRefs(
     r: *Run,
     dir: []const u8,
@@ -130,6 +135,8 @@ pub fn collectRefs(
 }
 
 /// A section named by a followed `.lib` line is followed wherever it is.
+// tidy: allow(recursion) bounded by the sections skipped: each is released once, before the
+// calls for what it reaches.
 pub fn want(r: *Run, name: []const u8) Allocator.Error!void {
     const w = if (r.wanted) |*w| w else return;
     if (name.len == 0 or w.contains(name)) return;
@@ -183,6 +190,8 @@ pub fn discover(r: *Run) Allocator.Error!void {
         }
         try r.findIncludes(path, parsed.stmts, scratch, i < r.opts.tops.len);
     }
+    // Every file the run came to know was taken, the last ones too.
+    assert(ahead.next == r.files.items.len);
     // A section asked for by name that no file defines: nothing of it
     // is in the result, and what references it will not find it.
     for (r.opts.sections) |sec| {

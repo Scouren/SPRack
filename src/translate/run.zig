@@ -12,7 +12,7 @@
 //!   `pub const load`, `pub const noteErrata`, `pub const readFile`, `pub const staleErrata`;
 //!   from `discover.zig` `pub const noteSearch`, `pub const findIncludes`,
 //!   `pub const collectRefs`, `pub const want`, `pub const discover`; from `includes.zig`
-//!   `pub const emptied`, `pub const rewriteIncludes`; from `catalog.zig`
+//!   `pub const emptied`; from `catalog.zig`
 //!   `pub const catalogStmts`, `pub const noteOpaque`; from `copy.zig` `pub const outPath`,
 //!   `pub const translateFile`, `pub const translateInto`, `pub const translateAll`,
 //!   `pub const process`
@@ -28,6 +28,7 @@ const includes = @import("includes.zig");
 const catalog = @import("catalog.zig");
 const copy = @import("copy.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;
 const Erratum = errata_.Erratum;
@@ -130,7 +131,12 @@ pub const Run = struct {
     expanded: std.StringArrayHashMapUnmanaged(?[]const u8) = .empty,
 
     /// A section not followed (yet): what following it would reach.
-    pub const Skipped = struct { path: []const u8, name: []const u8, refs: []const Ref, released: bool = false };
+    pub const Skipped = struct {
+        path: []const u8,
+        name: []const u8,
+        refs: []const Ref,
+        released: bool = false,
+    };
     pub const Ref = struct { path: []const u8, section: []const u8 };
 
     /// Report entries as lines of the log, and how many are errors and
@@ -142,6 +148,8 @@ pub const Run = struct {
         errors: usize = 0,
         warnings: usize = 0,
 
+        // tidy: allow-fn(swallowed-error) a log line that cannot be written is let go: the
+        // counts, the copy and the catalogue do not depend on the log.
         pub fn add(l: *Lines, full: []const u8, d: ir.Diag) void {
             if (d.sev == .@"error") l.errors += 1;
             if (d.sev == .warning) l.warnings += 1;
@@ -152,6 +160,7 @@ pub const Run = struct {
                 l.cwd,
             ) and full[l.cwd.len] == '/';
             const path = if (under) full[l.cwd.len + 1 ..] else full;
+            assert(std.mem.endsWith(u8, full, path));
             if (d.line > 0) {
                 w.print(
                     "{s}:{d}: {s}[{s}]: {s}\n",
@@ -232,6 +241,7 @@ pub const Run = struct {
             try out.appendSlice(a, value orelse path[i..j]);
             i = j;
         }
+        assert(i == path.len);
         return out.items;
     }
 
@@ -298,7 +308,11 @@ pub const Run = struct {
         return if (v == .atom) v.atom else "";
     }
 
-    pub fn spellingKey(a: Allocator, path: []const u8, name: []const u8) Allocator.Error![]const u8 {
+    pub fn spellingKey(
+        a: Allocator,
+        path: []const u8,
+        name: []const u8,
+    ) Allocator.Error![]const u8 {
         const k = try std.fmt.allocPrint(a, "{s}\x00{s}", .{ path, name });
         _ = std.ascii.lowerString(k[path.len + 1 ..], name);
         return k;
@@ -314,7 +328,6 @@ pub const Run = struct {
     pub const want = discovery.want;
     pub const discover = discovery.discover;
     pub const emptied = includes.emptied;
-    pub const rewriteIncludes = includes.rewriteIncludes;
     pub const catalogStmts = catalog.catalogStmts;
     pub const noteOpaque = catalog.noteOpaque;
     pub const outPath = copy.outPath;
