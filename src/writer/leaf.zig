@@ -105,8 +105,8 @@ pub fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
         try unknownRefs(w, st);
         if (w.g.lex.ident_values and (st.kind == .resistor or st.kind == .capacitor))
             try modelOrParam(w, a, st);
-        if (st.kind == .include or st.kind == .lib or st.kind == .hdl)
-            try stillForeign(w, st, &e);
+        // A Verilog-A module (`hdl`) is no dialect's: only a netlist is.
+        if (st.kind == .include or st.kind == .lib) try stillForeign(w, st, &e);
     }
 }
 

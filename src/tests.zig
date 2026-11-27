@@ -2041,6 +2041,7 @@ test "Verilog-A: loading a module and instantiating it" {
     var r4: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "ngspice", ng, &r4), "pre_osdi mydiode.osdi\n");
     try testing.expectEqual(0, r4.countCode(.caveat));
+    try testing.expect(!r1.contains(.warning, "is still spectre syntax"));
     try has(va, "nd1 (a 0) dmod area=2\n");
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", ng, &r3);
