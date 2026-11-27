@@ -1,5 +1,12 @@
 //! Signals: a dialect's spelling of `v(a,b)` or `i(vdd)` matched against
 //! the templates of its `signals` section, to and from the canonical form.
+//!
+//! Contents:
+//! - `pub fn signalCanon(arena: Allocator, g: *const Grammar,
+//!   text: []const u8) Allocator.Error!?[]const u8`
+//! - `pub fn signalParts(text: []const u8, args: *[3][]const u8) ?struct`
+//! - `pub fn signalSpace(form: []const u8, k: usize) ?Space`
+//! - `pub fn isVersion(s: []const u8) bool`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -9,44 +16,6 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Space = schema.Space;
-
-/// Match `text` against a template such as `v(%,%)`; `%` stands for a name.
-fn matchTemplate(
-    tmpl: []const u8,
-    folded: []const u8,
-    raw: []const u8,
-    args: *[3][]const u8,
-) ?usize {
-    var it = std.mem.splitScalar(u8, tmpl, '%');
-    const head = it.first();
-    if (!std.mem.startsWith(u8, folded, head)) return null;
-    var pos = head.len;
-    var n: usize = 0;
-    var seen: usize = 0;
-    while (it.next()) |whole| {
-        // `%2`: the second name, where this dialect gives them in another order.
-        var lit = whole;
-        var at = n;
-        if (lit.len > 0 and lit[0] >= '1' and lit[0] <= '3') {
-            at = lit[0] - '1';
-            lit = lit[1..];
-        }
-        const last = it.peek() == null;
-        const end = if (last) blk: {
-            if (folded.len < pos + lit.len or !std.mem.endsWith(u8, folded[pos..], lit))
-                return null;
-            break :blk folded.len - lit.len;
-        } else std.mem.indexOfPos(u8, folded, pos, lit) orelse return null;
-        if (end <= pos or n == args.len) return null;
-        if (std.mem.indexOfAny(u8, raw[pos..end], "(), \t") != null) return null;
-        args[at] = raw[pos..end];
-        seen = @max(seen, at + 1);
-        n += 1;
-        pos = end + lit.len;
-    }
-    assert(n <= args.len);
-    return if (pos == folded.len and seen == n) n else null;
-}
 
 /// The canonical spelling of a signal written in this dialect, or null if
 /// the dialect's `signals` section has no form for it.
@@ -112,4 +81,44 @@ pub fn isVersion(s: []const u8) bool {
         if (c == '.') dots += 1 else if (!std.ascii.isDigit(c)) return false;
     }
     return dots >= 2;
+}
+
+// ---- private ----
+
+/// Match `text` against a template such as `v(%,%)`; `%` stands for a name.
+fn matchTemplate(
+    tmpl: []const u8,
+    folded: []const u8,
+    raw: []const u8,
+    args: *[3][]const u8,
+) ?usize {
+    var it = std.mem.splitScalar(u8, tmpl, '%');
+    const head = it.first();
+    if (!std.mem.startsWith(u8, folded, head)) return null;
+    var pos = head.len;
+    var n: usize = 0;
+    var seen: usize = 0;
+    while (it.next()) |whole| {
+        // `%2`: the second name, where this dialect gives them in another order.
+        var lit = whole;
+        var at = n;
+        if (lit.len > 0 and lit[0] >= '1' and lit[0] <= '3') {
+            at = lit[0] - '1';
+            lit = lit[1..];
+        }
+        const last = it.peek() == null;
+        const end = if (last) blk: {
+            if (folded.len < pos + lit.len or !std.mem.endsWith(u8, folded[pos..], lit))
+                return null;
+            break :blk folded.len - lit.len;
+        } else std.mem.indexOfPos(u8, folded, pos, lit) orelse return null;
+        if (end <= pos or n == args.len) return null;
+        if (std.mem.indexOfAny(u8, raw[pos..end], "(), \t") != null) return null;
+        args[at] = raw[pos..end];
+        seen = @max(seen, at + 1);
+        n += 1;
+        pos = end + lit.len;
+    }
+    assert(n <= args.len);
+    return if (pos == folded.len and seen == n) n else null;
 }

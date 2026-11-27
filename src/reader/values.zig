@@ -1,5 +1,16 @@
 //! Values: what one token (or the few of a recorded signal) is as the
 //! value of a slot of a given type, for the matcher.
+//!
+//! Contents:
+//! - `pub const Sig = struct`
+//! - `pub fn own(self: *const Matcher, t: Tok) Allocator.Error![]const u8`
+//! - `pub fn number(self: *const Matcher, t: Tok) ?ir.Number`
+//! - `pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Error!?Value`
+//! - `pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig`
+//! - `pub fn quotedExpr(self: *const Matcher, t: Tok, key: []const u8) Allocator.Error!?Value`
+//! - `pub fn anyValue(self: *const Matcher, t: Tok, key: []const u8) Allocator.Error!?Value`
+//! - `pub fn vector(self: *const Matcher, text: []const u8) Allocator.Error![]const Value`
+//! - `pub fn pairs(self: *Matcher, into: u8, vt: Tok) Allocator.Error!bool`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -16,6 +27,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Tok = lexer.Tok;
 const Value = ir.Value;
+
+pub const Sig = struct { v: Value, n: usize };
 
 /// A word's folded text lives only as long as its line's tokens.
 pub fn own(self: *const Matcher, t: Tok) Allocator.Error![]const u8 {
@@ -95,8 +108,6 @@ pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Erro
         .text, .params, .signal => return null,
     }
 }
-
-pub const Sig = struct { v: Value, n: usize };
 
 /// One recorded signal starting at `ti`: `v(out)`, `v(a,b)`, `out`, `v1:p`.
 pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig {

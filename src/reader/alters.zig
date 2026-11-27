@@ -1,5 +1,9 @@
 //! `.alter`: the statements after each alter as its body, and the analyses
 //! written again after one dropped where they are the netlist's own.
+//!
+//! Contents:
+//! - `pub fn gatherAlters(g: *const Grammar, arena: Allocator, list: *std.ArrayList(ir.Stmt),
+//!   report: *ir.Report) Allocator.Error!void`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -7,6 +11,7 @@ const schema = @import("schema");
 const ir = @import("ir");
 const passes = @import("passes.zig");
 const bagEntryFor = passes.bagEntryFor;
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 
@@ -24,6 +29,7 @@ pub fn gatherAlters(
     const at = for (list.items, 0..) |st, i| {
         if (st.kind == .alter) break i;
     } else return;
+    assert(at < list.items.len);
     if (!g.isRerun(.alter)) {
         if (g.blockOf(.alter) != null) return;
         var out: std.ArrayList(ir.Stmt) = .fromOwnedSlice(
@@ -79,6 +85,8 @@ pub fn gatherAlters(
     list.* = rest;
 }
 
+// ---- private ----
+
 /// The analyses written after an alter: dropped when they are the
 /// netlist's own, which every alter reruns.
 fn dropRerun(
@@ -90,6 +98,8 @@ fn dropRerun(
     report: *ir.Report,
 ) Allocator.Error!void {
     defer run.clearRetainingCapacity();
+    // Each analysis since the last alter has its own place in `rest`.
+    assert(run.items.len <= rest.items.len);
     if (alters.len == 0) return;
     var got: std.ArrayList(ir.Stmt) = .empty;
     for (run.items) |k| try got.append(arena, rest.items[k]);
@@ -122,6 +132,7 @@ fn oneChange(
     alt: *const ir.Stmt,
     report: *ir.Report,
 ) Allocator.Error!?ir.Stmt {
+    assert(alt.kind == .alter);
     const key = alt.get("param").atom;
     const val = alt.get("value");
     const target: ?[]const u8 = switch (alt.get("dev")) {
@@ -135,7 +146,9 @@ fn oneChange(
             .param, alt.line);
         if (st.kind == .options) {
             try st.set(arena, schema.slot(.options, "temp"), val);
-        } else try st.set(arena, schema.slot(.param, "params"), .{ .params = try arena.dupe(ir.Param, &.{.{ .key = key, .val = val }}) });
+        } else try st.set(arena, schema.slot(.param, "params"), .{
+            .params = try arena.dupe(ir.Param, &.{.{ .key = key, .val = val }}),
+        });
         return st;
     };
     // The latest version: an earlier alter's copy, else the netlist's.

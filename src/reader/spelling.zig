@@ -1,5 +1,13 @@
 //! Spelling: the one spelling of each name in a dialect that ignores
 //! case, learnt in the first pass and given to every statement read after.
+//!
+//! Contents:
+//! - `pub const Needed = struct`, with `pub fn deinit`
+//! - `pub const Spelling = struct`, with `pub fn keep`, `pub fn lowered`, `pub fn names`,
+//!   `pub fn deinit`, `pub fn prune`, `pub fn atom`, `pub fn statement`, `pub fn signal`
+//! - `pub fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void` (its renamer has `pub fn get`)
+//! - `pub fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8,
+//!   space: ?Space) Allocator.Error![]const u8`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -8,6 +16,7 @@ const expr = @import("expr");
 const signals = @import("signals.zig");
 const signalParts = signals.signalParts;
 const signalSpace = signals.signalSpace;
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Space = schema.Space;
 const Value = ir.Value;
@@ -68,6 +77,8 @@ pub const Spelling = struct {
     /// and the parameters an instance sets. Keywords and other parameter
     /// keys are not names, so `DC` on a source does not respell a node `dc`.
     pub fn names(sp: *Spelling, st: *const ir.Stmt) Allocator.Error!void {
+        // Names are learnt in the first pass, before any lookup is watched.
+        assert(sp.needed == null);
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             const v = st.at(i);
             const one = [1]Value{v};
@@ -107,7 +118,7 @@ pub const Spelling = struct {
     /// defined in another file, or in another block of a Python deck, keeps
     /// the spelling it is written with here. Calls are functions, not names;
     /// what `v(` and `i(` name is a node and a device (`expr.argSpace`).
-    pub fn exprNames(sp: *Spelling, v: Value) Allocator.Error!void {
+    fn exprNames(sp: *Spelling, v: Value) Allocator.Error!void {
         const items: []const Value = switch (v) {
             .expr => &.{v},
             .list => |l| l,
@@ -124,14 +135,14 @@ pub const Spelling = struct {
                     i = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len) + 1;
                     continue;
                 }
-                const word_char = std.ascii.isAlphanumeric(c) or c == '_' or c == '$' or c == '.';
-                if (!word_char) {
+                if (!isWordChar(c)) {
                     if (c == ')') space = .param;
                     i += 1;
                     continue;
                 }
                 var j = i;
-                while (j < text.len and (std.ascii.isAlphanumeric(text[j]) or text[j] == '_' or text[j] == '$' or text[j] == '.')) j += 1;
+                while (j < text.len and isWordChar(text[j])) j += 1;
+                assert(j > i);
                 var k = j;
                 while (k < text.len and (text[k] == ' ' or text[k] == '\t')) k += 1;
                 const call = k < text.len and text[k] == '(';
@@ -147,7 +158,7 @@ pub const Spelling = struct {
 
     /// A name built for its statement, or read from a line that goes away,
     /// is copied: the table outlives both.
-    pub fn learn(sp: *Spelling, space: Space, name: []const u8) Allocator.Error!void {
+    fn learn(sp: *Spelling, space: Space, name: []const u8) Allocator.Error!void {
         for (name) |c| {
             if (!std.ascii.isUpper(c)) continue;
             return sp.mixed.getPtr(space).put(name);
@@ -160,7 +171,7 @@ pub const Spelling = struct {
 
     /// The one spelling of the name `raw` of `space`. A parameter the
     /// netlist defines is spelled the way its first definition spells it.
-    pub fn spell(
+    fn spell(
         sp: *const Spelling,
         arena: Allocator,
         space: Space,
@@ -173,7 +184,7 @@ pub const Spelling = struct {
     }
 
     /// The capitalised spelling of `name` among those of `space`, else `fallback`.
-    pub fn lookup(
+    fn lookup(
         sp: *const Spelling,
         space: Space,
         name: []const u8,
@@ -229,6 +240,7 @@ pub const Spelling = struct {
     pub fn statement(sp: *Spelling, arena: Allocator, st: *ir.Stmt) Allocator.Error!void {
         const defines_params = st.kind == .param or st.kind == .subckt;
         const node_keys = st.kind == .ic or st.kind == .nodeset;
+        assert(schema.info(st.kind).slots.len <= schema.max_slots);
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             switch (sl.ty) {
                 .name, .node, .ident => {
@@ -273,7 +285,7 @@ pub const Spelling = struct {
     }
 
     /// A word of an expression: a call (`space` null), or a name of `space`.
-    pub fn identifier(
+    fn identifier(
         sp: *const Spelling,
         arena: Allocator,
         word: []const u8,
@@ -312,6 +324,7 @@ pub const Spelling = struct {
 pub fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void {
     const ai = schema.slot(.func, "args");
     const ei = schema.slot(.func, "expr");
+    assert(vals.len == schema.info(.func).slots.len);
     if (vals[ei] != .expr) return;
     const Args = struct {
         args: []const Value,
@@ -342,4 +355,11 @@ pub fn resolveName(
 ) Allocator.Error![]const u8 {
     const sp: *const Spelling = @ptrCast(@alignCast(ctx.?));
     return sp.identifier(arena, word, space);
+}
+
+// ---- private ----
+
+/// A byte of a word of an expression: a name or a number.
+fn isWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '$' or c == '.';
 }

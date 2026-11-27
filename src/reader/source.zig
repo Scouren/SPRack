@@ -1,6 +1,18 @@
 //! Source: a netlist being read, a group of statements at a time, and
 //! `read`, which reads one whole (a run of lines at a time where the file
 //! changes language).
+//!
+//! Contents:
+//! - `pub const Source = struct`, with `pub fn open`, `pub fn deinit`, `pub fn rewind`,
+//!   `pub fn useArena`, `pub fn next`, `pub fn between`, `pub fn canonical`,
+//!   `pub fn watchSpelling`, `pub fn pruneSpelling`, `pub fn paramCount`, `pub fn finishGroup`
+//! - `pub const Tables = struct`, with `pub fn init`, `pub fn add`
+//! - `pub fn normalize(arena: Allocator, case_sensitive: bool,
+//!   s: []const u8) Allocator.Error![]const u8`
+//! - `pub fn read(g: *const Grammar, arena: Allocator, src: []const u8, report: *ir.Report,
+//!   opts: ir.ReadOptions) Allocator.Error!ir.Netlist`
+//! - `pub fn resolveGroup(g: *const Grammar, arena: Allocator, list: []ir.Stmt, t: *const Tables,
+//!   report: *ir.Report) Allocator.Error!void`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -18,135 +30,17 @@ const Reader = step.Reader;
 const Needed = spelling.Needed;
 const normalizeLists = passes.normalizeLists;
 const flattenBins = passes.flattenBins;
-const foldSegments = passes.foldSegments;
-const foldForms = passes.foldForms;
-const foldModules = passes.foldModules;
+const forms = @import("forms.zig");
+const foldSegments = forms.foldSegments;
+const foldForms = forms.foldForms;
+const foldModules = forms.foldModules;
 const measureWith = passes.measureWith;
 const rebindParams = passes.rebindParams;
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Space = schema.Space;
-
-pub fn normalize(arena: Allocator, case_sensitive: bool, s: []const u8) Allocator.Error![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var it = std.mem.tokenizeAny(u8, s, " \t");
-    while (it.next()) |w| {
-        if (out.items.len > 0) try out.append(arena, ' ');
-        for (w) |c| try out.append(arena, if (case_sensitive) c else std.ascii.toLower(c));
-    }
-    return out.toOwnedSlice(arena);
-}
-
-/// Does `line` start with the words of a `switch`? Blanks and case aside.
-fn startsSwitch(line: []const u8, words: []const u8) bool {
-    var a = std.mem.tokenizeAny(u8, line, " \t\r");
-    var b = std.mem.tokenizeAny(u8, words, " \t");
-    while (b.next()) |w| {
-        const x = a.next() orelse return false;
-        if (!std.ascii.eqlIgnoreCase(x, w)) return false;
-    }
-    return true;
-}
-
-fn switchOf(g: *const Grammar, line: []const u8) ?*const grammar.Switch {
-    for (g.switches) |*s| if (startsSwitch(line, s.words)) return s;
-    return null;
-}
-
-/// A file that changes language (`simulator lang=spice`) is read one run
-/// of lines at a time, each with its own grammar. Lines outside the run
-/// are blanked rather than cut, so that line numbers stay those of the file.
-fn readSwitched(
-    g: *const Grammar,
-    arena: Allocator,
-    src: []const u8,
-    report: *ir.Report,
-    opts: ir.ReadOptions,
-) Allocator.Error!?ir.Netlist {
-    var starts: std.ArrayList(usize) = .empty;
-    var it = std.mem.splitScalar(u8, src, '\n');
-    var lines: std.ArrayList([]const u8) = .empty;
-    while (it.next()) |l| try lines.append(arena, l);
-    var other = false;
-    for (lines.items, 0..) |l, i| if (switchOf(g, l)) |sw| {
-        try starts.append(arena, i);
-        other = other or !std.ascii.eqlIgnoreCase(sw.dialect, g.name);
-    };
-    // Only the header naming the file's own language: nothing to switch.
-    if (!other) return null;
-    var out: std.ArrayList(ir.Stmt) = .empty;
-    var title: []const u8 = "";
-    var from: usize = 0;
-    var cur = g;
-    var k: usize = 0;
-    var folds = false;
-    while (from < lines.items.len) {
-        const to = if (k < starts.items.len) starts.items[k] else lines.items.len;
-        if (to > from) {
-            var text: std.ArrayList(u8) = .empty;
-            for (lines.items, 0..) |l, i| {
-                if (i >= from and i < to) try text.appendSlice(arena, l);
-                if (i + 1 < lines.items.len) try text.append(arena, '\n');
-            }
-            var seg_opts = opts;
-            seg_opts.library = opts.library or from > 0;
-            const nl = try readPlain(cur, arena, text.items, report, seg_opts);
-            if (from == 0) title = nl.title;
-            folds = folds or nl.folds_case or !cur.lex.case_sensitive;
-            const tag: u8 = if (cur == g) 0 else (try dialects.intern(cur.name)) orelse 0;
-            for (nl.stmts) |st| {
-                // The blanked lines read as blank lines; they are not the file's.
-                if (st.kind == .comment and std.mem.eql(
-                    u8,
-                    st.raw,
-                    ir.blank_line,
-                ) and (st.line < from + 1 or st.line > to)) continue;
-                var s = st;
-                if (s.dialect == 0) s.dialect = tag;
-                try out.append(arena, s);
-            }
-        }
-        if (k >= starts.items.len) break;
-        const sw = switchOf(g, lines.items[starts.items[k]]).?;
-        // Back to the file's own language is back to `g`, which may be a
-        // grammar loaded from a file, not the built-in of the same name.
-        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name))
-            g
-        else
-            dialects.find(sw.dialect) orelse g;
-        const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
-        for (cur.header_folded) |l|
-            folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
-        from = starts.items[k] + 1;
-        k += 1;
-    }
-    var nl: ir.Netlist = .{
-        .title = title,
-        .dialect = g.name,
-        .library = opts.library,
-        .folds_case = folds,
-        .stmts = out.items,
-    };
-    try ir.resolveInstances(arena, &nl, opts.env);
-    return nl;
-}
-
-pub fn read(
-    g: *const Grammar,
-    arena: Allocator,
-    src: []const u8,
-    report: *ir.Report,
-    opts: ir.ReadOptions,
-) Allocator.Error!ir.Netlist {
-    const switched = if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)
-        try readSwitched(g, arena, src, report, opts)
-    else
-        null;
-    const nl = switched orelse try readPlain(g, arena, src, report, opts);
-    if (report.lost) return error.OutOfMemory;
-    return nl;
-}
 
 /// A netlist being read: its lines, what the first pass learnt, and the
 /// reader for the passes after it. Made in place, as the reader points
@@ -196,6 +90,7 @@ pub const Source = struct {
             if (given) continue;
             for (n.lines) |l| try boiler.append(perm, try normalize(perm, g.lex.case_sensitive, l));
         }
+        assert(boiler.items.len >= g.preamble.len + g.header.len);
         var folded: std.ArrayList([]const u8) = .empty;
         for (g.header_folded) |l|
             try folded.append(perm, try normalize(perm, g.lex.case_sensitive, l));
@@ -253,6 +148,7 @@ pub const Source = struct {
     /// The next top-level statements: one, with the comment lines before
     /// it, or the several statements of one line. False at the end.
     pub fn next(s: *Source, out: *std.ArrayList(ir.Stmt)) Allocator.Error!bool {
+        // Bounded by the lines: each step reads at least one, until the end.
         while (true) {
             const n = out.items.len;
             switch (try s.r.step(null, null, out)) {
@@ -315,6 +211,8 @@ pub const Source = struct {
         const r = &s.r;
         const g = r.g;
         const arena = r.arena;
+        // Between top-level statements: inside no block.
+        assert(r.depth == 0);
         report.phase = ir.Phase.finish;
         try r.finish(list.items);
         report.phase = ir.Phase.bodies;
@@ -356,6 +254,32 @@ pub const Tables = struct {
     }
 };
 
+pub fn normalize(arena: Allocator, case_sensitive: bool, s: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = std.mem.tokenizeAny(u8, s, " \t");
+    while (it.next()) |w| {
+        if (out.items.len > 0) try out.append(arena, ' ');
+        for (w) |c| try out.append(arena, if (case_sensitive) c else std.ascii.toLower(c));
+    }
+    return out.toOwnedSlice(arena);
+}
+
+pub fn read(
+    g: *const Grammar,
+    arena: Allocator,
+    src: []const u8,
+    report: *ir.Report,
+    opts: ir.ReadOptions,
+) Allocator.Error!ir.Netlist {
+    const switched = if (g.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)
+        try readSwitched(g, arena, src, report, opts)
+    else
+        null;
+    const nl = switched orelse try readPlain(g, arena, src, report, opts);
+    if (report.lost) return error.OutOfMemory;
+    return nl;
+}
+
 /// The passes `read` ends with, on the statements `Source.next` gave.
 pub fn resolveGroup(
     g: *const Grammar,
@@ -368,6 +292,103 @@ pub fn resolveGroup(
     try rebindParams(g, arena, list);
     report.phase = ir.Phase.kinds;
     if (t.models.count() > 0) try ir.checkKinds(list, &t.models, &t.families, report);
+}
+
+// ---- private ----
+
+/// Does `line` start with the words of a `switch`? Blanks and case aside.
+fn startsSwitch(line: []const u8, words: []const u8) bool {
+    var a = std.mem.tokenizeAny(u8, line, " \t\r");
+    var b = std.mem.tokenizeAny(u8, words, " \t");
+    while (b.next()) |w| {
+        const x = a.next() orelse return false;
+        if (!std.ascii.eqlIgnoreCase(x, w)) return false;
+    }
+    return true;
+}
+
+fn switchOf(g: *const Grammar, line: []const u8) ?*const grammar.Switch {
+    for (g.switches) |*s| if (startsSwitch(line, s.words)) return s;
+    return null;
+}
+
+/// A file that changes language (`simulator lang=spice`) is read one run
+/// of lines at a time, each with its own grammar. Lines outside the run
+/// are blanked rather than cut, so that line numbers stay those of the file.
+fn readSwitched(
+    g: *const Grammar,
+    arena: Allocator,
+    src: []const u8,
+    report: *ir.Report,
+    opts: ir.ReadOptions,
+) Allocator.Error!?ir.Netlist {
+    var starts: std.ArrayList(usize) = .empty;
+    var it = std.mem.splitScalar(u8, src, '\n');
+    var lines: std.ArrayList([]const u8) = .empty;
+    while (it.next()) |l| try lines.append(arena, l);
+    var other = false;
+    for (lines.items, 0..) |l, i| if (switchOf(g, l)) |sw| {
+        try starts.append(arena, i);
+        other = other or !std.ascii.eqlIgnoreCase(sw.dialect, g.name);
+    };
+    // Only the header naming the file's own language: nothing to switch.
+    if (!other) return null;
+    assert(starts.items.len > 0);
+    var out: std.ArrayList(ir.Stmt) = .empty;
+    var title: []const u8 = "";
+    var from: usize = 0;
+    var cur = g;
+    var k: usize = 0;
+    var folds = false;
+    while (from < lines.items.len) {
+        const to = if (k < starts.items.len) starts.items[k] else lines.items.len;
+        if (to > from) {
+            var text: std.ArrayList(u8) = .empty;
+            for (lines.items, 0..) |l, i| {
+                if (i >= from and i < to) try text.appendSlice(arena, l);
+                if (i + 1 < lines.items.len) try text.append(arena, '\n');
+            }
+            var seg_opts = opts;
+            seg_opts.library = opts.library or from > 0;
+            const nl = try readPlain(cur, arena, text.items, report, seg_opts);
+            if (from == 0) title = nl.title;
+            folds = folds or nl.folds_case or !cur.lex.case_sensitive;
+            const tag: u8 = if (cur == g) 0 else (try dialects.intern(cur.name)) orelse 0;
+            for (nl.stmts) |st| {
+                // The blanked lines read as blank lines; they are not the file's.
+                if (st.kind == .comment and std.mem.eql(
+                    u8,
+                    st.raw,
+                    ir.blank_line,
+                ) and (st.line < from + 1 or st.line > to)) continue;
+                var s = st;
+                if (s.dialect == 0) s.dialect = tag;
+                try out.append(arena, s);
+            }
+        }
+        if (k >= starts.items.len) break;
+        const sw = switchOf(g, lines.items[starts.items[k]]).?;
+        // Back to the file's own language is back to `g`, which may be a
+        // grammar loaded from a file, not the built-in of the same name.
+        cur = if (std.ascii.eqlIgnoreCase(sw.dialect, g.name))
+            g
+        else
+            dialects.find(sw.dialect) orelse g;
+        const n = try normalize(arena, cur.lex.case_sensitive, lines.items[starts.items[k]]);
+        for (cur.header_folded) |l|
+            folds = folds or std.mem.eql(u8, n, try normalize(arena, cur.lex.case_sensitive, l));
+        from = starts.items[k] + 1;
+        k += 1;
+    }
+    var nl: ir.Netlist = .{
+        .title = title,
+        .dialect = g.name,
+        .library = opts.library,
+        .folds_case = folds,
+        .stmts = out.items,
+    };
+    try ir.resolveInstances(arena, &nl, opts.env);
+    return nl;
 }
 
 fn readPlain(
@@ -388,6 +409,8 @@ fn readPlain(
         .library = opts.library,
         .stmts = try r.top(),
     };
+    // Every block read restores the depth it opened at.
+    assert(r.depth == 0);
     nl.folds_case = r.folded;
     try r.finish(nl.stmts);
     nl.stmts = try normalizeLists(g, arena, nl.stmts, report);

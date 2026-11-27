@@ -2,6 +2,18 @@
 //! backtracking, and what the match captured folded into a statement.
 //! The values a token is read as are `values.zig`; captures that take
 //! several tokens (lists, bags, the rest of a line) are `capture.zig`.
+//!
+//! Contents:
+//! - `pub const Capture = struct`
+//! - `pub const Cont = struct`
+//! - `pub const Declared`
+//! - `pub const Matcher = struct`, with `pub fn run`, `pub fn toks`, `pub fn slot`,
+//!   `pub fn followLit`, `pub fn beforeEq`, `pub fn m`, `pub fn countOf`, `pub fn applyTo`,
+//!   `pub fn clash`, `pub fn build`; from `values.zig` `pub const own`, `pub const number`,
+//!   `pub const toValue`, `pub const signalAt`, `pub const quotedExpr`, `pub const anyValue`,
+//!   `pub const vector`, `pub const pairs`; from `capture.zig` `pub const parenRun`,
+//!   `pub const joinRaw`, `pub const joinTokens`, `pub const capOne`; from `bag.zig`
+//!   `pub const bagEntry`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -21,7 +33,9 @@ const Tok = lexer.Tok;
 const Value = ir.Value;
 
 pub const Capture = struct { slot: u8, key: []const u8 = "", val: Value };
+
 pub const Cont = struct { items: []const Node, next: ?*const Cont };
+
 pub const Declared = std.StringHashMapUnmanaged(void);
 
 pub const Matcher = struct {
@@ -52,7 +66,7 @@ pub const Matcher = struct {
     /// words overflowed the stack; past this much it simply does not match.
     // ponytail: a byte budget, not a depth, since Debug frames are several
     // times larger; an explicit backtracking stack if a real deck needs more.
-    pub const max_stack = 1 << 20;
+    const max_stack = 1 << 20;
 
     pub fn run(self: *Matcher, kind: Kind, pat: []const Node, ti: usize) Allocator.Error!bool {
         // A pattern whose first item cannot take this token fails at once,
@@ -91,7 +105,7 @@ pub const Matcher = struct {
     pub const own = values.own;
     pub const number = values.number;
     pub const toValue = values.toValue;
-    pub const Sig = values.Sig;
+
     pub const signalAt = values.signalAt;
     pub const quotedExpr = values.quotedExpr;
     pub const anyValue = values.anyValue;
@@ -107,7 +121,7 @@ pub const Matcher = struct {
         return schema.info(self.kind).slots[idx];
     }
 
-    pub fn litMatches(node: *const Node, t: Tok) bool {
+    fn litMatches(node: *const Node, t: Tok) bool {
         return switch (t.tag) {
             .word => std.mem.eql(u8, t.text, node.text),
             .lparen => std.mem.eql(u8, node.text, "("),
@@ -151,7 +165,7 @@ pub const Matcher = struct {
     }
 
     // tidy: allow(recursion) bounded by the nesting of a pattern (the grammar parser's max_depth)
-    pub fn startsWithLit(items: []const Node, t: Tok) bool {
+    fn startsWithLit(items: []const Node, t: Tok) bool {
         for (items) |*n| {
             switch (n.tag) {
                 .lit, .taglit => return litMatches(n, t),
