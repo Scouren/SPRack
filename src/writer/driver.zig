@@ -43,6 +43,7 @@ const name_passes = @import("names.zig");
 const rewrite = @import("rewrite.zig");
 const frame = @import("frame.zig");
 const annotations = @import("annotations.zig");
+const structural = @import("modules.zig");
 const Refs = @import("refs.zig").Refs;
 
 const Allocator = std.mem.Allocator;
@@ -560,6 +561,7 @@ pub const Driver = struct {
             if (!g.canWrite(.cond_if)) try variants.noteAllSplits(w, stmts, w.env);
         }
         w.report.phase = ir.Phase.write;
+        if (g.modules) |*m| return structural.write(w, m, s.nl.title, stmts);
         for (stmts) |*st| {
             if (g.wrapOf(st.kind) != null) {
                 try s.wrapped.append(s.keep.perm, try ir.cloneStmt(s.keep, st));
@@ -586,6 +588,8 @@ const no_rescan: NoRescan = .{};
 /// netlist with one is written whole. Null where it holds none. A pass
 /// added there says here what its work is.
 pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
+    // `structural.write`: every statement is in a module the netlist decides.
+    if (g.modules != null) return "a netlist written as modules";
     return switch (st.kind) {
         // `alter.prepare`.
         .alter => "an alter",

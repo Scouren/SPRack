@@ -102,7 +102,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl", "cktimg", "espice"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl", "cktimg", "espice", "verilog"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
@@ -1060,8 +1060,11 @@ L1 out l2 10n
 
 
 def _decks():
-    """DECK as each dialect says it (what a dialect cannot say is left out)."""
+    """DECK as each dialect says it (what a dialect cannot say is left out);
+    structural Verilog is written, never read."""
     for d in sprack.DIALECTS:
+        if d == "verilog":
+            continue
         yield d, (DECK if d == "ngspice" else str(sprack.translate(DECK, frm="ngspice", to=d, strict=False)))
 
 
@@ -1609,6 +1612,21 @@ def test_schemify_verilog_is_d_cosim_in_ngspice_and_an_n_card_in_espice():
     assert "AU1 [ clk rst cmp ] [ d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] eoc ] sar_m\n" in ng, ng
     # A dialect without Verilog refuses it, naming who has it.
     raises(sprack.Unsupported, lambda: _dig_tb().netlist("xyce"), "Xyce has no digital Verilog", "ngspice")
+
+
+def test_schemify_structural_verilog():
+    out = _dig_tb().netlist("verilog")
+    assert out.startswith("// dig_tb\nmodule dig_tb ();\n  wire \\d[0] ;\n"), out
+    assert "  dbuf \\B[0]  (.A(\\d[0] ), .Y(\\q[0] ));\n" in out, out
+    assert "module dbuf (A, Y);\n  input A;\n  output Y;\n  wire net_0w0001;\n" in out, out
+    assert out.endswith("endmodule\nmodule dinv(input A, output Y);\n  assign Y = ~A;\nendmodule\n"), out
+    # A bus port is joined; a source is left out with a note, a resistor refused.
+    c = sprack.Circuit("t")
+    c.verilog("U1", "clk", "q[1]", "q[0]", "cnt", file="cnt.v", pins=["clk", "q", "q"], dirs=["in", "out", "out"], vdd=1.8)
+    c.V("1", "clk", 0, 1.8)
+    assert "  cnt U1 (.clk(clk), .q({\\q[1] , \\q[0] }));\n" in c.netlist("verilog"), c.netlist("verilog")
+    c.R("1", "clk", 0, "1k")
+    raises(sprack.Unsupported, lambda: c.netlist("verilog"), "structural Verilog holds only modules")
 
 
 if __name__ == "__main__":

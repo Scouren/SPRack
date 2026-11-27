@@ -39,6 +39,7 @@ const ModelParamTable = types.ModelParamTable;
 const Move = types.Move;
 const Needs = types.Needs;
 const Once = types.Once;
+const Modules = types.Modules;
 const NoFamily = types.NoFamily;
 const NoParam = types.NoParam;
 const Omitted = types.Omitted;
@@ -148,6 +149,8 @@ pub const Grammar = struct {
     inerts: []const Inert = &.{},
     rewrites: []const Rewrite = &.{},
     plugin: ?Plugin = null,
+    /// `modules`: the netlist is written as modules, not statement by statement.
+    modules: ?Modules = null,
     read_index: ReadIndex = .{},
 
     /// The rules that may read a line whose first token is a word of this

@@ -6,6 +6,7 @@
 //! - `pub fn header(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn needs(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
+//! - `pub fn modules(c: *C, g: *Grammar, lines: *Lines) Error!void`
 //! - `pub fn wrap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn own(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn raw(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -26,6 +27,7 @@ const slotNamed = context.slotNamed;
 const Grammar = tables.Grammar;
 const Needs = types.Needs;
 const Once = types.Once;
+const Modules = types.Modules;
 const Own = types.Own;
 const RawBlock = types.RawBlock;
 const Wrap = types.Wrap;
@@ -89,6 +91,54 @@ pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
         }
     }
     g.onces = try c.add(Once, g.onces, .{ .kind = kind, .slot = slot, .lines = body });
+}
+
+/// `modules`, then a line for each field of `Modules` up to `end`: its
+/// name and its text, quoted (`bus`, `dirs` and `name` take several).
+pub fn modules(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    const start = lines.no;
+    var m: Modules = undefined;
+    var have: u16 = 0;
+    const names = [_][]const u8{
+        "open", "port", "net", "instance", "pin", "join", "bus", "close", "dirs", "name",
+    };
+    const counts = [_]usize{ 1, 1, 1, 1, 1, 1, 2, 1, 3, 4 };
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, "end")) break;
+        const head, const rest = context.splitHead(line);
+        const i = for (names, 0..) |n, k| {
+            if (std.mem.eql(u8, n, head)) break k;
+        } else return c.fail(lines.no, "unknown line `{s}` of modules", .{head});
+        const w = try args(c, lines.no, rest);
+        if (w.len != counts[i])
+            return c.fail(lines.no, "`{s}` of modules takes {d} texts", .{ head, counts[i] });
+        have |= @as(u16, 1) << @intCast(i);
+        switch (i) {
+            0 => m.open = w[0],
+            1 => m.port = w[0],
+            2 => m.net = w[0],
+            3 => m.instance = w[0],
+            4 => m.pin = w[0],
+            5 => m.join = w[0],
+            6 => {
+                m.bus_open = w[0];
+                m.bus_close = w[1];
+            },
+            7 => m.close = w[0],
+            8 => m.dirs = .{ w[0], w[1], w[2] },
+            else => {
+                m.first = w[0];
+                m.rest = w[1];
+                m.escape_open = w[2];
+                m.escape_close = w[3];
+            },
+        }
+    } else return c.fail(lines.no, "section is missing 'end'", .{});
+    std.debug.assert(lines.no > start);
+    if (have != (1 << names.len) - 1)
+        return c.fail(start, "modules needs a line of each: open port net instance pin " ++
+            "join bus close dirs name", .{});
+    g.modules = m;
 }
 
 /// `wrap "open" "close" : kind ...`.

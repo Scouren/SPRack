@@ -10,6 +10,9 @@ const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce"
 /// Dialects that are another for a different reader (`variant`): built in,
 /// compiled like the rest, and tested by what they are for.
 const variants = [_][]const u8{ "cktimg", "espice" };
+/// Dialects only written, never read (structural Verilog): tested by what
+/// they write.
+const outputs = [_][]const u8{"verilog"};
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -272,11 +275,11 @@ fn jsonOf(a: std.mem.Allocator, nl: *const ir.Netlist) ![]const u8 {
 }
 
 var loaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-var loaded_grammars: [dialects.len + variants.len]?*const sprack.Grammar = @splat(null);
+var loaded_grammars: [dialects.len + variants.len + outputs.len]?*const sprack.Grammar = @splat(null);
 
 /// The dialect's grammar file compiled now, at run time, once per process.
 fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
-    const i = for (dialects ++ variants, 0..) |d, k| {
+    const i = for (dialects ++ variants ++ outputs, 0..) |d, k| {
         if (std.mem.eql(u8, d, name)) break k;
     } else unreachable;
     if (loaded_grammars[i]) |g| return g;
@@ -380,15 +383,15 @@ fn countKind(nl: ir.Netlist, kind: schema.Kind) usize {
 const Arena = std.heap.ArenaAllocator;
 
 test "all grammars compiled" {
-    try testing.expectEqual(dialects.len + variants.len, sprack.dialect_count);
-    for (dialects ++ variants) |n| try testing.expect(sprack.find(n) != null);
+    try testing.expectEqual(dialects.len + variants.len + outputs.len, sprack.dialect_count);
+    for (dialects ++ variants ++ outputs) |n| try testing.expect(sprack.find(n) != null);
     for (variants) |n| try testing.expect(sprack.find(n).?.variant_of.len > 0);
 }
 
 test "each grammar file compiled at run time is the grammar built into the binary" {
     // One compiler, run when the binary is built and again now: every table
     // of every dialect, field for field.
-    for (dialects ++ variants) |d| {
+    for (dialects ++ variants ++ outputs) |d| {
         errdefer std.debug.print("dialect {s}\n", .{d});
         try testing.expectEqualDeep(sprack.find(d).?.*, (try loadedGrammar(d)).*);
     }
@@ -7940,6 +7943,63 @@ test "verilog: espice, an N card with its bridge parameters, .model and .verilog
         \\{"stmts":[{"kind":"verilog","name":"U1","nodes":["a"],"master":"cnt","file":"cnt.sv"}]}
     , &r2);
     try has(stem, "NU1 a cnt\n.model cnt cnt\n.verilog \"cnt.sv\"\n");
+}
+
+test "verilog dialect: modules by named ports, the top level one of them" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // Schemify's dig_tb, as its spec writes it.
+    try testing.expectEqualStrings(
+        \\// dig_tb
+        \\module dig_tb ();
+        \\  wire \d[0] ;
+        \\  wire \d[1] ;
+        \\  wire \q[0] ;
+        \\  wire \q[1] ;
+        \\  wire qb;
+        \\  dinv UX (.A(\q[0] ), .Y(qb));
+        \\  dbuf \B[0]  (.A(\d[0] ), .Y(\q[0] ));
+        \\  dbuf \B[1]  (.A(\d[1] ), .Y(\q[1] ));
+        \\endmodule
+        \\module dbuf (A, Y);
+        \\  input A;
+        \\  output Y;
+        \\  wire net_0w0001;
+        \\  dinv U1 (.A(A), .Y(net_0w0001));
+        \\  dinv U2 (.A(net_0w0001), .Y(Y));
+        \\endmodule
+        \\module dinv(input A, output Y);
+        \\  assign Y = ~A;
+        \\endmodule
+        \\
+    , try fromJson(a, "verilog", dig_tb_json, &report));
+    try testing.expectEqual(0, report.items.items.len);
+    // A bus joined, its leaf named by its module; what is no structure a
+    // note, a device with no form an error.
+    var r2: ir.Report = .init(a);
+    const sar = try fromJson(a, "verilog", sar_tb_json, &r2);
+    try has(sar, "  sar U1 (.clk(clk), .cmp(cmp), .d({\\d[1] , \\d[0] }), .eoc(eoc));\n" ++
+        "  dbuf U2 (.A(eoc), .Y(done));\nendmodule\n");
+    try reported(&r2, .@"error", "device 'device' cannot be written for verilog");
+    try reported(&r2, .info, "verilog: parameters are not written");
+    try reported(&r2, .info, "model: not written: verilog is the circuit's structure");
+    // A port's direction through two levels; one nothing drives is an inout.
+    var r3: ir.Report = .init(a);
+    const deep = try fromJson(a, "verilog",
+        \\{"title":"t","stmts":[
+        \\{"kind":"subckt","name":"outer","ports":["i","o","x"],"body":[
+        \\ {"kind":"instance","name":"I1","nodes":["i","o"],"master":"dbuf"}]},
+        \\{"kind":"subckt","name":"dbuf","ports":["A","Y"],"body":[
+        \\ {"kind":"verilog","name":"U1","nodes":["A","Y"],"master":"dinv","file":"dinv.v",
+        \\  "pins":["A","Y"],"dirs":["in","out"]}]},
+        \\{"kind":"instance","name":"I2","nodes":["a","b"],"master":"nowhere"}]}
+    , &r3);
+    try has(deep, "module outer (i, o, x);\n  input i;\n  output o;\n  inout x;\n" ++
+        "  dbuf I1 (.A(i), .Y(o));\nendmodule\n");
+    try reported(&r3, .@"error", "instance 'I2' cannot be written for verilog: the subcircuit " ++
+        "it instantiates is not in the netlist");
 }
 
 test "annotation: a line for a tool is written whole, with each dialect's mark, in its scope" {

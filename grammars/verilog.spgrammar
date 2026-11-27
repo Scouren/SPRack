@@ -1,0 +1,130 @@
+# Structural Verilog (IEEE 1364): the netlist as modules that instantiate
+# each other, for a digital flow or a viewer of the hierarchy. It is
+# written, never read.
+#
+# The top level is a module named by the first word of the title (`top`
+# without one), then a module for each subcircuit, ports in pin order. A
+# port's direction is what the instances inside do with it, through every
+# level: an output where one drives it, an input where all only read it,
+# an inout where nothing says (src/writer/modules.zig). Each module
+# declares a wire for each of its other nets, sorted. An instance names its
+# connections by port, `.P(net)`, never by position; the bits of a bus
+# port are joined `{a, b}`. A name outside [A-Za-z_][A-Za-z0-9_$]* is
+# escaped: a backslash before it, a blank after it.
+#
+# The leaves are `verilog` instances; the text of their module, where the
+# netlist gives it, is written once after the modules. Any other device
+# has no form here: an error. Sources, analyses, outputs, options, models
+# and parameters describe a simulation, not the structure: each is left
+# out with a note, and so are the parameters of an instance (`#(...)` is
+# never written).
+
+dialect verilog
+
+lexer
+  case      sensitive
+  title     yes "// "
+  comment   line "//"
+end
+
+modules
+  open     "module {name} ({ports});"
+  port     "  {dir} {port};"
+  net      "  wire {net};"
+  instance "  {master} {name} ({pins});"
+  pin      ".{port}({net})"
+  join     ", "
+  bus      "{" "}"
+  close    "endmodule"
+  dirs     "input" "output" "inout"
+  name     "A-Za-z_" "A-Za-z0-9_$" "\" " "
+end
+
+inert instance params : structural Verilog connects modules; a module's parameters (`#(...)`) are not written
+inert verilog params : structural Verilog connects modules; a bridge's parameters are the simulator's
+
+# What describes a simulation, not the structure: a note, once a kind.
+inert vsource : {to} is the circuit's structure; a source is a stimulus of its simulation
+inert isource : {to} is the circuit's structure; a source is a stimulus of its simulation
+inert model : {to} is the circuit's structure; a leaf is a Verilog module, not a model card
+inert param : {to} is the circuit's structure; parameters are not written
+inert func : {to} is the circuit's structure; parameters are not written
+inert global : {to} is the circuit's structure; a global net is a port of each module that uses it
+inert hdl : {to} is the circuit's structure; a Verilog-A source is a simulator's
+inert options : {to} is the circuit's structure; an option changes nothing in it
+inert save : {to} is the circuit's structure; an output changes nothing in it
+inert print : {to} is the circuit's structure; an output changes nothing in it
+inert ic : {to} is the circuit's structure; an initial condition changes nothing in it
+inert nodeset : {to} is the circuit's structure; an initial guess changes nothing in it
+inert measure : {to} is the circuit's structure; a measurement changes nothing in it
+inert fft : {to} is the circuit's structure; an output changes nothing in it
+inert simctl : {to} is the circuit's structure; a simulator command changes nothing in it
+inert csparam : {to} is the circuit's structure; a script's parameter changes nothing in it
+inert script : {to} is the circuit's structure; a control script changes nothing in it
+inert op : {to} is the circuit's structure; an analysis changes nothing in it
+inert dc : {to} is the circuit's structure; an analysis changes nothing in it
+inert ac : {to} is the circuit's structure; an analysis changes nothing in it
+inert tran : {to} is the circuit's structure; an analysis changes nothing in it
+inert noise : {to} is the circuit's structure; an analysis changes nothing in it
+inert tf : {to} is the circuit's structure; an analysis changes nothing in it
+inert pz : {to} is the circuit's structure; an analysis changes nothing in it
+inert sens : {to} is the circuit's structure; an analysis changes nothing in it
+inert disto : {to} is the circuit's structure; an analysis changes nothing in it
+inert four : {to} is the circuit's structure; an analysis changes nothing in it
+inert hb : {to} is the circuit's structure; an analysis changes nothing in it
+inert sp : {to} is the circuit's structure; an analysis changes nothing in it
+inert pss : {to} is the circuit's structure; an analysis changes nothing in it
+inert stb : {to} is the circuit's structure; an analysis changes nothing in it
+inert pac : {to} is the circuit's structure; an analysis changes nothing in it
+inert pnoise : {to} is the circuit's structure; an analysis changes nothing in it
+inert pxf : {to} is the circuit's structure; an analysis changes nothing in it
+inert psp : {to} is the circuit's structure; an analysis changes nothing in it
+inert xf : {to} is the circuit's structure; an analysis changes nothing in it
+inert dcmatch : {to} is the circuit's structure; an analysis changes nothing in it
+inert trannoise : {to} is the circuit's structure; an analysis changes nothing in it
+inert phasenoise : {to} is the circuit's structure; an analysis changes nothing in it
+inert envelope : {to} is the circuit's structure; an analysis changes nothing in it
+inert qpss : {to} is the circuit's structure; an analysis changes nothing in it
+inert step : {to} is the circuit's structure; a sweep changes nothing in it
+inert data : {to} is the circuit's structure; a sweep's table changes nothing in it
+inert alter : {to} is the circuit's structure; a rerun changes nothing in it
+inert montecarlo : {to} is the circuit's structure; a Monte Carlo run changes nothing in it
+inert optimize : {to} is the circuit's structure; an optimization changes nothing in it
+inert statistics : {to} is the circuit's structure; a statistics block changes nothing in it
+inert statgroup : {to} is the circuit's structure; a statistics block changes nothing in it
+inert vary : {to} is the circuit's structure; a variation changes nothing in it
+inert correlate : {to} is the circuit's structure; a correlation changes nothing in it
+inert pattern : {to} is the circuit's structure; a pattern source's table changes nothing in it
+inert embed : {to} is the circuit's structure; an embedded file changes nothing in it
+
+# What would change the structure, and has no form here.
+no resistor : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no capacitor : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no inductor : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no mutual : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no bsource : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no vcvs : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no vccs : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no cccs : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no ccvs : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no diode : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no bjt : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no mosfet : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no jfet : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no mesfet : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no vswitch : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no cswitch : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no tline : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no device : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances), not Verilog-A ones
+no xspice : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no lossyline : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no ctlsrc : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no relay : structural Verilog holds only modules; its leaves are digital Verilog modules (verilog instances)
+no include : structural Verilog is written as one file; translate the project with `sprack project`, or inline the include
+no lib : structural Verilog is written as one file; translate the project with `sprack project`, or inline the library
+no libsection : structural Verilog has no library sections
+no library : structural Verilog has no library sections
+no cond_if : structural Verilog has no conditional blocks
+no cond_elif : structural Verilog has no conditional blocks
+no cond_else : structural Verilog has no conditional blocks
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it

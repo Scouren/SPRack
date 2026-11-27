@@ -24,7 +24,7 @@
 //! - from `types.zig`, the directives: `Absent`, `Caveat`, `Check`, `Computes`,
 //!   `Convert`, `Differs`, `Each`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
 //!   `Inert`, `Means`, `Merge`, `ModelEntry`, `ModelKv`, `ModelParamTable`,
-//!   `ModelSpelling`, `ModelWhen`, `Move`, `Needs`, `NoFamily`, `NoParam`, `Once`,
+//!   `ModelSpelling`, `ModelWhen`, `Modules`, `Move`, `Needs`, `NoFamily`, `NoParam`, `Once`,
 //!   `Omitted`, `Own`, `ParamTable`, `Plugin`, `RawBlock`, `Require`,
 //!   `Reserved`, `Rewrite`, `SignalForm`, `Spellings`, `Spread`, `Switch`,
 //!   `Threshold`, `Topo`, `UniqueAnalysis`, `Wrap`, `paramsOpen`
@@ -95,6 +95,7 @@ pub const ModelWhen = types.ModelWhen;
 pub const Move = types.Move;
 pub const Needs = types.Needs;
 pub const Once = types.Once;
+pub const Modules = types.Modules;
 pub const NoFamily = types.NoFamily;
 pub const NoParam = types.NoParam;
 pub const Omitted = types.Omitted;
@@ -122,6 +123,7 @@ const Head = enum {
     header,
     needs,
     once,
+    modules,
     wrap,
     own,
     raw,
@@ -234,6 +236,10 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             .{},
         );
     g.read_index = try readIndex(c, g.rules, g.blocks, g.raws);
+    // What a `modules` section writes: the instances and what they name.
+    if (g.modules != null) for ([_]schema.Kind{ .subckt, .instance, .verilog }) |k| {
+        g.read_index.writes |= ReadIndex.kindBit(k);
+    };
     // The index lists every rule once in `all`.
     std.debug.assert(g.read_index.all.len == g.rules.len);
     return g;
@@ -260,6 +266,7 @@ fn directive(
         .header => try sections.header(c, g, lines, rest),
         .needs => try sections.needs(c, g, lines, rest),
         .once => try sections.once(c, g, lines, rest),
+        .modules => try sections.modules(c, g, lines),
         .wrap => try sections.wrap(c, g, no, rest),
         .own => try sections.own(c, g, no, rest),
         .raw => try sections.raw(c, g, no, rest),

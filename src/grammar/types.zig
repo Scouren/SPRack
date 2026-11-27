@@ -20,6 +20,7 @@
 //! - `pub const Own = struct`
 //! - `pub const Needs = struct`
 //! - `pub const Once = struct`
+//! - `pub const Modules = struct`
 //! - `pub const Convert = struct`
 //! - `pub const Computes = struct`
 //! - `pub const Edge = struct`
@@ -283,6 +284,37 @@ pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const [
 /// `{x.stem}` the file name it holds without directory or suffix, and
 /// `{x|y}` the first of the two that has a value.
 pub const Once = struct { kind: Kind, slot: u8, lines: []const []const u8 };
+
+/// `modules ... end`: the netlist is written as modules that instantiate
+/// each other by named ports (structural Verilog), the top level one of
+/// them, by `src/writer/modules.zig`. Each text is a line or a piece of one;
+/// `{x}` in it is filled where it is written.
+pub const Modules = struct {
+    /// `{name}`, `{ports}`: a module's first line.
+    open: []const u8,
+    /// `{dir}`, `{port}`: one a port, after the first line.
+    port: []const u8,
+    /// `{net}`: one a net of the module that is not a port, sorted.
+    net: []const u8,
+    /// `{master}`, `{name}`, `{pins}`: one an instance.
+    instance: []const u8,
+    /// `{port}`, `{net}`: one connection of `{pins}`.
+    pin: []const u8,
+    /// Between the ports of `{ports}`, the pins of `{pins}`, the nets of a bus.
+    join: []const u8,
+    /// Around the nets of a port of several bits.
+    bus_open: []const u8,
+    bus_close: []const u8,
+    close: []const u8,
+    /// The words of `{dir}`: in, out, inout.
+    dirs: [3][]const u8,
+    /// A name's first characters and the others (`A-Za-z_`: ranges and
+    /// characters); any other name is written between the two escapes.
+    first: []const u8,
+    rest: []const u8,
+    escape_open: []const u8,
+    escape_close: []const u8,
+};
 
 /// `convert kind [slot=atom] : a = b op c`: this dialect's slot `a` holds a
 /// function of canonical slots. Writing computes it; reading inverts it.
