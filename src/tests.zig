@@ -169,6 +169,8 @@ const core_cdl =
     \\R2 out vss r2 $ a bare identifier is a value
     \\C1 out vss 1.5p
     \\.ENDS rcdiv
+    \\V1 in 0 DC 1 $ a bench's sources, their DC value only
+    \\I1 0 out DC 1m
     \\X1 in out 0 / rcdiv r1=1MEG r2='rload*2'
     \\Cl out 0 cval
     \\Ll out 0 10n
@@ -722,7 +724,8 @@ fn withoutNoise(arena: std.mem.Allocator, nl: ir.Netlist) !ir.Netlist {
 fn writableIn(arena: std.mem.Allocator, nl: ir.Netlist, g: *const sprack.Grammar) !ir.Netlist {
     var out: std.ArrayList(ir.Stmt) = .empty;
     for (nl.stmts) |s| if (s.kind == .comment or g.canWrite(s.kind)) try out.append(arena, s);
-    return .{ .title = nl.title, .dialect = nl.dialect, .stmts = out.items };
+    const kept: ir.Netlist = .{ .title = nl.title, .dialect = nl.dialect, .stmts = out.items };
+    return sprack.withoutInert(arena, g, &kept);
 }
 
 fn droppedIn(nl: ir.Netlist, g: *const sprack.Grammar) usize {

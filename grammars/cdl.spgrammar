@@ -55,8 +55,15 @@ rule  jfet      = name~"J" d g s master [area] {...params}
 rule  instance  = name~"X" nodes+ "/" master {...params}
 read  instance  = name~"X" nodes+ master {...params}
 
-no vsource   : CDL describes connectivity for LVS; it has no sources
-no isource   : CDL describes connectivity for LVS; it has no sources
+# A bench's sources are kept, as a schematic netlister writes them
+# (`V1 a 0 dc 1`), only their DC value: CDL describes connectivity for LVS,
+# and an LVS deck usually leaves sources out.
+rule  vsource   = name~"V" pos neg [ "dc" dc ]
+rule  isource   = name~"I" pos neg [ "dc" dc ]
+caveat vsource name : CDL describes connectivity for LVS: the source is kept with its DC value only, and an LVS deck usually leaves sources out
+caveat isource name : CDL describes connectivity for LVS: the source is kept with its DC value only, and an LVS deck usually leaves sources out
+inert vsource acmag acphase wave val0 val1 delay rise fall width period sinedc ampl freq damp sphase td1 tau1 td2 tau2 mdi fsig pwl count wargs bits mphase pacmag fundname distof1 distof1ph distof2 distof2ph portnum z0 portref repeat rser cpar load : CDL describes connectivity, and only a source's DC value is kept
+inert isource acmag acphase wave val0 val1 delay rise fall width period sinedc ampl freq damp sphase td1 tau1 td2 tau2 mdi fsig pwl count wargs bits mphase pacmag fundname distof1 distof1ph distof2 distof2ph portnum z0 portref repeat rser cpar load : CDL describes connectivity, and only a source's DC value is kept
 no bsource   : CDL describes connectivity for LVS; it has no sources
 no vcvs      : CDL describes connectivity for LVS; it has no sources
 no vccs      : CDL describes connectivity for LVS; it has no sources

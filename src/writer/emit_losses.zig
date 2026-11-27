@@ -66,6 +66,15 @@ pub fn reportLosses(e: *Emit) Allocator.Error!void {
             try reportParams(e, v);
             continue;
         }
+        // The target says the slot changes nothing there (`inert kind
+        // slot : text`): a note, not an error.
+        if (e.g.inertReason(e.st.kind, e.slot(idx).name)) |text| {
+            e.report.add(.info, .loss, e.st.line, "{s}.{s} = {s} is not written: {s}", .{
+                @tagName(e.st.kind),                    e.slot(idx).name, try e.describe(v),
+                try reasonFor(e.arena, text, e.g.name),
+            });
+            continue;
+        }
         const why = e.g.slotAbsentReason(e.st.kind, idx);
         e.report.add(.@"error", .loss, e.st.line, "{s}.{s} = {s} has no spelling in " ++
             "{s}{s}{s}", .{

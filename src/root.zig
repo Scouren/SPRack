@@ -21,6 +21,7 @@
 //! - `pub fn readIn(arena, g, src, report, env) Allocator.Error!ir.Netlist`
 //! - `pub fn writeIn(arena, g, out, nl, report, env) !void`
 //! - `pub fn sameTranslation(arena, g, src, back) Allocator.Error!bool`
+//! - `pub fn withoutInert(arena, g, nl) Allocator.Error!ir.Netlist`
 //! - `pub fn translate(arena, from, to, src, out, report) TranslateError!void`
 //! - `pub fn translateAlloc(arena, from, to, src, report) TranslateError![]const u8`
 
@@ -187,12 +188,27 @@ pub fn sameTranslation(
     src: *const ir.Netlist,
     back: *const ir.Netlist,
 ) Allocator.Error!bool {
-    const d = try writer.defaultOptions(arena, g, src) orelse return ir.sameCircuit(src, back);
-    var with = src.*;
+    // What the target says it does not keep (`inert kind slot`) is not
+    // what it is asked to give back.
+    const kept = try withoutInert(arena, g, src);
+    const d = try writer.defaultOptions(arena, g, &kept) orelse return ir.sameCircuit(&kept, back);
+    var with = kept;
     with.stmts = try arena.alloc(ir.Stmt, src.stmts.len + 1);
     with.stmts[0] = d;
-    @memcpy(with.stmts[1..], src.stmts);
+    @memcpy(with.stmts[1..], kept.stmts);
     return ir.sameCircuit(&with, back);
+}
+
+/// `nl` with the slots `g` says it does not keep (`inert kind slot : text`)
+/// emptied, at the top level and in every body; `nl` itself where none is.
+pub fn withoutInert(
+    arena: Allocator,
+    g: *const Grammar,
+    nl: *const ir.Netlist,
+) Allocator.Error!ir.Netlist {
+    var out = nl.*;
+    out.stmts = try clearInert(arena, g, nl.stmts);
+    return out;
 }
 
 /// Read `src` as dialect `from` and write it as dialect `to`. Check
@@ -225,6 +241,23 @@ pub fn translateAlloc(
 }
 
 // ---- private ----
+
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
+fn clearInert(arena: Allocator, g: *const Grammar, stmts: []ir.Stmt) Allocator.Error![]ir.Stmt {
+    if (g.inerts.len == 0) return stmts;
+    const out = try arena.dupe(ir.Stmt, stmts);
+    for (out) |*st| {
+        st.body = try clearInert(arena, g, st.body);
+        for (schema.info(st.kind).slots, 0..) |sl, i| {
+            if (st.at(i) == .none or g.inertReason(st.kind, sl.name) == null) continue;
+            try st.own(arena);
+            try st.set(arena, i, .none);
+        }
+    }
+    // One statement for each, as given.
+    assert(out.len == stmts.len);
+    return out;
+}
 
 /// Where `write` and its like write to: `g`, with what every dialect of
 /// this binary can say.
