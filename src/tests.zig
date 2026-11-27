@@ -7747,3 +7747,34 @@ test "annotation: a line for a tool is written whole, with each dialect's mark, 
     const json = try jsonOf(a, &nl);
     try has(json, "{\"kind\":\"annotation\",\"line\":2,\"text\":\"order m1 m2\"}");
 }
+
+test "annotation: read back in its scope, and named as the target names its devices" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\amp
+        \\*@ order m1 m2
+        \\.subckt inv a y vdd
+        \\*@ left a
+        \\*@ face m1.g left
+        \\M1 y a vdd vdd pmos w=1u
+        \\.ends
+        \\X1 in out vdd inv
+        \\.end
+        \\
+    ;
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &report);
+    try testing.expectEqual(.annotation, nl.stmts[0].kind);
+    try testing.expectEqual(.annotation, nl.stmts[1].body[0].kind);
+    // Through Spectre and back: every line where it was, as it was.
+    const sp = try tr(a, "ngspice", "spectre", src, &report);
+    try has(sp, "// *@ order m1 m2\nsubckt inv (a y vdd)\n// *@ left a\n// *@ face m1.g left\n");
+    // Spectre reads M1 with no model card as an instance, which ngspice
+    // names with an X: the line that names it in its scope does too, the
+    // one at the top level, where no M1 is, does not, and `left` is a word.
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try has(back, "*@ order m1 m2\n.subckt inv a y vdd\n*@ left a\n*@ face XM1.g left\nXM1 y a vdd vdd pmos w=1u\n");
+}

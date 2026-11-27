@@ -184,6 +184,11 @@ pub const Reader = struct {
             self.ti += 1;
             return .more;
         }
+        if (first.tag == .comment) if (try self.annotation(first.raw, line.no)) |st| {
+            try out.append(self.arena, st);
+            self.ti += 2;
+            return .more;
+        };
         if (first.tag == .comment or first.tag == .blank) {
             try out.append(self.arena, .{
                 .kind = .comment,
@@ -232,6 +237,21 @@ pub const Reader = struct {
                 return true;
         }
         return false;
+    }
+
+    /// The comment line `raw` as an annotation (`*@ order m1 m2`, after
+    /// the dialect's mark), its text after the mark and one blank; null
+    /// for any other comment.
+    fn annotation(self: *Reader, raw: []const u8, line_no: u32) Allocator.Error!?ir.Stmt {
+        const mark = self.g.lex.annotation;
+        if (mark.len == 0) return null;
+        const line = std.mem.trimStart(u8, raw, " \t");
+        if (!std.mem.startsWith(u8, line, mark)) return null;
+        var text = std.mem.trimEnd(u8, line[mark.len..], " \t\r");
+        if (text.len > 0 and (text[0] == ' ' or text[0] == '\t')) text = text[1..];
+        var st = try ir.newStmt(self.arena, .annotation, line_no);
+        try st.set(self.arena, schema.slot(.annotation, "text"), .{ .atom = text });
+        return st;
     }
 
     /// Inside `b`: the line that closes it, or one of its own lines, which

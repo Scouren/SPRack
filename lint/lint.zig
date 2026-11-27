@@ -94,6 +94,7 @@ pub const clean_paths = [_][]const u8{
     "src/writer/statement.zig",
     "src/writer/unwritten.zig",
     "src/writer/analyses.zig",
+    "src/writer/annotations.zig",
     "src/writer/bins.zig",
     "src/writer/cardparams.zig",
     "src/writer/cards.zig",

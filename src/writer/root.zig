@@ -46,6 +46,7 @@ const defaults = @import("defaults.zig");
 const driver = @import("driver.zig");
 const refs = @import("refs.zig");
 const frame = @import("frame.zig");
+const annotations = @import("annotations.zig");
 
 pub const Caps = emit.Caps;
 pub const write = driver.write;
@@ -84,4 +85,5 @@ test {
     _ = driver;
     _ = refs;
     _ = frame;
+    _ = annotations;
 }

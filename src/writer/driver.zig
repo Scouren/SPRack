@@ -42,6 +42,7 @@ const analysis_passes = @import("analyses.zig");
 const name_passes = @import("names.zig");
 const rewrite = @import("rewrite.zig");
 const frame = @import("frame.zig");
+const annotations = @import("annotations.zig");
 const Refs = @import("refs.zig").Refs;
 
 const Allocator = std.mem.Allocator;
@@ -498,7 +499,9 @@ pub const Driver = struct {
         }
         stmts = try alter.prepare(a, g, stmts, w.report);
         stmts = try analysis_passes.foldMaxord(a, g, stmts, w.report);
-        return defaults.applyMoves(w, stmts);
+        stmts = try defaults.applyMoves(w, stmts);
+        // Last: the names devices are written under are settled.
+        return annotations.renamed(a, g, stmts);
     }
 
     /// The passes after the options are laid out, and the writing itself.
@@ -581,6 +584,8 @@ pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
     return switch (st.kind) {
         // `alter.prepare`.
         .alter => "an alter",
+        // `annotations.renamed`: it names devices anywhere in its scope.
+        .annotation => "an annotation",
         // `ir.gatherSteps`: it is around every analysis.
         .montecarlo => if (st.body.len == 0)
             "a Monte Carlo analysis of the whole netlist"
