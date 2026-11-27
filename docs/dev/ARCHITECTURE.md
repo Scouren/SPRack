@@ -66,7 +66,7 @@ hands each only the modules above it, so a cycle cannot be written.
 | `stream` | `translate/stream.zig` | one translation, a statement at a time | `reader`, `writer` |
 | `project` | `translate/project.zig` | trees of files, catalogue | `stream`, `json` |
 | `sprack` | `root.zig` | the public surface | all of the above |
-| `main`, `pyext`, `capi` | `host/` | the command, the Python extension, the C ABI | `sprack` |
+| `main`, `pyext`, `capi`, `wasm` | `host/` | the command, the Python extension, the C ABI, the freestanding WebAssembly module (Pyodide) | `sprack` |
 
 The folders of `src/` are the stages and what they share: `core/` (what a
 netlist is), `grammar/` (what a dialect is), `reader/`, `passes/`,

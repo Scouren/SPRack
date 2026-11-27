@@ -311,7 +311,8 @@ pub const Netlist = struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(Value) == 24);
+    // A slice and its tag: 24 bytes on a 64-bit target, no more on a 32-bit one.
+    std.debug.assert(@sizeOf(Value) <= 24);
 }
 
 comptime {

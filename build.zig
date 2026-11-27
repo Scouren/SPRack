@@ -42,34 +42,8 @@ pub fn build(b: *std.Build) void {
     const registry_source = grammar_gen.addOutputFileArg("registry.zig");
     for (names.items) |n| grammar_gen.addFileArg(b.path(b.fmt("grammars/{s}", .{n})));
 
-    const grammar = grammarModule(b, target, optimize);
-    const registry = b.createModule(.{
-        .root_source_file = registry_source,
-        .imports = &.{.{ .name = "grammar", .module = grammar }},
-    });
-
-    // The module graph, leaves first: each module is handed only modules
-    // defined above it, so an import cycle cannot be written, and each has
-    // a test binary of its own, compiled against only what it imports.
-    var modules: std.StringArrayHashMapUnmanaged(*std.Build.Module) = .empty;
-    modules.put(b.allocator, "schema", grammar.import_table.get("schema").?) catch @panic("OOM");
-    modules.put(b.allocator, "grammar", grammar) catch @panic("OOM");
-    modules.put(b.allocator, "registry", registry) catch @panic("OOM");
+    const modules = moduleGraph(b, registry_source, target, optimize);
     const test_step = b.step("test", "Run all tests");
-    for (module_specs) |spec| {
-        const module = b.createModule(
-            .{ .root_source_file = b.path(spec.path), .target = target, .optimize = optimize },
-        );
-        for (spec.imports) |dep| {
-            const dep_module = modules.get(dep) orelse
-                std.debug.panic(
-                    "module '{s}' imports '{s}', which is not above it in module_specs",
-                    .{ spec.name, dep },
-                );
-            module.addImport(dep, dep_module);
-        }
-        modules.put(b.allocator, spec.name, module) catch @panic("OOM");
-    }
     for (modules.keys(), modules.values()) |name, module| {
         if (std.mem.eql(u8, name, "registry")) continue;
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
@@ -114,6 +88,24 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(lib);
+
+    // The core as a freestanding WebAssembly module (`zig build wasm`), for
+    // a host with no CPython extension: Pyodide calls it through `js`.
+    const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const wasm_modules = moduleGraph(b, registry_source, wasm_target, .ReleaseSmall);
+    const wasm = b.addExecutable(.{
+        .name = "sprack",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/host/wasm.zig"),
+            .target = wasm_target,
+            .optimize = .ReleaseSmall,
+            .imports = &.{.{ .name = "sprack", .module = wasm_modules.get("sprack").? }},
+        }),
+    });
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+    const wasm_step = b.step("wasm", "Build the core as a freestanding WebAssembly module");
+    wasm_step.dependOn(&b.addInstallArtifact(wasm, .{}).step);
 
     // The CPython extension module, `zig build py`. It is built against
     // the limited C API and resolves the interpreter's symbols when loaded,
@@ -297,6 +289,44 @@ const module_specs = [_]ModuleSpec{
 
 /// The `grammar` module (the `.spgrammar` compiler) over the `schema` module
 /// (the canonical vocabulary), for the target or for the build host.
+/// The module graph, leaves first, for one target: each module is handed
+/// only modules defined above it, so an import cycle cannot be written.
+fn moduleGraph(
+    b: *std.Build,
+    registry_source: std.Build.LazyPath,
+    target: std.Build.ResolvedTarget,
+    optimize: ?std.builtin.OptimizeMode,
+) std.StringArrayHashMapUnmanaged(*std.Build.Module) {
+    const grammar = grammarModule(b, target, optimize);
+    const registry = b.createModule(.{
+        .root_source_file = registry_source,
+        .imports = &.{.{ .name = "grammar", .module = grammar }},
+    });
+
+    // The module graph, leaves first: each module is handed only modules
+    // defined above it, so an import cycle cannot be written, and each has
+    // a test binary of its own, compiled against only what it imports.
+    var modules: std.StringArrayHashMapUnmanaged(*std.Build.Module) = .empty;
+    modules.put(b.allocator, "schema", grammar.import_table.get("schema").?) catch @panic("OOM");
+    modules.put(b.allocator, "grammar", grammar) catch @panic("OOM");
+    modules.put(b.allocator, "registry", registry) catch @panic("OOM");
+    for (module_specs) |spec| {
+        const module = b.createModule(
+            .{ .root_source_file = b.path(spec.path), .target = target, .optimize = optimize },
+        );
+        for (spec.imports) |dep| {
+            const dep_module = modules.get(dep) orelse
+                std.debug.panic(
+                    "module '{s}' imports '{s}', which is not above it in module_specs",
+                    .{ spec.name, dep },
+                );
+            module.addImport(dep, dep_module);
+        }
+        modules.put(b.allocator, spec.name, module) catch @panic("OOM");
+    }
+    return modules;
+}
+
 fn grammarModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,

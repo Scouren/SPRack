@@ -197,7 +197,8 @@ repository; grammar files and tests cite it by that path.
 `test.yaml` runs, on every push to `main` and every pull request: the Zig
 tests, the Python tests with the real PDKs, `zig fmt --check build.zig
 src`, the three checkers of the pages' examples (`docs/check/`), the corpus
-audit against `tools/corpus-baseline.tsv`, the wheels, and `nix build
+audit against `tools/corpus-baseline.tsv`, the wheels, the WebAssembly core against the native command on every
+deck of the suite into every target (`tools/wasm_check.mjs`), and `nix build
 .#python` (the package a project pins, from only the files the flake keeps). `publish.yaml`'s
 test job runs the same before a release. The nightly workflow keeps the
 audit, the VACASK load check (which builds VACASK), the PDK device

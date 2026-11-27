@@ -235,6 +235,17 @@
         // {
           # This system's own bundle.
           python = bundles."python-${hostTarget}";
+          # The core as a freestanding WebAssembly module (bin/sprack.wasm),
+          # and the pure-Python package beside it (python/sprack, no _core),
+          # for a host with no CPython extension: Pyodide.
+          wasm = (mkBundle hostTarget).overrideAttrs {
+            pname = "sprack-wasm";
+            buildPhase = ''
+              export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global ZIG_LOCAL_CACHE_DIR=$TMPDIR/zig-local
+              zig build wasm --prefix $out
+              mkdir -p $out/python && cp -r python/sprack $out/python/
+            '';
+          };
         }
         # openvaf-r, hence vacask, is x86_64-linux only.
         // nixpkgs.lib.optionalAttrs (refPkgs ? openvaf-r) { inherit vacask; };

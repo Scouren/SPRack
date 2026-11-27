@@ -104,6 +104,17 @@ jobs:
             python3 -I tools/corpus_summary.py out.tsv &&
             python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv out.tsv'
 
+      # The WebAssembly core (Pyodide's) gives the native command's bytes:
+      # every deck of the suite, into every target.
+      - name: WebAssembly core
+        run: |
+          export SPRACK_SUITE=$(nix eval --raw .#devShells.x86_64-linux.verify.SPRACK_SUITE)
+          nix develop .#ci --command zig build wasm
+          for to in ngspice hspice spectre vacask xyce ltspice cdl espice verilog; do
+            nix shell --inputs-from . nixpkgs#nodejs --command node tools/wasm_check.mjs \
+              zig-out/bin/sprack.wasm zig-out/bin/sprack ngspice $to $(find "$SPRACK_SUITE/tests/netlist" -name '*.sp')
+          done
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

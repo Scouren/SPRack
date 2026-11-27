@@ -89,6 +89,7 @@ pub const clean_paths = [_][]const u8{
     "src/translate/stream.zig",
     "src/translate/survey.zig",
     "src/host/pyext.zig",
+    "src/host/wasm.zig",
     "src/root.zig",
     "src/passes/variations.zig",
     "src/passes/topology.zig",
