@@ -361,7 +361,12 @@ c.R("1", "out", 0, "sqrt(wn)*1e9")
 c.tran("5p", "12n", uic=True)
 ```
 
-`script.report` is what reading the netlist said. From the shell:
+`script.report` is what reading the netlist said. A title line its dialect
+reads as a comment (`* My Title`) is given as the comment's text, and each
+dialect writes it with its own mark. Names keep the spelling the netlist
+gives them; where case is ignored, a node is one name within its scope (the
+top level, or one subcircuit), spelled as it is first written there with a
+capital. From the shell:
 
 ```console
 $ python -m sprack --from ngspice inv.sp > inv.py

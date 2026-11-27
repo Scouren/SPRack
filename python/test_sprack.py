@@ -1484,6 +1484,23 @@ def test_schemify_save_is_a_print_for_xyce():
     assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
 
 
+def test_to_python_title_and_node_case():
+    # The title line a dialect reads as a comment is that comment's text;
+    # where `*` is no comment (VACASK), the title is the line.
+    for d in ("ngspice", "hspice", "xyce", "ltspice"):
+        assert 'sprack.Circuit("My Title"' in sprack.to_python("* My Title\nR1 Out 0 1k\n.end\n", d), d
+    assert 'sprack.Circuit("My Title"' in sprack.to_python("My Title\nR1 Out 0 1k\n.end\n", "ngspice")
+    # A node keeps its case in its own scope, through every built-in reader:
+    # the top level's in and out are not the subcircuit's IN and OUT.
+    src = "* tb\nVVIN in 0 dc 0.9\nX1 in out vdd! chain\n.subckt chain IN OUT VDD\nR1 IN OUT 1k\n.ends chain\n.end\n"
+    for d in sprack.DIALECTS:
+        script = sprack.to_python(sprack.translate(src, frm="ngspice", to=d, strict=False), d)
+        assert 'c.X("1", "in", "out", "vdd!", "chain")' in script, (d, script)
+        assert 'with c.subckt("chain", "IN", "OUT", "VDD") as s:\n    s.R("1", "IN", "OUT", "1k")' in script, (d, script)
+    ng = sprack.read(src, "ngspice").netlist("ngspice")
+    assert "VVIN in 0 dc 0.9\nX1 in out vdd! chain\n" in ng, ng
+
+
 def test_device_parameter_signal():
     c = sprack.Circuit("t")
     m1 = c.M("1", "d", "g", 0, 0, "nch")

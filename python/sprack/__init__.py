@@ -979,7 +979,8 @@ class Circuit(_Scope):
         the arguments of a simulator's own control command (`simctl`).
         """
         d = self._source_dialect
-        out = ["import sprack", "", f"{name} = sprack.Circuit({_show(self.title)}" + (f", dialect={_show(d)}" if d else "") + ")"]
+        title = _title(self.title, self._grammars.get(d, d))
+        out = ["import sprack", "", f"{name} = sprack.Circuit({_show(title)}" + (f", dialect={_show(d)}" if d else "") + ")"]
         if self.folds_case:
             out.append(f"{name}.folds_case = True")
         _script(self.statements, name, "b" if name.startswith("s") else "s", d, 0, out)
@@ -1334,6 +1335,18 @@ def _as_code(st: dict, dialect: str) -> str | None:
     if [_deep(g, ("dialect",)) for g in got] != [_deep(st, ("dialect",))]:
         return None
     return f"code({_show(text)}" + (f", {_show(d)}" if d != "ngspice" else "") + ")"
+
+
+def _title(title: str, dialect: str) -> str:
+    """A title line that its dialect reads as a comment (`* My Title`) is
+    the comment's text: the title the script gives, and every dialect
+    writes with its own mark."""
+    try:
+        sts = json.loads(_core.read(_dialect(dialect), title + "\n", True)[0])["stmts"]
+    except Exception:  # no such dialect: the title as it is
+        return title
+    only = sts[0] if len(sts) == 1 else {}
+    return str(only["raw"]).strip() if only.get("kind") == "comment" and only.get("raw") else title
 
 
 def _unlined(st: dict) -> dict:
