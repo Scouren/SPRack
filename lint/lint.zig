@@ -99,6 +99,7 @@ pub const clean_paths = [_][]const u8{
     "src/passes/alter.zig",
     "src/core/schema.zig",
     "src/writer/rewrite.zig",
+    "src/writer/respell.zig",
     "src/writer/tables.zig",
     "src/writer/variants.zig",
     "src/writer/blocks.zig",
