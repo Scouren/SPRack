@@ -177,7 +177,7 @@ The same on a real library, SKY130 to Xyce:
 ```console
 $ sprack project --from ngspice --to xyce --lib --section tt --out sky130-xyce pdks/sky130_fd_pr/models/sky130.lib.spice
 ...
-170 files, 313 errors, 121 warnings
+170 files, 313 errors, 120 warnings
 ```
 
 Status 1: one line and 312 model card parameters of the library have

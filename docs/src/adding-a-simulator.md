@@ -94,10 +94,9 @@ R1 in out 1k
 * [sprack] not written: device 'capacitor' has no mini form
 * [sprack] not written: analysis 'tran' has no mini form
 .end
-error[unsupported]: line 3: device 'vsource' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
+error[unsupported]: line 3: device 'vsource' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: cdl, hspice, ltspice, ngspice, spectre, vacask, xyce
 error[unsupported]: line 5: device 'capacitor' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: cdl, hspice, ltspice, ngspice, spectre, vacask, xyce
-error[unsupported]: line 6: analysis 'tran' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
-```
+error[unsupported]: line 6: analysis 'tran' cannot be written for mini: mini.spgrammar defines no rule for it. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce```
 
 The resistor is written. Everything else is an error that names what is
 missing: the report is the to-do list.

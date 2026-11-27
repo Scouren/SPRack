@@ -61,12 +61,13 @@ is left in it as a comment, the report has an error and the status is 1:
 $ sprack translate --from ngspice --to cdl rc.sp
 * RC low-pass
 * a divider with a capacitor
-* [sprack] not written: device 'vsource' has no cdl form
+V1 in 0 dc 1
 R1 in out 1k
 C1 out 0 100n $ load
 * [sprack] not written: analysis 'tran' has no cdl form
 .end
-error[unsupported]: line 3: device 'vsource' cannot be written for cdl: CDL describes connectivity for LVS; it has no sources. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
+warning[caveat]: line 3: vsource.name: CDL describes connectivity for LVS: the source is kept with its DC value only, and an LVS deck usually leaves sources out
+info[loss]: line 3: vsource.acmag = 1 is not written: CDL describes connectivity, and only a source's DC value is kept
 error[unsupported]: line 6: analysis 'tran' cannot be written for cdl: CDL is a netlist, not a simulation deck; it has no analyses. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask, xyce
 $ echo $?
 1
@@ -83,7 +84,7 @@ two circuits. It prints one line of tab-separated columns:
 $ sprack audit --from ngspice --to spectre rc.sp
 rc.sp	4	0	1	0	0	0	0	0	0	0	0	0	0	0	0	
 $ sprack audit --from ngspice --to cdl rc.sp
-rc.sp	4	0	0	2	0	2	0	0	0	0	0	0	0	0	0	
+rc.sp	4	0	0	1	0	1	1	0	1	0	0	0	0	0	0	
 ```
 
 | column | meaning |
@@ -224,13 +225,15 @@ named, with the value it was given (`null` where none was). This is the list
 ```console
 $ sprack dialects
 cdl
+cktimg
+espice
 hspice
 ltspice
 ngspice
 spectre
 vacask
-xyce
-```
+verilog
+xyce```
 
 `sprack caps` prints a table of every statement kind against every built-in
 dialect: whether the dialect has a statement for it. See
@@ -260,7 +263,7 @@ segments	value list
 
 ```console
 $ sprack translate --from pspice --to xyce rc.sp
-unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; or a path to a .spgrammar file
+unknown dialect 'pspice'. Built in: cdl cktimg espice hspice ltspice ngspice spectre vacask verilog xyce; or a path to a .spgrammar file
 $ echo $?
 2
 ```

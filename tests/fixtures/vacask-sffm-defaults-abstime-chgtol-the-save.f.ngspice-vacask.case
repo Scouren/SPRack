@@ -14,3 +14,4 @@ model vsource vsource
 V1 (in 0) vsource dc=1
 b1 (b 0) v=v(in)*$abstime
 --- report
+info[rename]: line 3: renamed 'B1' to 'b1': vacask finds it only in lower case

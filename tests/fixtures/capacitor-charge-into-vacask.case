@@ -27,10 +27,13 @@ endc
 error[invalid]: line 2: node 'a' has no DC path to ground: only C3 reaches it, which conducts no DC there; VACASK's operating point fails on it, where ngspice gets through with its transient operating point; a large resistor to ground gives one
 error[invalid]: line 3: node 'b' has no DC path to ground: only C4, C5 reach it, which conduct no DC there; VACASK's operating point fails on it, where ngspice gets through with its transient operating point; a large resistor to ground gives one
 info[oneway]: line 2: capacitor 'C3': vacask's capacitor takes no charge (q=); it is written as a behavioural source whose current is 2*ddt(1e-12*v(a)), which reads back as that source
+info[rename]: line 2: renamed 'C3' to 'c3': vacask finds it only in lower case
 info[oneway]: line 3: capacitor 'C4': vacask's capacitor takes no charge (q=); it is written as a behavioural source whose current is (2*k)*ddt(1e-12*v(b)), which reads back as that source
+info[rename]: line 3: renamed 'C4' to 'c4': vacask finds it only in lower case
 error[loss]: line 4: capacitor 'C5': 'c=1p' has no place on the behavioural source a capacitor given by its charge is written as for vacask
 error[loss]: line 4: capacitor 'C5': the model 'cmod' has no place on the behavioural source a capacitor given by its charge is written as for vacask
 error[loss]: line 4: capacitor 'C5': 'ic=1' has no place on the behavioural source a capacitor given by its charge is written as for vacask
 error[loss]: line 4: capacitor 'C5': 'tc1=1' has no place on the behavioural source a capacitor given by its charge is written as for vacask
 info[oneway]: line 4: capacitor 'C5': vacask's capacitor takes no charge (q=); it is written as a behavioural source whose current is ddt(2e-12*v(b)), which reads back as that source
+info[rename]: line 4: renamed 'C5' to 'c5': vacask finds it only in lower case
 warning[synthesized]: line 6: tran: vacask needs 'maxstep' to behave as ngspice does without it; wrote 1n

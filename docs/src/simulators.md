@@ -55,13 +55,13 @@ A few of its rows:
 
 ```console
 $ sprack caps | grep -E '^( |resistor|diode|ic |pz|hb|montecarlo)'
-            cdl      hspice   ltspice  ngspice  spectre  vacask   xyce
-resistor    yes      yes      yes      yes      yes      yes      yes
-diode       yes      yes      yes      yes      inst     inst     yes
-ic          none     yes      yes      yes      yes      param    yes
-pz          none     yes      none     yes      yes      none     none
-hb          none     yes      none     none     yes      yes      yes
-montecarlo  none     yes      none     none     yes      none     yes
+            cdl      cktimg   espice   hspice   ltspice  ngspice  spectre  vacask   verilog  xyce
+resistor    yes      yes      yes      yes      yes      yes      yes      yes      none     yes
+diode       yes      yes      yes      yes      yes      yes      inst     inst     none     yes
+ic          none     -        yes      yes      yes      yes      yes      param    -        yes
+pz          none     -        yes      yes      none     yes      yes      none     -        none
+hb          none     -        none     yes      none     none     yes      yes      -        yes
+montecarlo  none     -        none     yes      none     none     yes      none     -        yes
 ```
 
 | mark | meaning |

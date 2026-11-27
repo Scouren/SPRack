@@ -381,9 +381,8 @@ pub const Emit = struct {
         const v = e.st.at(n.slot);
         if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null)
             text = v.str;
-        // `name!`: in lower case.
-        if (n.bare and std.mem.eql(u8, e.slot(n.slot).name, "name"))
-            text = try std.ascii.allocLowerString(e.arena, text);
+        // `name!`: in lower case, a rename where that changes it.
+        if (n.bare and std.mem.eql(u8, e.slot(n.slot).name, "name")) text = try e.lowered(text);
         if (n.prefix.len > 0) text = try e.prefixed(n, text);
         try e.tok(text);
         e.mark(n.slot);
@@ -488,6 +487,17 @@ pub const Emit = struct {
                 .{ text, renamed, e.g.name },
             );
         return renamed;
+    }
+
+    /// `text` in lower case (`name!`): a rename, said, where it had capitals.
+    fn lowered(e: *Emit, text: []const u8) Allocator.Error![]const u8 {
+        const low = try std.ascii.allocLowerString(e.arena, text);
+        if (std.mem.eql(u8, low, text)) return text;
+        e.renames += 1;
+        if (!e.quiet)
+            e.report.add(.info, .rename, e.st.line, "renamed '{s}' to '{s}': {s} finds it " ++
+                "only in lower case", .{ text, low, e.g.name });
+        return low;
     }
 
     fn rep(e: *Emit, n: Node) Allocator.Error!bool {
