@@ -4,7 +4,8 @@
 //! - `pub fn writeNetlist(w: *Writer, nl: *const ir.Netlist) Writer.Error!void`
 //! - `pub fn writeEnv(w: *Writer, env: *const ir.Env) Writer.Error!void`
 //! - `pub fn writeReport(w: *Writer, report: *const ir.Report) Writer.Error!void`
-//! - `pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!void`
+//! - `pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!void`: each
+//!   slot with its name space, and the words the grammars give it (`atoms`, `closed`)
 
 const std = @import("std");
 const schema = @import("schema");
@@ -18,6 +19,41 @@ const Writer = std.Io.Writer;
 const Pos = json_read.Pos;
 const posOf = json_read.posOf;
 const plainTag = json_read.plainTag;
+
+/// The words a slot is given across the grammars, each once.
+const Words = struct {
+    list: [64][]const u8 = undefined,
+    n: usize = 0,
+    /// Some rule captures the slot as a word of the netlist's own.
+    free: bool = false,
+
+    fn add(ws: *Words, word: []const u8) void {
+        for (ws.list[0..ws.n]) |have| if (std.ascii.eqlIgnoreCase(have, word)) return;
+        // More than a closed set holds: the slot takes words of its own.
+        if (ws.n == ws.list.len) {
+            ws.free = true;
+            return;
+        }
+        ws.list[ws.n] = word;
+        ws.n += 1;
+    }
+
+    // tidy: allow(recursion) bounded by the nesting of a pattern (the parser's max_depth)
+    fn pattern(ws: *Words, nodes: []const grammar.Node, slot: u8) void {
+        for (nodes) |*n| {
+            if (n.slot == slot) switch (n.tag) {
+                .taglit => ws.add(n.atom),
+                .cap, .rest => ws.free = true,
+                else => {},
+            };
+            for (n.bag) |e| {
+                if (e.tag_slot == slot and e.tag_atom.len > 0) ws.add(e.tag_atom);
+                if (e.slot == slot or e.slot2 == slot) ws.free = true;
+            }
+            ws.pattern(n.kids, slot);
+        }
+    }
+};
 
 pub fn writeNetlist(w: *Writer, nl: *const ir.Netlist) Writer.Error!void {
     try w.writeAll("{\"title\":");
@@ -112,13 +148,7 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
             "\"{s}\":{{\"class\":\"{s}\",\"slots\":[",
             .{ @tagName(info.kind), @tagName(info.class) },
         );
-        for (info.slots, 0..) |sl, k| {
-            if (k > 0) try w.writeByte(',');
-            try w.print(
-                "{{\"name\":\"{s}\",\"type\":\"{s}\",\"list\":{}}}",
-                .{ sl.name, @tagName(sl.ty), sl.list },
-            );
-        }
+        try slotsInfo(w, grammars, info.kind);
         try w.writeAll("],\"writers\":[");
         var first = true;
         for (grammars) |*g| {
@@ -338,4 +368,50 @@ fn names(w: *Writer, map: *const std.StringHashMapUnmanaged([]const u8)) Writer.
         try str(w, kv.value_ptr.*);
     }
     try w.writeByte('}');
+}
+
+/// The slots of `kind`: name, type, list, name space and words.
+fn slotsInfo(w: *Writer, grammars: []const grammar.Grammar, kind: schema.Kind) Writer.Error!void {
+    for (schema.info(kind).slots, 0..) |sl, k| {
+        if (k > 0) try w.writeByte(',');
+        try w.print(
+            "{{\"name\":\"{s}\",\"type\":\"{s}\",\"list\":{},\"space\":",
+            .{ sl.name, @tagName(sl.ty), sl.list },
+        );
+        if (sl.space) |sp| try w.print("\"{s}\"", .{@tagName(sp)}) else try w.writeAll("null");
+        try slotWords(w, grammars, kind, @intCast(k));
+        try w.writeByte('}');
+    }
+}
+
+/// `,"atoms":[...],"closed":b`: the words the grammars give slot `slot` of
+/// `kind` (a tagged literal, a key that sets it, an enum's canonical
+/// values), and whether every grammar takes nothing else there (no rule
+/// captures the slot as a free word). For an atom slot only; empty else.
+fn slotWords(
+    w: *Writer,
+    grammars: []const grammar.Grammar,
+    kind: schema.Kind,
+    slot: u8,
+) Writer.Error!void {
+    var words: Words = .{};
+    if (schema.info(kind).slots[slot].ty == .atom) {
+        for (grammars) |*g| {
+            for (g.rulesOf(kind)) |ri| words.pattern(g.rules[ri].pat, slot);
+            for (g.enums) |e| {
+                if (e.kind != kind or e.slot != slot) continue;
+                for (e.pairs) |pair| words.add(pair.canon);
+            }
+        }
+    }
+    // `add` keeps each word once, and no more than the list holds.
+    assert(words.n <= words.list.len);
+    // A slot no grammar gives a word to is a free word: nothing to offer.
+    const closed = words.n > 0 and !words.free;
+    try w.writeAll(",\"atoms\":[");
+    for (words.list[0..words.n], 0..) |word, i| {
+        if (i > 0) try w.writeByte(',');
+        try str(w, word);
+    }
+    try w.print("],\"closed\":{}", .{closed});
 }

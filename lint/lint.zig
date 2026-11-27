@@ -125,6 +125,7 @@ pub const clean_paths = [_][]const u8{
     "src/writer/names.zig",
     "src/writer/plugins.zig",
     "src/writer/refs.zig",
+    "src/writer/selector.zig",
     "src/writer/root.zig",
     "tools/grammar_gen.zig",
 };

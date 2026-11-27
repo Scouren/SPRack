@@ -118,7 +118,7 @@ except sprack.Unsupported as e:
 
 ```text
 1 thing cannot be written for ngspice:
-  - line 1: '1M' is ambiguous: M is milli in SPICE and mega in SI. Write 1m or 1meg
+  - line 2: '1M' is ambiguous: M is milli in SPICE and mega in SI. Write 1m or 1meg
 ```
 
 ## The vocabulary is closed
@@ -185,15 +185,16 @@ print(out.report)
 ```
 
 ```text
-warning[caveat]: line 11: tran.skip_dc: skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
-warning[caveat]: line 11: tran.method: the integration methods are near equivalents, not the same algorithm
-warning[caveat]: line 2: model 'nch' (bsim4) and 1 more model cards: sprack and spectre ship different implementations and versions of these models; parameters were copied as written, check them against spectre
+warning[caveat]: line 16: tran.skip_dc: skipdc=yes skips the DC solve and takes initial conditions from ic statements; SPICE UIC also honours ic= on devices
+warning[caveat]: line 16: tran.method: the integration methods are near equivalents, not the same algorithm
+warning[caveat]: line 5: model 'nch' (bsim4) and 1 more model cards: sprack and spectre ship different implementations and versions of these models; parameters were copied as written, check them against spectre
 ```
 
 A report is a list of entries with `severity` (`error`, `warning`, `info`),
 `code`, `line`, `message` and `file`; `.errors` and `.warnings` filter it.
-For a circuit built in Python, `line` is the number of the statement. The
-codes are explained under [Reading the report](simulators.md#reading-the-report).
+For a circuit built in Python, `line` is the line of your script that made
+the statement. `report.ok` is true when it holds no error. The codes are
+explained under [Reading the report](simulators.md#reading-the-report).
 
 When the dialect cannot say something, `netlist` raises `sprack.Unsupported`:
 
@@ -206,7 +207,7 @@ except sprack.Unsupported as e:
 
 ```text
 1 thing cannot be written for xyce:
-  - line 10: statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask
+  - line 15: statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask
 ```
 
 The exception has `.report` (every entry), `.text` (the netlist as far as it
@@ -222,7 +223,7 @@ print(len(c.check("vacask").errors), "errors for vacask")
 ```
 
 ```text
-error unsupported 10
+error unsupported 15
 0 errors for vacask
 ```
 
@@ -408,3 +409,27 @@ A mistake in the file raises `ValueError` with `path:line: message`.
 
 `sprack.DIALECTS` is the tuple of built-in names, `sprack.KINDS` the
 vocabulary (per kind: its class, its slots, the dialects that can write it).
+
+## Finding your way, and the shapes it takes
+
+- Every statement kind and device letter is a method: `dir(c)` lists them,
+  and each has a signature in its `__doc__`, with the words a closed slot
+  takes (`help(c.measure)`). A mistyped name says the nearest.
+- A statement a method returns stands for its name: `vin = c.V("in", "in",
+  0, 1)`, then `c.dc(vin, 0, 1.8, 0.01)`, `c.save(sprack.i(vin))`.
+- A parameter whose name Python keeps is given with an underscore:
+  `from_=`, `as_=`, `lambda_=`, `is_=`.
+- `sprack.read` and `sprack.translate` take netlist text or a
+  `pathlib.Path`; a string that names a file is refused, so a path is never
+  read as text.
+- `c.netlist(d, strict="circuit")` raises only for what the circuit says,
+  not for a PDK library's cards; `library=True` writes a file to include
+  (no title, no `.end`).
+- `c.scope("inv")` is a subcircuit of a circuit, to add to or read; its
+  `hints` are its annotation lines.
+- `c.rename(old, new, space="node")` renames within one name space (node,
+  instance, definition or param) of one scope, and returns the statements
+  whose expressions name `old` and were not rewritten.
+- `c.place(...)` and `c.draw(...)` give a circuit to cktImg, its package
+  where it can be imported, else its `cktimg-json` command, with
+  `symbols=`, `target=` and `start=` (an earlier placement) passed through.

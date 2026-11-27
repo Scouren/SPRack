@@ -51,12 +51,21 @@ pub const number_cfg: grammar.LexCfg = .{
 /// Where a value stands, as far as reading a plain JSON string goes.
 pub const Pos = enum { word, signal, path, value };
 
+/// A value that is digits and then letters: the letters may be a unit.
+const Unit = struct { digits: []const u8, letters: []const u8 };
+
+/// The suffixes `number_cfg` takes, as a message lists them.
+const spellings = "T G meg (Meg, MEG) k (K) m u n p f a";
+
 const Parser = struct {
     arena: Allocator,
     report: *ir.Report,
     /// How deep the `body` or list being read is (`ir.max_depth`).
     depth: usize = 0,
     too_deep: bool = false,
+    /// A value of the statement being read was refused: the statement is
+    /// not read, so it is not also reported for the value it lacks.
+    refused: bool = false,
 
     /// Deeper than `ir.max_depth`: reported once, and not read.
     fn deep(p: *Parser, line: u32) bool {
@@ -69,6 +78,16 @@ const Parser = struct {
 
     fn fail(p: *Parser, line: u32, comptime fmt: []const u8, args: anytype) void {
         p.report.add(.@"error", .invalid, line, fmt, args);
+    }
+
+    /// `st`, or where a value of it was refused, a comment that says so in
+    /// its place: the statement is not also reported for what it lacks.
+    fn unlessRefused(p: *Parser, st: ir.Stmt, kind_name: []const u8) Allocator.Error!ir.Stmt {
+        if (!p.refused) return st;
+        const raw = try p.arena.print("[sprack] not read: {s}, a value of which is refused", .{
+            kind_name,
+        });
+        return .{ .kind = .comment, .line = st.line, .raw = raw };
     }
 
     fn scalar(p: *Parser, text: []const u8, line: u32) Allocator.Error!Value {
@@ -99,17 +118,35 @@ const Parser = struct {
             for (text[i..]) |c| {
                 if (!std.ascii.isAlphabetic(c)) letters = false;
             }
-            if (letters) {
-                p.fail(
-                    line,
-                    "'{s}' is not a number: the scale suffixes are T G meg k m u n p f a, and " ++
-                        "case matters",
-                    .{text},
-                );
-                return .none;
-            }
+            const unit: Unit = .{ .digits = text[0..i], .letters = text[i..] };
+            if (letters) return p.refuse(text, line, unit);
         }
+        if (looksNumeric(text)) return p.refuse(text, line, null);
         return .{ .expr = text };
+    }
+
+    /// `text` is not a number: one error. `unit`: it is digits and letters,
+    /// and where the letters are a suffix in another case (`1g`) it names
+    /// the spelling meant.
+    fn refuse(
+        p: *Parser,
+        text: []const u8,
+        line: u32,
+        unit: ?Unit,
+    ) Allocator.Error!Value {
+        p.refused = true;
+        const u = unit orelse {
+            p.fail(line, "'{s}' is neither a number nor an expression: a number is digits, a " ++
+                "point, an exponent and one scale suffix (" ++ spellings ++ ")", .{text});
+            return .none;
+        };
+        const meant = unitHint(u.letters);
+        if (meant.len > 0) {
+            p.fail(line, "'{s}' is not a number: write {s}{s}; the scale suffixes are " ++
+                spellings ++ ", and case matters", .{ text, u.digits, meant });
+        } else p.fail(line, "'{s}' is not a number: the scale suffixes are " ++ spellings ++
+            ", and case matters", .{text});
+        return .none;
     }
 
     // tidy: allow(recursion) through `params` too, bounded by ir.max_depth: `deep` refuses
@@ -206,6 +243,14 @@ const Parser = struct {
             .name, .node, .ident, .ref, .atom, .signal, .text => {
                 if (j == .bool) return .{ .atom = if (j.bool) "yes" else "no" };
                 const text = (try p.nameOf(j, line, sl.name)) orelse return .none;
+                // `v(out)` where a node is wanted: the node is `out`.
+                if (sl.ty == .node and std.mem.indexOfScalar(u8, text, '(') != null) {
+                    p.refused = true;
+                    p.fail(line, "'{s}' is a signal, not a node: '{s}' takes the node's name", .{
+                        text, sl.name,
+                    });
+                    return .none;
+                }
                 return if (plainTag(posOf(sl.ty), text) == .expr)
                     .{ .expr = text }
                 else
@@ -244,6 +289,7 @@ const Parser = struct {
                 continue;
             };
             var st = try ir.newStmt(p.arena, kind, line);
+            p.refused = false;
             var it = obj.iterator();
             while (it.next()) |kv| {
                 const key = kv.key_ptr.*;
@@ -295,7 +341,7 @@ const Parser = struct {
                     );
                 }
             }
-            try out.append(p.arena, st);
+            try out.append(p.arena, try p.unlessRefused(st, kind_name));
         }
         return out.items;
     }
@@ -379,6 +425,25 @@ pub fn parseDocument(
 }
 
 // ---- private ----
+
+/// The suffix of `number_cfg` that `letters` spells in another case
+/// (`g` for `G`); "" where none does.
+fn unitHint(letters: []const u8) []const u8 {
+    for (number_cfg.scales) |sc| {
+        if (std.ascii.eqlIgnoreCase(sc.suffix, letters)) return sc.suffix;
+    }
+    return "";
+}
+
+/// Text that starts like a number and has no operator, call or quote in
+/// it, so it cannot be an expression: `4k7`, `1 k`, `1µ`, `1,5k`.
+fn looksNumeric(text: []const u8) bool {
+    if (text.len == 0 or !(std.ascii.isDigit(text[0]) or text[0] == '.')) return false;
+    for (text) |c| {
+        if (std.mem.indexOfScalar(u8, "+-*/\\^()?:<>=!&|%~{}'\"", c) != null) return false;
+    }
+    return true;
+}
 
 /// A plain string in a signal slot: a signal in the canonical spelling
 /// (`v(out)`, `all`) or a bare name; anything else there is an expression.

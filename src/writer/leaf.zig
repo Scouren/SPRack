@@ -12,6 +12,7 @@ const ir = @import("ir");
 const output = @import("output.zig");
 const unwritten = @import("unwritten.zig");
 const cards = @import("cards.zig");
+const selector = @import("selector.zig");
 const instparams = @import("instparams.zig");
 const variants = @import("variants.zig");
 const rewrite = @import("rewrite.zig");
@@ -82,6 +83,7 @@ pub fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
     }
 
     if (!w.canWriteHere(st.kind)) return notHere(w, a, st);
+    if (try selector.unchosen(w, a, st)) return;
     const choice = try choose(w, a, st);
     const rule = choice.rule orelse return noForm(w, a, st, choice.why);
     var e = choice.written orelse blk: {

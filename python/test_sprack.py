@@ -7,7 +7,7 @@ SPRACK_TEST_PDKS_INSTALLED at installed sky130 and ihp trees
 (nix build .#test-pdks-installed; those tests also run ngspice). Without
 them those tests are skipped and say so.
 """
-import atexit, copy, json, os, shutil, sys, tempfile, time, traceback
+import atexit, copy, json, os, pathlib, shutil, sys, tempfile, time, traceback
 
 import sprack
 
@@ -1156,7 +1156,7 @@ def test_to_python():
     assert _same(_run(code).netlist("spectre", strict=False), sprack.translate(hs, frm="hspice", to="spectre", strict=False))
     ng = "t\n.lib tt\n.param a=1\n.if (a > 1)\nR1 a 0 1k\n.else\nR1 a 0 2k\n.endif\n.endl tt\n"
     code = sprack.to_python(ng, "ngspice")
-    assert 'with c.libsection(name="tt") as s:' in code and "        s2.cond_else()\n" in code and ".code(" not in code, code
+    assert 'with c.libsection("tt") as s:' in code and "        s2.cond_else()\n" in code and ".code(" not in code, code
     assert _same(_run(code).netlist("ngspice", strict=False), sprack.translate(ng, frm="ngspice", to="ngspice", strict=False))
     # The one thing with no call: a line no rule of the dialect understood.
     # A control script is a block of its own (#50).
@@ -1226,7 +1226,11 @@ def test_no_code_for_dialect_only_statements():
 
 
 def _sample(slot, n=0):
-    """A value of the JSON form for a slot of the vocabulary."""
+    """A value of the JSON form for a slot of the vocabulary: of a closed
+    word slot, one of its words, which is all the builder takes there."""
+    if slot["type"] == "atom" and slot.get("closed"):
+        one = slot["atoms"][0]
+        return [one, one] if slot["list"] else one
     one = {"name": "x1", "node": f"n{n}", "ident": "m1", "ref": "V1", "value": "1.5e-9", "atom": "a1", "text": "some text",
            "path": {"str": "lib/f.inc"}, "signal": "v(n1)", "params": {"k1": "1e3", "is": "2*k1", "flag": None}}[slot["type"]]
     return [one, _sample({**slot, "list": False}, 1)] if slot["list"] else one
@@ -1239,7 +1243,7 @@ def test_everything_has_a_function():
     holds = ("subckt", "libsection", "cond_if", "step", "statistics", "statgroup", "montecarlo", "library", "alter")
     count = 0
     for kind, info in sprack.KINDS.items():
-        if kind in ("opaque", "comment"):
+        if kind in ("opaque", "comment", "annotation"):
             continue
         full = {"kind": kind, **{sl["name"]: _sample(sl) for sl in info["slots"]}}
         # A device is its name and, where it has one, its model: the builder refuses one without.
@@ -1371,6 +1375,56 @@ def test_hints_are_annotation_lines_in_their_scope():
     del c.hints[0]
     c.hints.insert(0, sprack.Hint("order", ("m2", "mp")))
     assert [h.args for h in c.hints] == [("m2", "mp"), ("mp.g", "left")]
+
+
+def test_api_research_proposals():
+    # The changes of the API review, each as its user writes it.
+    c = sprack.Circuit("t")
+    assert "tran" in dir(c) and c.measure.__name__ == "measure" and "op" in c.measure.__doc__
+    raises(AttributeError, lambda: c.trans, "Did you mean")
+    vin = c.V("in", "in", 0, 1)
+    r1 = c.R("1", "in", "out", "1k")
+    c.dc(vin, 0, 1, 0.1)
+    c.save(sprack.i(vin))
+    c.hint("order", vin, r1)
+    assert c.hints[0].args == ("Vin", "R1")
+    c.measure("tran", "vpp", "pp", "v(out)", from_="1n", to="2n")
+    c.model("d1", "diode", lambda_=0.02, is_=1e-14)
+    c.vsource("V2", "a", 0, pulse=(0, 1.8, 0, "50p", "50p", "2n", "4n"))
+    c.hints.append("weak face R1.n left")
+    assert sprack.Hint("order", "m1 m2").text() == "order m1 m2"
+    raises(ValueError, lambda: c.measure("tran", "x", "average", "v(out)"), "measure.op is one of")
+    raises(TypeError, lambda: c.V("3", "a", 0, pulse=dict(rise_time="1n")), "pulse has no 'rise_time'")
+    ng = c.netlist("ngspice")
+    assert ".dc Vin 0 1 0.1\n" in ng and "*@ order Vin R1\n" in ng and "lambda=0.02" in ng and "from=1n" in ng, ng
+    assert ng.report.ok
+    # A value: one error, which says what was meant, not a second for the slot.
+    d = sprack.Circuit("t")
+    d.R("1", "a", 0, "1g")
+    assert [e.message.split(";")[0] for e in d.check("ngspice").errors] == ["'1g' is not a number: write 1G"]
+    # One error for a measure that says what only one word's forms say.
+    m = sprack.Circuit("t")
+    m.measure("tran", "tpd", trig="v(in)", trigval=0.5, targ="v(out)", targval=0.5)
+    errs = m.check("ngspice").errors
+    assert len(errs) == 1 and "'op' is not given" in errs[0].message, errs
+    # Paths are paths; text that names a file is refused.
+    with tempfile.TemporaryDirectory() as d2:
+        p = os.path.join(d2, "deck.sp")
+        with open(p, "w") as f:
+            f.write("rc\nR1 a 0 1k\n.end\n")
+        assert sprack.read(pathlib.Path(p), "ngspice").statements[0]["name"] == "R1"
+        raises(sprack.SprackError, lambda: sprack.read(p, "ngspice"), "pathlib.Path")
+    # A subcircuit of a netlist read, edited; written as a file to include.
+    r = sprack.read("t\n.subckt inv a y\nR1 a y 1k\n.ends\n.end\n", "ngspice")
+    r.scope("inv").C("1", "y", 0, "1p")
+    lib = r.netlist("ngspice", library=True)
+    assert "C1 y 0 1p\n" in lib and ".end\n" not in lib, lib
+    # rename by name space, in one scope; what it does not follow comes back.
+    r = sprack.read("t\n.param b=2\nRb b 0 {b}\nB1 x 0 v={v(b)*2}\n.save v(b)\n.model b d\nD1 b 0 b\n.end\n", "ngspice")
+    left = r.rename("b", "vout", space="node")
+    n = r.netlist("ngspice", strict=False)
+    assert "Rb vout 0 {b}\n" in n and ".save v(vout)\n" in n and ".model b d\n" in n and "D1 vout 0 b\n" in n, n
+    assert [s["name"] for s in left] == ["B1"]
 
 
 if __name__ == "__main__":

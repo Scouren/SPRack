@@ -24,12 +24,14 @@ elsewhere. Any other string is an expression: "2*wmin", "ln(a)**2".
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import keyword
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 from typing import Any, Iterable, NamedTuple
@@ -72,6 +74,11 @@ class Report(list):
     @property
     def errors(self) -> list[Entry]:
         return [e for e in self if e.severity == "error"]
+
+    @property
+    def ok(self) -> bool:
+        """Nothing in it is an error."""
+        return not self.errors
 
     @property
     def warnings(self) -> list[Entry]:
@@ -172,13 +179,30 @@ def why_not(kind: str, dialect: str) -> str | None:
     return f"{info['absent'].get(d, f'{d}.spgrammar defines no rule for it')}. Dialects that define it: {who}"
 
 
-def translate(source: str, *, frm: str, to: str, strict: bool = True) -> Netlist:
+def _text(source: Any) -> str:
+    """Netlist text: the string itself, or what a path object (`pathlib.Path`)
+    names, read as UTF-8. A one-line string that names a file is a mistake."""
+    if isinstance(source, os.PathLike):
+        with open(source, encoding="utf-8") as f:
+            return f.read()
+    if "\n" not in source and len(source) < 4096 and os.path.isfile(source):
+        raise SprackError(f"{source!r} is a file, and a netlist is given as text: pass pathlib.Path({source!r}), or what open(...).read() gives")
+    return source
+
+
+def translate(source: str | os.PathLike, *, frm: str, to: str, strict: bool = True) -> Netlist:
     """Translate netlist text. Raises `Unsupported` unless `strict` is False."""
-    text, rep = _core.translate(_dialect(frm), _dialect(to), source)
+    text, rep = _core.translate(_dialect(frm), _dialect(to), _text(source))
     report = Report._from_json(rep)
     if strict and report.errors:
         raise Unsupported(to, report, text)
     return Netlist(text, report)
+
+
+def _name(x: Any) -> str:
+    """A name: the text given, or the name of the statement a call returned
+    (`vin = c.V("in", ...)`, then `c.dc(vin, ...)`, `sprack.i(vin)`)."""
+    return str(x["name"]) if isinstance(x, _Stmt) and "name" in x else str(x)
 
 
 def v(node: Any, ref: Any = None) -> str:
@@ -186,9 +210,9 @@ def v(node: Any, ref: Any = None) -> str:
     return f"v({node})" if ref is None else f"v({node},{ref})"
 
 
-def i(device: str) -> str:
+def i(device: Any) -> str:
     """The current through a source, as a signal to save or print."""
-    return f"i({device})"
+    return f"i({_name(device)})"
 
 
 def word(text: str) -> dict:
@@ -227,12 +251,7 @@ class _Stmt(dict):
         return self
 
     def __enter__(self) -> "_Scope":
-        body = _Scope(self._scope._pdk)
-        body.statements = self.setdefault("body", [])
-        body._scope_name = str(self.get("name", ""))
-        body._report = self._scope._report
-        body._grammars = self._scope._grammars
-        return body
+        return self._scope._body(self)
 
     def __exit__(self, *exc: Any) -> None:
         return None
@@ -261,7 +280,9 @@ class Hint(NamedTuple):
         return cls(words[0] if words else "", tuple(words[1:]), weak, scope, line)
 
     def text(self) -> str:
-        return " ".join((["weak"] if self.weak else []) + [self.verb, *self.args])
+        # `Hint("order", "m1 m2")`: a string is its words, not its letters.
+        args = self.args.split() if isinstance(self.args, str) else self.args
+        return " ".join((["weak"] if self.weak else []) + [self.verb, *args])
 
     def renamed(self, old: str, new: str) -> "Hint":
         """With a device or net `old` named `new` (case ignored): an argument
@@ -298,8 +319,13 @@ class Hints:
     def __getitem__(self, k: int) -> Hint:
         return self._hint(self._scope.statements[self._at()[k]])
 
-    def __setitem__(self, k: int, h: Hint) -> None:
-        self._scope.statements[self._at()[k]] = {"kind": "annotation", "text": h.text()}
+    @staticmethod
+    def _text(h: "Hint | str") -> str:
+        """A hint's line: of a `Hint`, or the text itself (`"weak face m1.g left"`)."""
+        return h.text() if isinstance(h, Hint) else Hint.parse(str(h)).text()
+
+    def __setitem__(self, k: int, h: "Hint | str") -> None:
+        self._scope.statements[self._at()[k]] = {"kind": "annotation", "text": self._text(h)}
 
     def __delitem__(self, k: int) -> None:
         del self._scope.statements[self._at()[k]]
@@ -308,17 +334,18 @@ class Hints:
         at = self._at()
         k = max(0, min(k, len(at)))
         pos = (at[k] if k < len(at) else at[-1] + 1) if at else len(self._scope.statements)
-        self._scope.statements.insert(pos, {"kind": "annotation", "text": h.text()})
+        self._scope.statements.insert(pos, {"kind": "annotation", "text": self._text(h)})
 
     def append(self, h: Hint) -> None:
         self.insert(len(self), h)
 
     def remove(self, h: Hint) -> None:
+        want = self._text(h)
         for k, have in enumerate(self):
-            if (have.verb, have.args, have.weak) == (h.verb, h.args, h.weak):
+            if have.text() == want:
                 del self[k]
                 return
-        raise ValueError(f"no hint {h.text()!r} in this scope")
+        raise ValueError(f"no hint {want!r} in this scope")
 
     def clear(self) -> None:
         for i in reversed(self._at()):
@@ -353,7 +380,7 @@ _POSITIONAL = {
     "sens": ["out"], "disto": ["sweep", "points", "fstart", "fstop"], "four": ["freq", "signals"],
     "hb": ["freqs", "harms"], "sp": ["sweep", "points", "fstart", "fstop"], "pss": ["fund", "harms", "tstab"],
     "stb": ["probe", "sweep", "points", "fstart", "fstop"],
-    "include": ["path"], "lib": ["path", "section"], "hdl": ["path"], "measure": ["analysis", "name", "spec"],
+    "include": ["path"], "lib": ["path", "section"], "hdl": ["path"], "measure": ["analysis", "name", "op", "out"],
     "func": ["name", "args", "expr"], "print": ["analysis", "signals"], "save": ["signals"], "global": ["nodes"],
     # b3: analyses
     "pac": ["sweep", "points", "fstart", "fstop"],
@@ -368,7 +395,7 @@ _POSITIONAL = {
     "step": ["param", "start", "stop", "step"], "data": ["name", "cols", "values"],
     # b2: statistics and structure
     "statistics": [], "statgroup": ["scope"], "vary": ["param", "dist", "std"], "correlate": ["names", "cc"],
-    "montecarlo": ["runs"], "library": ["name"],
+    "montecarlo": ["runs"], "library": ["name"], "libsection": ["name"],
     # c2: alter
     "alter": ["name"],
 }
@@ -396,9 +423,17 @@ def _val(x: Any) -> Any:
         return repr(x)
     if isinstance(x, (list, tuple)):
         return [_val(y) for y in x]
+    if isinstance(x, _Stmt) and "name" in x:
+        return str(x["name"])
     if isinstance(x, dict):
         return {str(k): _val(y) for k, y in x.items()}
     return str(x)
+
+
+def _key(k: str) -> str:
+    """`from_`, `as_`, `lambda_`, `is_`: a name Python keeps to itself is
+    given with an underscore after it, as the methods `print_` and `global_` are."""
+    return k[:-1] if k.endswith("_") and keyword.iskeyword(k[:-1]) else k
 
 
 def _params(pairs: Iterable[tuple[Any, Any]]) -> Any:
@@ -410,6 +445,44 @@ def _params(pairs: Iterable[tuple[Any, Any]]) -> Any:
 
 def _slots(kind: str) -> dict[str, dict]:
     return {s["name"]: s for s in KINDS[kind]["slots"]}
+
+
+@functools.lru_cache(maxsize=None)
+def _usage(kind: str, method: str) -> str:
+    """What a kind's method takes, from `KINDS` and `_POSITIONAL`: its docstring."""
+    slots = _slots(kind)
+    device = KINDS[kind]["class"] == "device"
+    order = _POSITIONAL.get(kind, [n for n in slots if n not in ("name", "params")])
+    lead = ["name"] if device and "name" in slots else []
+    if order == "*":
+        pos = lead + (["*nodes"] if "nodes" in slots else [n for n, s in slots.items() if s["type"] in ("node", "ref") and n != "master"]) + ["model"]
+    else:
+        pos = lead + [("*" if slots[n]["list"] and n == order[-1] else "") + n for n in order]
+    taken = {p.lstrip("*") for p in pos} | {"params"} | ({"master"} if order == "*" else set())
+    named = ["model" if n == "master" else n + "_" if keyword.iskeyword(n) else n for n in slots if n not in taken]
+    tail = ", **params" if device and "params" in slots else ""
+    writers = ", ".join(KINDS[kind]["writers"]) or "none"
+    words = "".join(f"\n  {n}: {', '.join(s['atoms'])}" + ("" if s.get("closed") else ", or another word")
+                    for n, s in slots.items() if s.get("atoms"))
+    return (f"{method}({', '.join(pos)}{', *, ' + ', '.join(named) if named else ''}{tail})\n\n"
+            f"Statement kind {kind!r} ({KINDS[kind]['class']}). Written by: {writers}."
+            + (f"\nWords:{words}" if words else ""))
+
+
+def _check_words(kind: str, st: dict) -> None:
+    """A word slot every grammar gives only a closed set of words (`sweep`,
+    a measure's `op`): a word outside it is refused here, at the call."""
+    for name, sl in _slots(kind).items():
+        if not sl.get("closed") or not isinstance(st.get(name), str):
+            continue
+        if st[name].lower() not in (a.lower() for a in sl["atoms"]):
+            raise ValueError(f"{kind}.{name} is one of: {', '.join(sl['atoms'])}; got {st[name]!r}")
+
+
+def _named(fn, name: str, doc: str):
+    fn.__name__ = fn.__qualname__ = name
+    fn.__doc__ = doc
+    return fn
 
 
 class _Scope:
@@ -424,8 +497,29 @@ class _Scope:
         # by the name the dialect calls itself; shared likewise.
         self._grammars: dict[str, str] = {}
 
+    def _body(self, st: dict) -> "_Scope":
+        """The statements `st` holds, as something statements are added to."""
+        body = _Scope(self._pdk)
+        body.statements = st.setdefault("body", [])
+        body._scope_name = str(st.get("name", ""))
+        body._report, body._grammars = self._report, self._grammars
+        return body
+
+    def scope(self, name: str) -> "_Scope":
+        """The body of subcircuit `name` (case ignored), built here or read:
+        `r.scope("inv").C("1", "y", 0, "1p")`."""
+        for st in self.statements:
+            if st.get("kind") == "subckt" and str(st.get("name", "")).lower() == name.lower():
+                return self._body(st)
+        raise KeyError(f"no subcircuit {name!r}; there are: {', '.join(str(st.get('name')) for st in self.statements if st.get('kind') == 'subckt') or 'none'}")
+
     def _push(self, st: dict) -> _Stmt:
         out = _Stmt(st)
+        # The line of the caller's script: what a report entry points at.
+        f = sys._getframe(1)
+        while f is not None and f.f_code.co_filename == __file__:
+            f = f.f_back
+        out._line = f.f_lineno if f is not None else 0
         out._scope = self
         self.statements.append(out)
         return out
@@ -453,7 +547,7 @@ class _Scope:
             else:
                 if len(rest) < 2:
                     raise TypeError(f"{kind} needs its terminals and then its model: {kind}(name, node, ..., model)")
-                nodes, st["master"] = rest[:-1], str(rest[-1])
+                nodes, st["master"] = rest[:-1], _name(rest[-1])
             if "nodes" in slots:
                 st["nodes"] = [str(n) for n in nodes]
             else:
@@ -464,7 +558,8 @@ class _Scope:
                     st[name] = str(node)
         else:
             if len(rest) > len(order) and not (order and slots[order[-1]]["list"]):
-                raise TypeError(f"{kind} takes at most {len(order)} positional values ({', '.join(order)}), got {len(rest)}")
+                named = [n for n in slots if n not in order and n not in ("name", "params")]
+                raise TypeError(f"{kind} takes at most {len(order)} positional values ({', '.join(order)}), got {len(rest)}" + (f"; by name: {', '.join(named)}" if named else ""))
             for idx, name in enumerate(order):
                 if not rest:
                     break
@@ -476,6 +571,7 @@ class _Scope:
         params: list[tuple[str, Any]] = []
         for key, value in kw.items():
             # An alias gives way to a slot of the name (`model` of a `vary`).
+            key = _key(key)
             key = key if key in slots else _ALIASES.get(key, key)
             if value is None:
                 continue
@@ -493,10 +589,16 @@ class _Scope:
             st["params"] = _params(params)
         if kind == "print":
             st.setdefault("style", "print")
+        _check_words(kind, st)
         return self._push(st)
 
     # -- devices ----------------------------------------------------------
     def _source(self, kind: str, letter: str, name: Any, pos: Any, neg: Any, dc: Any, kw: dict) -> dict:
+        return self.add(kind, f"{letter}{name}", pos, neg, dc, **self._waves(kw), **kw)
+
+    @staticmethod
+    def _waves(kw: dict, pwl: bool = True) -> dict:
+        """The slots that `ac=`, `pulse=`, `sin=`, ... of `kw` stand for; they are taken out of `kw`. `pwl`: `pwl=[(t, v), ...]` too (on `vsource` and `isource` it is the slot of that name)."""
         extra: dict[str, Any] = {}
         ac = kw.pop("ac", None)
         if ac is not None:
@@ -504,18 +606,25 @@ class _Scope:
             extra["acmag"] = mag
             if phase:
                 extra["acphase"] = phase[0]
-        for wave, fields in _WAVES.items():
+        for wave, fields in (*_WAVES.items(), ("sine", _WAVES["sin"])):
             given = kw.pop(wave, None)
             if given is None:
                 continue
             if "wave" in extra:
                 raise TypeError("a source has one waveform")
+            extra["wave"] = "sine" if wave == "sin" else wave
+            if isinstance(given, dict):
+                # By name: pulse=dict(val1=1.8, rise="50p").
+                unknown = [k for k in given if k not in fields]
+                if unknown:
+                    raise TypeError(f"{wave} has no {unknown[0]!r}; it has: {', '.join(fields)}")
+                extra.update(given)
+                continue
             given = list(given) if isinstance(given, (list, tuple)) else [given]
             if len(given) > len(fields):
                 raise TypeError(f"{wave} takes at most {len(fields)} values: {', '.join(fields)}")
-            extra["wave"] = "sine" if wave == "sin" else wave
             extra.update(zip(fields, given))
-        pwl = kw.pop("pwl", None)
+        pwl = kw.pop("pwl", None) if pwl else None
         if pwl is not None:
             if "wave" in extra:
                 raise TypeError("a source has one waveform")
@@ -523,7 +632,7 @@ class _Scope:
             for point in pwl:
                 flat.extend(point) if isinstance(point, (list, tuple)) else flat.append(point)
             extra["wave"], extra["pwl"] = "pwl", flat
-        return self.add(kind, f"{letter}{name}", pos, neg, dc, **extra, **kw)
+        return extra
 
     def V(self, name: Any, pos: Any, neg: Any, dc: Any = None, **kw: Any) -> dict:
         """Voltage source. `ac=1`, `pulse=(v0, v1, delay, rise, fall, width, period)`,
@@ -543,18 +652,32 @@ class _Scope:
         # R, C, L, ... : the SPICE letter is put in front of the name.
         if attr in _LETTERS:
             kind = _LETTERS[attr]
-            return lambda name, *a, **k: self.add(kind, f"{attr}{name}", *a, **k)
+            return _named(lambda name, *a, **k: self.add(kind, f"{attr}{name}", *a, **k), attr,
+                          _usage(kind, attr) + f" The name is given without its letter: {attr}(\"1\", ...) is {attr}1.")
+        # vsource, isource: the waveforms of `V` and `I`, the name as given.
+        if attr in ("vsource", "isource"):
+            return lambda *a, **k: self.add(attr, *a, **self._waves(k, pwl=False), **k)
         # resistor, tran, options, ... : any kind, by its own name.
         if attr in KINDS and attr not in ("opaque", "comment", "subckt"):
-            return lambda *a, **k: self.add(attr, *a, **k)
+            return _named(lambda *a, **k: self.add(attr, *a, **k), attr, _usage(attr, attr))
         # A device of the PDK.
         pdk = self.__dict__.get("_pdk")
         if pdk is not None:
             dev = pdk.device(attr)
             if dev is not None:
-                return lambda name, *nodes, **params: self._pdk_device(dev, name, nodes, params)
+                return _named(lambda name, *nodes, **params: self._pdk_device(dev, name, nodes, params), attr,
+                              f"{attr}(name, {', '.join(dev.get('ports') or ['*nodes'])}, **params)\n\n{dev['name']}: a {dev['kind']} of {pdk.name}."
+                              + (f" Parameters: {', '.join(f'{k}={v}' for k, v in dev['params'].items())}." if dev.get("params") else ""))
             raise AttributeError(f"{attr!r} is neither a statement kind nor a device of {pdk.name}. {pdk._suggest(attr)}")
-        raise AttributeError(f"{attr!r} is not a statement kind; known: {', '.join(sorted(k for k in KINDS if k not in ('opaque', 'comment')))}")
+        import difflib
+        near = difflib.get_close_matches(attr, [*KINDS, *_LETTERS], n=3, cutoff=0.6)
+        raise AttributeError(f"{attr!r} is not a statement kind" + (f". Did you mean: {', '.join(near)}?" if near else "") + f" Known: {', '.join(sorted(k for k in KINDS if k not in ('opaque', 'comment')))}")
+
+    def __dir__(self):
+        # What `__getattr__` answers to: every kind, every letter, every device of the PDK.
+        kinds = {k + "_" if keyword.iskeyword(k) or k == "print" else k for k in KINDS if k not in ("opaque", "comment")}
+        pdk = self.__dict__.get("_pdk")
+        return sorted(set(super().__dir__()) | kinds | set(_LETTERS) | (pdk._short() if pdk is not None else set()))
 
     def _pdk_device(self, dev: dict, name: Any, nodes: tuple, params: dict) -> dict:
         if dev["kind"] == "subckt":
@@ -562,6 +685,7 @@ class _Scope:
             if len(nodes) != len(ports):
                 raise TypeError(f"{dev['name']} has {len(ports)} terminals ({', '.join(ports)}), got {len(nodes)}")
             known = {k.lower(): k for k in dev["params"]}
+            params = {_key(k): x for k, x in params.items()}
             for key in params:
                 if known and key.lower() not in known:
                     raise TypeError(f"{dev['name']} has no parameter {key!r}; it has: {', '.join(dev['params'])}")
@@ -584,7 +708,7 @@ class _Scope:
     # -- structure --------------------------------------------------------
     def param(self, **values: Any) -> dict:
         """Netlist parameters: `c.param(vdd=1.8, wn="2*wmin")`."""
-        return self._push({"kind": "param", "params": _val(values)})
+        return self._push({"kind": "param", "params": _val({_key(k): x for k, x in values.items()})})
 
     def model(self, name: str, family: str | None = None, polarity: str | None = None, *, type: str | None = None, **params: Any) -> dict:
         """A model card. `family` is canonical ("bsim4", "diode", "bjt", ...) with
@@ -597,7 +721,7 @@ class _Scope:
         if type:
             st["type"] = type
         if params:
-            st["params"] = _val(params)
+            st["params"] = _val({_key(k): x for k, x in params.items()})
         return self._push(st)
 
     def subckt(self, name: str, *ports: Any, inline: Any = None, **params: Any) -> _Stmt:
@@ -669,13 +793,22 @@ class _Scope:
 
     def hint(self, verb: str, *args: Any, weak: bool = False) -> dict:
         """Add an annotation line here: `c.hint("order", "m1", "m2")`."""
-        h = Hint(str(verb), tuple(str(a) for a in args), weak)
+        h = Hint(str(verb), tuple(_name(a) for a in args), weak)
         self.hints.append(h)
         return self.statements[[i for i, st in enumerate(self.statements) if st.get("kind") == "annotation"][-1]]
 
-    def rename(self, old: str, new: str) -> None:
+    def rename(self, old: str, new: str, *, space: str | None = None) -> list[dict] | None:
         """Name the device or net `old` (case ignored) `new` everywhere in this
-        scope and the subcircuits in it, the hints that name it too."""
+        scope and the subcircuits in it, the hints that name it too.
+
+        With `space` ("node", "instance", "definition" or "param", the name
+        spaces of `KINDS`' slots): only names of that space are renamed, in
+        this scope alone (a subcircuit's ports are its own), and a node in
+        what records it too (`v(old)`, `.ic v(old)=`). The statements whose
+        expressions name `old`, which it does not rewrite, are returned."""
+        if space is not None:
+            return _rename_in(self.statements, old, new, space)
+
         def walk(sts: list[dict]) -> None:
             for st in sts:
                 if st.get("kind") == "annotation":
@@ -691,6 +824,75 @@ class _Scope:
         walk(self.statements)
 
 
+_SPACES = ("node", "instance", "definition", "param")
+_PROBE = re.compile(r"\b([vi])\(([^()]*)\)", re.I)
+
+
+def _rename_in(sts: list[dict], old: str, new: str, space: str) -> list[dict]:
+    """`rename` within one name space, in one scope: what it could not follow."""
+    if space not in _SPACES:
+        raise ValueError(f"space is one of: {', '.join(_SPACES)}; got {space!r}")
+    low = old.lower()
+    same = lambda x: isinstance(x, str) and x.lower() == low
+    word = re.compile(rf"(?<![\w.]){re.escape(old)}(?![\w])", re.I)
+
+    def probes(text: str) -> str:
+        # v(a,b) names nodes, i(x) a device.
+        def one(m: re.Match) -> str:
+            if (m.group(1).lower() == "v") != (space == "node") or (m.group(1).lower() == "i") != (space == "instance"):
+                return m.group(0)
+            args = [new if same(a.strip()) else a for a in m.group(2).split(",")]
+            return f"{m.group(1)}({','.join(args)})"
+        return _PROBE.sub(one, text)
+
+    left: list[dict] = []
+    for st in sts:
+        kind = st.get("kind")
+        if kind == "annotation":
+            st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new).text()
+            continue
+        if kind not in KINDS:
+            continue
+        for name, sl in _slots(kind).items():
+            if name not in st:
+                continue
+            val = st[name]
+            # A statement that holds a body (a subcircuit) names its ports in
+            # that body's scope, not in this one.
+            if "body" in st and sl["type"] == "node":
+                continue
+            if sl.get("space") == space:
+                if same(val):
+                    st[name] = new
+                elif isinstance(val, list):
+                    st[name] = [new if same(x) else x for x in val]
+            elif sl["type"] == "signal" and space in ("node", "instance"):
+                if isinstance(val, str):
+                    st[name] = probes(val)
+                elif isinstance(val, list):
+                    st[name] = [probes(x) if isinstance(x, str) else x for x in val]
+            elif sl["type"] == "params" and space == "node" and kind in ("ic", "nodeset") and isinstance(val, dict):
+                st[name] = {(new if same(k) else k): v for k, v in val.items()}
+        if any(_names_in(v, word, space) for k, v in st.items()
+               if _slots(kind).get(k, {}).get("type") in ("value", "params")):
+            left.append(st)
+    return left
+
+
+def _names_in(v: Any, word: re.Pattern, space: str) -> bool:
+    """Does the value `v` name the name `word` matches, in `space`: a node
+    or a device in what an expression records (`v(b)`, `i(x)`), a parameter
+    anywhere in it?"""
+    texts = list(v.values()) if isinstance(v, dict) else [v]
+    for t in (x for x in texts if isinstance(x, str)):
+        if space == "param" and word.search(t):
+            return True
+        for m in _PROBE.finditer(t):
+            if (m.group(1).lower() == "v") == (space == "node") and word.search(m.group(2)):
+                return True
+    return False
+
+
 class Circuit(_Scope):
     """A circuit, its analyses and what to record, independent of any simulator."""
 
@@ -699,6 +901,8 @@ class Circuit(_Scope):
         netlist read from it. What that dialect assumes where a statement
         says nothing (HSPICE's TNOM of 25) then holds here too, and its own
         options and analysis parameters are written back to it as they are."""
+        if isinstance(pdk, str):
+            pdk = PDK(pdk)
         super().__init__(pdk)
         self.title = title
         self.pdk = pdk
@@ -711,19 +915,24 @@ class Circuit(_Scope):
     def read(cls, source: str, dialect: str) -> "Circuit":
         """A circuit from an existing netlist in any dialect."""
         d = _dialect(dialect)
-        text, rep = _core.read(d, source)
+        text, rep = _core.read(d, _text(source))
         data = json.loads(text)
         c = cls(data.get("title") or "untitled", dialect=data.get("dialect", ""))
         if d != c._source_dialect:
             c._grammars[c._source_dialect] = d
         c.statements = data["stmts"]
         c.folds_case = bool(data.get("folds_case"))
-        c.read_report = Report._from_json(rep)
+        c._report.extend(Report._from_json(rep))
         return c
+
+    @property
+    def read_report(self) -> Report:
+        """What reading said: of the netlist this circuit was read from, and of its `code` blocks."""
+        return self._report
 
     def _doc(self, dialect: str | None, strict: bool) -> dict:
         """What `to_json` encodes. The statements are the circuit's own."""
-        doc = {"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": list(self.statements)}
+        doc = {"title": self.title, "dialect": self._source_dialect or "sprack", "folds_case": self.folds_case, "stmts": list(_lined(self.statements))}
         if self.pdk is not None and dialect is not None:
             doc["stmts"] = self.pdk.statements(dialect, strict=strict) + doc["stmts"]
             # What the PDK's libraries declare: the writer sees their names
@@ -769,24 +978,30 @@ class Circuit(_Scope):
         _script(self.statements, name, "b" if name.startswith("s") else "s", d, 0, out)
         return "\n".join(out) + "\n"
 
-    def netlist(self, dialect: str, *, strict: bool = True) -> Netlist:
+    def netlist(self, dialect: str, *, strict: "bool | str" = True, library: bool = False) -> Netlist:
         """The circuit as a netlist for `dialect`.
 
         Raises `Unsupported` if anything in it has no form there, naming the
         reason and the dialects that can; `strict=False` returns the netlist
         anyway, with the report attached as `.report`.
         """
+        if strict not in (True, False, "circuit"):
+            raise ValueError(f"strict is True, False or \"circuit\", not {strict!r}")
         d = _dialect(dialect)
-        data = self._doc(d, strict)
+        data = self._doc(d, strict is True)
+        if library and self.pdk is not None:
+            # A file to include: what the circuit holds, not the PDK's own lines.
+            data["stmts"] = list(self.statements)
         renames: dict[str, str] = dict(self.pdk._roots[d][3]) if d in getattr(self.pdk, "_roots", {}) else {}
         lib_report = Report()
         # Both give back the statements, those they change as copies: the
         # circuit's own stay as they are, and the rest is not copied at all.
         data["stmts"] = _translate_libraries(data["stmts"], data["dialect"], d, lib_report, renames, self._grammars)
         data["stmts"] = _rename_masters(data["stmts"], renames)
-        text, rep = _core.write(d, json.dumps(data))
-        report = Report(self._report + lib_report + Report._from_json(rep))
-        if strict and report.errors:
+        text, rep = _core.write(d, json.dumps(data), library)
+        own = Report(self._report + Report._from_json(rep))
+        report = Report(own + lib_report)
+        if strict and (own if strict == "circuit" else report).errors:
             raise Unsupported(d, report, text)
         if self.pdk is not None:
             # What translating the PDK's own libraries could not say belongs
@@ -801,42 +1016,75 @@ class Circuit(_Scope):
             f.write(out)
         return out
 
+    def __repr__(self) -> str:
+        return f"Circuit({self.title!r}, {len(self.statements)} statements" + (f", pdk={self.pdk.name!r}" if self.pdk is not None else "") + ")"
+
     def check(self, dialect: str) -> Report:
         """What writing this circuit for `dialect` would report, without raising."""
         return self.netlist(dialect, strict=False).report
 
     def subckt_hints(self, name: str) -> Hints:
         """The hints of subcircuit `name` (case ignored)."""
-        for st in self.statements:
-            if st.get("kind") == "subckt" and str(st.get("name", "")).lower() == name.lower():
-                body = _Scope(self._pdk)
-                body.statements = st.setdefault("body", [])
-                return Hints(body, str(st["name"]))
-        raise KeyError(f"no subcircuit {name!r}")
+        return self.scope(name).hints
 
     def draw(self, cktimg: str = "cktimg-json", *, config: str | None = None,
+             symbols: str | None = None, target: str | None = None, start: str | None = None,
              strict: bool = True) -> tuple[str, dict]:
         """The circuit drawn as a schematic by cktImg: written in the `cktimg`
-        dialect (no analyses, hints as `*@` lines), given to `cktimg`'s
-        command, and its SVG and its report (`requests`: what became of each
-        hint) returned."""
+        dialect (no analyses, hints as `*@` lines), given to cktImg (its
+        `cktimg` package's `draw` where that can be imported, else its
+        `cktimg-json` command), and its SVG and its report (`requests`: what
+        became of each hint) returned. `symbols` (`--symbols`, a symbol set), `target`
+        (`--target`, a manifest) and `start` (`--from`, an earlier
+        placement JSON to relay from) are passed through as given."""
+        image, report, _ = self._cktimg(cktimg, config, symbols, target, start, strict, svg=True)
+        return image, report
+
+    def place(self, cktimg: str = "cktimg-json", *, config: str | None = None,
+              symbols: str | None = None, target: str | None = None, start: str | None = None,
+              strict: bool = True) -> tuple[dict, dict]:
+        """As `draw`, without the SVG: cktImg's placement (its JSON: devices
+        with their position, orientation and pins, and the wires) and its
+        report. Give the placement back as `start` to keep it on a redraw."""
+        _, report, placement = self._cktimg(cktimg, config, symbols, target, start, strict, svg=False)
+        return placement, report
+
+    def _cktimg(self, cktimg: str, config: str | None, symbols: str | None, target: str | None,
+                start: str | None, strict: bool, *, svg: bool) -> tuple[str, dict, dict]:
+        """cktImg's own `cktimg.place`/`cktimg.draw` where its package can be
+        imported (in-process, and the one way on the web); else its
+        `cktimg-json` command."""
         import subprocess
         deck = self.netlist("cktimg", strict=strict)
+        try:
+            import cktimg as pkg
+        except ImportError:
+            pkg = None
+        if pkg is not None and hasattr(pkg, "place"):
+            kw = dict(symbols=symbols, target=target, start=start, config=config)
+            placement, report = pkg.place(str(deck), **kw)
+            image = pkg.draw(str(deck), **kw)[0] if svg else ""
+            return image, report, placement
         with tempfile.TemporaryDirectory(prefix="sprack-draw-") as d:
-            sp, js, svg, rep = (os.path.join(d, n) for n in ("deck.sp", "d.json", "d.svg", "r.json"))
+            sp, js, out, rep = (os.path.join(d, n) for n in ("deck.sp", "d.json", "d.svg", "r.json"))
             with open(sp, "w", encoding="utf-8", newline="\n") as f:
                 f.write(deck)
-            argv = [cktimg, "--svg", svg, "--report", rep]
-            if config:
-                argv += ["--config", config]
+            argv = [cktimg, "--report", rep] + (["--svg", out] if svg else [])
+            for flag, value in (("--config", config), ("--symbols", symbols), ("--target", target), ("--from", start)):
+                if value:
+                    argv += [flag, os.fspath(value)]
             done = subprocess.run(argv + [sp, js], capture_output=True, text=True)
             if done.returncode != 0:
                 raise SprackError(f"{cktimg}: {done.stderr.strip() or 'failed'}")
-            with open(svg, encoding="utf-8") as f:
-                image = f.read()
+            image = ""
+            if svg:
+                with open(out, encoding="utf-8") as f:
+                    image = f.read()
             with open(rep, encoding="utf-8") as f:
                 report = json.load(f)
-        return image, report
+            with open(js, encoding="utf-8") as f:
+                placement = json.load(f)
+        return image, report, placement
 
 
 # ------------------------------------------------------------------- as Python
@@ -848,7 +1096,7 @@ _SUFFIXED = re.compile(r"(-?\d+(?:\.\d+)?)(T|G|meg|k|m|u|n|p|f|a)")
 _PLAIN = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?")
 _TYPED = {"raw": "word", "str": "quoted", "expr": "expr"}
 #: Keywords of `V` and `I` that are not statement slots.
-_SOURCE_SUGAR = ("ac", "pwl", *_WAVES)
+_SOURCE_SUGAR = ("ac", "pwl", "sine", *_WAVES)
 
 
 def _pv(v: Any, ty: str) -> Any:
@@ -1198,6 +1446,18 @@ def _changed(stmts: list[dict], change) -> list[dict]:
                 out = list(stmts)
             out[idx] = new
     return out
+
+
+def _lined(stmts: list[dict]) -> list[dict]:
+    """The statements, each one built here saying the script line that added
+    it, as one read from a netlist says its own. Those it changes are copies."""
+    def change(st: dict) -> dict:
+        line, body = getattr(st, "_line", 0), st.get("body")
+        new = _lined(body) if body else body
+        if line and "line" not in st:
+            return {"kind": st["kind"], "line": line, **st, **({"body": new} if body else {})}
+        return st if new is body else {**st, "body": new}
+    return _changed(stmts, change)
 
 
 def _rename_masters(stmts: list[dict], renames: dict[str, str]) -> list[dict]:
@@ -1590,9 +1850,10 @@ class PDK:
         near = difflib.get_close_matches(name, short, n=5, cutoff=0.5)
         return f"Did you mean: {', '.join(near)}?" if near else f"It has {len(short)} devices; see pdk.devices."
 
-    def __dir__(self):
+    def _short(self) -> set[str]:
+        """The devices by the names a circuit's methods take: without the prefix."""
         short = [k[len(self.prefix):] if self.prefix and k.startswith(self.prefix) else k for k in self.devices]
-        return sorted(set(super().__dir__()) | {s for s in short if s.isidentifier()})
+        return {s for s in short if s.isidentifier()}
 
     # -- the libraries, per dialect ------------------------------------
     def run_options(self, dialect: str) -> list[str]:
