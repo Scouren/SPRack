@@ -23,6 +23,14 @@
 //!
 //! The subcircuits the topology check needs before their definitions come
 //! are kept from one more pass, between the survey and the writing.
+//!
+//! Contents:
+//! - `pub const Options = struct`
+//! - `pub const Hook = struct`
+//! - `pub const Error`
+//! - `pub fn translate(arena: Allocator, gf: *const Grammar, gt: *const Grammar, src: []const u8,
+//!   out: *std.Io.Writer, report: *ir.Report, caps: ?*const writer.Caps,
+//!   opts: Options) Error!?[]const u8`
 
 const std = @import("std");
 const ir = @import("ir");
@@ -32,8 +40,8 @@ const reader = @import("reader");
 const writer = @import("writer");
 const stats = @import("stats");
 const topology = @import("topology");
-
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Stmt = ir.Stmt;
 const Kind = schema.Kind;
@@ -60,123 +68,6 @@ pub const Hook = struct {
 
 pub const Error = Allocator.Error || std.Io.Writer.Error;
 
-/// Read `src` as `gf` and write it as `gt`, as `reader.read` then
-/// `writer.write` would. Null when it was streamed, else why it was not.
-pub fn translate(
-    arena: Allocator,
-    gf: *const Grammar,
-    gt: *const Grammar,
-    src: []const u8,
-    out: *std.Io.Writer,
-    report: *ir.Report,
-    caps: ?*const writer.Caps,
-    opts: Options,
-) Error!?[]const u8 {
-    if (opts.whole or (gf.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)) {
-        try whole(arena, gf, gt, src, out, report, caps, opts);
-        return if (opts.whole) "asked to" else "a change of language";
-    }
-    const keep: ir.Keep = .{ .perm = arena, .src = src };
-    const start = report.items.items.len;
-    var muted: ir.Report = .{ .arena = arena, .mute = true };
-    const s = try reader.Source.open(
-        gf,
-        arena,
-        src,
-        report,
-        .{ .env = opts.env, .library = opts.library },
-    );
-    defer s.deinit();
-    var scratch: std.heap.ArenaAllocator = .init(ir.big);
-    defer scratch.deinit();
-
-    var sv: Survey = try .init(keep, gf, gt, opts);
-    const params = s.paramCount();
-    var needed: reader.Needed = .{};
-    defer needed.deinit();
-    s.watchSpelling(&needed);
-    s.r.report = &muted;
-    s.rewind(scratch.allocator(), null);
-    while (true) {
-        s.between();
-        _ = scratch.reset(.retain_capacity);
-        s.useArena(scratch.allocator());
-        var list: std.ArrayList(Stmt) = .empty;
-        if (!try s.next(&list)) break;
-        try s.finishGroup(&list, &muted, null);
-        try sv.noteOptions(list.items);
-        if (opts.hook) |h| try h.run(h.ctx, scratch.allocator(), list.items, &muted);
-        try sv.add(s, keep, list.items);
-    }
-    sv.w.folds_case = s.r.folded;
-    sv.w.title = s.title;
-    if (s.paramCount() != params) sv.reason("a parameter defined in a line read as two");
-    try sv.mergeOptions(opts.hook, &muted);
-    if (try sv.whole(arena)) {
-        try whole(arena, gf, gt, src, out, report, caps, opts);
-        return sv.why.?;
-    }
-
-    s.pruneSpelling();
-    const rescan: Rescan = .{
-        .s = s,
-        .scratch = &scratch,
-        .sv = &sv,
-        .muted = &muted,
-        .hook = opts.hook,
-    };
-    if (sv.wanted.count() > 0) try rescan.run(Survey.retain, &sv);
-    s.r.report = report;
-    s.rewind(scratch.allocator(), null);
-    var ws: writer.Driver = undefined;
-    const to: writer.Target = .{ .g = gt, .out = out, .report = report, .caps = caps, .env = opts.env };
-    try ws.begin(to, keep, &sv.w, .groups);
-    defer ws.deinit();
-    while (true) {
-        s.between();
-        _ = scratch.reset(.retain_capacity);
-        s.useArena(scratch.allocator());
-        report.phase = ir.Phase.read;
-        var list: std.ArrayList(Stmt) = .empty;
-        if (!try s.next(&list)) break;
-        try s.finishGroup(&list, report, sv.last);
-        sv.takeOptions(&list);
-        if (opts.hook) |h| {
-            report.phase = ir.Phase.project;
-            try h.run(h.ctx, scratch.allocator(), list.items, report);
-        }
-        try reader.resolveGroup(gf, scratch.allocator(), list.items, &sv.tables, report);
-        try ws.group(scratch.allocator(), list.items);
-    }
-    try ws.end(rescan);
-    report.sortPhases(start);
-    if (report.lost) return error.OutOfMemory;
-    return null;
-}
-
-fn whole(
-    arena: Allocator,
-    gf: *const Grammar,
-    gt: *const Grammar,
-    src: []const u8,
-    out: *std.Io.Writer,
-    report: *ir.Report,
-    caps: ?*const writer.Caps,
-    opts: Options,
-) Error!void {
-    report.phase = 0;
-    const nl = try reader.read(
-        gf,
-        arena,
-        src,
-        report,
-        .{ .env = opts.env, .library = opts.library },
-    );
-    if (opts.hook) |h| try h.run(h.ctx, arena, nl.stmts, report);
-    const to: writer.Target = .{ .g = gt, .out = out, .report = report, .caps = caps, .env = opts.env };
-    try writer.write(to, arena, &nl);
-}
-
 /// The statements again, as the writer is given them: for the topology
 /// check, before the writing (`Survey.retain`) and after it, for the
 /// islands at the top level.
@@ -192,12 +83,15 @@ const Rescan = struct {
         const s = r.s;
         s.r.report = r.muted;
         s.rewind(r.scratch.allocator(), null);
+        // Bound: the statements of the netlist; until `next` finds none.
         while (true) {
             s.between();
             _ = r.scratch.reset(.retain_capacity);
             s.useArena(r.scratch.allocator());
             var list: std.ArrayList(Stmt) = .empty;
             if (!try s.next(&list)) break;
+            // `next` gives a statement at least, or says there is none.
+            assert(list.items.len > 0);
             try s.finishGroup(&list, r.muted, r.sv.last);
             if (r.hook) |h| try h.run(h.ctx, r.scratch.allocator(), list.items, r.muted);
             try reader.resolveGroup(
@@ -213,6 +107,8 @@ const Rescan = struct {
 };
 
 /// What the passes need of the whole netlist, and whether it can stream.
+// tidy: allow(bool-heavy-struct) one Survey a translation, never an array of them: flags in
+// an integer would save nothing.
 const Survey = struct {
     gf: *const Grammar,
     gt: *const Grammar,
@@ -279,6 +175,8 @@ const Survey = struct {
         gt: *const Grammar,
         opts: Options,
     ) Allocator.Error!Survey {
+        // Only a netlist that streams is surveyed.
+        assert(!opts.whole);
         const arena = keep.perm;
         const from = try arena.alloc(bool, gt.moves.len);
         const to = try arena.alloc(bool, gt.moves.len);
@@ -310,6 +208,8 @@ const Survey = struct {
         k: ir.Keep,
         stmts: []const Stmt,
     ) Allocator.Error!void {
+        // Names are kept where the survey keeps them.
+        assert(k.perm.ptr == sv.keep.perm.ptr);
         const gf = sv.gf;
         const gt = sv.gt;
         try sv.w.addStreamed(gt, gf, k, stmts);
@@ -366,6 +266,8 @@ const Survey = struct {
     /// left them: the first under a heading is all of them, the others go.
     fn takeOptions(sv: *Survey, list: *std.ArrayList(Stmt)) void {
         if (!sv.merged) return;
+        // `mergeOptions` has run: a mark for each statement it left.
+        assert(sv.taken.len == sv.options.items.len);
         const package = schema.slot(.options, "package");
         var i: usize = 0;
         while (i < list.items.len) {
@@ -396,7 +298,10 @@ const Survey = struct {
         }
     }
 
+    // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
     fn masters(sv: *Survey, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
+        // Names are kept where the survey keeps them.
+        assert(k.perm.ptr == sv.keep.perm.ptr);
         for (stmts) |*s| {
             try sv.masters(k, s.body);
             if (s.kind == .model and s.get("family") == .none and s.get("type") == .atom and
@@ -418,6 +323,7 @@ const Survey = struct {
         }
     }
 
+    // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
     fn defs(sv: *Survey, k: ir.Keep, stmts: []const Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             if (s.kind == .subckt)
@@ -429,12 +335,15 @@ const Survey = struct {
 
     /// `owner`: what the subcircuit `stmts` are the body of instantiates,
     /// if it is the first of its name.
+    // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
     fn uses(
         sv: *Survey,
         k: ir.Keep,
         stmts: []const Stmt,
         owner: ?*ir.CaselessSet,
     ) Allocator.Error!void {
+        // Names are kept where the survey keeps them.
+        assert(k.perm.ptr == sv.keep.perm.ptr);
         for (stmts) |*s| {
             if (s.kind == .subckt) {
                 const name = topology.nodeName(s.get("name"));
@@ -460,6 +369,8 @@ const Survey = struct {
 
     /// `name`, if the netlist defines it, is wanted before its definition
     /// comes, and so is what it instantiates.
+    // tidy: allow(recursion) bounded by the subcircuits defined: each is wanted once, before
+    // the calls for what it instantiates.
     fn need(sv: *Survey, name: []const u8) Allocator.Error!void {
         const named = sv.uses_of.getPtr(name) orelse return;
         const gop = try sv.wanted.getOrPut(sv.keep.perm, name);
@@ -471,6 +382,8 @@ const Survey = struct {
 
     /// Does `name`, a wanted subcircuit, instantiate itself, through others
     /// or not? Its mark: 1 on the way down from it, 2 once it does not.
+    // tidy: allow(recursion) bounded by the subcircuits wanted: each is marked on the way
+    // down, and a marked one returns at once.
     fn cyclic(sv: *Survey, name: []const u8) bool {
         const mark = sv.wanted.getPtr(name) orelse return false;
         if (mark.* != 0) return mark.* == 1;
@@ -483,6 +396,7 @@ const Survey = struct {
 
     /// Keeps the first definition of each wanted subcircuit among `stmts`,
     /// for the topology check.
+    // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
     fn retain(sv: *Survey, stmts: []const Stmt) Allocator.Error!void {
         for (stmts) |*s| {
             if (s.kind == .subckt) if (topology.nodeName(s.get("name"))) |n| {
@@ -527,6 +441,8 @@ const Survey = struct {
                     "kinds",
             );
         sv.w.check_case = !sv.canonical or retags or sv.gf.lex.case_sensitive;
+        // The case check is left out only where every name is canonical.
+        if (!sv.w.check_case) assert(sv.canonical);
         // The topology check summarizes a subcircuit when it comes: one
         // needed sooner is kept beforehand (`retain`). Which of two that
         // hold each other is summarized first is the order they come in.
@@ -547,13 +463,153 @@ const Survey = struct {
         if (try writer.defaultOptions(arena, gt, &opts)) |d| sv.noteMoves(&d);
         // A value for an analysis the netlist has not is said not written
         // (`Writer.applyMoves`), from the whole netlist too.
-        for (sv.move_from, sv.move_to, sv.move_seen, sv.gt.moves) |f, to, seen, mv|
-            if (f and (to or (!seen and mv.from == .options and schema.info(mv.to).class == .analysis))) sv.reason("a value written on another statement");
+        for (sv.move_from, sv.move_to, sv.move_seen, sv.gt.moves) |f, to, seen, mv| {
+            const unseen_analysis = !seen and mv.from == .options and
+                schema.info(mv.to).class == .analysis;
+            if (f and (to or unseen_analysis)) sv.reason("a value written on another statement");
+        }
         return sv.why != null;
     }
 };
 
+/// Read `src` as `gf` and write it as `gt`, as `reader.read` then
+/// `writer.write` would. Null when it was streamed, else why it was not.
+// tidy: allow(too-many-parameters) the signature `sprack.translate`, the command line and the
+// tests call; grouping its arguments is a change to each of them.
+pub fn translate(
+    arena: Allocator,
+    gf: *const Grammar,
+    gt: *const Grammar,
+    src: []const u8,
+    out: *std.Io.Writer,
+    report: *ir.Report,
+    caps: ?*const writer.Caps,
+    opts: Options,
+) Error!?[]const u8 {
+    const to: writer.Target = .{
+        .g = gt,
+        .out = out,
+        .report = report,
+        .caps = caps,
+        .env = opts.env,
+    };
+    if (opts.whole or (gf.switches.len > 0 and std.mem.indexOf(u8, src, "lang") != null)) {
+        try whole(arena, gf, src, to, opts);
+        return if (opts.whole) "asked to" else "a change of language";
+    }
+    const keep: ir.Keep = .{ .perm = arena, .src = src };
+    const start = report.items.items.len;
+    var muted: ir.Report = .{ .arena = arena, .mute = true };
+    const read_opts: ir.ReadOptions = .{ .env = opts.env, .library = opts.library };
+    const s = try reader.Source.open(gf, arena, src, report, read_opts);
+    defer s.deinit();
+    var scratch: std.heap.ArenaAllocator = .init(ir.big);
+    defer scratch.deinit();
+
+    var sv: Survey = try .init(keep, gf, gt, opts);
+    const params = s.paramCount();
+    var needed: reader.Needed = .{};
+    defer needed.deinit();
+    s.watchSpelling(&needed);
+    try surveyAll(s, &scratch, &sv, &muted, opts.hook);
+    sv.w.folds_case = s.r.folded;
+    sv.w.title = s.title;
+    if (s.paramCount() != params) sv.reason("a parameter defined in a line read as two");
+    try sv.mergeOptions(opts.hook, &muted);
+    if (try sv.whole(arena)) {
+        try whole(arena, gf, src, to, opts);
+        return sv.why.?;
+    }
+    // The netlist streams: nothing the survey met asks it to be read whole.
+    assert(sv.why == null);
+
+    s.pruneSpelling();
+    const rescan: Rescan = .{
+        .s = s,
+        .scratch = &scratch,
+        .sv = &sv,
+        .muted = &muted,
+        .hook = opts.hook,
+    };
+    if (sv.wanted.count() > 0) try rescan.run(Survey.retain, &sv);
+    s.r.report = report;
+    s.rewind(scratch.allocator(), null);
+    var ws: writer.Driver = undefined;
+    try ws.begin(to, keep, &sv.w, .groups);
+    defer ws.deinit();
+    // Bound: the statements of the netlist; until `next` finds none.
+    while (true) {
+        s.between();
+        _ = scratch.reset(.retain_capacity);
+        s.useArena(scratch.allocator());
+        report.phase = ir.Phase.read;
+        var list: std.ArrayList(Stmt) = .empty;
+        if (!try s.next(&list)) break;
+        try s.finishGroup(&list, report, sv.last);
+        sv.takeOptions(&list);
+        if (opts.hook) |h| {
+            report.phase = ir.Phase.project;
+            try h.run(h.ctx, scratch.allocator(), list.items, report);
+        }
+        try reader.resolveGroup(gf, scratch.allocator(), list.items, &sv.tables, report);
+        try ws.group(scratch.allocator(), list.items);
+    }
+    try ws.end(rescan);
+    report.sortPhases(start);
+    if (report.lost) return error.OutOfMemory;
+    return null;
+}
+
+// ---- private ----
+
+/// The survey: every statement read, noted in `sv` and thrown away.
+fn surveyAll(
+    s: *reader.Source,
+    scratch: *std.heap.ArenaAllocator,
+    sv: *Survey,
+    muted: *ir.Report,
+    hook: ?Hook,
+) Error!void {
+    s.r.report = muted;
+    s.rewind(scratch.allocator(), null);
+    // Bound: the statements of the netlist; until `next` finds none.
+    while (true) {
+        s.between();
+        _ = scratch.reset(.retain_capacity);
+        s.useArena(scratch.allocator());
+        var list: std.ArrayList(Stmt) = .empty;
+        if (!try s.next(&list)) break;
+        // `next` gives a statement at least, or says there is none.
+        assert(list.items.len > 0);
+        try s.finishGroup(&list, muted, null);
+        try sv.noteOptions(list.items);
+        if (hook) |h| try h.run(h.ctx, scratch.allocator(), list.items, muted);
+        try sv.add(s, sv.keep, list.items);
+    }
+}
+
+fn whole(
+    arena: Allocator,
+    gf: *const Grammar,
+    src: []const u8,
+    to: writer.Target,
+    opts: Options,
+) Error!void {
+    const report = to.report;
+    report.phase = 0;
+    const nl = try reader.read(
+        gf,
+        arena,
+        src,
+        report,
+        .{ .env = opts.env, .library = opts.library },
+    );
+    if (opts.hook) |h| try h.run(h.ctx, arena, nl.stmts, report);
+    try writer.write(to, arena, &nl);
+}
+
 /// A subcircuit of `stmts` holds a conditional block.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn conditional(stmts: []const Stmt) bool {
     for (stmts) |*s|
         if ((s.kind == .subckt and ir.holdsCond(s)) or conditional(s.body)) return true;
@@ -572,7 +628,10 @@ fn isBound(v: ir.Value) bool {
 /// Are the names `writer.checkCase` compares in `stmts` all canonical
 /// (`reader.Source.canonical`)? Then two that differ only by case cannot
 /// both be there, and the check finds nothing.
+// tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn names(s: *const reader.Source, stmts: []const Stmt) bool {
+    // Only a reader that folds case spells every name canonically.
+    assert(!s.r.g.lex.case_sensitive);
     for (stmts) |*st| {
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             switch (sl.ty) {
