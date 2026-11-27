@@ -224,7 +224,7 @@ pub const Reader = struct {
     }
 
     /// A line of one word that opens or closes a wrapper around the netlist.
-    fn isWrap(self: *const Reader, ti: usize) bool {
+    inline fn isWrap(self: *const Reader, ti: usize) bool {
         const first = self.toks()[ti];
         if (first.tag != .word or self.toks()[ti + 1].tag != .nl) return false;
         for (self.g.wraps) |w| {
@@ -270,7 +270,7 @@ pub const Reader = struct {
 
     /// A line that opens a block: the statement with its whole body. False
     /// where no block opens here.
-    fn openBlock(self: *Reader, ti: usize, line_no: u32, out: anytype) Allocator.Error!bool {
+    inline fn openBlock(self: *Reader, ti: usize, line_no: u32, out: anytype) Allocator.Error!bool {
         assert(self.depth <= ir.max_depth);
         const b, var st = (try self.blockOpening(ti, line_no)) orelse return false;
         st.tail = self.toks()[self.m.end].text;
@@ -284,7 +284,7 @@ pub const Reader = struct {
     }
 
     /// The block whose opening line this is, and the statement it opens.
-    fn blockOpening(
+    inline fn blockOpening(
         self: *Reader,
         ti: usize,
         line_no: u32,
@@ -317,7 +317,7 @@ pub const Reader = struct {
 
     /// The statement the first rule that matches reads from `ti`. False
     /// where none does.
-    fn readRule(
+    inline fn readRule(
         self: *Reader,
         block: ?*const grammar.Block,
         ti: usize,

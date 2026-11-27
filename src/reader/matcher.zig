@@ -121,7 +121,7 @@ pub const Matcher = struct {
         return schema.info(self.kind).slots[idx];
     }
 
-    fn litMatches(node: *const Node, t: Tok) bool {
+    inline fn litMatches(node: *const Node, t: Tok) bool {
         return switch (t.tag) {
             .word => std.mem.eql(u8, t.text, node.text),
             .lparen => std.mem.eql(u8, node.text, "("),

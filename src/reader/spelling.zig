@@ -5,7 +5,8 @@
 //! - `pub const Needed = struct`, with `pub fn deinit`
 //! - `pub const Spelling = struct`, with `pub fn keep`, `pub fn lowered`, `pub fn names`,
 //!   `pub fn deinit`, `pub fn prune`, `pub fn atom`, `pub fn statement`, `pub fn signal`
-//! - `pub fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void` (its renamer has `pub fn get`)
+//! - `pub fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void`, its renamer
+//!   with `pub fn get`
 //! - `pub fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8,
 //!   space: ?Space) Allocator.Error![]const u8`
 

@@ -49,23 +49,20 @@ pub fn canonStmt(self: *Reader, st: *ir.Stmt) Allocator.Error!void {
 }
 
 pub fn finishValue(self: *Reader, v: Value, line: u32) Allocator.Error!Value {
-    const done: Value = switch (v) {
-        .expr => |e| .{ .expr = try finishExpr(self, e, line) },
-        .list => |items| blk: {
+    switch (v) {
+        .expr => |e| return .{ .expr = try finishExpr(self, e, line) },
+        .list => |items| {
             const out: []Value = @constCast(items);
             for (out) |*it| it.* = try self.finishValue(it.*, line);
-            break :blk v;
+            return v;
         },
-        .params => |ps| blk: {
+        .params => |ps| {
             const out: []ir.Param = @constCast(ps);
             for (out) |*pp| pp.val = try self.finishValue(pp.val, line);
-            break :blk v;
+            return v;
         },
-        else => v,
-    };
-    // Finishing reads what is in a value, never what kind of value it is.
-    assert(std.meta.activeTag(done) == std.meta.activeTag(v));
-    return done;
+        else => return v,
+    }
 }
 
 /// Last pass, when every name in the netlist is known: expressions,
