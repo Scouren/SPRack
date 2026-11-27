@@ -1461,6 +1461,8 @@ def test_place_and_draw_run_the_cktimg_command_without_its_package():
     # No cktimg package: its `cktimg-json` command, given the deck and the
     # flags, writes the placement, the report and (for draw) the SVG.
     import tempfile, stat
+    if os.name == "nt":
+        return  # the stand-in command is a #! script, which Windows cannot run
     fake = r"""#!/usr/bin/env python3
 import json, sys
 a = sys.argv[1:]
