@@ -8173,3 +8173,15 @@ test "names: Spectre escapes a name a character at a time, and reads it back wit
     var r2: ir.Report = .init(a);
     try has(try tr(a, "spectre", "ngspice", sp, &r2), "XB[0] a vdd! sub\nR<1> net<3> 0 1k\n");
 }
+
+test "names: a Spectre save escapes each segment of a signal's path, as the instance line does" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const ng = "t\nXB[0] d[0] q[0] inv\nV1 d[0] 0 1\n.subckt inv a y\nR1 a y 1k\n.ends\n" ++
+        ".save v(d[0]) v(XB[0].y) i(V1)\n.op\n.end\n";
+    var r: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r);
+    try has(sp, "XB\\[0\\] (d\\[0\\] q\\[0\\]) inv\n");
+    try has(sp, "save d\\[0\\] XB\\[0\\].y V1:p\n");
+}

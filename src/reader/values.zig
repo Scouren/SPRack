@@ -139,9 +139,11 @@ pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig {
         }
     }
     // `-i(vc)`: a signal negated is an expression.
-    const neg = t.raw.len > 1 and t.raw[0] == '-';
+    // A name escaped as the dialect escapes names (`d\[0\]`) is read without the marks.
+    const raw = try self.spelled(t);
+    const neg = raw.len > 1 and raw[0] == '-';
     var text: std.ArrayList(u8) = .empty;
-    try text.appendSlice(self.arena, if (neg) t.raw[1..] else t.raw);
+    try text.appendSlice(self.arena, if (neg) raw[1..] else raw);
     var n: usize = 1;
     if (t.f.call) {
         // Calls may nest (`db(i(vm))`); at most three names per call.
@@ -168,7 +170,7 @@ pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig {
             if (a.tag != .word or (a.f.key and !closes) or count == 3 or j - ti > 12)
                 return null;
             if (count > 0) try text.append(self.arena, ',');
-            try text.appendSlice(self.arena, a.raw);
+            try text.appendSlice(self.arena, try self.spelled(a));
             count += 1;
             if (a.f.call) {
                 if (tokens) {

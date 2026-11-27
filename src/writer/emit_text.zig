@@ -249,7 +249,7 @@ pub fn signalText(e: *Emit, canon: []const u8) Allocator.Error!?[]const u8 {
                 at = sf.template[i + 1] - '1';
                 i += 1;
             }
-            if (at < n) try out.appendSlice(e.arena, args[at]);
+            if (at < n) try pathText(e, &out, args[at]);
             k += 1;
         }
         if (k == n) return out.items;
@@ -356,6 +356,18 @@ pub fn expandDefault(e: *Emit, text: []const u8) Allocator.Error![]const u8 {
 }
 
 // ---- private ----
+
+/// A name in a signal, onto `out`: each segment of a path (`B[0].y`)
+/// escaped as the grammar's `names` section escapes a name, `.` kept.
+fn pathText(e: *Emit, out: *std.ArrayList(u8), path: []const u8) Allocator.Error!void {
+    const n = if (e.g.names) |*nm| nm else return out.appendSlice(e.arena, path);
+    var it = std.mem.splitScalar(u8, path, '.');
+    var first = true;
+    while (it.next()) |seg| : (first = false) {
+        if (!first) try out.append(e.arena, '.');
+        try out.appendSlice(e.arena, try tables.escaped(e.arena, n, seg));
+    }
+}
 
 /// `canon` with the source's power operator written as what it means
 /// (`means x ** y = ...`), unless the target means the same by it.
