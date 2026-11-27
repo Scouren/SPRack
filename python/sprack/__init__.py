@@ -1027,7 +1027,7 @@ class Circuit(_Scope):
         """The hints of subcircuit `name` (case ignored)."""
         return self.scope(name).hints
 
-    def draw(self, cktimg: str = "cktimg-json", *, config: str | None = None,
+    def draw(self, cktimg: str | None = None, *, config: str | None = None,
              symbols: str | None = None, target: str | None = None, start: str | None = None,
              strict: bool = True) -> tuple[str, dict]:
         """The circuit drawn as a schematic by cktImg: written in the `cktimg`
@@ -1040,7 +1040,7 @@ class Circuit(_Scope):
         image, report, _ = self._cktimg(cktimg, config, symbols, target, start, strict, svg=True)
         return image, report
 
-    def place(self, cktimg: str = "cktimg-json", *, config: str | None = None,
+    def place(self, cktimg: str | None = None, *, config: str | None = None,
               symbols: str | None = None, target: str | None = None, start: str | None = None,
               strict: bool = True) -> tuple[dict, dict]:
         """As `draw`, without the SVG: cktImg's placement (its JSON: devices
@@ -1049,7 +1049,7 @@ class Circuit(_Scope):
         _, report, placement = self._cktimg(cktimg, config, symbols, target, start, strict, svg=False)
         return placement, report
 
-    def _cktimg(self, cktimg: str, config: str | None, symbols: str | None, target: str | None,
+    def _cktimg(self, cktimg: str | None, config: str | None, symbols: str | None, target: str | None,
                 start: str | None, strict: bool, *, svg: bool) -> tuple[str, dict, dict]:
         """cktImg's own `cktimg.place`/`cktimg.draw` where its package can be
         imported (in-process, and the one way on the web); else its
@@ -1061,10 +1061,18 @@ class Circuit(_Scope):
         except ImportError:
             pkg = None
         if pkg is not None and hasattr(pkg, "place"):
-            kw = dict(symbols=symbols, target=target, start=start, config=config)
-            placement, report = pkg.place(str(deck), **kw)
-            image = pkg.draw(str(deck), **kw)[0] if svg else ""
-            return image, report, placement
+            # `cktimg`: the command it runs, where the caller names one.
+            kw = dict(symbols=symbols, target=target, start=start, config=config, exe=cktimg)
+            try:
+                if svg:
+                    image, report = pkg.draw(str(deck), **kw)
+                    return image, report, {}
+                placement, report = pkg.place(str(deck), **kw)
+            except RuntimeError as e:
+                raise SprackError(str(e)) from e
+            return "", report, placement
+        # The command: the one named, else $CKTIMG_JSON, else on PATH.
+        cktimg = cktimg or os.environ.get("CKTIMG_JSON") or "cktimg-json"
         with tempfile.TemporaryDirectory(prefix="sprack-draw-") as d:
             sp, js, out, rep = (os.path.join(d, n) for n in ("deck.sp", "d.json", "d.svg", "r.json"))
             with open(sp, "w", encoding="utf-8", newline="\n") as f:

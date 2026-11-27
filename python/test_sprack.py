@@ -1427,6 +1427,32 @@ def test_api_research_proposals():
     assert [s["name"] for s in left] == ["B1"]
 
 
+def test_place_and_draw_go_to_cktimg_package():
+    # cktImg's own package, where it can be imported: the deck as text, the
+    # keywords passed through, the command named as `exe`.
+    import types
+    seen = {}
+    fake = types.ModuleType("cktimg")
+    def place(deck, **kw):
+        seen["place"] = (deck, kw)
+        return {"devices": []}, {"requests": []}
+    def draw(deck, **kw):
+        seen["draw"] = (deck, kw)
+        return "<svg/>", {"requests": []}
+    fake.place, fake.draw = place, draw
+    sys.modules["cktimg"] = fake
+    try:
+        c = sprack.Circuit("t")
+        c.R("1", "a", 0, "1k")
+        c.hint("order", "R1")
+        assert c.place(symbols="s.zon", start="last.json") == ({"devices": []}, {"requests": []})
+        deck, kw = seen["place"]
+        assert "*@ order R1\n" in deck and kw == dict(symbols="s.zon", target=None, start="last.json", config=None, exe=None)
+        assert c.draw(cktimg="/opt/cktimg-json")[0] == "<svg/>" and seen["draw"][1]["exe"] == "/opt/cktimg-json"
+    finally:
+        del sys.modules["cktimg"]
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.
