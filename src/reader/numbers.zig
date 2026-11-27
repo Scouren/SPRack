@@ -105,7 +105,9 @@ pub fn parseNumber(arena: Allocator, cfg: *const LexCfg, text: []const u8) ?ir.N
         }
     }
     const units = rest[best_len..];
-    for (units) |c| if (!std.ascii.isAlphabetic(c)) return null;
+    // A unit is letters, ASCII or not: `15kΩ` is 15k where letters after
+    // the scale are ignored (ngspice 45 solves it as 15k).
+    for (units) |c| if (!std.ascii.isAlphabetic(c) and c < 0x80) return null;
     if (best_len == 0 and !cfg.units_ignored) return null;
     if (best_odd) |odd| {
         const digits = mulDecimal(arena, mant, odd.mant) catch return null;

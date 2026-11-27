@@ -7778,3 +7778,16 @@ test "annotation: read back in its scope, and named as the target names its devi
     const back = try tr(a, "spectre", "ngspice", sp, &r2);
     try has(back, "*@ order m1 m2\n.subckt inv a y vdd\n*@ left a\n*@ face XM1.g left\nXM1 y a vdd vdd pmos w=1u\n");
 }
+
+test "a unit after a value is ignored, in any script: 15kΩ is 15k" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // ngspice 45 solves R1 a b 15kΩ as 15k: v(b) = 2.439024e-02 with 375Ω
+    // to ground, as with 15k and 375.
+    const out = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a b 15kΩ\nR2 b 0 375Ω\n.op\n.end\n", &report);
+    try has(out, "R1 (a b) resistor r=15k\n");
+    try has(out, "R2 (b 0) resistor r=375\n");
+    try testing.expectEqual(0, report.count(.@"error"));
+}
