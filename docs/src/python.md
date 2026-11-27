@@ -210,7 +210,7 @@ except sprack.Unsupported as e:
 
 ```text
 1 thing cannot be written for xyce:
-  - line 18: statement 'hdl' cannot be written for xyce: Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist. Dialects that define it: hspice, ngspice, spectre, vacask
+  - line 1: statement 'hdl' cannot be written for xyce: Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist. Dialects that define it: hspice, ngspice, spectre, vacask
 ```
 
 The exception has `.report` (every entry), `.text` (the netlist as far as it
@@ -226,7 +226,7 @@ print(len(c.check("vacask").errors), "errors for vacask")
 ```
 
 ```text
-error unsupported 18
+error unsupported 1
 0 errors for vacask
 ```
 

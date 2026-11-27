@@ -26,6 +26,11 @@ jobs:
       - name: Zig tests
         run: nix develop .#ci --command zig build test
 
+      # What a project that pins SPRack builds: the package from a clean
+      # checkout, with only the files the flake's source filter keeps.
+      - name: Nix package
+        run: nix build .#python --no-link
+
       # The PDKs and ngspice alone; the verify shell would also build the
       # other simulators.
       - name: Python tests
