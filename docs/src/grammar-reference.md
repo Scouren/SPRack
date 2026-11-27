@@ -251,6 +251,15 @@ variation inline                   # a parameter's variation is an entry of its
                                    # own after it (`p=1 dev/gauss=0.1`): written
                                    # so here, a random function in the
                                    # parameter's definition anywhere else
+each save -> print.analysis dc ac tran noise : ...   # a kind said here only
+                                   # for an analysis: written as the other
+                                   # kind once for each of these the netlist
+                                   # runs, the analysis's name in the slot,
+                                   # the slots the two share copied (Xyce's
+                                   # `.print tran v(out)`), an `oneway`
+                                   # info. With none of them, or a value
+                                   # the other kind has no slot for, the
+                                   # kind's `no` line holds
 rerun alter                        # analyses run where they stand: written
                                    # again after each statement of the kind
 switch "simulator lang=spice" -> hspice   # from such a line on, read with

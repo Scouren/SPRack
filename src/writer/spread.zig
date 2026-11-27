@@ -1,11 +1,13 @@
 //! Sweeps over analyses: a `spread` block's rule written as the end of
 //! each analysis it holds, whether the kind's own line says it whole, and
-//! the check that a one-line `.step` sweeps every analysis.
+//! the check that a one-line `.step` sweeps every analysis, and a
+//! statement said once for each analysis (`each`).
 //!
 //! Contents:
 //! - `pub fn checkSteps(w: *Writer, stmts: []const ir.Stmt) void`
 //! - `pub fn spread(w: *Writer, st: *const ir.Stmt) Error!void`
 //! - `pub fn fits(w: *Writer, st: *const ir.Stmt) Error!bool`
+//! - `pub fn each(w: *Writer, st: *const ir.Stmt) Error!bool`
 
 const std = @import("std");
 const schema = @import("schema");
@@ -80,6 +82,40 @@ pub fn fits(w: *Writer, st: *const ir.Stmt) Error!bool {
         if (try e.seq(rule.pat) and try e.lossCount() == 0) return true;
     }
     return false;
+}
+
+/// A statement the target says only for an analysis (`each save ->
+/// print.analysis ...`): written as the other kind once for each of the
+/// analyses the netlist runs, an `oneway` info. False, and nothing
+/// written, where it runs none of them or a value has no place there.
+pub fn each(w: *Writer, st: *const ir.Stmt) Error!bool {
+    const e = for (w.g.eaches) |*e| {
+        if (e.from == st.kind) break e;
+    } else return false;
+    // The grammar's compiler takes an `each` line only with an analysis.
+    assert(e.per.len > 0);
+    var out = try ir.newStmt(w.arena, e.to, st.line);
+    out.dialect = st.dialect;
+    out.tail = st.tail;
+    for (schema.info(st.kind).slots, 0..) |sl, i| {
+        if (st.at(i) == .none) continue;
+        const j = schema.slotIndex(e.to, sl.name) orelse return false;
+        try out.set(w.arena, j, st.at(i));
+    }
+    var said: std.ArrayList(u8) = .empty;
+    for (e.per) |k| if (w.used[@backingInt(k)]) {
+        try said.print(w.arena, "{s}{s}", .{ if (said.items.len > 0) ", " else "", @tagName(k) });
+    };
+    if (said.items.len == 0) return false;
+    w.report.add(.info, .oneway, st.line, "{s}: written as a {s} for each analysis the " ++
+        "netlist runs ({s}): {s}", .{ @tagName(st.kind), @tagName(e.to), said.items, e.text });
+    for (e.per) |k| if (w.used[@backingInt(k)]) {
+        var one = out;
+        try one.own(w.arena);
+        try one.set(w.arena, e.slot, .{ .atom = @tagName(k) });
+        try blocks.stmt(w, &one);
+    };
+    return true;
 }
 
 // ---- private ----

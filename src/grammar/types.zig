@@ -44,6 +44,7 @@
 //! - `pub const Means = struct`
 //! - `pub const Absent = struct`
 //! - `pub const Switch = struct`
+//! - `pub const Each = struct`
 //! - `pub const Spread = struct`
 //! - `pub const Reserved = struct`
 //! - `pub const Topo = enum`
@@ -560,6 +561,12 @@ pub const Absent = struct { kind: Kind, slot: u8 = no_slot, reason: []const u8 }
 pub const Switch = struct { words: []const u8, dialect: []const u8 };
 
 pub const Spread = struct { kind: Kind, word: []const u8 = "" };
+
+/// `each save -> print.analysis dc ac tran noise : why`: a statement of
+/// `from`, which this dialect says only for an analysis, is written as a
+/// `to` once for each kind of `per` the netlist runs, the kind's name in
+/// `slot`; the slots the two kinds share are copied.
+pub const Each = struct { from: Kind, to: Kind, slot: u8, per: []const Kind, text: []const u8 };
 
 /// `reserved name ... : reason`: parameter names the simulator refuses.
 /// `reserved [shadowed] name ... : reason`. `shadowed`: the simulator

@@ -62,6 +62,8 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
     // another's: one with nothing to say there (run, quit) is left out,
     // any other is unsupported.
     if (st.kind == .simctl and w.othersCommand(st)) return foreignCommand(w, st);
+    // A statement the target says only for an analysis: once for each.
+    if (try spread.each(w, st)) return;
     if (try instparams.hoistParams(w, st)) |h| return stmt(w, &h);
     if (try compiledForm(w, st)) |c| return stmt(w, &c);
     // A conditional block where there are none, but a choice inside an

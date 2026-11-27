@@ -73,8 +73,9 @@ def test_build_every_dialect():
         assert line + "\n" in sp, f"missing {line!r} in\n{sp}"
     assert [e.code for e in sp.report.warnings].count("caveat") >= 2
     c.netlist("hspice")
-    # Xyce records only what .print lists: a bare save is an error there, and says so.
-    raises(sprack.Unsupported, lambda: c.netlist("xyce"), "Xyce records only what .PRINT lists")
+    # Xyce runs one analysis a netlist, and says so; the save is a .print of each.
+    xe = raises(sprack.Unsupported, lambda: c.netlist("xyce"), "runs one analysis a netlist")
+    assert "Xyce records only what .PRINT lists" not in str(xe), xe
     # VACASK loads the BSIM4 module and takes the initial condition on the analysis.
     # Its BSIM4 takes version only as a string, so a numeric one is dropped, with a warning.
     va = c.netlist("vacask")
@@ -1471,6 +1472,16 @@ def test_schemify_hdl_is_the_compiled_module_for_ngspice():
     c.R("1", "a", 0, "1k")
     assert "pre_osdi x.osdi\n" in c.netlist("ngspice"), c.netlist("ngspice")
     assert 'load "x.va"\n' in c.netlist("vacask"), c.netlist("vacask")
+
+
+def test_schemify_save_is_a_print_for_xyce():
+    # Xyce prints what an analysis records: a save is a .print of each.
+    c = sprack.Circuit("t")
+    c.R("1", "a", 0, "1k")
+    c.V("1", "a", 0, 1)
+    c.save("v(a)")
+    c.tran("1n", "10n")
+    assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
 
 
 if __name__ == "__main__":

@@ -199,6 +199,7 @@ explained under [Reading the report](simulators.md#reading-the-report).
 When the dialect cannot say something, `netlist` raises `sprack.Unsupported`:
 
 ```python
+c.hdl("mydiode.va")
 try:
     c.netlist("xyce")
 except sprack.Unsupported as e:
@@ -207,7 +208,7 @@ except sprack.Unsupported as e:
 
 ```text
 1 thing cannot be written for xyce:
-  - line 15: statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists, and .PRINT needs an analysis type that a bare save does not give. Dialects that define it: hspice, ltspice, ngspice, spectre, vacask
+  - line 18: statement 'hdl' cannot be written for xyce: Xyce loads Verilog-A models as compiled plugins named on the command line, not from the netlist. Dialects that define it: hspice, ngspice, spectre, vacask
 ```
 
 The exception has `.report` (every entry), `.text` (the netlist as far as it
@@ -223,7 +224,7 @@ print(len(c.check("vacask").errors), "errors for vacask")
 ```
 
 ```text
-error unsupported 15
+error unsupported 18
 0 errors for vacask
 ```
 

@@ -52,6 +52,7 @@ const Rule = types.Rule;
 const SignalForm = types.SignalForm;
 const Spellings = types.Spellings;
 const Spread = types.Spread;
+const Each = types.Each;
 const Switch = types.Switch;
 const Threshold = types.Threshold;
 const UniqueAnalysis = types.UniqueAnalysis;
@@ -129,6 +130,9 @@ pub const Grammar = struct {
     /// `monte=`). With a word, only the rules that start with it are such
     /// endings, and the others are the kind's own lines (`.temp`).
     spreads: []const Spread = &.{},
+    /// `each kind -> kind.slot analysis... : why`: a kind said once for
+    /// each analysis the netlist runs, as another kind.
+    eaches: []const Each = &.{},
     /// `rerun kind`: this dialect runs its analyses where they stand, so
     /// they are written again after each statement of the kind (Spectre's
     /// `altergroup`).

@@ -121,6 +121,8 @@ pub const Writer = struct {
     clash_keys: ir.CaselessSet = .empty,
     /// How many subcircuits the statement being written is inside.
     depth: u32 = 0,
+    /// The kinds the netlist and its environment hold (`markUsed`).
+    used: [schema.kind_count]bool = @splat(false),
     /// The terminals of the instances of each model (`collectTerminals`).
     terminals: facts.TerminalMap = .empty,
 

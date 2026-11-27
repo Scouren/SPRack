@@ -22,7 +22,7 @@
 //!   `Rule`, `Dir`, `Block`, `no_slot`, `wild_slot`
 //! - from `types.zig`, the lexer: `LexCfg`, `Scale`, `OddScale`
 //! - from `types.zig`, the directives: `Absent`, `Caveat`, `Check`, `Computes`,
-//!   `Convert`, `Differs`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
+//!   `Convert`, `Differs`, `Each`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
 //!   `Inert`, `Means`, `Merge`, `ModelEntry`, `ModelKv`, `ModelParamTable`,
 //!   `ModelSpelling`, `ModelWhen`, `Move`, `Needs`, `NoFamily`, `NoParam`,
 //!   `Omitted`, `Own`, `ParamTable`, `Plugin`, `RawBlock`, `Require`,
@@ -107,6 +107,7 @@ pub const Rewrite = types.Rewrite;
 pub const SignalForm = types.SignalForm;
 pub const Spellings = types.Spellings;
 pub const Spread = types.Spread;
+pub const Each = types.Each;
 pub const Switch = types.Switch;
 pub const Threshold = types.Threshold;
 pub const Topo = types.Topo;
@@ -161,6 +162,7 @@ const Head = enum {
     requires,
     reserved,
     spread,
+    each,
     rerun,
     no,
 };
@@ -286,6 +288,7 @@ fn directive(
         .reserved => try netlist.reserved(c, g, no, rest),
         .spread => try netlist.spread(c, g, no, rest),
         .rerun => try netlist.rerun(c, g, no, rest),
+        .each => try netlist.each(c, g, no, rest),
         .models => try models.models(c, g, lines),
         .signals => try spellings.signals(c, g, lines),
         .functions => try spellings.functions(c, g, lines),

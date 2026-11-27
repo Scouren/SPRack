@@ -1,6 +1,6 @@
 //! Directives of what a dialect's simulator takes of a netlist as a whole:
 //! `libsections`, `variation`, `unique`, `hoist`, `switch`, `requires`,
-//! `reserved`, `spread` and `rerun`.
+//! `reserved`, `spread`, `each` and `rerun`.
 //!
 //! Contents:
 //! - `pub fn libsections(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -12,6 +12,7 @@
 //! - `pub fn requires(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn reserved(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn spread(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
+//! - `pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn rerun(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 
 const std = @import("std");
@@ -24,10 +25,12 @@ const C = context.C;
 const Error = context.Error;
 const args = context.args;
 const kindOf = context.kindOf;
+const dotted = context.dotted;
 const Grammar = tables.Grammar;
 const Require = types.Require;
 const Reserved = types.Reserved;
 const Spread = types.Spread;
+const Each = types.Each;
 const Switch = types.Switch;
 const Topo = types.Topo;
 const UniqueAnalysis = types.UniqueAnalysis;
@@ -180,6 +183,28 @@ pub fn spread(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         else
             "" },
     );
+}
+
+/// `each kind -> kind.slot analysis... : why`.
+pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const colon = std.mem.indexOf(u8, rest, " : ") orelse rest.len;
+    const a = try args(c, no, rest[0..colon]);
+    if (colon == rest.len or a.len < 4 or !std.mem.eql(u8, a[1], "->"))
+        return c.fail(no, "each is `each kind -> kind.slot analysis... : why`", .{});
+    const to, const slot = try dotted(c, no, a[2]);
+    if (schema.info(to).slots[slot].ty != .atom)
+        return c.fail(no, "each names a slot of a word, found '{s}'", .{a[2]});
+    var per: []const Kind = &.{};
+    for (a[3..]) |k| per = try c.add(Kind, per, try kindOf(c, no, k));
+    // `args` gave at least one analysis after the slot.
+    std.debug.assert(per.len > 0);
+    g.eaches = try c.add(Each, g.eaches, .{
+        .from = try kindOf(c, no, a[0]),
+        .to = to,
+        .slot = slot,
+        .per = per,
+        .text = rest[colon + 3 ..],
+    });
 }
 
 /// `rerun kind`.

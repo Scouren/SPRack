@@ -273,7 +273,9 @@ pub const Driver = struct {
         const folded = frame.foldsHeader(g, sv.dialect, sv.folds_case);
         s.case = (!g.lex.case_sensitive or folded) and sv.check_case;
         if (!s.whole) try s.beginGroups(sv);
-        try frame.open(w, &frameFacts(sv, to.env));
+        const facts = frameFacts(sv, to.env);
+        w.used = facts.used;
+        try frame.open(w, &facts);
         if (s.foreign) to.report.phase = ir.Phase.params;
         if (s.foreign) try s.beginRenames(sv);
         if (s.foreign and !s.whole) s.topo = try topology.Stream.init(ir.big, perm, g, to.report, .{

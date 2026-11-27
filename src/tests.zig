@@ -1946,6 +1946,12 @@ test "outputs, initial conditions and measurements" {
     try has(xy, ".four 1k v(out)\n");
     try reported(&r1, .@"error", "statement 'save' cannot be written for xyce: Xyce records only what .PRINT lists");
     try testing.expectEqual(1, r1.count(.@"error"));
+    // With an analysis to print for, the save is a .print of each.
+    var r1b: ir.Report = .init(a);
+    const xy2 = try tr(a, "ngspice", "xyce", "t\nV1 in 0 1\nR1 in out 1k\n.save v(out) i(V1)\n" ++
+        ".tran 1n 10n\n.dc V1 0 1 0.1\n.end\n", &r1b);
+    try has(xy2, ".print dc v(out) i(V1)\n.print tran v(out) i(V1)\n");
+    try reported(&r1b, .info, "save: written as a print for each analysis the netlist runs (dc, tran)");
 
     var r2: ir.Report = .init(a);
     const sp = try tr(a, "ngspice", "spectre", src, &r2);
