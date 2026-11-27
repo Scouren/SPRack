@@ -1,12 +1,13 @@
 //! Directives of what a slot of a kind means in a dialect, one line each:
-//! `caveat`, `inert`, `implied`, `enum`, `move`, `merge`, `no`, `invalid`
-//! and `default`.
+//! `caveat`, `inert`, `implied`, `enum`, `respell`, `move`, `merge`, `no`,
+//! `invalid` and `default`.
 //!
 //! Contents:
 //! - `pub fn caveat(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn inert(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn implied(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn enumMap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
+//! - `pub fn respell(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn move(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn merge(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn absent(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -38,6 +39,7 @@ const Implied = types.Implied;
 const Inert = types.Inert;
 const Merge = types.Merge;
 const Move = types.Move;
+const Respell = types.Respell;
 const NoFamily = types.NoFamily;
 const no_slot = types.no_slot;
 
@@ -140,6 +142,32 @@ pub fn enumMap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         );
     }
     g.enums = try c.add(EnumMap, g.enums, .{ .kind = kind, .slot = slot, .pairs = pairs });
+}
+
+/// `respell kind c=to ... : reason`: `[=_ ]=`, `]` written as nothing.
+pub fn respell(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
+        no,
+        "respell is `respell kind c=to ... : reason`",
+        .{},
+    );
+    const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse colon;
+    const kind = try kindOf(c, no, rest[0..sp]);
+    var pairs: []const [2][]const u8 = &.{};
+    var it = std.mem.tokenizeAny(u8, rest[@min(sp, colon)..colon], " \t");
+    while (it.next()) |w| {
+        // The first character is the one respelled, `=` too.
+        const eq = std.mem.indexOfScalarPos(u8, w, 1, '=') orelse
+            return c.fail(no, "respell: `{s}` is not c=to", .{w});
+        pairs = try c.add([2][]const u8, pairs, .{ w[0..eq], w[eq + 1 ..] });
+    }
+    if (pairs.len == 0) return c.fail(no, "respell names no character", .{});
+    assert(pairs[0][0].len > 0);
+    g.respells = try c.add(Respell, g.respells, .{
+        .kind = kind,
+        .pairs = pairs,
+        .reason = rest[colon + 3 ..],
+    });
 }
 
 /// `move kind.slot -> kind.slot [oneway]`.

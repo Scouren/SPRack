@@ -24,7 +24,7 @@
 //! - from `types.zig`, the directives: `Absent`, `Caveat`, `Check`, `Computes`,
 //!   `Convert`, `Differs`, `Each`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
 //!   `Inert`, `Means`, `Merge`, `ModelEntry`, `ModelKv`, `ModelParamTable`,
-//!   `ModelSpelling`, `ModelWhen`, `Modules`, `Names`, `Move`, `Needs`, `NoFamily`,
+//!   `ModelSpelling`, `ModelWhen`, `Modules`, `Names`, `Respell`, `Move`, `Needs`, `NoFamily`,
 //!   `NoParam`, `Once`,
 //!   `Omitted`, `Own`, `ParamTable`, `Plugin`, `RawBlock`, `Require`,
 //!   `Reserved`, `Rewrite`, `SignalForm`, `Spellings`, `Spread`, `Switch`,
@@ -98,6 +98,7 @@ pub const Needs = types.Needs;
 pub const Once = types.Once;
 pub const Modules = types.Modules;
 pub const Names = types.Names;
+pub const Respell = types.Respell;
 pub const NoFamily = types.NoFamily;
 pub const NoParam = types.NoParam;
 pub const Omitted = types.Omitted;
@@ -127,6 +128,7 @@ const Head = enum {
     once,
     modules,
     names,
+    respell,
     wrap,
     own,
     raw,
@@ -283,6 +285,7 @@ fn directive(
         .inert => try facts.inert(c, g, no, rest),
         .implied => try facts.implied(c, g, no, rest),
         .@"enum" => try facts.enumMap(c, g, no, rest),
+        .respell => try facts.respell(c, g, no, rest),
         .move => try facts.move(c, g, no, rest),
         .merge => try facts.merge(c, g, no, rest),
         .no => try facts.absent(c, g, no, rest),

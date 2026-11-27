@@ -41,6 +41,7 @@ const Needs = types.Needs;
 const Once = types.Once;
 const Modules = types.Modules;
 const Names = types.Names;
+const Respell = types.Respell;
 const NoFamily = types.NoFamily;
 const NoParam = types.NoParam;
 const Omitted = types.Omitted;
@@ -155,6 +156,8 @@ pub const Grammar = struct {
     modules: ?Modules = null,
     /// `names`: what a name may hold, and how another is escaped.
     names: ?Names = null,
+    /// `respell`: the characters a node of a kind may not hold.
+    respells: []const Respell = &.{},
     read_index: ReadIndex = .{},
 
     /// The rules that may read a line whose first token is a word of this

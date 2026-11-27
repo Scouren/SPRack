@@ -7898,7 +7898,10 @@ test "verilog: d_cosim in ngspice, by direction, a card a model" {
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
     const out = try fromJson(a, "ngspice", dig_tb_json, &report);
-    try has(out, "AUX [ q[0] ] [ qb ] dinv\nXB[0] d[0] q[0] dbuf\n");
+    // A net in a vector is respelled in its whole scope; a net no vector
+    // touches keeps its brackets.
+    try has(out, "AUX [ q_0 ] [ qb ] dinv\nXB[0] d[0] q_0 dbuf\nXB[1] d[1] q[1] dbuf\n");
+    try reported(&report, .info, "node 'q[0]' is written 'q_0' in ngspice");
     try has(out, ".subckt dbuf A Y\nAU1 [ A ] [ net_0w0001 ] dinv\n" ++
         "AU2 [ net_0w0001 ] [ Y ] dinv\n.ends dbuf\n");
     // Once a model, after the last statement, the compiled module its stem.
@@ -7906,7 +7909,19 @@ test "verilog: d_cosim in ngspice, by direction, a card a model" {
     try testing.expectEqual(0, report.count(.@"error"));
     var r2: ir.Report = .init(a);
     const sar = try fromJson(a, "ngspice", sar_tb_json, &r2);
-    try has(sar, "AU1 [ clk cmp ] [ d[1] d[0] eoc ] sar_m\n");
+    try has(sar, "AU1 [ clk cmp ] [ d_1 d_0 eoc ] sar_m\n");
+    // A respelled name another net has gets `_` until it is new; the
+    // signals and initial values of the scope follow.
+    var r5: ir.Report = .init(a);
+    const bus = try fromJson(a, "ngspice",
+        \\{"stmts":[{"kind":"verilog","name":"U1","nodes":["d[1]","d[0]","y"],"master":"dbus",
+        \\"file":"dbus.v","dirs":["in","in","out"]},
+        \\{"kind":"resistor","name":"R1","pos":"d[0]","neg":"0","r":"1k"},
+        \\{"kind":"resistor","name":"R2","pos":"d_1","neg":"0","r":"1k"},
+        \\{"kind":"save","signals":["v(d[1])"]},{"kind":"ic","values":{"d[0]":"0.5"}}]}
+    , &r5);
+    try has(bus, "AU1 [ d_1_ d_0 ] [ y ] dbus\nR1 d_0 0 1k\nR2 d_1 0 1k\n" ++
+        ".save v(d_1_)\n.ic v(d_0)=0.5\n");
     try has(sar, ".model dbuf_m d_cosim simulation=\"sar.vvp\"\n" ++
         ".model sar_m d_cosim simulation=\"sar.vvp\"\n");
     try reported(&r2, .warning, "verilog.params: ngspice bridges a d_cosim port");

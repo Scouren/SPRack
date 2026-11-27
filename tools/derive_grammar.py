@@ -27,6 +27,7 @@ import sys
 KIND_FIRST = {
     "rule", "read", "write", "block", "no", "inert", "implied", "enum", "caveat", "invalid",
     "default", "omitted", "params", "spread", "rerun", "rewrite", "unique", "move", "once",
+    "respell",
 }
 # Directives that open a section closed by a line `end`.
 SECTIONS = {"block", "needs", "once", "params", "modelparams", "rewrite", "plugin", "signals",

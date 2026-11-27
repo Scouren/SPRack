@@ -21,6 +21,7 @@
 //! - `pub const Needs = struct`
 //! - `pub const Once = struct`
 //! - `pub const Modules = struct`
+//! - `pub const Respell = struct`
 //! - `pub const Names = struct`
 //! - `pub const Convert = struct`
 //! - `pub const Computes = struct`
@@ -314,6 +315,15 @@ pub const Modules = struct {
     close: []const u8,
     /// The words of `{dir}`: in, out, inout.
     dirs: [3][]const u8,
+};
+
+/// `respell kind c=to ... : reason`: a node a statement of the kind
+/// names may not hold the characters `c` here; each is written as the
+/// text after it, and the net so renamed in its whole scope.
+pub const Respell = struct {
+    kind: Kind,
+    pairs: []const [2][]const u8,
+    reason: []const u8,
 };
 
 /// `names ... end`: what a name of an instance, a net, a subcircuit or a

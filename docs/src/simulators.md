@@ -193,8 +193,11 @@ parameters (`vdd`, `vth`, `rout`, ...).
 * ngspice co-simulates it with d_cosim: `AU1 [ ins ] [ outs ] [ inouts ]
   sar_m`, and once a model, after the last statement, `.model sar_m d_cosim
   simulation="sar.vvp"`, the module as Icarus Verilog compiles it
-  (`iverilog -o sar.vvp sar.v`). The bridge parameters have no place: a
-  caveat.
+  (`iverilog -o sar.vvp sar.v`; without `file`, the module names it). The
+  bridge parameters have no place: a caveat. ngspice cuts a word at `[`
+  and `]` on an A line, so a net an A line names, `d[7]`, is `d_7`
+  wherever its scope names it (`d_7_` where `d_7` is taken), an info note
+  each; nets no A line names keep their brackets.
 * espice writes `NU1 <nodes> sar_m vdd=1.8 ...`, then a `.model sar_m sar`
   card a model and a `.verilog "sar.v"` line a source, sorted.
 * `verilog` writes it as an instance of its module, by port: `sar U1

@@ -1603,7 +1603,8 @@ def _dig_tb():
 
 def test_schemify_verilog_is_d_cosim_in_ngspice_and_an_n_card_in_espice():
     out = _dig_tb().netlist("ngspice")
-    assert "AUX [ q[0] ] [ qb ] dinv\nXB[0] d[0] q[0] dbuf\n" in out, out
+    # A net in a vector is respelled wherever its scope names it; one no vector touches keeps its brackets.
+    assert "AUX [ q_0 ] [ qb ] dinv\nXB[0] d[0] q_0 dbuf\nXB[1] d[1] q[1] dbuf\n" in out, out
     assert "AU1 [ A ] [ net_0w0001 ] dinv\n" in out, out
     assert '.ends dbuf\n.model dinv d_cosim simulation="dinv.vvp"\n.end\n' in out, out
     # sar_tb: a bus bit by bit from its left index, the bridge's parameters.
@@ -1620,7 +1621,8 @@ def test_schemify_verilog_is_d_cosim_in_ngspice_and_an_n_card_in_espice():
     assert "NU1 clk rst cmp d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] eoc sar_m vdd=1.8 vth=0.9 rout=100\n" in es, es
     assert '.hdl "cdac.va"\n.model cdac_m cdac\n' in es and '.model sar_m sar\n.verilog "sar.v"\n.end\n' in es, es
     ng = c.netlist("ngspice", strict=False)
-    assert "AU1 [ clk rst cmp ] [ d[7] d[6] d[5] d[4] d[3] d[2] d[1] d[0] eoc ] sar_m\n" in ng, ng
+    assert "AU1 [ clk rst cmp ] [ d_7 d_6 d_5 d_4 d_3 d_2 d_1 d_0 eoc ] sar_m\n" in ng, ng
+    assert "NDAC d_7 d_6 d_5 d_4 d_3 d_2 d_1 d_0 vdac cdac_m\n" in ng, ng
     # A dialect without Verilog refuses it, naming who has it.
     raises(sprack.Unsupported, lambda: _dig_tb().netlist("xyce"), "Xyce has no digital Verilog", "ngspice")
 
@@ -1678,6 +1680,23 @@ def test_schemify_top_module_ports():
     assert "inp" not in ng and "ports: not written" in str(ng.report), (ng, ng.report)
     assert "inp" not in c.netlist("cdl")
     assert 'c.ports("inp", "inn", "out", dirs=["in", "in", "out"])' in c.python(), c.python()
+
+
+def test_schemify_xspice_bus_nets_respelled():
+    # A respelled name another net has gets `_` until it is new; saves and .ic follow.
+    c = sprack.Circuit("t")
+    c.verilog("U1", "d[1]", "d[0]", "y", "dbus", file="dbus.v", pins=["D", "D", "Y"], dirs=["in", "in", "out"])
+    c.R("R1", "d[0]", 0, "1k")
+    c.R("R2", "d_1", 0, "1k")
+    c.save(sprack.v("d[1]"))
+    out = c.netlist("ngspice")
+    assert "AU1 [ d_1_ d_0 ] [ y ] dbus\nRR1 d_0 0 1k\nRR2 d_1 0 1k\n.save v(d_1_)\n" in out, out
+    assert "node 'd[1]' is written 'd_1_'" in str(out.report), out.report
+    # x[1][2] is x_1_2, in a subcircuit's scope too, its ports among it.
+    c = sprack.Circuit("t")
+    with c.subckt("s", "x[1][2]") as s:
+        s.add("xspice", "A2", nodes=["[", "x[1][2]", "]", "y"], master="m")
+    assert ".subckt s x_1_2\nA2 [ x_1_2 ] y m\n" in c.netlist("ngspice", strict=False)
 
 
 def test_schemify_names_escaped():

@@ -156,6 +156,17 @@ implied options temp = $tnom       # for options, over the whole netlist; a
 implied vsource td1 = 0 wave=exp   # only where that slot holds that word
 enum options method : trap=trap gear=gear2      # canonical = this dialect's word, written as
                                    # given, read in any case where case folds
+respell xspice [=_ ]= : ...        # a node of the kind may not hold these
+                                   # characters here: each `c=to` is written
+                                   # as `to` (`]=`: as nothing), `x[1][2]` as
+                                   # `x_1_2`. The net is renamed in its whole
+                                   # scope (the top level, or a subcircuit
+                                   # with its ports): every node, signal and
+                                   # `.ic` value there, with `_` after the
+                                   # name until no other net has it; an info
+                                   # note each, in the words after `:`. A
+                                   # node that is one of the characters alone
+                                   # is the form's own (a vector's `[`)
 move options.method -> tran.method # this dialect says it on another statement
 move options.delmax -> tran.maxstep oneway   # only when writing
 move tran.maxstep -> options.delmax oneway   # onto the options, said once

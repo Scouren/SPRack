@@ -44,6 +44,7 @@ const rewrite = @import("rewrite.zig");
 const frame = @import("frame.zig");
 const annotations = @import("annotations.zig");
 const structural = @import("modules.zig");
+const respell = @import("respell.zig");
 const Refs = @import("refs.zig").Refs;
 
 const Allocator = std.mem.Allocator;
@@ -516,6 +517,10 @@ pub const Driver = struct {
         const g = w.g;
         const a = w.arena;
         var stmts = in;
+        // A net the target respells, in its whole scope: the top level is
+        // one group where it has one (`needsAll`), a subcircuit always is.
+        w.report.phase = ir.Phase.renames;
+        stmts = try respell.apply(w, stmts);
         if (g.converts.len > 0 and analysis_passes.anyConverted(g, stmts)) {
             const list = try a.dupe(ir.Stmt, stmts);
             try expr.convert(a, g, list, true);
@@ -590,6 +595,8 @@ const no_rescan: NoRescan = .{};
 pub fn needsAll(g: *const Grammar, st: *const ir.Stmt) ?[]const u8 {
     // `structural.write`: every statement is in a module the netlist decides.
     if (g.modules != null) return "a netlist written as modules";
+    // `respell.apply`: the net is renamed wherever the top level names it.
+    if (g.respells.len > 0 and respell.holds(g, st)) return "a net the target respells";
     return switch (st.kind) {
         // `alter.prepare`.
         .alter => "an alter",
