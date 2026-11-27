@@ -2025,16 +2025,22 @@ test "Verilog-A: loading a module and instantiating it" {
         \\model dmod mydiode is=1e-14
         \\d1 (a 0) dmod area=2
     , &r1);
-    try has(ng, ".control\npre_osdi mydiode.va\n.endc\n");
+    // ngspice loads the module OpenVAF compiles the source to.
+    try has(ng, ".control\npre_osdi mydiode.osdi\n.endc\n");
     try has(ng, ".model dmod mydiode is=1e-14\n");
     // An instance of a model that is not a built-in family is an N device.
     try has(ng, "nd1 a 0 dmod area=2\n");
-    try reported(&r1, .warning, "hdl.path: ngspice loads compiled OSDI files with pre_osdi");
+    try reported(&r1, .warning, "hdl.path: 'mydiode.va' is written as 'mydiode.osdi': " ++
+        "ngspice loads compiled OSDI files with pre_osdi; compile the Verilog-A source with OpenVAF");
     try reported(&r1, .warning, "model 'dmod' is of the Verilog-A module 'mydiode': ngspice must load the same module");
 
     var r2: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", ng, &r2);
-    try has(va, "load \"mydiode.va\"\n");
+    // Read back, the compiled module stays the one named.
+    try has(va, "load \"mydiode.osdi\"\n");
+    var r4: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ngspice", ng, &r4), "pre_osdi mydiode.osdi\n");
+    try testing.expectEqual(0, r4.countCode(.caveat));
     try has(va, "nd1 (a 0) dmod area=2\n");
     var r3: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", ng, &r3);

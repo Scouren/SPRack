@@ -41,7 +41,7 @@ const Move = types.Move;
 const NoFamily = types.NoFamily;
 const no_slot = types.no_slot;
 
-/// `caveat [read] kind slot[=*suffix] : text`.
+/// `caveat [read] kind slot[=*suffix [-> *suffix]] : text`.
 pub fn caveat(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
         no,
@@ -51,8 +51,13 @@ pub fn caveat(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     const all = try args(c, no, rest[0..colon]);
     const read = all.len > 0 and std.mem.eql(u8, all[0], "read");
     const ks = all[@intFromBool(read)..];
-    if (ks.len != 2) return c.fail(no, "caveat needs a kind and a slot", .{});
+    // `slot=*.va -> *.osdi`: the value is written with the other suffix.
+    const arrow = ks.len == 4 and std.mem.eql(u8, ks[2], "->");
+    if (ks.len != 2 and !arrow) return c.fail(no, "caveat needs a kind and a slot", .{});
     const star = std.mem.indexOf(u8, ks[1], "=*");
+    if (arrow and (read or star == null or ks[3].len < 2 or ks[3][0] != '*' or
+        std.ascii.endsWithIgnoreCase(ks[3], ks[1][star.? + 2 ..])))
+        return c.fail(no, "caveat `slot=*a -> *b` is written only, between suffixes", .{});
     const kind, const slot = try kindSlot(c, no, ks[0], if (star) |k|
         ks[1][0..k]
     else
@@ -65,7 +70,7 @@ pub fn caveat(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         .{ .kind = kind, .slot = slot, .text = rest[colon + 3 ..], .suffix = if (star) |k|
             ks[1][k + 2 ..]
         else
-            "", .read = read },
+            "", .becomes = if (arrow) ks[3][1..] else "", .read = read },
     );
 }
 

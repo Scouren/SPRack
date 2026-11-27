@@ -141,6 +141,11 @@ merge ac -> noise                  # read: noise takes what it lacks from the ac
                                    # stand between them
 caveat tran skip_dc : UIC skips ... # a warning attached to a slot when used
 caveat hdl path=*.osdi : ...       # only where the value ends so
+caveat hdl path=*.va -> *.osdi : ... # and, crossing in, written with the
+                                   # other suffix in its place (ngspice
+                                   # loads the OSDI file OpenVAF compiles a
+                                   # source to): the caveat names both.
+                                   # Read back, the value stays as written
 caveat read options gmin : ...     # said when a netlist of this dialect is
                                    # translated out, not into it
 inert options post : ...           # a parameter that changes no result here:

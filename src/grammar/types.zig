@@ -395,11 +395,14 @@ pub const Omitted = struct {
 /// crosses into or out of this dialect (`uic` is not quite `skipdc=yes`).
 /// `caveat hdl path=*.osdi : ...` holds only where the value ends so.
 /// `read`: said when a translation reads this dialect, not writes it.
+/// `caveat hdl path=*.va -> *.osdi : ...`: such a value crossing in is
+/// written with `becomes` in place of `suffix` (a source loaded compiled).
 pub const Caveat = struct {
     kind: Kind,
     slot: u8,
     text: []const u8,
     suffix: []const u8 = "",
+    becomes: []const u8 = "",
     read: bool = false,
 };
 

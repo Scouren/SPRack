@@ -63,6 +63,7 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
     // any other is unsupported.
     if (st.kind == .simctl and w.othersCommand(st)) return foreignCommand(w, st);
     if (try instparams.hoistParams(w, st)) |h| return stmt(w, &h);
+    if (try compiledForm(w, st)) |c| return stmt(w, &c);
     // A conditional block where there are none, but a choice inside an
     // expression: the same statements in every branch are written once,
     // their values as choices (`cond.zig`).
@@ -372,6 +373,33 @@ fn openRefused(w: *Writer, st: *const ir.Stmt) Error!void {
         "{s}: required values missing for the {s} form",
         .{ @tagName(st.kind), w.g.name },
     );
+}
+
+/// `st` with a value the target loads only in another form (`caveat hdl
+/// path=*.va -> *.osdi`) given that form's suffix, and the caveat said;
+/// null where no such caveat holds. Read back, the value stays as written.
+fn compiledForm(w: *Writer, st: *const ir.Stmt) Error!?ir.Stmt {
+    if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return null;
+    for (w.g.caveats) |c| {
+        if (c.becomes.len == 0 or c.kind != st.kind) continue;
+        const v = st.at(c.slot);
+        const was: []const u8 = switch (v) {
+            .str, .atom => |x| x,
+            else => continue,
+        };
+        if (!std.ascii.endsWithIgnoreCase(was, c.suffix)) continue;
+        const now = try w.arena.print("{s}{s}", .{ was[0 .. was.len - c.suffix.len], c.becomes });
+        // The grammar's compiler refuses a form that ends as the one it replaces.
+        assert(!std.ascii.endsWithIgnoreCase(now, c.suffix));
+        var out = st.*;
+        try out.own(w.arena);
+        try out.set(w.arena, c.slot, if (v == .str) .{ .str = now } else .{ .atom = now });
+        w.report.add(.warning, .caveat, st.line, "{s}.{s}: '{s}' is written as '{s}': {s}", .{
+            @tagName(st.kind), schema.info(st.kind).slots[c.slot].name, was, now, c.text,
+        });
+        return out;
+    }
+    return null;
 }
 
 /// The first value of `st` the target has a caveat on, and the caveat.

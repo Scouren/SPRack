@@ -1464,6 +1464,15 @@ def test_schemify_script_keeps_run():
     assert ".control\nop\nrun\n.endc\n" in c.netlist("ngspice"), c.netlist("ngspice")
 
 
+def test_schemify_hdl_is_the_compiled_module_for_ngspice():
+    # ngspice loads what OpenVAF compiles x.va to; VACASK compiles it itself.
+    c = sprack.Circuit("t")
+    c.hdl("x.va")
+    c.R("1", "a", 0, "1k")
+    assert "pre_osdi x.osdi\n" in c.netlist("ngspice"), c.netlist("ngspice")
+    assert 'load "x.va"\n' in c.netlist("vacask"), c.netlist("vacask")
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.
