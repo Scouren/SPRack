@@ -4,7 +4,8 @@
 //! Contents:
 //! - `pub const Needed = struct`, with `pub fn deinit`
 //! - `pub const Spelling = struct`, with `pub fn keep`, `pub fn lowered`, `pub fn names`,
-//!   `pub fn deinit`, `pub fn prune`, `pub fn atom`, `pub fn statement`, `pub fn signal`
+//!   `pub fn globalNodes`, `pub fn enter`, `pub fn leave`, `pub fn deinit`, `pub fn prune`,
+//!   `pub fn atom`, `pub fn statement`, `pub fn signal`
 //! - `pub fn funcArgs(arena: Allocator, vals: []Value) Allocator.Error!void`, its renamer
 //!   with `pub fn get`
 //! - `pub fn resolveName(ctx: ?*const anyopaque, arena: Allocator, word: []const u8,
@@ -43,10 +44,25 @@ pub const Needed = struct {
 ///
 /// Only names that appear capitalised somewhere are stored. A netlist written
 /// entirely in lower case, as large generated ones are, costs nothing here.
+///
+/// A node belongs to its scope: the top level, or the body of one
+/// subcircuit. The nets `in` of the top level and the port `IN` of a
+/// subcircuit are not one name, and each keeps its own spelling; a node
+/// a `global` statement names is one name everywhere. Every other space
+/// is one table for the whole netlist.
 pub const Spelling = struct {
     const Map = std.StringHashMapUnmanaged([]const u8);
-    /// The capitalised spelling of each name of a space, found by any spelling.
+    /// The capitalised spelling of each name of a space, found by any spelling;
+    /// of the nodes, those of the top level.
     mixed: std.EnumArray(Space, ir.NameSet),
+    /// The capitalised nodes of each subcircuit body, by its lower-cased name.
+    bodies: std.StringHashMapUnmanaged(ir.NameSet) = .empty,
+    /// The nodes `global` statements name, in any case.
+    globals: ?ir.NameSet = null,
+    /// The subcircuits the statement being read is inside, innermost last,
+    /// lower-cased; `depth` past `scopes.len` is counted, not kept.
+    scopes: [ir.max_depth][]const u8 = undefined,
+    depth: usize = 0,
     /// While set, the names of `mixed` some lookup was answered with a
     /// spelling other than the one it would fall back to (`prune`).
     needed: ?*Needed = null,
@@ -162,12 +178,58 @@ pub const Spelling = struct {
     fn learn(sp: *Spelling, space: Space, name: []const u8) Allocator.Error!void {
         for (name) |c| {
             if (!std.ascii.isUpper(c)) continue;
-            return sp.mixed.getPtr(space).put(name);
+            if (space != .node or sp.depth == 0) return sp.mixed.getPtr(space).put(name);
+            const gop = try sp.bodies.getOrPut(ir.big, sp.scope());
+            if (!gop.found_existing) gop.value_ptr.* = .{ .src = sp.src, .perm = sp.perm };
+            return gop.value_ptr.put(name);
         }
+    }
+
+    /// The nodes of a `global` statement, whatever their case: one name in
+    /// every scope.
+    pub fn globalNodes(sp: *Spelling, st: *const ir.Stmt) Allocator.Error!void {
+        assert(st.kind == .global);
+        const v = st.get("nodes");
+        const one = [1]Value{v};
+        const items: []const Value = if (v == .list) v.list else &one;
+        if (sp.globals == null) sp.globals = .{ .src = sp.src, .perm = sp.perm };
+        for (items) |it| if (it == .atom) try sp.globals.?.put(it.atom);
+    }
+
+    /// Into the body of subcircuit `name`: its nodes are its own from here
+    /// until `leave`.
+    pub fn enter(sp: *Spelling, name: Value) Allocator.Error!void {
+        if (sp.depth < sp.scopes.len) sp.scopes[sp.depth] = if (name == .atom)
+            try std.ascii.allocLowerString(sp.perm, name.atom)
+        else
+            "";
+        sp.depth += 1;
+    }
+
+    pub fn leave(sp: *Spelling) void {
+        assert(sp.depth > 0);
+        sp.depth -= 1;
+    }
+
+    /// The lower-cased name of the innermost subcircuit; inside one only.
+    fn scope(sp: *const Spelling) []const u8 {
+        assert(sp.depth > 0);
+        return sp.scopes[@min(sp.depth, sp.scopes.len) - 1];
+    }
+
+    /// Is the node `name` the top level's: read there, or named by `global`?
+    fn topNode(sp: *const Spelling, name: []const u8) bool {
+        if (sp.depth == 0) return true;
+        const g = if (sp.globals) |*g| g else return false;
+        return g.contains(name);
     }
 
     pub fn deinit(sp: *Spelling) void {
         for (&sp.mixed.values) |*set| set.deinit();
+        var it = sp.bodies.valueIterator();
+        while (it.next()) |set| set.deinit();
+        sp.bodies.deinit(ir.big);
+        if (sp.globals) |*g| g.deinit();
     }
 
     /// The one spelling of the name `raw` of `space`. A parameter the
@@ -179,18 +241,28 @@ pub const Spelling = struct {
         raw: []const u8,
     ) Allocator.Error![]const u8 {
         if (raw.len > 256) return raw;
+        // A global node a body spells its own way: the top level's spelling,
+        // or none, the lower-case one.
+        if (space == .node and sp.depth > 0 and sp.topNode(raw))
+            return sp.lookup(space, raw, try lowered(arena, raw));
         if (space != .param) return sp.lookup(space, raw, raw);
         const low = try lowered(arena, raw);
         return sp.params.get(low) orelse sp.lookup(.param, low, raw);
     }
 
-    /// The capitalised spelling of `name` among those of `space`, else `fallback`.
+    /// The capitalised spelling of `name` among those of `space`, else
+    /// `fallback`; a node among those of its scope.
     fn lookup(
         sp: *const Spelling,
         space: Space,
         name: []const u8,
         fallback: []const u8,
     ) []const u8 {
+        if (space == .node and !sp.topNode(name)) {
+            // A body's table is never pruned: nothing to record.
+            const set = sp.bodies.getPtr(sp.scope()) orelse return fallback;
+            return set.getKey(name) orelse fallback;
+        }
         const k = sp.mixed.getPtrConst(space).getKey(name) orelse return fallback;
         if (sp.needed) |n| if (!std.mem.eql(u8, k, fallback)) {
             n.sets.getPtr(space).put(ir.big, k, {}) catch {

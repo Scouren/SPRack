@@ -1134,8 +1134,9 @@ test "source spelling is preserved" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var report: ir.Report = .init(a);
-    // ngspice ignores case, so VDD, Vdd and vdd are one node. The first
-    // spelling wins everywhere, which is what a case-sensitive target needs.
+    // ngspice ignores case, so Vdd and vdd are one node of the top level.
+    // The first spelling wins in its scope, which is what a case-sensitive
+    // target needs; the port VDD of a subcircuit is its own.
     const sp = try tr(a, "ngspice", "spectre",
         \\t
         \\.param Wn=2u
@@ -1152,8 +1153,8 @@ test "source spelling is preserved" {
     try has(sp, "subckt Inv (In Out VDD)\n");
     try has(sp, "MN1 (Out In 0 0) NCH w=Wn l=180n\n");
     try has(sp, "model NCH bsim4 type=n\n");
-    try has(sp, "XU1 (a b VDD) Inv\n");
-    try has(sp, "Vsup (VDD 0) vsource dc=1.8\n");
+    try has(sp, "XU1 (a b Vdd) Inv\n");
+    try has(sp, "Vsup (Vdd 0) vsource dc=1.8\n");
     try has(sp, "dc1 dc dev=Vsup start=0 stop=1.8 step=0.1\n");
     try clean(&report);
 }
@@ -4343,6 +4344,38 @@ test "b4: output forms and measurements" {
     try has(try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spectre\nsave m1:d\n", &r5), ".save @m1[id]\n");
 }
 
+test "a node is spelled within its scope: a subcircuit's port IN is not the top level's net in" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\* tb (schemify ngspice)
+        \\VVIN in 0 dc 0.9
+        \\X1 in out vdd! chain
+        \\.subckt chain IN OUT VDD
+        \\R1 IN out 1k
+        \\B1 OUT 0 v={v(in)*2}
+        \\.ends chain
+        \\.global Vcc
+        \\.subckt two a b
+        \\R1 a VCC 1
+        \\.ends
+        \\.end
+        \\
+    ;
+    for ([_][]const u8{ "ngspice", "spectre" }) |to| {
+        var r: ir.Report = .init(a);
+        const out = try tr(a, "ngspice", to, src, &r);
+        const top = if (std.mem.eql(u8, to, "ngspice")) "VVIN in 0 dc 0.9\nX1 in out vdd! chain\n" else "VVIN (in 0) vsource dc=0.9\nX1 (in out vdd!) chain\n";
+        try has(out, top);
+        // Within one scope, one name: out and OUT, in and IN.
+        try has(out, if (std.mem.eql(u8, to, "ngspice")) "R1 IN OUT 1k\n" else "R1 (IN OUT) resistor r=1k\n");
+        try has(out, "v(IN)*2");
+        // A global node is one name everywhere.
+        try has(out, if (std.mem.eql(u8, to, "ngspice")) "R1 a Vcc 1\n" else "R1 (a Vcc) resistor r=1\n");
+    }
+}
+
 test "a device's parameter is the signal p(dev,param); a target with no spelling for it says so" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
@@ -4633,8 +4666,9 @@ test "a name has one spelling among the names of its kind: a source Vdd leaves t
         \\
     , &r3);
     try has(all, ".param Out=2 nch=1u\n.model Out nmos level=1\n.model NCH nmos level=1\n");
-    try has(all, ".subckt Inv in OUT VDD\nM1 OUT in 0 0 Out w={nch} l={Out*1u}\nM2 nch in VDD VDD NCH\n.ends Inv\n");
-    try has(all, "Vdd VDD 0 dc {Out}\nX1 a OUT VDD Inv\nRnch nch 0 1k\n");
+    // The port vdd is the subcircuit's own, not the top level's VDD.
+    try has(all, ".subckt Inv in OUT vdd\nM1 OUT in 0 0 Out w={nch} l={Out*1u}\nM2 nch in vdd vdd NCH\n.ends Inv\n");
+    try has(all, "Vdd VDD 0 dc {Out}\nX1 a out VDD Inv\nRnch nch 0 1k\n");
     try has(all, "B1 b 0 v={v(VDD)*Out + i(Vdd)*nch}\n");
     // A device named in a list, and a terminal, which is no name: the node d stays.
     var r4: ir.Report = .init(a);

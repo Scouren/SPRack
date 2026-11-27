@@ -37,6 +37,10 @@ const Value = ir.Value;
 /// A spelling of the models table and the entry it is a spelling of.
 const Hit = struct { e: *const grammar.ModelEntry, s: *const grammar.ModelSpelling };
 
+/// A statement of the first pass, and whether its line opens or closes a
+/// subcircuit's body.
+const Found = struct { st: ir.Stmt, role: enum { line, open, close } = .line };
+
 /// Closed-set values to their canonical names, and the values this
 /// dialect leaves unsaid made explicit.
 pub fn canonStmt(self: *Reader, st: *ir.Stmt) Allocator.Error!void {
@@ -74,6 +78,10 @@ pub fn finish(self: *Reader, stmts: []ir.Stmt) Allocator.Error!void {
         var buf: [schema.max_slots]Value = undefined;
         const vals = st.unpack(&buf);
         assert(vals.len == schema.info(st.kind).slots.len);
+        // A subcircuit's ports and body are in its own scope of nodes.
+        const scoped = fold_case and st.kind == .subckt;
+        if (scoped) try self.spell.enter(st.get("name"));
+        defer if (scoped) self.spell.leave();
         for (schema.info(st.kind).slots, 0..) |sl, i| {
             if (sl.ty == .ref) {
                 if (fold_case) vals[i] = try self.spell.atom(self.arena, sl.space.?, vals[i]);
@@ -133,13 +141,20 @@ pub fn collectDeclared(self: *Reader, declared: *Declared) Allocator.Error!void 
         // A line with capitals is read in full, so the spelling table
         // learns its names and nodes, and not its keywords (`DC`).
         const caps = fold_case and hasCaps(self);
-        var found = try declaring(self, caps);
-        if (found) |*st| try learn(self, st, caps, declared, scratch.allocator());
+        if (try declaring(self, caps)) |found| {
+            var st = found.st;
+            // The nodes of a subcircuit, its ports first, are its own.
+            if (found.role == .open) try self.spell.enter(st.get("name"));
+            try learn(self, &st, caps, declared, scratch.allocator());
+            if (found.role == .close and self.spell.depth > 0) self.spell.leave();
+        }
         while (self.toks()[ti].tag != .nl) ti += 1;
         ti += 1;
         // Every name kept from the lines before is a copy.
         self.lines.recycle();
     }
+    // A subcircuit never closed: the real pass reads from the top level.
+    self.spell.depth = 0;
 }
 
 /// Replace a dialect's model spelling (`nmos level=54`) with the canonical
@@ -298,23 +313,35 @@ fn hasCaps(self: *const Reader) bool {
 }
 
 /// The statement of the line in the window that may declare a name: a
-/// model, a parameter, a subcircuit; any statement where the line has
-/// capitals, so their spellings are learnt.
-fn declaring(self: *Reader, caps: bool) Allocator.Error!?ir.Stmt {
+/// model, a parameter, a subcircuit, the nodes of a `global`; any statement
+/// where the line has capitals, so their spellings are learnt. Where case
+/// is folded, the lines that open and close a subcircuit are told apart,
+/// for the scope of its nodes.
+fn declaring(self: *Reader, caps: bool) Allocator.Error!?Found {
     assert(self.toks().len > 0);
+    const scoped = !self.g.lex.case_sensitive;
+    if (scoped) for (self.g.blocks) |*b| {
+        if (b.kind != .subckt or !try self.m.run(b.kind, b.close, 0)) continue;
+        return .{ .st = try self.m.build(0), .role = .close };
+    };
     const head = self.toks()[0];
     for (self.g.readCandidates(if (head.tag == .word) head.text else null)) |ri| {
         const rule = &self.g.rules[ri];
         if (rule.dir == .write or rule.within != null) continue;
-        if (!caps and rule.kind != .model and rule.kind != .param) continue;
-        if (try self.m.run(rule.kind, rule.pat, 0)) return try self.m.build(0);
+        const declares = rule.kind == .model or rule.kind == .param or rule.kind == .global;
+        if (!caps and !declares) continue;
+        if (try self.m.run(rule.kind, rule.pat, 0)) return .{ .st = try self.m.build(0) };
     }
     for (self.g.blocks) |*b| {
         if (!caps and b.kind != .subckt) continue;
+        if (try self.m.run(b.kind, b.open, 0)) return .{
+            .st = try self.m.build(0),
+            .role = if (b.kind == .subckt and scoped) .open else .line,
+        };
         const close: []const []const Node = if (caps) &.{b.close} else &.{};
-        for ([_][]const []const Node{ &.{b.open}, b.inner, close }) |pats| {
+        for ([_][]const []const Node{ b.inner, close }) |pats| {
             for (pats) |pat| {
-                if (try self.m.run(b.kind, pat, 0)) return try self.m.build(0);
+                if (try self.m.run(b.kind, pat, 0)) return .{ .st = try self.m.build(0) };
             }
         }
     }
@@ -332,6 +359,7 @@ fn learn(
 ) Allocator.Error!void {
     const fold_case = !self.g.lex.case_sensitive;
     if (caps) try self.spell.names(st);
+    if (fold_case and st.kind == .global) try self.spell.globalNodes(st);
     if (st.kind != .model and st.kind != .param and st.kind != .subckt) return;
     if (fold_case) try self.spell.statement(scratch, st);
     const n = st.get("name");

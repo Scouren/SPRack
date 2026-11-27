@@ -294,6 +294,10 @@ pub const Reader = struct {
         assert(self.depth <= ir.max_depth);
         const b, var st = (try self.blockOpening(ti, line_no)) orelse return false;
         st.tail = self.toks()[self.m.end].text;
+        // A subcircuit's ports and body are in its own scope of nodes.
+        const scoped = !self.g.lex.case_sensitive and st.kind == .subckt;
+        if (scoped) try self.spell.enter(st.get("name"));
+        defer if (scoped) self.spell.leave();
         if (!self.g.lex.case_sensitive) try self.spell.statement(self.arena, &st);
         self.ti = self.m.end + 1;
         self.depth += 1;
