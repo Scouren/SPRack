@@ -164,7 +164,7 @@ rule  xspice    = name~"A" nodes+ master {...params}
 write verilog = name~"A" "[" nodes*@dirs=in "]" "[" nodes*@dirs=out "]" [ "[" nodes+@dirs=inout "]" ] master -module -file -pins -code -params
 caveat verilog params : ngspice bridges a d_cosim port to an analog net with adc_bridge and dac_bridge models of its own, which take no parameter from the instance
 once verilog master
-  .model {master} d_cosim simulation="{file.stem}.vvp"
+  .model {master} d_cosim simulation="{file.stem|module}.vvp"
 end
 # ngspice accepts the PSpice-style params: keyword but does not need it.
 read  instance  = name~"X" nodes+ master "params:" {...params}

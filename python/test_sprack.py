@@ -1640,6 +1640,17 @@ def test_schemify_structural_verilog():
     raises(sprack.Unsupported, lambda: c.netlist("verilog"), "structural Verilog holds only modules")
 
 
+def test_schemify_verilog_module_without_file():
+    # The module is the stem where no file is given; neither is an error.
+    c = sprack.Circuit("t")
+    c.verilog("U1", "a", "y", "nm", module="n", pins=["A", "Y"], dirs=["in", "out"])
+    assert '.model nm d_cosim simulation="n.vvp"\n' in c.netlist("ngspice"), c.netlist("ngspice")
+    c = sprack.Circuit("t")
+    c.verilog("U1", "a", "y", "nm", pins=["A", "Y"], dirs=["in", "out"])
+    raises(sprack.Unsupported, lambda: c.netlist("ngspice"), "verilog 'U1'", "'file' or 'module'")
+    raises(sprack.Unsupported, lambda: c.netlist("espice"), "verilog 'U1'", "'module' or 'file'")
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

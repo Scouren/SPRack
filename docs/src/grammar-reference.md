@@ -85,7 +85,9 @@ once verilog master ... end        # lines written after the last statement, onc
                                    # `{x.stem}` the file it names without
                                    # directory or suffix, `{x|y}` the first
                                    # that has a value (`.model {master}
-                                   # d_cosim simulation="{file.stem}.vvp"`).
+                                   # d_cosim simulation="{file.stem|module}.vvp"`);
+                                   # a place none fills is an error naming
+                                   # the statement, and the line is not written.
                                    # Several `once` sections: in their order
 modules ... end                    # the netlist written as modules that
                                    # instantiate each other by named ports

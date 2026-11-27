@@ -132,9 +132,14 @@ fn noteOnce(w: *Writer, st: *const ir.Stmt) Error!void {
         var text: std.ArrayList(u8) = .empty;
         for (o.lines, 0..) |l, i| {
             if (i > 0) try text.append(w.perm, '\n');
-            try fillOnce(w.perm, &text, l, st);
-        }
-        try w.onces.append(w.perm, .{
+            const empty = try fillOnce(w.perm, &text, l, st) orelse continue;
+            const plain = try std.mem.replaceOwned(u8, w.arena, empty, ".stem", "");
+            const said = try std.mem.replaceOwned(u8, w.arena, plain, "|", "' or '");
+            const name = slotWord(st, 0, false) orelse "";
+            w.report.add(.@"error", .invalid, st.line, "{s} '{s}': {s} writes a line for it " ++
+                "from its '{s}', and it gives none", .{ @tagName(st.kind), name, w.g.name, said });
+            break;
+        } else try w.onces.append(w.perm, .{
             .which = which,
             .key = try w.perm.dupe(u8, key),
             .text = text.items,
@@ -143,13 +148,14 @@ fn noteOnce(w: *Writer, st: *const ir.Stmt) Error!void {
 }
 
 /// `line` with each `{x}`, `{x.stem}` and `{x|y}` replaced by what `st`
-/// holds (the grammar's compiler checked the names).
+/// holds (the grammar's compiler checked the names). Null when filled;
+/// else the place `st` holds nothing for (`file.stem|module`).
 fn fillOnce(
     a: std.mem.Allocator,
     out: *std.ArrayList(u8),
     line: []const u8,
     st: *const ir.Stmt,
-) Error!void {
+) Error!?[]const u8 {
     var rest = line;
     while (std.mem.indexOfScalar(u8, rest, '{')) |open| {
         const close = std.mem.indexOfScalarPos(u8, rest, open, '}').?;
@@ -160,10 +166,11 @@ fn fillOnce(
             const name = if (stem) n[0 .. n.len - ".stem".len] else n;
             const slot = schema.slotIndex(st.kind, name).?;
             if (slotWord(st, slot, stem)) |t| break try out.appendSlice(a, t);
-        }
+        } else return rest[open + 1 .. close];
         rest = rest[close + 1 ..];
     }
     try out.appendSlice(a, rest);
+    return null;
 }
 
 /// The word or path `st` holds in `slot`, or its stem: no directory, no
