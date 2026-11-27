@@ -1,0 +1,77 @@
+# cktImg: the netlist its schematic drawer reads (src/netlist.zig of cktImg).
+#
+# ngspice's own card syntax, read lowercased, the first line the title. It
+# draws the circuit only: analyses, the control script, measurements,
+# outputs and options change nothing in a drawing, and are left out with a
+# note. What it refuses (A, N, P and Y devices, POLY sources, includes and
+# libraries, .hb) is refused here too, so it never reaches it. Net and
+# device names are kept as they are: cktImg reads roles from them (vdd*,
+# in*, out*, vb*). `*@` lines steer its layout; they are annotations, kept
+# whole in the scope they were read in.
+
+base ngspice
+drop op tf dc ac tran noise pz sens disto four sp hb pss stb pac pnoise pxf psp xf dcmatch
+drop trannoise phasenoise envelope qpss step data alter montecarlo optimize fft pattern
+drop save print measure options ic nodeset simctl csparam script hdl
+drop statistics statgroup vary correlate
+drop include lib libsection library cond_if cond_elif cond_else
+drop xspice device ctlsrc lossyline[txl] lossyline[cpl] mosfet[psp103] mosfet[bsimcmg]
+drop-head needs libsections
+---
+# Analyses, the control script, outputs and options: a drawing has no use for them.
+inert op : {to} draws the circuit; an analysis changes nothing in the drawing
+inert tf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert dc : {to} draws the circuit; an analysis changes nothing in the drawing
+inert ac : {to} draws the circuit; an analysis changes nothing in the drawing
+inert tran : {to} draws the circuit; an analysis changes nothing in the drawing
+inert noise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pz : {to} draws the circuit; an analysis changes nothing in the drawing
+inert sens : {to} draws the circuit; an analysis changes nothing in the drawing
+inert disto : {to} draws the circuit; an analysis changes nothing in the drawing
+inert four : {to} draws the circuit; an analysis changes nothing in the drawing
+inert sp : {to} draws the circuit; an analysis changes nothing in the drawing
+inert hb : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pss : {to} draws the circuit; an analysis changes nothing in the drawing
+inert stb : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pac : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pnoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pxf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert psp : {to} draws the circuit; an analysis changes nothing in the drawing
+inert xf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert dcmatch : {to} draws the circuit; an analysis changes nothing in the drawing
+inert trannoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert phasenoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert envelope : {to} draws the circuit; an analysis changes nothing in the drawing
+inert qpss : {to} draws the circuit; an analysis changes nothing in the drawing
+inert step : {to} draws the circuit; a sweep changes nothing in the drawing
+inert data : {to} draws the circuit; a sweep's table changes nothing in the drawing
+inert alter : {to} draws the circuit; a rerun changes nothing in the drawing
+inert montecarlo : {to} draws the circuit; a Monte Carlo run changes nothing in the drawing
+inert optimize : {to} draws the circuit; an optimization changes nothing in the drawing
+inert fft : {to} draws the circuit; an output changes nothing in the drawing
+inert save : {to} draws the circuit; an output changes nothing in the drawing
+inert print : {to} draws the circuit; an output changes nothing in the drawing
+inert measure : {to} draws the circuit; a measurement changes nothing in the drawing
+inert options : {to} draws the circuit; an option changes nothing in the drawing
+inert ic : {to} draws the circuit; an initial condition changes nothing in the drawing
+inert nodeset : {to} draws the circuit; an initial guess changes nothing in the drawing
+inert simctl : {to} draws the circuit; a simulator command changes nothing in the drawing
+inert csparam : {to} draws the circuit; a script's parameter changes nothing in the drawing
+inert script : {to} draws the circuit; a control script changes nothing in the drawing
+inert statistics : {to} draws the circuit; a statistics block changes nothing in the drawing
+inert statgroup : {to} draws the circuit; a statistics block changes nothing in the drawing
+inert vary : {to} draws the circuit; a variation changes nothing in the drawing
+inert correlate : {to} draws the circuit; a correlation changes nothing in the drawing
+inert pattern : {to} draws the circuit; a pattern source's table changes nothing in the drawing
+# What cktImg refuses rather than guess at.
+no include : cktImg reads one file; translate the project with `sprack project` and draw each file, or inline the include
+no lib : cktImg reads one file; translate the project with `sprack project` and draw each file, or inline the library
+no libsection : cktImg reads one file, with no library sections
+no library : cktImg reads one file, with no library wrapper
+no cond_if : cktImg draws one circuit; it has no conditional blocks
+no cond_elif : cktImg draws one circuit; it has no conditional blocks
+no cond_else : cktImg draws one circuit; it has no conditional blocks
+no hdl : cktImg draws the circuit; it loads no Verilog-A
+no xspice : cktImg draws no XSPICE code models (A devices)
+no device : cktImg draws no Verilog-A instances (N devices); a device is named by its model or subcircuit
+no ctlsrc : cktImg draws no POLY or TABLE controlled sources; expand the polynomial first

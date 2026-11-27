@@ -1,0 +1,474 @@
+# cktimg: written by tools/derive_grammar.py from cktimg.derive and
+# ngspice.spgrammar. Edit those, never this file.
+#
+# ngspice
+#
+# Lexical rules follow chapter 2 of the ngspice manual: title line, `*`
+# comment lines, `$` `;` `//` trailing comments, `+` continuation, the scale
+# factor table (M is milli, Meg is mega), and letters after a number ignored.
+#
+# N devices are instances of Verilog-A models compiled to OSDI, loaded with
+# `pre_osdi` inside a .control block. The block is a script of ngspice's
+# control language: its analyses and outputs are read as such, every other
+# command as a `simctl` line, kept as written (docs/src/simulators.md).
+
+dialect cktimg
+
+lexer
+  case      insensitive
+  title     yes
+  comment   line "*"
+  annotation "*@"          # a line a tool reads (cktImg's `*@ order m1 m2`), whole, in its scope
+  comment   tail "$" ";" "//"
+  continue  lead "+"
+  continue  trail "\\"
+  parens    space
+  expr      "{" "}"
+  expr      "'" "'"
+  expr      after-equals
+  quotes    '"' string           # .param t="a*3", r1 n 0 "2*rv" and r="2*rv" are refused
+  values    strict
+  scale     meg=6 t=12 g=9 k=3 m=-3 u=-6 n=-9 p=-12 f=-15 a=-18
+  oddscale  mil=25.4e-6
+  units     ignore
+  end       ".end"
+end
+
+
+block subckt
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
+  close  ".ends" [name]
+end
+
+
+
+
+
+# The arguments need their commas: ngspice and Xyce reject `g(x y)`.
+rule  func      = ".func" name ~"(" ( args )*~"," ~")" expr
+read  func      = ".func" name args* "=" expr
+read  func      = ".param" name args+ "=" expr
+rule  param     = ".param" {...params}
+read  param     = ".params" {...params}
+# ngspice 45: `.parameters c=4` with r3 n3 0 {1k*c} at 1 V gives -2.5e-04.
+read  param     = ".parameters" {...params}
+rule  global    = ".global" nodes+
+# Model cards may carry bare flags (vdmos pchan, ltra steplimit).
+rule  model     = ".model" name type {...params?}
+
+
+rule  resistor  = name~"R" pos neg [r] [master] { r=r ...params }
+rule  capacitor = name~"C" pos neg [c] [master] { c=c ...params }
+rule  inductor  = name~"L" pos neg [l] { l=l ...params }
+# The model comes before the value; `L1 a b 1m lmod` does not load, nor
+# does `l=` beside a model. Without a value the model's `ind` is taken.
+rule  inductor  = name~"L" pos neg master [l] {...params}
+rule  mutual    = name~"K" l1 l2 k
+# The waveform of a V or I source; vsource and isource share these slots.
+define wave = ( wave:"pulse" ~"(" val0 val1 [delay [rise [fall [width [period [count]]]]]] ~")" | wave:"sin"=sine ~"(" sinedc?$dc ampl [freq [delay [damp [sphase]]]] ~")" | wave:"exp" ~"(" val0 val1 [td1 [tau1 [td2 [tau2]]]] ~")" | wave:"pwl" ~"(" pwl+ ~")" | wave:"sffm" ~"(" sinedc ampl fsig?0 mdi?0 freq [delay [mphase [sphase]]] ~")" | wave:"sffm" ~"(" sinedc ampl [fsig [mdi]] ~")" | wave:"am" ~"(" sinedc?0 val0?0 ampl fsig freq [delay [mphase [sphase]]] ~")" | wave:"trnoise" ~"(" wargs+ ~")" | wave:"trrandom" ~"(" wargs+ ~")" )
+rule  vsource   = name~"V" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+# `dc` with no value before a waveform: ngspice 45 runs it (gf180mcu's test decks).
+read  vsource   = name~"V" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  vsource   = name~"V" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+# b4: `dc=` as a key, and `ac` with no magnitude, which is 1.
+read  vsource   = name~"V" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
+rule  isource   = name~"I" pos neg [ ["dc"] dc ] [ "ac" acmag [acphase] ] [ <wave> ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ ["dc"] dc ] [ <wave> ] [ "ac" acmag [acphase] ] [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "ac" acmag [acphase] "dc" dc [ "distof1" distof1 [distof1ph] ] [ "distof2" distof2 [distof2ph] ] [ "portnum" portnum [ "z0" z0 ] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg "dc" <wave> [ "ac" acmag [acphase] ] {r=repeat ...params}
+read  isource   = name~"I" pos neg [ { dc=dc! } ] [ ( "ac" acmag [acphase] | acmag:"ac"=1 ) ] [ <wave> ] {r=repeat ...params}
+rule  bsource   = name~"B" pos neg { v=v i=i ...params }
+# The HSPICE and PSpice spellings of a behavioural source, which ngspice also reads.
+rule  bsource   = name~"E" pos neg { vol=v! }
+rule  bsource   = name~"G" pos neg { cur=i! }
+read  bsource   = name~"E" pos neg { value=v! }
+read  bsource   = name~"G" pos neg { value=i! }
+rule  vcvs      = name~"E" pos neg cpos cneg gain
+rule  vccs      = name~"G" pos neg cpos cneg gm
+rule  cccs      = name~"F" pos neg vsrc gain
+rule  ccvs      = name~"H" pos neg vsrc gain
+# A bare area after the model is read; area= is written, because ngspice 45
+# takes `D1 a k dm 2` for a diode with a thermal node and rejects it, and
+# Xyce rejects a bare area followed by named parameters.
+read  diode     = name~"D" pos neg master area { area=area ...params? }
+rule  diode     = name~"D" pos neg master { area=area ...params? }
+rule  bjt       = name~"Q" c b e [s] master [area] { area=area ...params? }
+# With a substrate node and a thermal node (self-heating models).
+rule  bjt       = name~"Q" c b e s tj master [area] { area=area ...params? }
+rule  mosfet    = name~"M" d g s b master {...params}
+# Three-terminal power MOSFETs (VDMOS) have no bulk node.
+rule  mosfet    = name~"M" d g s master {...params}
+rule  jfet      = name~"J" d g s master [area] {...params}
+rule  mesfet    = name~"Z" d g s master [area] {...params}
+rule  vswitch   = name~"S" pos neg cpos cneg master [ ( state:"on" | state:"off" ) ]
+rule  cswitch   = name~"W" pos neg vsrc master [ ( state:"on" | state:"off" ) ]
+rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
+# ngspice accepts the PSpice-style params: keyword but does not need it.
+read  instance  = name~"X" nodes+ master "params:" {...params}
+rule  instance  = name~"X" nodes+ master {...params}
+
+
+# What an EXP source means by a value left out, or given as 0, which ngspice
+# reads as left out (measured in ngspice 45: docs/verification.md 4.12, 4.18).
+# A TD1 of 1e-18 is taken as given (measured at `.tran 2n 50n` and
+# `.tran 1u 1m`: the curve of a TD1 of 0), so that is written for a 0 delay
+# crossing in. A TAU1, TD2 or TAU2 of 0 has no ngspice form.
+omitted vsource td1=0 wave=exp : tran.step zero 1e-18
+omitted isource td1=0 wave=exp : tran.step zero 1e-18
+omitted vsource tau1=0 wave=exp : tran.step
+omitted isource tau1=0 wave=exp : tran.step
+omitted vsource td2=0 wave=exp : td1 + tran.step
+omitted isource td2=0 wave=exp : td1 + tran.step
+omitted vsource tau2=0 wave=exp : tran.step
+omitted isource tau2=0 wave=exp : tran.step
+# ngspice's own gshunt does not load the nodes in an operating point
+# (measured: 1 mA into 1k stayed 1 V); rshunt does, as a resistance.
+convert options : gshunt = 1 / gshunt
+# SFFM(VO VA FM MDI FC [TD [PHASEM [PHASEC]]]): the modulating frequency is
+# third and the carrier fifth, the reverse of HSPICE and Xyce (measured).
+caveat vsource mdi : ngspice limits the SFFM modulation index to the carrier over the modulating frequency
+caveat isource mdi : ngspice limits the SFFM modulation index to the carrier over the modulating frequency
+
+
+# Observed on decks written for it (ngspice 45): an island reached only
+# through capacitors is solved by the transient operating point once gmin
+# and source stepping fail (0.5 V on an equal capacitive divider); an
+# unbalanced current source into one is driven to about 1e4 V. A loop of
+# voltage sources fails; one with an inductor in it, or of inductors only,
+# is solved the same way, with an arbitrary current around it.
+requires dc-path   warning [op dc ac noise tf pz sens disto sp stb xf dcmatch hb pss pac pnoise pxf psp qpss phasenoise tran trannoise envelope] : ngspice solves it only through its transient operating point, after gmin and source stepping fail
+requires no-vloop  error   : ngspice's operating point fails on it
+requires no-vlloop warning : ngspice solves it only through its transient operating point, and the current around the loop is arbitrary
+
+inert diode off : OFF only sets where ngspice starts the operating-point iteration; the solution is the same
+caveat model type=*psp103va : ngspice has PSP103 only as a compiled Verilog-A module; the deck must load psp103.osdi with pre_osdi
+
+caveat subckt inline : ngspice has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+
+signals
+  vdiff = "v(%,%)"
+  v     = "v(%)"
+  i     = "i(%)"
+  vdb   = "vdb(%)"
+  vm    = "vm(%)"
+  vp    = "vp(%)"
+  vr    = "vr(%)"
+  vi    = "vi(%)"
+  all   = "all"
+  # b4: currents in dB, phase, magnitude, real and imaginary part are
+  # functions of i() (there is no idb()); vm#branch is i(vm); a terminal
+  # current is a device's @-parameter; an expression goes in as written.
+  idb   = "db(i(%))"
+  ip    = "ph(i(%))"
+  im    = "mag(i(%))"
+  ir    = "real(i(%))"
+  ii    = "imag(i(%))"
+  i     = "%#branch"
+  ix    = "@%1[i%2]"
+  expr  = "%"
+end
+functions
+  same abs min max sqrt exp pow pwr floor ceil int sgn sin cos tan asin acos atan sinh cosh tanh
+  same limit agauss gauss aunif unif v i
+  same nint sqr asinh acosh atanh
+  # ddt: the time derivative, in a behavioural source (docs/verification.md 4.16).
+  same ddt
+  ln    = ln log
+  log10 = log10
+  if    = ternary_fcn
+end
+
+variables
+  same temper time hertz
+end
+
+operators
+  pow "**" "^"
+  ternary "?"
+  not "!"
+  mod "%"
+  # `\` divides and drops the fraction: 10 \ 3 is 3 (docs/verification.md 4.29).
+  idiv "\\"
+end
+
+# Measured with ngspice 45 on decks written for it (.param and a B source).
+differs pow    : a negative base loses its sign, in .param and B sources alike: (-2)**3 is 8
+differs pwr    : in .param the sign of a negative base is dropped (pwr(-2,3) is 8); B sources keep it (-8)
+# What pwr means, for a target without it (docs/verification.md 4.26).
+means pwr(x, y) = pow(abs(x),y)
+means bsource pwr(x, y) = sign2(pow(abs(x),y),x)
+differs int    : only .param expressions have int(); a B source refuses it
+differs mod    : only .param expressions have %; a B source refuses it
+differs negpow : in .param a minus right after another operator binds before the power: 1+-2**2 is 5, not -3
+
+models
+  resistor   = r
+  capacitor  = c
+  inductor   = l
+  diode      = d
+  bjt npn    = npn
+  bjt pnp    = pnp
+  vbic npn   = npn level=4 | npn level=9
+  vbic pnp   = pnp level=4 | pnp level=9
+  hicum2 npn = npn level=8
+  hicum2 pnp = pnp level=8
+  jfet n     = njf
+  jfet p     = pjf
+  # nmf/pmf/nhfet/phfet share one level switch: 0-1 MES, 2-4 MESA, 5 HFET1,
+  # 6 HFET2 (inpdomod.c:124-175). An nhfet card without a level is a MESFET.
+  mesfet n   = nmf !level | nmf level=1 | nmf level=0
+  mesfet p   = pmf !level | pmf level=1 | pmf level=0
+  mesa n     = nmf level=2 | nmf level=3 | nmf level=4
+  mesa p     = pmf level=2 | pmf level=3 | pmf level=4
+  hfet n     = nhfet level=5 | nhfet level=6
+  hfet p     = phfet level=5 | phfet level=6
+  # A level of 99 or more: ngspice warns "Illegal value for level" and runs
+  # level 1 (docs/verification.md 4.33).
+  mos1 n     = nmos level=1 | nmos !level | nmos level>=99
+  mos1 p     = pmos level=1 | pmos !level | pmos level>=99
+  mos2 n     = nmos level=2
+  mos2 p     = pmos level=2
+  mos3 n     = nmos level=3
+  mos3 p     = pmos level=3
+  bsim3 n    = nmos level=8 | nmos level=49
+  bsim3 p    = pmos level=8 | pmos level=49
+  bsim4 n    = nmos level=14 | nmos level=54
+  bsim4 p    = pmos level=14 | pmos level=54
+  bsimsoi n  = nmos level=10 | nmos level=58
+  bsimsoi p  = pmos level=10 | pmos level=58
+  # Measured with `show` in ngspice 45 (docs/verification.md 4.33).
+  bsim1 n    = nmos level=4
+  bsim1 p    = pmos level=4
+  bsim2 n    = nmos level=5
+  bsim2 p    = pmos level=5
+  mos6 n     = nmos level=6
+  mos6 p     = pmos level=6
+  mos9 n     = nmos level=9
+  mos9 p     = pmos level=9
+  b3soifd n  = nmos level=55
+  b3soifd p  = pmos level=55
+  b3soidd n  = nmos level=56
+  b3soidd p  = pmos level=56
+  b3soipd n  = nmos level=57
+  b3soipd p  = pmos level=57
+  hisim2 n   = nmos level=68
+  hisim2 p   = pmos level=68
+  hisimhv n  = nmos level=73
+  hisimhv p  = pmos level=73
+  vdmos      = vdmos
+  # PSP103 has no C model and no level: it is the module of psp103.osdi,
+  # which a deck loads with pre_osdi.
+  psp103 n   = psp103va type=1
+  psp103 p   = psp103va type=-1
+  # ngspice has no BSIM-CMG in C: only the compiled module `bsimcmg` given
+  # with --provide bsimcmg=FILE (docs/verification.md 4.43). Polarity is
+  # DEVTYPE, 1 or 0: 107.0.0 has no TYPE, and ngspice ignored `type=-1` on
+  # it with a warning and ran the p-type card as n-type.
+  bsimcmg n  = bsimcmg devtype=1 provided
+  bsimcmg p  = bsimcmg devtype=0 provided
+  vswitch    = sw
+  cswitch    = csw
+  # b4
+  ltra       = ltra
+  txl        = txl
+  cpl        = cpl
+  urc        = urc
+end
+
+# devices and outputs (b4)
+# Lossy and coupled lines. The element letter goes with the model: O for
+# LTRA, Y for TXL, P for CPL (n inputs and their reference, then n outputs
+# and theirs).
+rule  lossyline[ltra] = name~"O" nodes+ master {...params}
+# U for the uniform RC line: ngspice 45 expands `U1 in out 0 umod L=100u N=10`
+# into ten lumps (docs/verification.md 4.29).
+rule  lossyline[urc]  = name~"U" nodes+ master {...params}
+no relay  : ngspice has no relay element; a voltage-controlled switch (S) with a sw model is the closest form
+# Instance parameters each device takes, by canonical name (the ngspice one);
+# the first spelling is written. Read from `devhelp` in ngspice 45. One a
+# netlist brings from another dialect that a table here lacks is a loss; a
+# kind with no table is not checked.
+params resistor
+  same ac bv_max dtemp l m scale tc2 tce temp w
+  tc1   = tc1 tc
+  noisy = noisy noise
+end
+params capacitor
+  same bv_max dtemp ic l m q scale tc1 tc2 temp w
+end
+params inductor
+  same dtemp ic m nt scale tc1 tc2 temp
+end
+params isource
+  same m td
+end
+params diode
+  same area dtemp ic l lm lp m off perim pj temp w wm wp
+end
+params bjt
+  same area areab areac dtemp ic m off temp
+end
+params jfet
+  same area dtemp ic m off temp
+end
+
+# A model card's parameters that were measured, by canonical name (ngspice's
+# own): a card crossing to or from a dialect that has the table for the family
+# gets each in the first spelling and the number of the target; the rest of a
+# card is copied as written. A resistor's NARROW and SHORT, with RSH=1000 at
+# five L and W, which DW and DLR also name (docs/verification.md 4.13); an
+# inductor's IND, the inductance of a line that gives none, and its TC1
+# (docs/verification.md 9.1).
+modelparams resistor
+  narrow = narrow dw
+  short  = short dlr
+  # ngspice 45 devhelp: one parameter under two names (docs/verification.md 4.22).
+  tc1    = tc1 tc1r
+  tc2    = tc2 tc2r
+  defw   = defw w
+  r      = r res
+end
+modelparams capacitor
+  cj     = cj cox
+  cjsw   = cjsw capsw
+  defw   = defw w
+  defl   = defl l
+  same cap
+end
+modelparams inductor
+  same ind tc1
+end
+noparam inductor lscale error : Xyce's inductor card L multiplies the line's inductance (docs/verification.md 9.1); ngspice's card has no such multiplier, so the inductance is the line's alone
+# BSIM-CMG modules declare no version (107.0.0, 108.0.0 and 112.1.0
+# sources); a version 107 card on the 107.0.0 module gives Xyce's level 107
+# to 9 digits, another version was not measured (docs/verification.md 4.43).
+noparam bsimcmg version=107 warning : the module given has no version parameter; BSIM-CMG 107.0.0 compiled with openvaf-r (tools/bsimcmg-osdi.sh) runs version 107 cards as Xyce's level 107 does (docs/verification.md 4.43), which module was given is not checked
+noparam bsimcmg version error : the module given has no version parameter, and only version 107 cards were measured against a built-in BSIM-CMG (docs/verification.md 4.43)
+# One parameter under several names, as ngspice's devhelp gives them (one id),
+# and the names ngspice 45 adds to a diode's (tcv, vjsw, isw): made by
+# `tools/param_lists.py ngspice` (docs/verification.md 4.23).
+modelparams diode
+  is = is js
+  jsw = jsw isw
+  tnom = tnom tref
+  trs = trs trs1
+  cjo = cjo cj0 cj
+  vj = vj pb
+  m = m mj
+  cjp = cjp cjsw
+  php = php vjsw
+  ikf = ikf ik
+  cta = cta ctc
+  tpb = tpb tvj
+  ibv = ibv ib
+  tbv1 = tbv1 tcv
+end
+modelparams bjt
+  tnom = tnom tref
+  vaf = vaf va
+  ikf = ikf ik
+  ise = ise c2
+  var = var vb
+  isc = isc c4
+  vje = vje pe
+  mje = mje me
+  vjc = vjc pc
+  mjc = mjc mc
+  cjs = cjs csub ccs
+  vjs = vjs ps
+  mjs = mjs ms
+  trb1 = trb1 trb
+  trc1 = trc1 trc
+  tre1 = tre1 tre
+  nkf = nkf nk
+end
+modelparams vbic
+  tnom = tnom tref
+  vo = vo v0
+  cbeo = cbeo cbe0
+  cbco = cbco cbc0
+  qco = qco qc0
+  xvo = xvo xv0
+  xrcx = xrcx xrc
+  xrbx = xrbx xrb
+  vbe_max = vbe_max bvbe
+  vbc_max = vbc_max bvbc
+  vce_max = vce_max bvce
+  vsub_max = vsub_max bvsub
+end
+modelparams bsim3
+  vth0 = vth0 vtho
+  lvth0 = lvth0 lvtho
+  wvth0 = wvth0 wvtho
+  pvth0 = pvth0 pvtho
+end
+modelparams bsim4
+  vth0 = vth0 vtho
+  lvth0 = lvth0 lvtho
+  wvth0 = wvth0 wvtho
+  pvth0 = pvth0 pvtho
+end
+computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
+no native : the statement is another dialect's own, which no kind holds; only that dialect writes it
+no embed : VACASK embeds a file (a post-processing script) in the netlist; this dialect has no such statement, so save the file next to the netlist
+
+
+variant ngspice
+# Analyses, the control script, outputs and options: a drawing has no use for them.
+inert op : {to} draws the circuit; an analysis changes nothing in the drawing
+inert tf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert dc : {to} draws the circuit; an analysis changes nothing in the drawing
+inert ac : {to} draws the circuit; an analysis changes nothing in the drawing
+inert tran : {to} draws the circuit; an analysis changes nothing in the drawing
+inert noise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pz : {to} draws the circuit; an analysis changes nothing in the drawing
+inert sens : {to} draws the circuit; an analysis changes nothing in the drawing
+inert disto : {to} draws the circuit; an analysis changes nothing in the drawing
+inert four : {to} draws the circuit; an analysis changes nothing in the drawing
+inert sp : {to} draws the circuit; an analysis changes nothing in the drawing
+inert hb : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pss : {to} draws the circuit; an analysis changes nothing in the drawing
+inert stb : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pac : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pnoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert pxf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert psp : {to} draws the circuit; an analysis changes nothing in the drawing
+inert xf : {to} draws the circuit; an analysis changes nothing in the drawing
+inert dcmatch : {to} draws the circuit; an analysis changes nothing in the drawing
+inert trannoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert phasenoise : {to} draws the circuit; an analysis changes nothing in the drawing
+inert envelope : {to} draws the circuit; an analysis changes nothing in the drawing
+inert qpss : {to} draws the circuit; an analysis changes nothing in the drawing
+inert step : {to} draws the circuit; a sweep changes nothing in the drawing
+inert data : {to} draws the circuit; a sweep's table changes nothing in the drawing
+inert alter : {to} draws the circuit; a rerun changes nothing in the drawing
+inert montecarlo : {to} draws the circuit; a Monte Carlo run changes nothing in the drawing
+inert optimize : {to} draws the circuit; an optimization changes nothing in the drawing
+inert fft : {to} draws the circuit; an output changes nothing in the drawing
+inert save : {to} draws the circuit; an output changes nothing in the drawing
+inert print : {to} draws the circuit; an output changes nothing in the drawing
+inert measure : {to} draws the circuit; a measurement changes nothing in the drawing
+inert options : {to} draws the circuit; an option changes nothing in the drawing
+inert ic : {to} draws the circuit; an initial condition changes nothing in the drawing
+inert nodeset : {to} draws the circuit; an initial guess changes nothing in the drawing
+inert simctl : {to} draws the circuit; a simulator command changes nothing in the drawing
+inert csparam : {to} draws the circuit; a script's parameter changes nothing in the drawing
+inert script : {to} draws the circuit; a control script changes nothing in the drawing
+inert statistics : {to} draws the circuit; a statistics block changes nothing in the drawing
+inert statgroup : {to} draws the circuit; a statistics block changes nothing in the drawing
+inert vary : {to} draws the circuit; a variation changes nothing in the drawing
+inert correlate : {to} draws the circuit; a correlation changes nothing in the drawing
+inert pattern : {to} draws the circuit; a pattern source's table changes nothing in the drawing
+# What cktImg refuses rather than guess at.
+no include : cktImg reads one file; translate the project with `sprack project` and draw each file, or inline the include
+no lib : cktImg reads one file; translate the project with `sprack project` and draw each file, or inline the library
+no libsection : cktImg reads one file, with no library sections
+no library : cktImg reads one file, with no library wrapper
+no cond_if : cktImg draws one circuit; it has no conditional blocks
+no cond_elif : cktImg draws one circuit; it has no conditional blocks
+no cond_else : cktImg draws one circuit; it has no conditional blocks
+no hdl : cktImg draws the circuit; it loads no Verilog-A
+no xspice : cktImg draws no XSPICE code models (A devices)
+no device : cktImg draws no Verilog-A instances (N devices); a device is named by its model or subcircuit
+no ctlsrc : cktImg draws no POLY or TABLE controlled sources; expand the polynomial first

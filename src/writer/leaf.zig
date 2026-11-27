@@ -36,6 +36,7 @@ pub fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
     assert(!w.nowrap);
     var st = st_in;
     if (st.kind == .comment) return commentLine(w, st);
+    if (st.kind == .annotation) return annotationLine(w, st);
     if (st.kind == .@"opaque") return opaqueLine(w, a, st);
     const class = schema.info(st.kind).class;
     // Nothing left to say (its values moved elsewhere): no statement.
@@ -136,6 +137,29 @@ fn commentLine(w: *Writer, st: *const ir.Stmt) Error!void {
         return;
     }
     return output.comment(w, st.raw);
+}
+
+/// An annotation, whole on a line of its own: after the target's mark
+/// (`*@`), or as a comment where the target has none, said once a file.
+fn annotationLine(w: *Writer, st: *const ir.Stmt) Error!void {
+    assert(st.kind == .annotation);
+    const text = switch (st.get("text")) {
+        .atom, .str, .expr => |t| t,
+        else => "",
+    };
+    const mark = w.g.lex.annotation;
+    if (mark.len > 0) {
+        // Never wrapped: a tool reads the line whole.
+        try w.out.print("{s}{s}{s}\n", .{ mark, if (text.len > 0) " " else "", text });
+        w.last_blank = false;
+        return;
+    }
+    if (!w.annotated) w.report.add(.warning, .loss, st.line, "annotation: {s} has no " ++
+        "annotation lines; '{s}' is written as a comment, which reads back as one", .{
+        w.g.name, text,
+    });
+    w.annotated = true;
+    return output.comment(w, text);
 }
 
 /// A line no rule understood: as it was, where it is the target's own;

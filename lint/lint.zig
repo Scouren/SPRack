@@ -1,5 +1,5 @@
 //! Lint step: the files of `clean_paths` → a `lint` build step that fails
-//! when one of them breaks a rule. Four layers, each a failure on its own:
+//! when one of them breaks a rule. Five layers, each a failure on its own:
 //!   1. `zig fmt --check` over every Zig file of the tree.
 //!   2. `perf_tidy.py`: the rules of the performance guide the compiler does
 //!      not check (function and line length, assertions, recursion,
@@ -8,6 +8,8 @@
 //!      public before private, tests last) and its size.
 //!   4. `no_dialect_names.py`, over every source file: no string of the
 //!      engine is a dialect's name (docs/dev/ARCHITECTURE.md, the rule).
+//!   5. `derive_grammar.py --check`: a grammar derived from another
+//!      (`grammars/*.derive`) is what its recipe makes.
 //!
 //! A file joins `clean_paths` when its module is moved to the house style
 //! (docs/dev/ARCHITECTURE.md, block 3); from then on it cannot slide back.
@@ -113,6 +115,13 @@ pub fn addTo(b: *std.Build) *std.Build.Step {
         run.has_side_effects = true; // the sources are not declared inputs: check on every build
         step.dependOn(&run.step);
     }
+    // A derived grammar is what its recipe makes from its base, never edited.
+    const derived = b.addSystemCommand(&.{ "python3", "-I" });
+    derived.addFileArg(b.path("tools/derive_grammar.py"));
+    derived.addArgs(&.{ "--check", "grammars/cktimg.derive" });
+    derived.setCwd(b.path("."));
+    derived.has_side_effects = true;
+    step.dependOn(&derived.step);
     const names = b.addSystemCommand(&.{ "python3", "-I" });
     names.addFileArg(b.path("lint/no_dialect_names.py"));
     names.addArgs(&.{ "grammars", "src" });

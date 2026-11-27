@@ -12,6 +12,7 @@ const grammar = @import("grammar");
 const schema = @import("schema");
 const ir = @import("ir");
 const leaf = @import("leaf.zig");
+const emit = @import("emit.zig");
 const spread = @import("spread.zig");
 const output = @import("output.zig");
 const unwritten = @import("unwritten.zig");
@@ -39,6 +40,9 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
     // ending, through here.
     assert(!w.variant or st.kind == .subckt);
     assert(!w.ending or st.body.len == 0);
+    // A statement that changes nothing in this dialect (`inert kind :
+    // text`), with what it holds: left out, said once a kind.
+    if (w.g.statementInert(st.kind)) |why| return inertStatement(w, st, why);
     if (st.kind == .model and st.body.len > 0) return bins.binnedModel(w, st);
     // A control script where there is none: its analyses and outputs
     // are the deck's own; its other commands are said one by one.
@@ -105,6 +109,15 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
 }
 
 // ---- private ----
+
+fn inertStatement(w: *Writer, st: *const ir.Stmt, why: []const u8) Error!void {
+    const k = @backingInt(st.kind);
+    if (w.inert_said[k]) return;
+    w.inert_said[k] = true;
+    w.report.add(.info, .loss, st.line, "{s}: not written: {s}", .{
+        @tagName(st.kind), try emit.reasonFor(w.arena, why, w.g.name),
+    });
+}
 
 /// A statement only one dialect has: as its words there, an
 /// `unsupported` with that grammar's reason anywhere else.

@@ -8,7 +8,7 @@
 //!     `blockOf`, `rawOf`, `wrapOf`, `movedTo`, `isSpread`, `spreadWord`,
 //!     `isRerun`, `enumOf`, `impliedOf`
 //!   - what has no form: `ownReason`, `ownModelReason`, `noFamilyReason`,
-//!     `absentReason`, `slotAbsentReason`, `inertReason`
+//!     `absentReason`, `slotAbsentReason`, `inertReason`, `statementInert`
 //!   - model cards: `hasModel`, `paramsOf`, `modelParamsOf`, `modelParamsOnly`,
 //!     `edgeText`, `computesText`
 
@@ -104,6 +104,10 @@ pub const Grammar = struct {
     /// `variation inline`: a parameter's variation is an entry of its own
     /// after it on the line that defines it (`p=1 dev/gauss=0.1`).
     variation_inline: bool = false,
+    /// `variant ngspice`: this dialect is that one for another reader (a
+    /// drawing tool), so it is not named apart where a message lists the
+    /// dialects that have something.
+    variant_of: []const u8 = "",
     /// `unique master : why`: models and subcircuits share one name space
     /// here, so an instance of a name both define is ambiguous.
     unique_master: []const u8 = "",
@@ -150,9 +154,22 @@ pub const Grammar = struct {
 
     /// Why `key` of a `kind` statement changes no result in this dialect
     /// (an `inert` line), case ignored; null where no line says so.
+    /// Why a statement of `kind` changes nothing in this dialect (`inert
+    /// kind : text`, with no parameter): it is left out, with a note.
+    pub fn statementInert(g: *const Grammar, kind: Kind) ?[]const u8 {
+        for (g.inerts) |in| {
+            if (in.kind == kind and in.key.len == 0) return in.text;
+        }
+        return null;
+    }
+
+    /// Why the parameter (or command) `key` of a `kind` statement changes
+    /// nothing here; a line that leaves the whole statement out is not
+    /// one, whatever `key` is (a command with no word, a key "").
     pub fn inertReason(g: *const Grammar, kind: Kind, key: []const u8) ?[]const u8 {
         for (g.inerts) |in| {
-            if (in.kind == kind and std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
+            if (in.kind != kind or in.key.len == 0) continue;
+            if (std.ascii.eqlIgnoreCase(in.key, key)) return in.text;
         }
         return null;
     }

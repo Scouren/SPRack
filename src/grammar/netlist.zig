@@ -5,6 +5,7 @@
 //! Contents:
 //! - `pub fn libsections(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn variation(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
+//! - `pub fn variant(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn unique(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn hoist(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn switchTo(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -43,6 +44,13 @@ pub fn variation(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     if (!std.mem.eql(u8, rest, "inline"))
         return c.fail(no, "variation is `variation inline`", .{});
     g.variation_inline = true;
+}
+
+/// `variant <dialect>`: this grammar is that dialect for another reader.
+pub fn variant(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
+    const a = try args(c, no, rest);
+    if (a.len != 1) return c.fail(no, "variant is `variant <dialect>`", .{});
+    g.variant_of = a[0];
 }
 
 /// `unique param|master|analysis kind... [beside kind] : reason`.

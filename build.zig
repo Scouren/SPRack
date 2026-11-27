@@ -349,15 +349,15 @@ fn cliTests(c: Cli) void {
         "usage:\n  sprack translate --from <dialect> --to <dialect> [file] [-o out]",
     );
     c.run(&.{"dialects"}, "", 0).expectStdOutEqual(
-        "cdl\nhspice\nltspice\nngspice\nspectre\nvacask\nxyce\n",
+        "cdl\ncktimg\nhspice\nltspice\nngspice\nspectre\nvacask\nxyce\n",
     );
     c.run(&.{"info"}, "", 0).expectStdOutMatch(
-        "{\"dialects\":[\"cdl\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"",
+        "{\"dialects\":[\"cdl\",\"cktimg\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"",
     );
     const caps = c.run(&.{"caps"}, "", 0);
     caps.expectStdOutMatch(
-        "            cdl      hspice   ltspice  ngspice  spectre  vacask   xyce     " ++
-            "\nresistor    yes      yes      yes      yes      yes      yes      yes      \n",
+        "            cdl      cktimg   hspice   ltspice  ngspice  spectre  vacask   xyce     " ++
+            "\nresistor    yes      yes      yes      yes      yes      yes      yes      yes      \n",
     );
     caps.expectStdOutMatch("\nnone: the simulator has no such thing; an error that says why.\n");
 
@@ -441,7 +441,7 @@ fn cliTests(c: Cli) void {
     ).expectStdErrMatch("--to is required\nusage:");
     c.run(&.{ "translate", "--to", "xyce" }, "", 2).expectStdErrMatch("--from is required\nusage:");
     c.run(&.{ "translate", "--from", "pspice", "--to", "xyce" }, "", 2).expectStdErrEqual(
-        "unknown dialect 'pspice'. Built in: cdl hspice ltspice ngspice spectre vacask xyce; " ++
+        "unknown dialect 'pspice'. Built in: cdl cktimg hspice ltspice ngspice spectre vacask xyce; " ++
             "or a path to a .spgrammar file\n",
     );
     c.run(

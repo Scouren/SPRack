@@ -249,7 +249,7 @@ fn kindCaps() [schema.kind_count][]const u8 {
     for (schema.table, &kinds) |info, *names| {
         names.* = "";
         for (grammars) |g| {
-            if (g.canWrite(info.kind)) names.* = joined(names.*, g.name);
+            if (g.variant_of.len == 0 and g.canWrite(info.kind)) names.* = joined(names.*, g.name);
         }
     }
     return kinds;
@@ -263,7 +263,8 @@ fn familyCaps() []const writer.Caps.FamilyCap {
         for ([_][]const u8{ "", "n", "p", "npn", "pnp" }) |polarity| {
             var names: []const u8 = "";
             for (grammars) |g| {
-                if (g.hasModel(f.name, polarity)) names = joined(names, g.name);
+                if (g.variant_of.len == 0 and g.hasModel(f.name, polarity))
+                    names = joined(names, g.name);
             }
             if (names.len == 0) continue;
             const cap: writer.Caps.FamilyCap = .{
@@ -287,6 +288,8 @@ fn wordCaps() []const writer.Caps.WordCap {
         for (@field(schema, field)) |name| {
             var names: []const u8 = "";
             for (grammars) |g| {
+                // A variant is its base for another reader: not named apart.
+                if (g.variant_of.len > 0) continue;
                 for (@field(g, field)) |e| {
                     if (std.mem.eql(u8, e.canon, name)) names = joined(names, g.name);
                 }
@@ -295,6 +298,8 @@ fn wordCaps() []const writer.Caps.WordCap {
             words = words ++ &[_]writer.Caps.WordCap{.{ .name = name, .dialects = names }};
         }
     }
+    // Every dialect spells some function.
+    assert(words.len > 0);
     return words;
 }
 

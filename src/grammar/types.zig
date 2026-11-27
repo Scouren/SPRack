@@ -74,6 +74,11 @@ pub const LexCfg = struct {
     title_prefix: []const u8 = "",
     line_comments: []const []const u8 = &.{},
     tail_comments: []const []const u8 = &.{},
+    /// `annotation "*@"`: a line that starts with this mark is an
+    /// annotation, a line for a tool that reads the netlist (cktImg's
+    /// `*@ order m1 m2`), kept whole in its scope and written with this
+    /// mark. Empty: the dialect has none, and one is written as a comment.
+    annotation: []const u8 = "",
     /// Open and close markers of comments that can sit inside a line.
     block_comment: ?[2][]const u8 = null,
     /// A line starting with this continues the previous one (`+`).

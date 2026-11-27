@@ -41,6 +41,9 @@ fn setting(c: *C, cfg: *LexCfg, no: u32, line: []const u8) Error!void {
         if (n == 2) cfg.title_prefix = a[2];
     } else if (eql(u8, key, "comment") and n >= 2) {
         try comments(c, cfg, no, a);
+    } else if (eql(u8, key, "annotation") and n == 1) {
+        if (a[1].len == 0) return c.fail(no, "annotation needs its mark", .{});
+        cfg.annotation = a[1];
     } else if (eql(u8, key, "continue") and n == 2) {
         if (eql(u8, a[1], "lead")) {
             cfg.cont_lead = a[2];

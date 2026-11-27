@@ -20,6 +20,7 @@ lexer
   # start with a `*` header, and LVS tools read nothing on that line).
   title     yes "* "
   comment   line "*"
+  annotation "*@"          # a line a tool reads (cktImg's `*@ order m1 m2`), whole, in its scope
   comment   tail "$"                               # assumed: `$` ends the line's netlist and starts its annotations
   continue  lead "+"
   parens    space

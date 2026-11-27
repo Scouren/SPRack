@@ -110,6 +110,11 @@ pub const Writer = struct {
     /// Lines no rule understood, written back as they were in their own
     /// dialect: one note a file (`keptNote`).
     kept: struct { n: usize = 0, line: u32 = 0 } = .{},
+    /// An annotation was written as a comment, which is said once a file.
+    annotated: bool = false,
+    /// The kinds left out as changing nothing here (`inert kind : text`),
+    /// each said once a file.
+    inert_said: [schema.kind_count]bool = @splat(false),
     /// The keys the grammar's `clash` lines watch (`collectClashKeys`).
     clash_keys: ir.CaselessSet = .empty,
     /// How many subcircuits the statement being written is inside.

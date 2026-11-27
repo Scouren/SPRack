@@ -14,6 +14,7 @@
 //! - `pub fn default(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 
 const std = @import("std");
+const assert = std.debug.assert;
 const schema = @import("schema");
 const context = @import("context.zig");
 const tables = @import("tables.zig");
@@ -72,17 +73,25 @@ pub fn caveat(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
 pub fn inert(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
         no,
-        "inert is `inert kind key : text`",
+        "inert is `inert kind [key...] : text`",
         .{},
     );
     const e = try args(c, no, rest[0..colon]);
-    if (e.len < 2) return c.fail(no, "inert needs a kind and a parameter", .{});
+    if (e.len == 0) return c.fail(no, "inert needs a kind", .{});
     const kind = try kindOf(c, no, e[0]);
+    const text = rest[colon + 3 ..];
+    // `inert tran : text`: the whole statement changes nothing here.
+    if (e.len == 1) {
+        g.inerts = try c.add(Inert, g.inerts, .{ .kind = kind, .key = "", .text = text });
+        return;
+    }
+    // `args` gives no empty word, so no key reads as the whole statement.
+    for (e[1..]) |key| assert(key.len > 0);
     for (e[1..]) |key| {
         g.inerts = try c.add(
             Inert,
             g.inerts,
-            .{ .kind = kind, .key = key, .text = rest[colon + 3 ..] },
+            .{ .kind = kind, .key = key, .text = text },
         );
     }
 }

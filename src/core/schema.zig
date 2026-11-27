@@ -187,6 +187,9 @@ pub const Kind = enum(u8) {
     native,
     // A file embedded in the netlist by name (VACASK `embed`).
     embed,
+    // A line for a tool that reads the netlist (cktImg's `*@ order m1 m2`):
+    // its text, written whole on a line of its own in every dialect.
+    annotation,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -618,6 +621,7 @@ const defs = [_]Def{
     // order and `params` its `key=value` pairs, all as written.
     .{ .native, .structure, "of:atom word:atom args:atom* params:params" },
     .{ .embed, .structure, "path:path text:text" },
+    .{ .annotation, .other, "text:text" },
 };
 
 pub fn info(kind: Kind) *const KindInfo {

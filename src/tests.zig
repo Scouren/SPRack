@@ -7,6 +7,9 @@ const ir = sprack.ir;
 const schema = sprack.schema;
 
 const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "ltspice", "cdl" };
+/// Dialects that are another for a different reader (`variant`): built in,
+/// compiled like the rest, and tested by what they are for.
+const variants = [_][]const u8{"cktimg"};
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -267,11 +270,11 @@ fn jsonOf(a: std.mem.Allocator, nl: *const ir.Netlist) ![]const u8 {
 }
 
 var loaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-var loaded_grammars: [dialects.len]?*const sprack.Grammar = @splat(null);
+var loaded_grammars: [dialects.len + variants.len]?*const sprack.Grammar = @splat(null);
 
 /// The dialect's grammar file compiled now, at run time, once per process.
 fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
-    const i = for (dialects, 0..) |d, k| {
+    const i = for (dialects ++ variants, 0..) |d, k| {
         if (std.mem.eql(u8, d, name)) break k;
     } else unreachable;
     if (loaded_grammars[i]) |g| return g;
@@ -375,14 +378,15 @@ fn countKind(nl: ir.Netlist, kind: schema.Kind) usize {
 const Arena = std.heap.ArenaAllocator;
 
 test "all grammars compiled" {
-    try testing.expectEqual(dialects.len, sprack.dialect_count);
-    for (dialects) |n| try testing.expect(sprack.find(n) != null);
+    try testing.expectEqual(dialects.len + variants.len, sprack.dialect_count);
+    for (dialects ++ variants) |n| try testing.expect(sprack.find(n) != null);
+    for (variants) |n| try testing.expect(sprack.find(n).?.variant_of.len > 0);
 }
 
 test "each grammar file compiled at run time is the grammar built into the binary" {
     // One compiler, run when the binary is built and again now: every table
     // of every dialect, field for field.
-    for (dialects) |d| {
+    for (dialects ++ variants) |d| {
         errdefer std.debug.print("dialect {s}\n", .{d});
         try testing.expectEqualDeep(sprack.find(d).?.*, (try loadedGrammar(d)).*);
     }
@@ -391,11 +395,12 @@ test "each grammar file compiled at run time is the grammar built into the binar
 test "caps: every kind has a rule, a place or a reason in every dialect" {
     // `sprack caps` shows no `-`.
     for (sprack.grammars) |*g| for (schema.table) |info| {
-        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+        if (info.kind == .@"opaque" or info.kind == .comment or info.kind == .annotation) continue;
         const scoped = for (g.rules) |r| {
             if (r.kind == info.kind and r.dir != .read and r.within != null) break true;
         } else false;
         const said = g.canWrite(info.kind) or scoped or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
+            g.statementInert(info.kind) != null or
             (info.class == .device and g.canWrite(.instance) and schema.slotOf(info.kind, "master") != null);
         if (!said) {
             std.debug.print("{s} has no rule for '{s}' and no `no {s} : reason` line\n", .{ g.name, @tagName(info.kind), @tagName(info.kind) });
@@ -442,7 +447,9 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
     var count: usize = 0;
     var silent: usize = 0;
     for (schema.table) |info| {
-        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+        // Written as text by every dialect, as a comment is (an annotation
+        // has a test of its own).
+        if (info.kind == .@"opaque" or info.kind == .comment or info.kind == .annotation) continue;
         var only: ?usize = null;
         while (true) {
             _ = arena_state.reset(.retain_capacity);
@@ -7675,4 +7682,68 @@ test "plugin: a device rule that names the module and a plugin block go together
     }
     var diag: sprack.grammar.Diag = .{};
     _ = try sprack.grammar.compile(a, head ++ rule ++ block, "f.spgrammar", &diag);
+}
+
+test "cktimg: the circuit only, devices and names as they are" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "cktimg",
+        \\amp
+        \\.subckt inv in out vdd
+        \\M1 out in vdd vdd pmos w=1u
+        \\M2 out in 0 0 nmos w=1u
+        \\.ends
+        \\.model pmos pmos level=1
+        \\.model nmos nmos level=1
+        \\X1 vin vout vdd inv
+        \\V1 vdd 0 1.8
+        \\.tran 1n 1u
+        \\.meas tran t1 max v(vout)
+        \\.control
+        \\run
+        \\.endc
+        \\.options reltol=1e-4
+        \\.end
+        \\
+    , &report);
+    try has(out, "M1 out in vdd vdd pmos w=1u\nM2 out in 0 0 nmos w=1u\n");
+    try has(out, "X1 vin vout vdd inv\n");
+    for ([_][]const u8{ ".tran", ".meas", ".control", ".options" }) |gone|
+        try testing.expect(std.mem.indexOf(u8, out, gone) == null);
+    // Left out as changing nothing in a drawing: notes, once a kind, no error.
+    try reported(&report, .info, "tran: not written: cktimg draws the circuit");
+    try reported(&report, .info, "script: not written: cktimg draws the circuit");
+    try testing.expectEqual(0, report.count(.@"error"));
+    // What cktImg refuses is refused here, so it never gets there.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "cktimg", "t\n.include \"models.lib\"\nE1 a 0 poly(1) b 0 0 1\n.end\n", &r2);
+    try reported(&r2, .@"error", "cktImg reads one file");
+    try reported(&r2, .@"error", "expand the polynomial first");
+}
+
+test "annotation: a line for a tool is written whole, with each dialect's mark, in its scope" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var top = try ir.newStmt(a, .annotation, 2);
+    try top.set(a, schema.slot(.annotation, "text"), .{ .atom = "order m1 m2" });
+    var inner = try ir.newStmt(a, .annotation, 4);
+    try inner.set(a, schema.slot(.annotation, "text"), .{ .atom = "left a" });
+    var sub = try ir.newStmt(a, .subckt, 3);
+    try sub.set(a, schema.slot(.subckt, "name"), .{ .atom = "inv" });
+    try sub.set(a, schema.slot(.subckt, "ports"), .{ .list = try a.dupe(ir.Value, &.{ .{ .atom = "a" }, .{ .atom = "y" } }) });
+    sub.body = try a.dupe(ir.Stmt, &.{inner});
+    const stmts = try a.dupe(ir.Stmt, &.{ top, sub });
+    const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = stmts };
+    var report: ir.Report = .init(a);
+    const ng = try writeAs(a, "ngspice", &nl, &report);
+    try has(ng, "*@ order m1 m2\n.subckt inv a y\n*@ left a\n.ends inv\n");
+    const sp = try writeAs(a, "spectre", &nl, &report);
+    try has(sp, "// *@ order m1 m2\nsubckt inv (a y)\n// *@ left a\nends inv\n");
+    try testing.expectEqual(0, report.items.items.len);
+    // The JSON form holds it as it is.
+    const json = try jsonOf(a, &nl);
+    try has(json, "{\"kind\":\"annotation\",\"line\":2,\"text\":\"order m1 m2\"}");
 }

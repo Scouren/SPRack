@@ -22,6 +22,11 @@ lexer
   comment   line "*"               # whole-line comments
   comment   tail "$" ";"           # trailing comments
   comment   block "/*" "*/"
+  annotation "*@"                  # a line that starts with this mark is an
+                                   # annotation, a line for a tool that reads
+                                   # the netlist (cktImg's `*@ order m1 m2`):
+                                   # kept whole in its scope, written with the
+                                   # target's mark (a comment where it has none)
   continue  lead "+"               # continuation marker at the start of the next line
   continue  trail "\"              # or at the end of this one
   parens    space                  # ( ) , are blanks; or: token
@@ -226,6 +231,13 @@ spread montecarlo                  # a block written by adding its rule to each
                                    # analysis of its body (`sweep monte=30`)
 spread step "sweep"                # the same; only the rules starting with
                                    # the word are endings (`.temp` is not)
+inert tran : {to} draws the circuit; ...   # with no parameter: the whole
+                                   # statement changes nothing here; it is left
+                                   # out, with an info note once a kind
+variant ngspice                    # this dialect is that one for another reader
+                                   # (cktimg: a drawing tool): not named apart
+                                   # where a message lists the dialects that
+                                   # have something
 variation inline                   # a parameter's variation is an entry of its
                                    # own after it (`p=1 dev/gauss=0.1`): written
                                    # so here, a random function in the
@@ -480,3 +492,13 @@ Every entry of a translation's report has one of these codes.
 | `rename` | info | a name got the device letter the target needs, or a parameter the target's spelling or number |
 | `oneway` | info | written in a form the target's own grammar does not read back |
 | `cosmetic` | info | something without meaning was not written (an analysis label) |
+
+## A dialect derived from another
+
+`grammars/<name>.derive` names a base grammar, the kinds and directive heads
+the derived dialect leaves out, and the lines it adds after `---`;
+`python3 -I tools/derive_grammar.py grammars/<name>.derive` writes
+`grammars/<name>.spgrammar` from them, and `zig build lint` fails while the
+two differ. `cktimg` (the netlist cktImg draws schematics from) is ngspice
+without analyses, outputs or options, which it leaves out with a note, and
+without the devices cktImg refuses.
