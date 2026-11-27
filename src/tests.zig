@@ -8071,6 +8071,7 @@ test "annotation: a stage named as a device keeps its name in every line of its 
         \\// *@ stage M1 M2
         \\// *@ weak order M1 M2
         \\// *@ face M2 M2 left
+        \\// *@ wire M2 at M2.d M1.d
         \\M1 (y a vdd vdd) pmos w=1u
         \\M2 (y a 0 0) nmos w=1u
         \\ends inv
@@ -8079,7 +8080,9 @@ test "annotation: a stage named as a device keeps its name in every line of its 
     var report: ir.Report = .init(a);
     const back = try tr(a, "spectre", "ngspice", sp, &report);
     // `face <block> <port> <side>`: the block is a device, the port is not.
-    try has(back, "*@ stage M1 XM2\n*@ weak order M1 XM2\n*@ face XM2 M2 left\nXM1 y a vdd vdd pmos w=1u\n");
+    // `wire <net> at <dev>.<pin> ...`: the net is not, the pins' devices are.
+    try has(back, "*@ stage M1 XM2\n*@ weak order M1 XM2\n*@ face XM2 M2 left\n" ++
+        "*@ wire M2 at XM2.d M1.d\nXM1 y a vdd vdd pmos w=1u\n");
 }
 
 test "a unit after a value is ignored, in any script: 15kΩ is 15k" {

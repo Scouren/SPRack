@@ -36,9 +36,12 @@ const Fixed = struct { verb: []const u8, at: usize };
 /// is never renamed, in that line or any other of the scope (`unmapStages`).
 /// `*@ face <block> <port> <side>`: the port is a port of the block's
 /// subcircuit, not a device of this scope.
+/// `*@ label <net> at <dev>.<pin> ...`, `*@ wire <net> at ...`: the net.
 const fixed = [_]Fixed{
     .{ .verb = "stage", .at = 0 },
     .{ .verb = "face", .at = 1 },
+    .{ .verb = "label", .at = 0 },
+    .{ .verb = "wire", .at = 0 },
 };
 const stage = fixed[0];
 

@@ -296,7 +296,8 @@ class Hint(NamedTuple):
         number or a pin is not. Nor is an argument cktImg's vocabulary says
         names no device (`_FIXED`): a stage's name, `stage <name> ...`, in
         any hint of its scope (`keep`, the scope's `Hints.stages`; a stage
-        hint keeps its own), and the port of `face <block> <port> <side>`."""
+        hint keeps its own), the port of `face <block> <port> <side>`, and the
+        net of `label`/`wire <net> at <dev>.<pin> ...`."""
         fixed = _FIXED.get(self.verb)
         own = [self.args[fixed]] if self.verb == "stage" and len(self.args) > fixed else []
         if old.lower() in {k.lower() for k in (*keep, *own)}:
@@ -309,8 +310,9 @@ class Hint(NamedTuple):
 
 
 #: The argument (from 0, after the verb) of a cktImg hint that names no
-#: device of the scope: a stage's name, a face's port of the block's subcircuit.
-_FIXED = {"stage": 0, "face": 1}
+#: device of the scope: a stage's name, a face's port of the block's subcircuit,
+#: the net of `label <net> at <dev>.<pin> ...` and `wire <net> at ...`.
+_FIXED = {"stage": 0, "face": 1, "label": 0, "wire": 0}
 
 
 class Hints:

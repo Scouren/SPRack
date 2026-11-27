@@ -1513,6 +1513,8 @@ def test_a_stage_name_is_never_renamed():
     assert c.scope("s").hints[1].args == ("MZ",)  # no stage M1 in that scope
     assert sprack.Hint("stage", ("M1",)).renamed("m1", "X") == sprack.Hint("stage", ("M1",))
     assert sprack.Hint("face", ("M1.g",)).renamed("m1", "X", {"M1"}).args == ("M1.g",)
+    # The net of `wire`/`label <net> at <dev>.<pin> ...` is no device.
+    assert sprack.Hint("wire", ("r1", "at", "R1.p", "R2.n")).renamed("r1", "RX").args == ("r1", "at", "RX.p", "R2.n")
     # face <block> <port> <side>: the block is a device, the port is not.
     assert sprack.Hint("face", ("X1", "X1", "left")).renamed("x1", "XA").args == ("XA", "X1", "left")
     f = sprack.Circuit("t")
