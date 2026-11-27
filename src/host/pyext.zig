@@ -4,11 +4,14 @@
 //! one binary serves CPython 3.10 and later. Everything crosses the
 //! boundary as text: netlists as they are, the IR and the reports as JSON.
 //! The Python package on top of this holds no knowledge of any dialect.
+//!
+//! Contents: nothing `pub`; `export fn PyInit__core`, which CPython calls on import.
 
 const std = @import("std");
 const sprack = @import("sprack");
 const ir = sprack.ir;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 const PyObject = opaque {};
 
@@ -124,6 +127,8 @@ fn flag(args: ?*PyObject, i: isize) bool {
 }
 
 /// A built-in dialect name or a path to a `.spgrammar` file.
+// tidy: allow-fn(swallowed-error) the message is written into a fixed buffer: one longer
+// than the buffer is cut short, not refused.
 fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
     var diag: sprack.grammar.Diag = .{};
     return sprack.resolve(arena, threaded.io(), name, &diag) catch |e| {
@@ -142,6 +147,8 @@ fn dialect(arena: Allocator, name: []const u8) Fail!*const sprack.Grammar {
             error.CannotRead, error.BadGrammar, error.TooManyDialects => w.writeAll(diag.msg) catch
                 {},
         }
+        // The writer was given all but the last byte: room for the 0.
+        assert(w.end < buf.len);
         buf[w.end] = 0;
         PyErr_SetString(valueError(), @ptrCast(&buf));
         return error.Raised;
@@ -167,6 +174,8 @@ fn reportJson(arena: Allocator, report: *const ir.Report) Fail![]const u8 {
 
 /// Run one entry point with its own arena and turn Zig errors into Python ones.
 fn call(comptime body: fn (Allocator, ?*PyObject) Fail!*PyObject, args: ?*PyObject) ?*PyObject {
+    // tidy: allow(global-allocator-in-library) Python calls in here: there is no caller to take
+    // an allocator from.
     var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_state.deinit();
     return body(arena_state.allocator(), args) catch |err| switch (err) {
@@ -209,13 +218,9 @@ fn readBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
         (try sprack.json.parseNetlist(arena, try arg(args, 3), &report)).env
     else
         null;
-    const nl = try sprack.reader.read(
-        gf,
-        arena,
-        try arg(args, 1),
-        &report,
-        .{ .env = env, .library = flag(args, 2) },
-    );
+    const source = try arg(args, 1);
+    const read_opts: ir.ReadOptions = .{ .env = env, .library = flag(args, 2) };
+    const nl = try sprack.reader.read(gf, arena, source, &report, read_opts);
     var aw: std.Io.Writer.Allocating = .init(arena);
     try sprack.json.writeNetlist(&aw.writer, &nl);
     return pair(aw.written(), try reportJson(arena, &report));
@@ -255,9 +260,13 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     const gf = try dialect(arena, try arg(args, 0));
     const to = try arg(args, 1);
     const gt: ?*const sprack.Grammar = if (to.len > 0) try dialect(arena, to) else null;
+    // No target: a catalogue.
+    assert((gt == null) == (to.len == 0));
     var log: std.Io.Writer.Allocating = .init(arena);
     var cat: std.Io.Writer.Allocating = .init(arena);
     var expanded: std.Io.Writer.Allocating = .init(arena);
+    // tidy: allow(global-allocator-in-library) Python calls in here: there is no caller to take
+    // an allocator from, and the run frees all it takes before it returns.
     const sum = sprack.project.run(threaded.io(), std.heap.page_allocator, .{
         .from = gf,
         .to = gt,
@@ -294,7 +303,8 @@ fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
     if (gt == null) return pair(cat.written(), log.written());
     const summary = try std.fmt.allocPrint(
         arena,
-        "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d},\"root\":{f},\"vars\":{s}}}",
+        "{{\"files\":{d},\"errors\":{d},\"warnings\":{d},\"missing\":{d}," ++
+            "\"root\":{f},\"vars\":{s}}}",
         .{
             sum.files,          sum.errors, sum.warnings, sum.missing,
             std.json.fmt(
