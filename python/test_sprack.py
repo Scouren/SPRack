@@ -1457,6 +1457,82 @@ def test_place_and_draw_go_to_cktimg_package():
         del sys.modules["cktimg"]
 
 
+def test_place_and_draw_run_the_cktimg_command_without_its_package():
+    # No cktimg package: its `cktimg-json` command, given the deck and the
+    # flags, writes the placement, the report and (for draw) the SVG.
+    import tempfile, stat
+    fake = r"""#!/usr/bin/env python3
+import json, sys
+a = sys.argv[1:]
+def opt(f):
+    return a[a.index(f) + 1] if f in a else None
+deck, out = a[-2], a[-1]
+assert open(deck).read().startswith("t")
+json.dump({"requests": [], "argv": a[:-2]}, open(opt("--report"), "w"))
+json.dump({"devices": [{"name": "R1"}]}, open(out, "w"))
+if opt("--svg"):
+    open(opt("--svg"), "w").write("<svg/>")
+if opt("--config") == "bad":
+    sys.exit("bad config")
+"""
+    with tempfile.TemporaryDirectory() as d:
+        exe = os.path.join(d, "cktimg-json")
+        with open(exe, "w") as f:
+            f.write(fake)
+        os.chmod(exe, os.stat(exe).st_mode | stat.S_IEXEC)
+        saved = sys.modules.get("cktimg")
+        sys.modules["cktimg"] = None  # import cktimg raises ImportError
+        try:
+            c = sprack.Circuit("t")
+            c.R("1", "a", 0, "1k")
+            placement, report = c.place(cktimg=exe, symbols="s.zon", start="p.json")
+            assert placement == {"devices": [{"name": "R1"}]}
+            assert report["argv"] == ["--report", report["argv"][1], "--symbols", "s.zon", "--from", "p.json"]
+            os.environ["CKTIMG_JSON"] = exe
+            try:
+                image, rep = c.draw(target="png")
+            finally:
+                del os.environ["CKTIMG_JSON"]
+            assert image == "<svg/>" and "--svg" in rep["argv"] and "--target" in rep["argv"]
+            raises(sprack.SprackError, lambda: c.place(cktimg=exe, config="bad"), "bad config")
+        finally:
+            if saved is None:
+                del sys.modules["cktimg"]
+            else:
+                sys.modules["cktimg"] = saved
+
+
+def test_source_waveforms_by_keyword():
+    c = sprack.Circuit("t")
+    c.R("1", "a", 0, "1k")
+    c.V("1", "a", 0, 0, ac=(1, 90), pulse=dict(val0=0, val1=1.8, rise="50p"))
+    v = c.statements[-1]
+    assert (v["acmag"], v["acphase"], v["wave"], v["val1"], v["rise"]) == ("1", "90", "pulse", "1.8", "50p")
+    c.V("2", "b", 0, sin=(0, 1, "1k"))
+    assert c.statements[-1]["wave"] == "sine"
+    c.I("1", "b", 0, pwl=[(0, 0), ("1n", "1m")])
+    assert c.statements[-1]["pwl"] == ["0", "0", "1n", "1m"]
+    raises(TypeError, lambda: c.V("3", "a", 0, pulse=(0, 1), sin=(0, 1)), "one waveform")
+    raises(TypeError, lambda: c.V("3", "a", 0, pulse=(0, 1), pwl=[(0, 0)]), "one waveform")
+    raises(TypeError, lambda: c.V("3", "a", 0, pulse=dict(nope=1)), "has no 'nope'")
+    raises(TypeError, lambda: c.V("3", "a", 0, pulse=tuple(range(20))), "at most")
+
+
+def test_hints_replace_remove_and_clear():
+    c = sprack.Circuit("t")
+    c.R("1", "a", 0, "1k")
+    c.hints.append("order R1")
+    c.hints.append("weak face R1.n left")
+    c.hints[0] = "order R1 R1"
+    assert c.hints[0].text() == "order R1 R1"
+    c.hints.remove("weak face R1.n left")
+    assert [h.text() for h in c.hints] == ["order R1 R1"]
+    raises(ValueError, lambda: c.hints.remove("stage x"), "no hint")
+    assert "Hints([" in repr(c.hints)
+    c.hints.clear()
+    assert len(c.hints) == 0 and c.statements[-1]["kind"] == "resistor"
+
+
 def test_schemify_script_keeps_run():
     # A command built here is the target's own: ngspice keeps its `run`.
     c = sprack.Circuit("t")
