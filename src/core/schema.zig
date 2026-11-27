@@ -390,7 +390,9 @@ const defs = [_]Def{
     // port's `[` and `]` are items of `nodes` of their own.
     .{ .xspice, .device, "name nodes:node* master:ident params:params" },
     .{ .instance, .device, "name nodes:node* master:ident params:params" },
-    .{ .subckt, .structure, "name ports:node* params:params inline:atom" },
+    // `dirs`: for each port, where given, its direction: `in`, `out` or
+    // `inout` (structural Verilog, CDL's `*.PININFO`).
+    .{ .subckt, .structure, "name ports:node* params:params inline:atom dirs:atom*" },
     .{ .libsection, .structure, "name" },
     // A conditional block. `cond_elif` and `cond_else` are markers inside
     // the body of a `cond_if`; what follows each belongs to that branch.

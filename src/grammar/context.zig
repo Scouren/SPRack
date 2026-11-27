@@ -45,6 +45,9 @@ pub const C = struct {
     nodes: u32 = 0,
     /// Captures of the pattern being parsed that pick items (`slot*@sel=atom`).
     picks: u32 = 0,
+    /// The lexer's whole-line comment marks: a literal that starts with
+    /// one is never read, so it keeps its case (CDL's `*.PININFO`).
+    comments: []const []const u8 = &.{},
 
     const Grown = struct { len: usize, cap: usize };
 

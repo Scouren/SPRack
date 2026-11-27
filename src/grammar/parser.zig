@@ -134,6 +134,8 @@ const P = struct {
     }
 
     fn lit(p: *P, text: []const u8) Error![]const u8 {
+        for (p.c.comments) |mark| if (mark.len > 0 and std.mem.startsWith(u8, text, mark))
+            return text;
         return p.c.foldIf(p.fold, text);
     }
 

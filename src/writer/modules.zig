@@ -35,8 +35,9 @@ const in_bit: u8 = 1;
 const out_bit: u8 = 2;
 const inout_bit: u8 = 4;
 
-/// A subcircuit, its ports, and what is known of what each is for.
-const Def = struct { st: *const ir.Stmt, ports: []const []const u8, uses: []u8 };
+/// A subcircuit, its ports, and what is known of what each is for;
+/// `given`: its `dirs` say, and win over what its instances do.
+const Def = struct { st: *const ir.Stmt, ports: []const []const u8, uses: []u8, given: bool };
 
 const Pair = [2][]const u8;
 
@@ -74,7 +75,12 @@ fn collect(a: Allocator, stmts: []const ir.Stmt, defs: *std.ArrayList(Def)) Allo
             const ports = try words(a, st.get("ports"));
             const uses = try a.alloc(u8, ports.len);
             @memset(uses, 0);
-            try defs.append(a, .{ .st = st, .ports = ports, .uses = uses });
+            const dirs = try words(a, st.get("dirs"));
+            const given = dirs.len == ports.len and dirs.len > 0;
+            if (given) for (uses, dirs) |*u, d| {
+                u.* = bitOf(d);
+            };
+            try defs.append(a, .{ .st = st, .ports = ports, .uses = uses, .given = given });
         }
         try collect(a, st.body, defs);
     }
@@ -183,7 +189,7 @@ fn directions(x: *M) void {
 /// What `st`, inside `d`, does with `d`'s ports; true where it is news.
 fn learn(x: *const M, d: *Def, st: *const ir.Stmt) bool {
     const nodes = st.get("nodes");
-    if (nodes != .list) return false;
+    if (nodes != .list or d.given) return false;
     var news = false;
     for (nodes.list, 0..) |n, i| {
         const bits = use(x, st, i);

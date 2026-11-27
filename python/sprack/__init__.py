@@ -475,6 +475,17 @@ def _params(pairs: Iterable[tuple[Any, Any]]) -> Any:
     return dict(out) if len({k for k, _ in out}) == len(out) else out
 
 
+def _dirs(dirs: Iterable[str], n: int) -> list[str]:
+    """Port directions, one a port: `in`, `out` or `inout`."""
+    out = [str(d).lower() for d in dirs]
+    if len(out) != n:
+        raise TypeError(f"dirs gives {len(out)} directions for {n} ports")
+    bad = [d for d in out if d not in ("in", "out", "inout")]
+    if bad:
+        raise TypeError(f"a direction is in, out or inout, not {bad[0]!r}")
+    return out
+
+
 def _slots(kind: str) -> dict[str, dict]:
     return {s["name"]: s for s in KINDS[kind]["slots"]}
 
@@ -779,12 +790,17 @@ class _Scope:
             st["params"] = _val({_key(k): x for k, x in params.items()})
         return self._push(st)
 
-    def subckt(self, name: str, *ports: Any, inline: Any = None, dialect: str | None = None, **params: Any) -> _Stmt:
+    def subckt(self, name: str, *ports: Any, inline: Any = None, dirs: Iterable[str] | None = None,
+               dialect: str | None = None, **params: Any) -> _Stmt:
         """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`.
         `inline=True`: an inline subcircuit (Spectre), whose devices are named
-        as if they stood where its instance does."""
+        as if they stood where its instance does. `dirs=["in", "out"]`: each
+        port's direction (in, out, inout), written by structural Verilog and
+        CDL (`*.PININFO`), left out elsewhere."""
         st: dict[str, Any] = {"kind": "subckt", "name": name, "ports": [str(p) for p in ports], "body": []}
         self._own(st, dialect)
+        if dirs is not None:
+            st["dirs"] = _dirs(dirs, len(ports))
         if params:
             st["params"] = _val(params)
         if inline is not None:

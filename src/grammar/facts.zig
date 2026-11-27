@@ -114,7 +114,6 @@ pub fn implied(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
 
 /// `enum kind slot : canonical=spelling ...`.
 pub fn enumMap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
-    const fold = !g.lex.case_sensitive;
     const colon = std.mem.indexOf(u8, rest, " : ") orelse return c.fail(
         no,
         "enum is `enum kind slot : canonical=spelling ...`",
@@ -137,7 +136,7 @@ pub fn enumMap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         pairs = try c.add(
             EnumPair,
             pairs,
-            .{ .canon = pair[0..pe], .spelling = try c.foldIf(fold, pair[pe + 1 ..]) },
+            .{ .canon = pair[0..pe], .spelling = pair[pe + 1 ..] },
         );
     }
     g.enums = try c.add(EnumMap, g.enums, .{ .kind = kind, .slot = slot, .pairs = pairs });

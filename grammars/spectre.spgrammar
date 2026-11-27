@@ -62,7 +62,7 @@ preamble unless global
 end
 
 block subckt
-  open   [ inline:"inline"=yes ] "subckt" name ["("] ports* [")"]
+  open   [ inline:"inline"=yes ] "subckt" name ["("] ports* [")"] -dirs
   inner  "parameters" {...params}
   close  "ends" [name]
 end

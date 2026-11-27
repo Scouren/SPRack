@@ -115,7 +115,7 @@ What may stand on the right of a rule, and on the lines of a block.
 
 | form | meaning |
 |---|---|
-| `"lit"` | a literal word |
+| `"lit"` | a literal word; folded to lower case where the dialect folds case, unless it starts with a whole-line comment mark: such a literal is never read, and is written as given (CDL's `[ / "*.PININFO" ( ports ~":" dirs )+ ]`) |
 | `~"("` | a literal glued to its neighbours when written (`v(out)`) |
 | `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot; `slot#n` as many items as slot `n` holds |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
@@ -145,7 +145,8 @@ implied options temp = $tnom       # for options, over the whole netlist; a
                                    # translation states the ones the target
                                    # assumes otherwise (HSPICE's TNOM 25)
 implied vsource td1 = 0 wave=exp   # only where that slot holds that word
-enum options method : trap=trap gear=gear2      # canonical = this dialect's word
+enum options method : trap=trap gear=gear2      # canonical = this dialect's word, written as
+                                   # given, read in any case where case folds
 move options.method -> tran.method # this dialect says it on another statement
 move options.delmax -> tran.maxstep oneway   # only when writing
 move tran.maxstep -> options.delmax oneway   # onto the options, said once

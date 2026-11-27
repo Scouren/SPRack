@@ -220,6 +220,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
             c.name = rest;
         } else if (std.mem.eql(u8, head, "lexer")) {
             g.lex = try parseLexer(c, &lines);
+            c.comments = g.lex.line_comments;
             have_lexer = true;
         } else if (!have_lexer) {
             return c.fail(lines.no, "the lexer section must come before `{s}`", .{head});

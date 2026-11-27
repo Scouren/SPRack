@@ -42,7 +42,7 @@ block script
 end
 
 block subckt
-  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline
+  open   ".subckt" name ports* ( {...params} | "params:" {...params} ) -inline -dirs
   close  ".ends" [name]
 end
 

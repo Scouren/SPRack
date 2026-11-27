@@ -27,7 +27,7 @@ lexer
 end
 
 block subckt
-  open   ".subckt" name ports* [ "params:" {...params} ] -inline
+  open   ".subckt" name ports* [ "params:" {...params} ] -inline -dirs
   close  ".ends" [name]
 end
 

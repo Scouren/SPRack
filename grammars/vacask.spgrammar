@@ -133,7 +133,7 @@ raw "embed" ">>>FILE" as embed : VACASK embeds a file (a post-processing script)
 
 # The terminal list is in parentheses, always (lib/dflparser.y:324,334).
 block subckt
-  open   "subckt" name "(" ports* ")" -inline
+  open   "subckt" name "(" ports* ")" -inline -dirs
   inner  "parameters" {...params}
   close  "ends" [name]
 end

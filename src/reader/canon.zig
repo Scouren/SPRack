@@ -202,11 +202,19 @@ pub fn mapModel(
 // ---- private ----
 
 fn canonEnums(self: *Reader, st: *const ir.Stmt, vals: []Value) void {
+    assert(vals.len == schema.info(st.kind).slots.len);
     for (self.g.enums) |*e| {
         if (e.kind != st.kind or vals[e.slot] != .atom) continue;
         const have = vals[e.slot].atom;
+        // A grammar spells its words as written; one that folds case
+        // reads them in any case.
+        const fold = !self.g.lex.case_sensitive;
         const hit = for (e.pairs) |pr| {
-            if (std.mem.eql(u8, pr.spelling, have)) break pr.canon;
+            if (if (fold) std.ascii.eqlIgnoreCase(pr.spelling, have) else std.mem.eql(
+                u8,
+                pr.spelling,
+                have,
+            )) break pr.canon;
         } else {
             self.report.add(.warning, .invalid, st.line, "{s}.{s} = {s} is not a value " ++
                 "the {s} grammar lists; kept as written", .{

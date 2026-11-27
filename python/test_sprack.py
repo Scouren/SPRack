@@ -1651,6 +1651,23 @@ def test_schemify_verilog_module_without_file():
     raises(sprack.Unsupported, lambda: c.netlist("espice"), "verilog 'U1'", "'module' or 'file'")
 
 
+def test_schemify_subckt_port_directions():
+    # Given directions win in Verilog, are *.PININFO in CDL, and nothing elsewhere.
+    c = sprack.Circuit("t")
+    with c.subckt("inv", "A", "Y", "VDD", dirs=["in", "out", "inout"]) as s:
+        s.verilog("U1", "A", "Y", "dinv", file="dinv.v", pins=["A", "Y"], dirs=["out", "in"])
+    c.instance("X1", "a", "y", "vdd", "inv")
+    v = c.netlist("verilog")
+    assert "module inv (A, Y, VDD);\n  input A;\n  output Y;\n  inout VDD;\n" in v, v
+    with c.subckt("res", "IN", "OUT", "VDD", dirs=["in", "out", "inout"]) as s:
+        s.R("1", "IN", "OUT", "1k")
+    cdl = c.netlist("cdl", strict=False)
+    assert ".subckt res IN OUT VDD\n*.PININFO IN:I OUT:O VDD:B\nR1 IN OUT 1k\n" in cdl, cdl
+    assert "PININFO" not in c.netlist("ngspice"), c.netlist("ngspice")
+    raises(TypeError, lambda: c.subckt("x", "a", dirs=["up"]), "in, out or inout")
+    raises(TypeError, lambda: c.subckt("x", "a", dirs=["in", "out"]), "2 directions for 1 ports")
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

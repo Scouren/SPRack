@@ -75,7 +75,12 @@ What the calls are:
   module, its nodes a bit each in port order, `pins` and `dirs` one a node
   (see [Digital Verilog](simulators.md#digital-verilog)). ngspice writes it
   for d_cosim, `espice` as an N card, `verilog` as structural Verilog:
-  `c.netlist("verilog")`.
+  `c.netlist("verilog")`. Without `file=`, the module names the d_cosim
+  program (`module="n"`: `n.vvp`); without either, an error.
+* **Port directions.** `c.subckt(name, *ports, dirs=["in", "out",
+  "inout"])`: one a port. Structural Verilog declares each port so (over
+  what its instances do), CDL writes `*.PININFO IN:I OUT:O VDD:B` after the
+  `.SUBCKT` line, every other dialect leaves them out.
 
 `c.model(name, family, polarity, **params)` takes a canonical family
 (`"bsim4"`, `"diode"`, `"bjt"`, ...) and a polarity (`"n"`, `"p"`, `"npn"`,

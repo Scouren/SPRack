@@ -33,8 +33,9 @@ lexer
   end       ".end"
 end
 
+enum subckt dirs : in=I out=O inout=B   # *.PININFO a:I y:O vdd:B
 block subckt
-  open   ".subckt" name ports* {...params} -inline      # params on the header: assumed
+  open   ".subckt" name ports* {...params} -inline [ / "*.PININFO" ( ports ~":" dirs )+ ]   # params on the header: assumed; the pins' directions on a line of their own
   close  ".ends" [name]
 end
 
