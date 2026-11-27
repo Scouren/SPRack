@@ -8146,3 +8146,15 @@ test "a statement the target refuses beside another kind is an error and not wri
     var r2: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "xyce", "t\nR1 a 0 1k\n.nodeset v(a)=1\n.op\n.end\n", &r2), ".nodeset v(a)=1\n");
 }
+
+test "names: Spectre escapes a name a character at a time, and reads it back without the marks" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const ng = "t\nXB[0] a vdd! sub\nR<1> net<3> 0 1k\n.subckt sub p n\nR1 p n 1k\n.ends\n.end\n";
+    var r1: ir.Report = .init(a);
+    const sp = try tr(a, "ngspice", "spectre", ng, &r1);
+    try has(sp, "XB\\[0\\] (a vdd!) sub\nR\\<1\\> (net\\<3\\> 0) resistor r=1k\n");
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "spectre", "ngspice", sp, &r2), "XB[0] a vdd! sub\nR<1> net<3> 0 1k\n");
+}

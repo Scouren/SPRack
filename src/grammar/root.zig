@@ -24,7 +24,8 @@
 //! - from `types.zig`, the directives: `Absent`, `Caveat`, `Check`, `Computes`,
 //!   `Convert`, `Differs`, `Each`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
 //!   `Inert`, `Means`, `Merge`, `ModelEntry`, `ModelKv`, `ModelParamTable`,
-//!   `ModelSpelling`, `ModelWhen`, `Modules`, `Move`, `Needs`, `NoFamily`, `NoParam`, `Once`,
+//!   `ModelSpelling`, `ModelWhen`, `Modules`, `Names`, `Move`, `Needs`, `NoFamily`,
+//!   `NoParam`, `Once`,
 //!   `Omitted`, `Own`, `ParamTable`, `Plugin`, `RawBlock`, `Require`,
 //!   `Reserved`, `Rewrite`, `SignalForm`, `Spellings`, `Spread`, `Switch`,
 //!   `Threshold`, `Topo`, `UniqueAnalysis`, `Wrap`, `paramsOpen`
@@ -96,6 +97,7 @@ pub const Move = types.Move;
 pub const Needs = types.Needs;
 pub const Once = types.Once;
 pub const Modules = types.Modules;
+pub const Names = types.Names;
 pub const NoFamily = types.NoFamily;
 pub const NoParam = types.NoParam;
 pub const Omitted = types.Omitted;
@@ -124,6 +126,7 @@ const Head = enum {
     needs,
     once,
     modules,
+    names,
     wrap,
     own,
     raw,
@@ -269,6 +272,7 @@ fn directive(
         .needs => try sections.needs(c, g, lines, rest),
         .once => try sections.once(c, g, lines, rest),
         .modules => try sections.modules(c, g, lines),
+        .names => try sections.names(c, g, lines),
         .wrap => try sections.wrap(c, g, no, rest),
         .own => try sections.own(c, g, no, rest),
         .raw => try sections.raw(c, g, no, rest),

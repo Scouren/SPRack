@@ -21,6 +21,7 @@
 //! - `pub const Needs = struct`
 //! - `pub const Once = struct`
 //! - `pub const Modules = struct`
+//! - `pub const Names = struct`
 //! - `pub const Convert = struct`
 //! - `pub const Computes = struct`
 //! - `pub const Edge = struct`
@@ -120,6 +121,10 @@ pub const LexCfg = struct {
     strict_numbers: bool = false,
     /// Statement that ends the input (`.end`).
     end_marker: []const u8 = "",
+    /// A mark before a character a word may not hold (`B\[0\]`): read, the
+    /// character is the word's and the mark is dropped. Set by the
+    /// `names` section's `escape each`.
+    escape: []const u8 = "",
 };
 
 pub const no_slot: u8 = 0xff;
@@ -309,12 +314,22 @@ pub const Modules = struct {
     close: []const u8,
     /// The words of `{dir}`: in, out, inout.
     dirs: [3][]const u8,
+};
+
+/// `names ... end`: what a name of an instance, a net, a subcircuit or a
+/// model may hold here, and how one that holds anything else is written.
+pub const Names = struct {
     /// A name's first characters and the others (`A-Za-z_`: ranges and
-    /// characters); any other name is written between the two escapes.
+    /// characters).
     first: []const u8,
     rest: []const u8,
-    escape_open: []const u8,
-    escape_close: []const u8,
+    /// `escape whole "\" " "`: such a name between `open` and `close`;
+    /// `escape each "\"`: `open` before each character outside them.
+    open: []const u8,
+    close: []const u8 = "",
+    each: bool,
+    /// Words a name may not be, escaped as a name outside the classes is.
+    keywords: []const []const u8 = &.{},
 };
 
 /// `convert kind [slot=atom] : a = b op c`: this dialect's slot `a` holds a

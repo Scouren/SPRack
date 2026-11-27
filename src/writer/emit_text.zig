@@ -13,6 +13,7 @@
 //! - `pub fn sourceGrammar(e: *const Emit) ?*const Grammar`
 //! - `pub fn signalText(e: *Emit, canon: []const u8) Allocator.Error!?[]const u8`
 //! - `pub fn slotText(e: *Emit, idx: u8, quoted: bool) Allocator.Error!?[]const u8`
+//! - `pub fn isName(sl: schema.Slot) bool`
 //! - `pub fn describe(e: *Emit, v: Value) Allocator.Error![]const u8`
 //! - `pub fn expandDefault(e: *Emit, text: []const u8) Allocator.Error![]const u8`
 
@@ -266,7 +267,22 @@ pub fn slotText(e: *Emit, idx: u8, quoted: bool) Allocator.Error!?[]const u8 {
         if (e.g.enumOf(e.st.kind, idx)) |em| return enumText(e, sl, v.atom, em, quoted);
     }
     if (sl.ty == .signal) return signalSlot(e, idx);
+    if (e.g.names) |*n| if (isName(sl)) return try e.valueText(try tables.escapedValue(
+        e.arena,
+        n,
+        v,
+    ), quoted);
     return try e.valueText(v, quoted);
+}
+
+/// Does `sl` hold the name of an instance, a net, a subcircuit or a model,
+/// which the grammar's `names` section escapes?
+pub fn isName(sl: schema.Slot) bool {
+    return switch (sl.ty) {
+        .name, .node, .ref => true,
+        .ident => std.mem.eql(u8, sl.name, "master"),
+        else => false,
+    };
 }
 
 pub fn describe(e: *Emit, v: Value) Allocator.Error![]const u8 {

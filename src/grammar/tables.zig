@@ -40,6 +40,7 @@ const Move = types.Move;
 const Needs = types.Needs;
 const Once = types.Once;
 const Modules = types.Modules;
+const Names = types.Names;
 const NoFamily = types.NoFamily;
 const NoParam = types.NoParam;
 const Omitted = types.Omitted;
@@ -152,6 +153,8 @@ pub const Grammar = struct {
     plugin: ?Plugin = null,
     /// `modules`: the netlist is written as modules, not statement by statement.
     modules: ?Modules = null,
+    /// `names`: what a name may hold, and how another is escaped.
+    names: ?Names = null,
     read_index: ReadIndex = .{},
 
     /// The rules that may read a line whose first token is a word of this

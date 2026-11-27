@@ -9,8 +9,9 @@
 //! - `pub const Declared`
 //! - `pub const Matcher = struct`, with `pub fn run`, `pub fn toks`, `pub fn slot`,
 //!   `pub fn followLit`, `pub fn beforeEq`, `pub fn m`, `pub fn countOf`, `pub fn applyTo`,
-//!   `pub fn clash`, `pub fn build`; from `values.zig` `pub const own`, `pub const number`,
-//!   `pub const toValue`, `pub const signalAt`, `pub const quotedExpr`, `pub const anyValue`,
+//!   `pub fn clash`, `pub fn build`; from `values.zig` `pub const own`, `pub const spelled`,
+//!   `pub const number`, `pub const toValue`, `pub const signalAt`, `pub const quotedExpr`,
+//!   `pub const anyValue`,
 //!   `pub const vector`, `pub const pairs`; from `capture.zig` `pub const parenRun`,
 //!   `pub const joinRaw`, `pub const joinTokens`, `pub const capOne`; from `bag.zig`
 //!   `pub const bagEntry`
@@ -103,6 +104,7 @@ pub const Matcher = struct {
     }
 
     pub const own = values.own;
+    pub const spelled = values.spelled;
     pub const number = values.number;
     pub const toValue = values.toValue;
 

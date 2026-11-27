@@ -61,6 +61,14 @@ preamble unless global
   global 0
 end
 
+# A name: letters, digits and `_`, and `!` (a global net, `vdd!`); any
+# other character is escaped with a backslash, one by one (`B\[0\]`,
+# Virtuoso's `net\<3\>`), and read back without it.
+names
+  ident   "A-Za-z0-9_!" "A-Za-z0-9_!"
+  escape  each "\"
+end
+
 block subckt
   open   [ inline:"inline"=yes ] "subckt" name ["("] ports* [")"] -dirs
   inner  "parameters" {...params}
@@ -223,7 +231,8 @@ block model
   open   "model" name type "{"
   close  "}"
 end
-rule  model     = name {...params}
+read  model     = name {...params}
+write model     = name ~": " {...params}
 
 move options.method -> tran.method
 enum tran method : trap=trap gear=gear2 euler=euler bdf=gear2

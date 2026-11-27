@@ -1680,6 +1680,23 @@ def test_schemify_top_module_ports():
     assert 'c.ports("inp", "inn", "out", dirs=["in", "in", "out"])' in c.python(), c.python()
 
 
+def test_schemify_names_escaped():
+    # A keyword is escaped whole in Verilog; Spectre escapes a character at a time.
+    c = sprack.Circuit("t")
+    c.verilog("wire", "input", "y", "dinv", file="dinv.v", pins=["A", "Y"], dirs=["in", "out"])
+    v = c.netlist("verilog")
+    assert "  wire \\input ;\n" in v and "  dinv \\wire  (.A(\\input ), .Y(y));\n" in v, v
+    c = sprack.Circuit("t")
+    c.instance("B[0]", "a", "vdd!", "sub")
+    c.R("<1>", "net<3>", 0, "1k")
+    with c.subckt("sub", "p", "n") as s:
+        s.R("1", "p", "n", "1k")
+    sp = c.netlist("spectre")
+    assert "B\\[0\\] (a vdd!) sub\n" in sp and "R\\<1\\> (net\\<3\\> 0) resistor r=1k\n" in sp, sp
+    back = sprack.read(sp, "spectre").statements
+    assert back[0]["name"] == "B[0]" and back[1]["pos"] == "net<3>", back
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

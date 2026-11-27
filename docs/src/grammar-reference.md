@@ -92,6 +92,15 @@ once verilog master ... end        # lines written after the last statement, onc
 modules ... end                    # the netlist written as modules that
                                    # instantiate each other by named ports
                                    # (structural Verilog); see below
+names                              # what a name of an instance, a net, a
+  ident    "A-Za-z_" "A-Za-z0-9_$" # subcircuit or a model may hold: its
+  escape   whole "\" " "           # first characters and the rest (ranges
+  keywords always and assign ...   # and characters), and the words it may
+end                                # not be. Any other is escaped: `whole`
+                                   # between the two marks (Verilog's
+                                   # `\input `), `each` with the mark before
+                                   # every character outside them (Spectre's
+                                   # `B\[0\]`), a mark the reader drops
 wrap "control" "endc" : op dc tran # these kinds are collected into one block
 raw ".control" ".endc"             # kept verbatim, never translated
 raw "embed" ">>>FILE" : reason     # and why no other dialect can take it
@@ -540,9 +549,10 @@ modules
   bus      "{" "}"                      # around the nets of a port of several bits
   close    "endmodule"
   dirs     "input" "output" "inout"
-  name     "A-Za-z_" "A-Za-z0-9_$" "\" " "   # a name's first characters, the
-end                                     # rest, and the escapes around any other
+end
 ```
+
+A name is written as the grammar's `names` section says (above).
 
 The top level is a module named by the first word of the title (`top`
 without one), its ports those of its `ports` statement (none without one),

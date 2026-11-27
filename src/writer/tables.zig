@@ -12,6 +12,9 @@
 //! - `pub fn describeValue(a: Allocator, v: Value) Allocator.Error![]const u8`
 //! - `pub fn filled(arena: Allocator, text: []const u8,
 //!   vars: []const [2][]const u8) Allocator.Error![]const u8`
+//! - `pub fn escaped(a: Allocator, n: *const grammar.Names,
+//!   name: []const u8) Allocator.Error![]const u8`
+//! - `pub fn escapedValue(a: Allocator, n: *const grammar.Names, v: Value) Allocator.Error!Value`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -20,6 +23,7 @@ const ir = @import("ir");
 const dialects = @import("dialects");
 const expr = @import("expr");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Value = ir.Value;
 
@@ -94,4 +98,58 @@ pub fn filled(
         out = try std.mem.replaceOwned(u8, arena, out, v[0], v[1]);
     }
     return out;
+}
+
+/// `name` as the grammar's `names` section lets it be written: itself
+/// where every character is in its classes and it is no keyword; else
+/// between the escapes (`\input `), or with the mark before each
+/// character outside them (`B\[0\]`).
+pub fn escaped(a: Allocator, n: *const grammar.Names, name: []const u8) Allocator.Error![]const u8 {
+    if (name.len == 0) return name;
+    const keyword = for (n.keywords) |k| {
+        if (std.mem.eql(u8, k, name)) break true;
+    } else false;
+    const plain = !keyword and inClass(n.first, name[0]) and for (name[1..]) |ch| {
+        if (!inClass(n.rest, ch)) break false;
+    } else true;
+    if (plain) return name;
+    // A name of no class is escaped by a mark (`each`) or two (`whole`).
+    assert(n.open.len > 0);
+    if (!n.each) return std.mem.concat(a, u8, &.{ n.open, name, n.close });
+    var out: std.ArrayList(u8) = .empty;
+    try out.ensureTotalCapacity(a, name.len * (1 + n.open.len));
+    for (name, 0..) |ch, i| {
+        const bare = if (i == 0) !keyword and inClass(n.first, ch) else inClass(n.rest, ch);
+        if (!bare) out.appendSliceAssumeCapacity(n.open);
+        out.appendAssumeCapacity(ch);
+    }
+    return out.items;
+}
+
+/// `v` with each name in it `escaped`: an atom, or the atoms of a list.
+pub fn escapedValue(a: Allocator, n: *const grammar.Names, v: Value) Allocator.Error!Value {
+    switch (v) {
+        .atom => |t| return .{ .atom = try escaped(a, n, t) },
+        .list => |items| {
+            const out = try a.alloc(Value, items.len);
+            for (out, items) |*o, it|
+                o.* = if (it == .atom) .{ .atom = try escaped(a, n, it.atom) } else it;
+            return .{ .list = out };
+        },
+        else => return v,
+    }
+}
+
+// ---- private ----
+
+/// Is `ch` in `class`, characters and ranges `a-z`?
+fn inClass(class: []const u8, ch: u8) bool {
+    var i: usize = 0;
+    while (i < class.len) : (i += 1) {
+        if (i + 2 < class.len and class[i + 1] == '-') {
+            if (ch >= class[i] and ch <= class[i + 2]) return true;
+            i += 2;
+        } else if (class[i] == ch) return true;
+    }
+    return false;
 }

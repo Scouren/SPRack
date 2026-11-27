@@ -4,6 +4,7 @@
 //! Contents:
 //! - `pub const Sig = struct`
 //! - `pub fn own(self: *const Matcher, t: Tok) Allocator.Error![]const u8`
+//! - `pub fn spelled(self: *const Matcher, t: Tok) Allocator.Error![]const u8`
 //! - `pub fn number(self: *const Matcher, t: Tok) ?ir.Number`
 //! - `pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Error!?Value`
 //! - `pub fn signalAt(self: *const Matcher, ti: usize) Allocator.Error!?Sig`
@@ -38,6 +39,14 @@ pub fn own(self: *const Matcher, t: Tok) Allocator.Error![]const u8 {
         t.text;
 }
 
+/// A name as the source spells it, without the marks that escape its
+/// characters (`B\[0\]` is `B[0]`, `names` with `escape each`).
+pub fn spelled(self: *const Matcher, t: Tok) Allocator.Error![]const u8 {
+    const esc = self.g.lex.escape;
+    if (esc.len == 0 or std.mem.indexOf(u8, t.raw, esc) == null) return t.raw;
+    return lexer.unescaped(self.arena, esc, t.raw);
+}
+
 /// A number keeps its digits from the source spelling, not from the
 /// folded copy, which goes away with the line.
 pub fn number(self: *const Matcher, t: Tok) ?ir.Number {
@@ -57,7 +66,7 @@ pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Erro
         .name => return if ((t.tag == .word or (t.tag == .str and cfg.dquote_expr)) and
             lexer.isNameLike(t.text))
             .{
-                .atom = if (t.tag == .str) t.text else t.raw,
+                .atom = if (t.tag == .str) t.text else try self.spelled(t),
             }
         else
             null,
@@ -66,7 +75,7 @@ pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Erro
             u8,
             t.text,
             ":",
-        )) .{ .atom = t.raw } else null,
+        )) .{ .atom = try self.spelled(t) } else null,
         .ident, .ref => {
             if (t.tag != .word or !lexer.isNameLike(t.text) or std.mem.endsWith(
                 u8,
@@ -76,7 +85,7 @@ pub fn toValue(self: *const Matcher, ty: schema.SlotType, t: Tok) Allocator.Erro
             // A model or subcircuit name starts like a name, not like an operator.
             if (!(std.ascii.isAlphanumeric(t.text[0]) or t.text[0] == '_')) return null;
             if (lexer.parseNumber(self.arena, cfg, t.text) != null) return null;
-            return .{ .atom = t.raw };
+            return .{ .atom = try self.spelled(t) };
         },
         .atom => return if (t.tag == .word or t.tag == .str)
             .{ .atom = try self.own(t) }

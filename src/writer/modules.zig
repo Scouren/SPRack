@@ -24,6 +24,7 @@ const blocks = @import("blocks.zig");
 const output = @import("output.zig");
 const statement = @import("statement.zig");
 const emit = @import("emit.zig");
+const tables = @import("tables.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Modules = grammar.Modules;
@@ -137,26 +138,10 @@ fn bitOf(dir: []const u8) u8 {
     return inout_bit;
 }
 
-/// `name` as it may be written: itself, or between the escapes.
+/// `name` as it may be written: as the grammar's `names` section says.
 fn ident(x: *const M, name: []const u8) Allocator.Error![]const u8 {
-    const m = x.m;
-    const plain = name.len > 0 and inClass(m.first, name[0]) and for (name[1..]) |ch| {
-        if (!inClass(m.rest, ch)) break false;
-    } else true;
-    if (plain) return name;
-    return std.mem.concat(x.a, u8, &.{ m.escape_open, name, m.escape_close });
-}
-
-/// Is `ch` in `class`, characters and ranges `a-z`?
-fn inClass(class: []const u8, ch: u8) bool {
-    var i: usize = 0;
-    while (i < class.len) : (i += 1) {
-        if (i + 2 < class.len and class[i + 1] == '-') {
-            if (ch >= class[i] and ch <= class[i + 2]) return true;
-            i += 2;
-        } else if (class[i] == ch) return true;
-    }
-    return false;
+    const n = &(x.w.g.names orelse return name);
+    return tables.escaped(x.a, n, name);
 }
 
 /// `template` with each `{key}` of `with` replaced by its text.

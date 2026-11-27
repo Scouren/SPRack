@@ -9,8 +9,9 @@
 # an inout where nothing says (src/writer/modules.zig). Each module
 # declares a wire for each of its other nets, sorted. An instance names its
 # connections by port, `.P(net)`, never by position; the bits of a bus
-# port are joined `{a, b}`. A name outside [A-Za-z_][A-Za-z0-9_$]* is
-# escaped: a backslash before it, a blank after it.
+# port are joined `{a, b}`. A name outside [A-Za-z_][A-Za-z0-9_$]*, or
+# one that is a keyword, is escaped: a backslash before it, a blank after
+# it (`wire \input ;`).
 #
 # The leaves are `verilog` instances; the text of their module, where the
 # netlist gives it, is written once after the modules. Any other device
@@ -37,7 +38,38 @@ modules
   bus      "{" "}"
   close    "endmodule"
   dirs     "input" "output" "inout"
-  name     "A-Za-z_" "A-Za-z0-9_$" "\" " "
+end
+
+# A name: an identifier, else escaped whole. The keywords are IEEE 1800-2017's
+# (Annex B), which hold IEEE 1364-2005's.
+names
+  ident    "A-Za-z_" "A-Za-z0-9_$"
+  escape   whole "\" " "
+  keywords accept_on alias always always_comb always_ff always_latch and assert assign
+  keywords assume automatic before begin bind bins binsof bit break buf bufif0 bufif1 byte
+  keywords case casex casez cell chandle checker class clocking cmos config const constraint
+  keywords context continue cover covergroup coverpoint cross deassign default defparam
+  keywords design disable dist do edge else end endcase endchecker endclass endclocking
+  keywords endconfig endfunction endgenerate endgroup endinterface endmodule endpackage
+  keywords endprimitive endprogram endproperty endspecify endsequence endtable endtask enum
+  keywords event eventually expect export extends extern final first_match for force foreach
+  keywords forever fork forkjoin function generate genvar global highz0 highz1 if iff ifnone
+  keywords ignore_bins illegal_bins implements implies import incdir include initial inout
+  keywords input inside instance int integer interconnect interface intersect join join_any
+  keywords join_none large let liblist library local localparam logic longint macromodule
+  keywords matches medium modport module nand negedge nettype new nexttime nmos nor
+  keywords noshowcancelled not notif0 notif1 null or output package packed parameter pmos
+  keywords posedge primitive priority program property protected pull0 pull1 pulldown pullup
+  keywords pulsestyle_ondetect pulsestyle_onevent pure rand randc randcase randsequence rcmos
+  keywords real realtime ref reg reject_on release repeat restrict return rnmos rpmos rtran
+  keywords rtranif0 rtranif1 s_always s_eventually s_nexttime s_until s_until_with scalared
+  keywords sequence shortint shortreal showcancelled signed small soft solve specify
+  keywords specparam static string strong strong0 strong1 struct super supply0 supply1
+  keywords sync_accept_on sync_reject_on table tagged task this throughout time timeprecision
+  keywords timeunit tran tranif0 tranif1 tri tri0 tri1 triand trior trireg type typedef union
+  keywords unique unique0 unsigned until until_with untyped use uwire var vectored virtual
+  keywords void wait wait_order wand weak weak0 weak1 while wildcard wire with within wor
+  keywords xnor xor
 end
 
 inert instance params : structural Verilog connects modules; a module's parameters (`#(...)`) are not written

@@ -29,6 +29,7 @@ const expr = @import("expr");
 const value_text = @import("emit_text.zig");
 const bag = @import("emit_bag.zig");
 const losses = @import("emit_losses.zig");
+const tables = @import("tables.zig");
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -410,7 +411,11 @@ pub const Emit = struct {
                 try kept.append(e.arena, it);
         }
         if (kept.items.len == 0 and n.plus) return false;
-        if (kept.items.len > 0) try e.tok(try e.valueText(.{ .list = kept.items }, false));
+        var said: Value = .{ .list = kept.items };
+        if (e.g.names) |*nm| if (value_text.isName(e.slot(n.slot))) {
+            said = try tables.escapedValue(e.arena, nm, said);
+        };
+        if (kept.items.len > 0) try e.tok(try e.valueText(said, false));
         e.mark(n.slot);
         e.mark(n.pick);
         return true;

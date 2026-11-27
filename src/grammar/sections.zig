@@ -7,6 +7,7 @@
 //! - `pub fn needs(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn modules(c: *C, g: *Grammar, lines: *Lines) Error!void`
+//! - `pub fn names(c: *C, g: *Grammar, lines: *Lines) Error!void`
 //! - `pub fn wrap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn own(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn raw(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -28,6 +29,7 @@ const Grammar = tables.Grammar;
 const Needs = types.Needs;
 const Once = types.Once;
 const Modules = types.Modules;
+const Names = types.Names;
 const Own = types.Own;
 const RawBlock = types.RawBlock;
 const Wrap = types.Wrap;
@@ -83,8 +85,8 @@ pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
         while (it.next()) |part| {
             const close = std.mem.indexOfScalar(u8, part, '}') orelse
                 return c.fail(no, "a `{{` with no `}}` in `{s}`", .{l});
-            var names = std.mem.splitScalar(u8, part[0..close], '|');
-            while (names.next()) |n| {
+            var alts = std.mem.splitScalar(u8, part[0..close], '|');
+            while (alts.next()) |n| {
                 const stem = std.mem.endsWith(u8, n, ".stem");
                 _ = try slotNamed(c, no, kind, if (stem) n[0 .. n.len - ".stem".len] else n);
             }
@@ -94,19 +96,19 @@ pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
 }
 
 /// `modules`, then a line for each field of `Modules` up to `end`: its
-/// name and its text, quoted (`bus`, `dirs` and `name` take several).
+/// name and its text, quoted (`bus` and `dirs` take several).
 pub fn modules(c: *C, g: *Grammar, lines: *Lines) Error!void {
     const start = lines.no;
     var m: Modules = undefined;
     var have: u16 = 0;
-    const names = [_][]const u8{
-        "open", "port", "net", "instance", "pin", "join", "bus", "close", "dirs", "name",
+    const heads = [_][]const u8{
+        "open", "port", "net", "instance", "pin", "join", "bus", "close", "dirs",
     };
-    const counts = [_]usize{ 1, 1, 1, 1, 1, 1, 2, 1, 3, 4 };
+    const counts = [_]usize{ 1, 1, 1, 1, 1, 1, 2, 1, 3 };
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, "end")) break;
         const head, const rest = context.splitHead(line);
-        const i = for (names, 0..) |n, k| {
+        const i = for (heads, 0..) |n, k| {
             if (std.mem.eql(u8, n, head)) break k;
         } else return c.fail(lines.no, "unknown line `{s}` of modules", .{head});
         const w = try args(c, lines.no, rest);
@@ -125,20 +127,49 @@ pub fn modules(c: *C, g: *Grammar, lines: *Lines) Error!void {
                 m.bus_close = w[1];
             },
             7 => m.close = w[0],
-            8 => m.dirs = .{ w[0], w[1], w[2] },
-            else => {
-                m.first = w[0];
-                m.rest = w[1];
-                m.escape_open = w[2];
-                m.escape_close = w[3];
-            },
+            else => m.dirs = .{ w[0], w[1], w[2] },
         }
     } else return c.fail(lines.no, "section is missing 'end'", .{});
     std.debug.assert(lines.no > start);
-    if (have != (1 << names.len) - 1)
+    if (have != (1 << heads.len) - 1)
         return c.fail(start, "modules needs a line of each: open port net instance pin " ++
-            "join bus close dirs name", .{});
+            "join bus close dirs", .{});
     g.modules = m;
+}
+
+/// `names`, then `ident "first" "rest"`, `escape whole "open" "close"` or
+/// `escape each "mark"`, and `keywords w ...` lines, up to `end`. An
+/// `escape each` mark is the lexer's too: read, it is dropped.
+pub fn names(c: *C, g: *Grammar, lines: *Lines) Error!void {
+    const start = lines.no;
+    var n: Names = .{ .first = "", .rest = "", .open = "", .each = false };
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, "end")) break;
+        const head, const rest = context.splitHead(line);
+        if (std.mem.eql(u8, head, "keywords")) {
+            var it = std.mem.tokenizeAny(u8, rest, " \t");
+            while (it.next()) |w| n.keywords = try c.add([]const u8, n.keywords, w);
+        } else if (std.mem.eql(u8, head, "ident")) {
+            const w = try args(c, lines.no, rest);
+            if (w.len != 2) return c.fail(lines.no, "`ident` of names takes 2 texts", .{});
+            n.first, n.rest = .{ w[0], w[1] };
+        } else if (std.mem.eql(u8, head, "escape")) {
+            const how, const marks = context.splitHead(rest);
+            n.each = std.mem.eql(u8, how, "each");
+            const w = try args(c, lines.no, marks);
+            if (w.len != @as(usize, if (n.each) 1 else 2) or
+                (!n.each and !std.mem.eql(u8, how, "whole")))
+                return c.fail(lines.no, "`escape` of names is `escape whole \"open\" " ++
+                    "\"close\"` or `escape each \"mark\"`", .{});
+            n.open = w[0];
+            if (!n.each) n.close = w[1];
+        } else return c.fail(lines.no, "unknown line `{s}` of names", .{head});
+    } else return c.fail(lines.no, "section is missing 'end'", .{});
+    std.debug.assert(lines.no > start);
+    if (n.first.len == 0 or n.open.len == 0)
+        return c.fail(start, "names needs an `ident` line and an `escape` line", .{});
+    if (n.each) g.lex.escape = n.open;
+    g.names = n;
 }
 
 /// `wrap "open" "close" : kind ...`.

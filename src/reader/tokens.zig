@@ -7,6 +7,8 @@
 //! - `pub fn isIdent(s: []const u8) bool`
 //! - `pub fn isNameLike(s: []const u8) bool`
 //! - `pub fn unwrapWhole(run: []const u8) []const u8`
+//! - `pub fn unescaped(arena: Allocator, esc: []const u8,
+//!   word_text: []const u8) Allocator.Error![]const u8`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -136,6 +138,25 @@ pub fn unwrapWhole(run: []const u8) []const u8 {
         depth -= 1;
     }
     return run[1 .. run.len - 1];
+}
+
+/// `word_text` without the escape mark before each escaped character.
+pub fn unescaped(
+    arena: Allocator,
+    esc: []const u8,
+    word_text: []const u8,
+) Allocator.Error![]const u8 {
+    assert(esc.len > 0);
+    var out: std.ArrayList(u8) = .empty;
+    try out.ensureTotalCapacity(arena, word_text.len);
+    var k: usize = 0;
+    while (k < word_text.len) {
+        const marked = std.mem.startsWith(u8, word_text[k..], esc);
+        if (marked and k + esc.len < word_text.len) k += esc.len;
+        out.appendAssumeCapacity(word_text[k]);
+        k += 1;
+    }
+    return out.items;
 }
 
 // ---- private ----
@@ -296,13 +317,23 @@ fn word(
     i: usize,
     lno: u32,
 ) Allocator.Error!usize {
+    assert(i < text.len);
+    const esc = cfg.escape;
+    var marks = false;
     var j = i;
-    while (j < text.len and !isBlank(
-        cfg,
-        text[j],
-    ) and text[j] != '=' and text[j] != '(' and text[j] != ')') j += 1;
+    while (j < text.len) {
+        // `B\[0\]`: an escaped character is the word's, whatever it is.
+        if (esc.len > 0 and j + esc.len < text.len and std.mem.startsWith(u8, text[j..], esc)) {
+            marks = true;
+            j += esc.len + 1;
+            continue;
+        }
+        if (isBlank(cfg, text[j]) or text[j] == '=' or text[j] == '(' or text[j] == ')') break;
+        j += 1;
+    }
     if (j == i) j += 1; // lone paren in space mode cannot happen; guard anyway
-    try pushTok(out.gpa, out.toks, .word, try fold(out.arena, cfg, text[i..j]), text[i..j], lno);
+    const said = if (marks) try unescaped(out.arena, esc, text[i..j]) else text[i..j];
+    try pushTok(out.gpa, out.toks, .word, try fold(out.arena, cfg, said), text[i..j], lno);
     out.toks.items[out.toks.items.len - 1].f.call = j < text.len and text[j] == '(';
     return j;
 }

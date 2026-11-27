@@ -46,7 +46,7 @@ pub fn binnedModel(w: *Writer, st: *const ir.Stmt) Error!void {
         if (head.at(ti) == .none) try head.set(a, ti, m.at(ti));
         const full = child.get("name").atom;
         const dot = std.mem.lastIndexOfScalar(u8, full, '.').?;
-        try bin.set(a, ni, .{ .atom = try std.fmt.allocPrint(a, "{s}:", .{full[dot + 1 ..]}) });
+        try bin.set(a, ni, .{ .atom = full[dot + 1 ..] });
         try bin.set(a, ti, .none);
         try bins.append(a, bin);
     }
