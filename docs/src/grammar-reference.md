@@ -319,6 +319,8 @@ means pwr(x, y) = pow(abs(x),y)    # what this dialect means by a function, in
 means bsource pwr(x, y) = sign2(pow(abs(x),y),x)   # canonical ones (in that
                                    # kind's statements): a target without it
                                    # gets the meaning, an `oneway` info
+means x ** y = pow(abs(x),y)       # the power operator: every target that
+                                   # does not mean the same gets the meaning
 differs pow : the exponent is cut to an integer  # a shared function or operator
                                                  # evaluated differently: a caveat
                                                  # (`negpow`: a minus after an

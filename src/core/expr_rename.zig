@@ -1,10 +1,13 @@
 //! Rewriting the names of an expression: parameters renamed (`rename`) and
-//! calls of a function replaced by its body (`applyMeans`).
+//! calls of a function replaced by its body (`applyMeans`), or powers
+//! (`applyPowMeans`).
 //!
 //! Contents:
 //! - `pub fn rename(arena: Allocator, text: []const u8, renames: anytype,
 //!   hit: *std.ArrayList([]const u8)) Allocator.Error![]const u8`
 //! - `pub fn applyMeans(arena: Allocator, text: []const u8, m: anytype,
+//!   n: *usize) Allocator.Error![]const u8`
+//! - `pub fn applyPowMeans(arena: Allocator, text: []const u8, m: anytype,
 //!   n: *usize) Allocator.Error![]const u8`
 
 const std = @import("std");
@@ -15,7 +18,9 @@ const Allocator = std.mem.Allocator;
 const argSpace = expr.argSpace;
 const param_mark = expr.param_mark;
 const isWordChar = expr_scan.isWordChar;
+const canon_pow = expr.canon_pow;
 const matching = expr_scan.matching;
+const numberEnd = expr_scan.numberEnd;
 const nextIsCall = expr_scan.nextIsCall;
 const topLevel = expr_scan.topLevel;
 const wordEnd = expr_scan.wordEnd;
@@ -150,7 +155,135 @@ pub fn applyMeans(
     return out.items;
 }
 
+/// Every `x ** y` in `text` as `m.body` (`means x ** y = ...`), the
+/// operands as ngspice takes them: the power binds before a unary minus
+/// and from the left, `2**3**2` is 64 (docs/verification.md 4.44). `n`
+/// counts the powers rewritten.
+pub fn applyPowMeans(
+    arena: Allocator,
+    text: []const u8,
+    m: anytype,
+    n: *usize,
+) Allocator.Error![]const u8 {
+    return powMeans(arena, text, m.body, m.args, n);
+}
+
 // ---- private ----
+
+/// `applyPowMeans` for the meaning `body` of `params`.
+// tidy: allow(recursion) depth is the nesting of parentheses in the expression; nothing
+// but the length of its text bounds it
+fn powMeans(
+    arena: Allocator,
+    text: []const u8,
+    body: []const u8,
+    params: []const []const u8,
+    n: *usize,
+) Allocator.Error![]const u8 {
+    // Inside parentheses first: each operand is then one primary.
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == '"' or c == '\'') {
+            const end = (std.mem.indexOfScalarPos(u8, text, i + 1, c) orelse text.len - 1) + 1;
+            try out.appendSlice(arena, text[i..end]);
+            i = end;
+            continue;
+        }
+        if (c == '(') if (matching(text, i)) |close| {
+            const inner = try powMeans(arena, text[i + 1 .. close], body, params, n);
+            try out.print(arena, "({s})", .{inner});
+            i = close + 1;
+            continue;
+        };
+        try out.append(arena, c);
+        i += 1;
+    }
+    var cur = out.items;
+    while (topLevelPow(cur)) |at| {
+        const lo = powBase(cur, at);
+        const hi = powExponent(cur, at + canon_pow.len);
+        std.debug.assert(lo <= at);
+        if (lo == at or hi == at + canon_pow.len) break;
+        var next: std.ArrayList(u8) = .empty;
+        try next.appendSlice(arena, cur[0..lo]);
+        const operands = [_][]const u8{
+            ungroup(cur[lo..at]),
+            ungroup(cur[at + canon_pow.len .. hi]),
+        };
+        try substitute(arena, &next, body, params, &operands);
+        try next.appendSlice(arena, cur[hi..]);
+        cur = next.items;
+        n.* += 1;
+    }
+    return cur;
+}
+
+/// The first `**` outside parentheses and quotes.
+fn topLevelPow(text: []const u8) ?usize {
+    var from: usize = 0;
+    while (topLevel(text, from, '*')) |at| : (from = at + 2) {
+        if (at + 1 < text.len and text[at + 1] == '*') return at;
+    }
+    return null;
+}
+
+/// Where the base of the power at `at` starts: a name, a number, a call
+/// or a group; a minus before it is not its own.
+fn powBase(text: []const u8, at: usize) usize {
+    std.debug.assert(at <= text.len);
+    var k = at;
+    while (k > 0 and text[k - 1] == ' ') k -= 1;
+    if (k > 0 and text[k - 1] == ')') {
+        var depth: usize = 0;
+        while (k > 0) {
+            k -= 1;
+            if (text[k] == ')') depth += 1;
+            if (text[k] == '(') {
+                depth -= 1;
+                if (depth == 0) break;
+            }
+        }
+    }
+    while (k > 0 and (isWordChar(text[k - 1]) or text[k - 1] == param_mark)) {
+        k -= 1;
+        k = mantissaStart(text, k);
+    }
+    return k;
+}
+
+/// At `k`, the first digit of a number's exponent after its sign (`1e-3`):
+/// where the number starts; any other `k` as it is.
+fn mantissaStart(text: []const u8, k: usize) usize {
+    if (k < 2 or !std.ascii.isDigit(text[k])) return k;
+    if (text[k - 1] != '-' and text[k - 1] != '+') return k;
+    if (text[k - 2] != 'e' and text[k - 2] != 'E') return k;
+    const e = k - 2;
+    var d = e;
+    while (d > 0 and (std.ascii.isDigit(text[d - 1]) or text[d - 1] == '.')) d -= 1;
+    return if (d < e and (d == 0 or !isWordChar(text[d - 1]))) d else k;
+}
+
+/// Where the exponent of a power, from `from`, ends: a signed name,
+/// number, call or group.
+fn powExponent(text: []const u8, from: usize) usize {
+    var j = from;
+    while (j < text.len and (text[j] == ' ' or text[j] == '-' or text[j] == '+')) j += 1;
+    const start = j;
+    if (j < text.len and text[j] == param_mark) j += 1;
+    const number = j < text.len and (std.ascii.isDigit(text[j]) or text[j] == '.');
+    j = if (number) numberEnd(text, j) else wordEnd(text, j);
+    if (j < text.len and text[j] == '(') j = (matching(text, j) orelse return from) + 1;
+    return if (j == start) from else j;
+}
+
+/// An operand without the parentheses around the whole of it.
+fn ungroup(text: []const u8) []const u8 {
+    const t = std.mem.trim(u8, text, " \t");
+    if (t.len > 1 and t[0] == '(' and matching(t, 0) == t.len - 1) return t[1 .. t.len - 1];
+    return t;
+}
 
 /// `body` onto `out`, each of its `params` replaced by that argument of
 /// `args`; in parentheses unless it is one call.

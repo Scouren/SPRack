@@ -105,6 +105,8 @@ pub fn means(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         .{},
     );
     var lhs = std.mem.trim(u8, rest[0..eq], " \t");
+    const body = std.mem.trim(u8, rest[eq + 3 ..], " \t");
+    if (std.mem.indexOf(u8, lhs, " ** ")) |op| return powMeans(c, g, no, lhs, op, body);
     var kind: ?Kind = null;
     if (std.mem.indexOfScalar(u8, lhs, ' ')) |sp|
         if (sp < (std.mem.indexOfScalar(u8, lhs, '(') orelse lhs.len)) {
@@ -131,12 +133,23 @@ pub fn means(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
             .kind = kind,
             .canon = canon,
             .args = margs,
-            .body = std.mem.trim(u8, rest[eq + 3 ..], " \t"),
+            .body = body,
         },
     );
 }
 
 // ---- private ----
+
+/// `means x ** y = ...`: the power operator, in every kind of statement;
+/// `op` is where ` ** ` stands in `lhs`.
+fn powMeans(c: *C, g: *Grammar, no: u32, lhs: []const u8, op: usize, body: []const u8) Error!void {
+    if (std.mem.indexOf(u8, body, "**") != null)
+        return c.fail(no, "the meaning of ** cannot use **", .{});
+    var margs: []const []const u8 = &.{};
+    margs = try c.add([]const u8, margs, std.mem.trim(u8, lhs[0..op], " \t"));
+    margs = try c.add([]const u8, margs, std.mem.trim(u8, lhs[op + 4 ..], " \t"));
+    g.means = try c.add(Means, g.means, .{ .canon = "**", .args = margs, .body = body });
+}
 
 /// `known` null: any name goes (instance parameters), and `name>0` marks
 /// one that must be positive.

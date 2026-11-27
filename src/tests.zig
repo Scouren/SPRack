@@ -1898,11 +1898,11 @@ test "expressions: functions, operators and variables are mapped" {
     const src = "t\n.param a=2 b={a^2 + LOG(a)*Temper}\n.func dbl(x) {2*x}\nR1 n 0 {dbl(b) * 1k}\n.end\n";
     const sp = try tr(a, "ngspice", "spectre", src, &r1);
     // `^` is power in ngspice and exclusive-or in Spectre; log is natural in both.
-    try has(sp, "parameters a=2 b=(a**2 + log(a)*temp)\n");
+    try has(sp, "parameters a=2 b=(pow(abs(a),2) + log(a)*temp)\n");
     const xy = try tr(a, "ngspice", "xyce", src, &r1);
-    try has(xy, ".param a=2 b={a**2 + ln(a)*temp}\n.func dbl(x) {2*x}\nR1 n 0 {dbl(b) * 1k}\n");
+    try has(xy, ".param a=2 b={pow(abs(a),2) + ln(a)*temp}\n.func dbl(x) {2*x}\nR1 n 0 {dbl(b) * 1k}\n");
     const hs = try tr(a, "ngspice", "hspice", src, &r1);
-    try has(hs, ".param a=2 b='a**2 + log(a)*temper'\n.param dbl(x) = '2*x'\nR1 n 0 'dbl(b) * 1k'\n");
+    try has(hs, ".param a=2 b='pow(abs(a),2) + log(a)*temper'\n.param dbl(x) = '2*x'\nR1 n 0 'dbl(b) * 1k'\n");
 
     // Spectre's `^` has no ngspice spelling; a statistical function is a
     // statistics variation in Spectre.
@@ -2842,7 +2842,7 @@ test "verification: Xyce log is base 10 and ^ is exclusive-or" {
     const a = arena_state.allocator();
     var r1: ir.Report = .init(a);
     const xy = try tr(a, "ngspice", "xyce", "t\n.param x=2 y={log(x) + x^3}\n.end\n", &r1);
-    try has(xy, ".param x=2 y={ln(x) + x**3}\n");
+    try has(xy, ".param x=2 y={ln(x) + pow(abs(x),3)}\n");
     try clean(&r1);
     // Xyce's own LOG is decimal, and its `^` has no ngspice spelling.
     var r2: ir.Report = .init(a);
@@ -3200,7 +3200,7 @@ test "verification: LTspice 26.0.2, what running it showed" {
         \\T1 a 0 b 0 zo=50 td=1n
         \\R2 b 0 50
         \\.param x=2 c=0
-        \\.param q={round(2.5) + -x**2 + pwr(x,2)} w={x > 1 && !c} v={5 % 3}
+        \\.param q={round(2.5) + -pow(abs(x),2) + pwr(x,2)} w={x > 1 && !c} v={5 % 3}
         \\.lib "f.lib" tt
         \\.print tran v(a)
         \\.meas tran m1 find v(a) at=1m
@@ -3213,7 +3213,12 @@ test "verification: LTspice 26.0.2, what running it showed" {
     try reported(&r1, .warning, "vsource.width is not given: ngspice means the tran.stop by that, and ltspice needs it said; wrote 6m");
     try reported(&r1, .warning, "nint in ltspice: halves round away from zero");
     try reported(&r1, .warning, "pwr in ltspice: the sign of a negative base is dropped");
-    try reported(&r1, .warning, "minuspow in ltspice: a minus binds before the power: -2**2 is 4, not -4");
+    // ngspice's power is written as what it means (4.44): no minus binds
+    // before it. HSPICE's is written as it is.
+    try testing.expect(!r1.contains(.warning, "minuspow"));
+    var r9: ir.Report = .init(a);
+    _ = try tr(a, "hspice", "ltspice", "t\n.param x=2 q='-x**2'\n.end\n", &r9);
+    try reported(&r9, .warning, "minuspow in ltspice: a minus binds before the power: -2**2 is 4, not -4");
     try reported(&r1, .warning, "andor in ltspice: LTspice has no && and ||");
     try reported(&r1, .warning, "print.style: LTspice reads the line and prints nothing");
     // What it refuses or means otherwise is an error: a sine without a
@@ -4885,6 +4890,36 @@ test "a function the target lacks is written as what the source means by it (mea
     // A target that has pwr gets it as it was.
     var r4: ir.Report = .init(a);
     try has(try tr(a, "ngspice", "hspice", "t\n.param p={pwr(-2,3)}\n.end\n", &r4), "pwr(-2,3)");
+}
+
+test "ngspice's power drops the sign of a negative base, and is written so into the others (#78)" {
+    // docs/verification.md 4.44: ngspice 45 gives b**2.5 = 4.051 for b=-1.75,
+    // (-8)**(1/3) = 2 and 2**3**2 = 64, in .param and B sources alike.
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var r1: ir.Report = .init(a);
+    const va = try tr(a, "ngspice", "vacask", "t\n.param b=-1.75 p={2**3**2} q={-b**2} r={1e-3**2} s={f(b)**-1}\nV1 a 0 {b^2.5}\nV4 e 0 {(-8)**(1/3)}\nB1 c 0 V={v(a)**2}\n.op\n.end\n", &r1);
+    try has(va, "V1 (a 0) vsource dc=pow(abs(b),2.5)\n");
+    try has(va, "V4 (e 0) vsource dc=pow(abs(-8),1/3)\n");
+    try has(va, "B1 (c 0) v=pow(abs(v(a)),2)\n");
+    // From the left, before a unary minus; a number's own exponent is its own.
+    try has(va, "p=pow(abs(pow(abs(2),3)),2) q=-pow(abs(b),2) r=pow(abs(1m),2) s=pow(abs(f(b)),-1)");
+    try reported(&r1, .info, "expression 'b**2.5': ngspice's x ** y is pow(abs(x),y), and vacask's power is not");
+    // Written as what it means, the operator is no caveat.
+    try testing.expect(!r1.contains(.warning, "pow in ngspice"));
+    // A minus after another operator: how ngspice reads that is still one.
+    var r2: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "xyce", "t\n.param p={1+-2**2}\n.end\n", &r2), "p={1+-pow(abs(2),2)}");
+    try reported(&r2, .warning, "negpow in ngspice");
+    // The target's own caveat stays: HSPICE's pow cuts the exponent.
+    var r3: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "hspice", "t\n.param p={b**2.5}\n.end\n", &r3), "p='pow(abs(b),2.5)'");
+    try reported(&r3, .warning, "pow in hspice: the exponent is cut to an integer");
+    // pow() itself is not the operator: its caveat is still said.
+    var r4: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "vacask", "t\n.param p={pow(b,3)*b**2}\n.end\n", &r4);
+    try reported(&r4, .warning, "pow in ngspice");
 }
 
 test "VACASK pulse: a width given as 0 is SPICE's TSTOP, as a missing one" {

@@ -3,6 +3,7 @@
 //!
 //! Contents:
 //! - `pub fn uses(text: []const u8, name: []const u8) bool`
+//! - `pub fn calls(text: []const u8, name: []const u8) bool`
 //! - `pub fn ternaryToIf(arena: Allocator, text: []const u8) Allocator.Error![]const u8`
 //! - `pub fn ifToTernary(arena: Allocator, text: []const u8) Allocator.Error![]const u8`
 
@@ -31,6 +32,11 @@ pub fn uses(text: []const u8, name: []const u8) bool {
     if (std.mem.eql(u8, name, "minuspow")) return minusPow(text);
     if (std.mem.eql(u8, name, "andor"))
         return std.mem.indexOf(u8, text, "&&") != null or std.mem.indexOf(u8, text, "||") != null;
+    return calls(text, name);
+}
+
+/// Does a canonical expression call function `name`?
+pub fn calls(text: []const u8, name: []const u8) bool {
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, text, i, name)) |at| : (i = at + 1) {
         const end = at + name.len;

@@ -27,8 +27,8 @@
 //!   problems: *std.ArrayList(Problem)) Allocator.Error![]const u8`
 //! - from `expr_arith.zig`: `canonText`, `Op`, `arith`, `halve`, `Thresholds`,
 //!   `thresholds`, `convert`, `convertFlat`
-//! - from `expr_forms.zig`: `uses`, `ternaryToIf`, `ifToTernary`
-//! - from `expr_rename.zig`: `rename`, `applyMeans`
+//! - from `expr_forms.zig`: `uses`, `calls`, `ternaryToIf`, `ifToTernary`
+//! - from `expr_rename.zig`: `rename`, `applyMeans`, `applyPowMeans`
 //! - from `expr_eval.zig`: `isPlainNumber`, `eval`
 
 const std = @import("std");
@@ -56,7 +56,9 @@ pub const isPlainNumber = expr_eval.isPlainNumber;
 pub const eval = expr_eval.eval;
 pub const rename = expr_rename.rename;
 pub const applyMeans = expr_rename.applyMeans;
+pub const applyPowMeans = expr_rename.applyPowMeans;
 pub const uses = expr_forms.uses;
+pub const calls = expr_forms.calls;
 pub const ternaryToIf = expr_forms.ternaryToIf;
 pub const ifToTernary = expr_forms.ifToTernary;
 pub const canonText = expr_arith.canonText;

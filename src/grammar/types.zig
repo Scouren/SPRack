@@ -539,7 +539,8 @@ pub const Differs = struct { canon: []const u8, text: []const u8 };
 
 /// `means [kind] f(x, y) = body`: what this dialect means by a function,
 /// in canonical functions, for a target that lacks it; with a kind, in
-/// statements of that kind only (a behavioural source).
+/// statements of that kind only (a behavioural source). `means x ** y =
+/// body`: the power operator, `canon` "**", for every target.
 pub const Means = struct {
     kind: ?Kind = null,
     canon: []const u8,

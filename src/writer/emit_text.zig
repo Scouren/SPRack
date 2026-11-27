@@ -98,6 +98,10 @@ pub fn meant(e: *Emit, canon_in: []const u8) Allocator.Error![]const u8 {
                 break false;
         } else true;
         if (!specific) continue;
+        if (std.mem.eql(u8, m.canon, expr.canon_pow)) {
+            canon = try powMeant(e, sg, m, canon_in, canon);
+            continue;
+        }
         if (spellingsOf(e.g.functions, m.canon) != null or !expr.uses(canon, m.canon)) continue;
         var n: usize = 0;
         const out = try expr.applyMeans(e.arena, canon, m, &n);
@@ -200,7 +204,7 @@ pub fn semantics(e: *Emit, canon: []const u8, written: []const u8) void {
     for ([_]?*const Grammar{ e.g, e.sourceGrammar() }) |og| {
         const g = og orelse continue;
         for (g.differs) |d| {
-            if (expr.uses(canon, d.canon) and expr.uses(written, d.canon)) {
+            if (expr.uses(canon, d.canon) and said(e, g, d.canon, canon, written)) {
                 e.report.add(
                     .warning,
                     .caveat,
@@ -336,6 +340,49 @@ pub fn expandDefault(e: *Emit, text: []const u8) Allocator.Error![]const u8 {
 }
 
 // ---- private ----
+
+/// `canon` with the source's power operator written as what it means
+/// (`means x ** y = ...`), unless the target means the same by it.
+fn powMeant(
+    e: *Emit,
+    sg: *const Grammar,
+    m: *const grammar.Means,
+    canon_in: []const u8,
+    canon: []const u8,
+) Allocator.Error![]const u8 {
+    const same = for (e.g.means) |o| {
+        if (std.mem.eql(u8, o.canon, m.canon) and std.mem.eql(u8, o.body, m.body)) break true;
+    } else false;
+    if (same) return canon;
+    var n: usize = 0;
+    const out = try expr.applyPowMeans(e.arena, canon, m, &n);
+    if (n == 0) return canon;
+    if (!e.quiet)
+        e.report.add(.info, .oneway, e.st.line, "expression '{s}': {s}'s x ** y is {s}, " ++
+            "and {s}'s power is not; written as that; it reads back in that form", .{
+            canon_in, sg.name, m.body, e.g.name,
+        });
+    return out;
+}
+
+/// Does `written` still say what `differs <name>` of grammar `g` is about?
+fn said(
+    e: *const Emit,
+    g: *const Grammar,
+    name: []const u8,
+    canon: []const u8,
+    written: []const u8,
+) bool {
+    if (g != e.g and std.mem.eql(u8, name, "pow")) {
+        // The operator and the function apart: either may be written as what it means.
+        const op = std.mem.indexOf(u8, canon, expr.canon_pow) != null and
+            std.mem.indexOf(u8, written, expr.canon_pow) != null;
+        return op or (expr.calls(canon, "pow") and expr.calls(written, "pow"));
+    }
+    // How the source reads its text: no meaning written changes that.
+    if (g != e.g and std.mem.eql(u8, name, "negpow")) return true;
+    return expr.uses(written, name);
+}
 
 /// A word of an enumerated slot in this dialect's spelling, or null (with
 /// `why` set) for a foreign word it has none for.
