@@ -501,7 +501,7 @@ pub const Driver = struct {
         stmts = try analysis_passes.foldMaxord(a, g, stmts, w.report);
         stmts = try defaults.applyMoves(w, stmts);
         // Last: the names devices are written under are settled.
-        return annotations.renamed(a, g, stmts);
+        return annotations.renamed(a, w, stmts);
     }
 
     /// The passes after the options are laid out, and the writing itself.

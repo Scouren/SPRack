@@ -7807,3 +7807,20 @@ test "parentheses that do not pair are text, not a crash" {
     try testing.expectEqualStrings("a) (b", sprack.lexer.unwrapWhole("((a) (b))")[1..6]);
     try testing.expectEqualStrings("a+b", sprack.lexer.unwrapWhole("(a+b)"));
 }
+
+test "annotation: a device keeps its name in a hint where the target keeps it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice writes a PSP103 MOSFET as an N device; a BSIM4 one stays M1,
+    // and so does the hint that names it.
+    var report: ir.Report = .init(a);
+    const out = try tr(a, "spectre", "ngspice",
+        \\simulator lang=spectre
+        \\model nch bsim4 type=n
+        \\// *@ order m1 m2
+        \\M1 (d g 0 0) nch w=1u l=180n
+        \\
+    , &report);
+    try has(out, "*@ order m1 m2\nM1 d g 0 0 nch");
+}

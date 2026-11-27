@@ -6,7 +6,7 @@
 //! scope, whole, or before `.pin`; keywords and numbers never are.
 //!
 //! Contents:
-//! - `pub fn renamed(a: Allocator, g: *const Grammar, stmts: []const ir.Stmt)
+//! - `pub fn renamed(a: Allocator, w: *const Writer, stmts: []const ir.Stmt)
 //!   Allocator.Error![]const ir.Stmt`
 
 const std = @import("std");
@@ -18,6 +18,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
+const Writer = @import("statement.zig").Writer;
 
 const Names = std.HashMapUnmanaged(
     []const u8,
@@ -31,13 +32,15 @@ const Names = std.HashMapUnmanaged(
 // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 pub fn renamed(
     a: Allocator,
-    g: *const Grammar,
+    w: *const Writer,
     stmts: []const ir.Stmt,
 ) Allocator.Error![]const ir.Stmt {
+    const g = w.g;
     var map: Names = .empty;
     for (stmts) |*st| {
         const name = deviceName(st) orelse continue;
-        const letter = nameLetter(g, st.kind) orelse continue;
+        const master = if (st.get("master") == .atom) st.get("master").atom else "";
+        const letter = nameLetter(g, st.kind, w.familyOf(master)) orelse continue;
         if (std.ascii.startsWithIgnoreCase(name, letter)) continue;
         try map.put(a, name, try withLetter(a, letter, name));
     }
@@ -45,7 +48,7 @@ pub fn renamed(
     for (stmts, 0..) |*st, i| {
         var cur = st.*;
         if (st.body.len > 0) {
-            const b = try renamed(a, g, st.body);
+            const b = try renamed(a, w, st.body);
             if (b.ptr != st.body.ptr) cur.body = @constCast(b);
         }
         if (st.kind == .annotation and map.count() > 0) {
@@ -79,10 +82,12 @@ fn deviceName(st: *const ir.Stmt) ?[]const u8 {
     return if (v == .atom) v.atom else null;
 }
 
-/// The letter the first rule `g` writes `kind` by puts before a name
-/// (`name~"R"`); a device `g` has no rule for is written as an instance of
-/// its model, with an instance's letter.
-fn nameLetter(g: *const Grammar, kind: Kind) ?[]const u8 {
+/// The letter the rule `g` writes `kind` by puts before a name
+/// (`name~"R"`): the rule for the family of the device's model where `g`
+/// has one (ngspice's PSP103 MOSFET is an N device), else the first rule
+/// for any family. A device `g` has no rule for is written as an instance
+/// of its model, with an instance's letter.
+fn nameLetter(g: *const Grammar, kind: Kind, family: []const u8) ?[]const u8 {
     const of: Kind = if (g.canWriteRule(kind))
         kind
     else if (g.canWriteRule(.instance))
@@ -93,14 +98,20 @@ fn nameLetter(g: *const Grammar, kind: Kind) ?[]const u8 {
     // `deviceName` asks only of a device, whose name is its first slot.
     assert(schema.info(kind).class == .device);
     assert(schema.slotOf(kind, "name") == slot);
+    var general: ?*const grammar.Rule = null;
     for (g.rulesOf(of)) |ri| {
         const r = &g.rules[ri];
         if (r.dir == .read or r.within != null) continue;
-        for (r.pat) |n| {
-            // `name` is the first slot of every device kind.
-            if (n.tag == .cap and n.slot == slot and n.prefix.len > 0) return n.prefix;
-        }
-        return null;
+        const own = r.family.len > 0 and std.ascii.eqlIgnoreCase(r.family, family);
+        if (own) return letterOf(r, slot);
+        if (r.family.len == 0 and general == null) general = r;
+    }
+    return letterOf(general orelse return null, slot);
+}
+
+fn letterOf(r: *const grammar.Rule, slot: u8) ?[]const u8 {
+    for (r.pat) |n| {
+        if (n.tag == .cap and n.slot == slot and n.prefix.len > 0) return n.prefix;
     }
     return null;
 }
