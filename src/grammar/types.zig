@@ -200,7 +200,8 @@ pub const Node = struct {
     atom: []const u8 = "",
     /// A tagged literal that is also written when its slot is unbound.
     soft: bool = false,
-    /// `path!`: written without quotes when it has no blank.
+    /// `!`, written plainly: `path!` without quotes when it has no blank,
+    /// `name!` in lower case (a simulator that looks the name up so).
     bare: bool = false,
     /// `signals#1`: a list slot that this form holds exactly one item of.
     one: bool = false,

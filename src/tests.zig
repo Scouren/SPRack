@@ -2579,7 +2579,7 @@ test "corpus: things that would otherwise change meaning without a word" {
     // A bare name after the nodes is a model in ngspice and a parameter in HSPICE.
     var r1: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "hspice", "t\nR1 a 0 rv\n.end\n", &r1);
-    try reported(&r1, .warning, "'rv' on R1 is a model name in ngspice, but no model of that name is declared here; hspice will read it as a parameter");
+    try reported(&r1, .warning, "'rv' on R1 names no model declared here; it is written as the value, a parameter of that name");
 
     // A diode line on a transistor model.
     var r3: ir.Report = .init(a);
@@ -2940,8 +2940,8 @@ test "verification: VACASK behavioural sources, dcxf, subckt parentheses, val0/v
     , &r1);
     try has(va, "subckt div (in out)\n");
     try has(va, "ends div\n");
-    try has(va, "B1 (b 0) v=v(in)*2\n");
-    try has(va, "B2 (0 c) i=v(in)*1m\n");
+    try has(va, "b1 (b 0) v=v(in)*2\n");
+    try has(va, "b2 (0 c) i=v(in)*1m\n");
     try has(va, "analysis tf1 dcxf out=\"b\"\n");
     // dcxf has no input source of its own: it reports every source.
     // dcxf reports every source: the one named is among them.
@@ -4878,12 +4878,12 @@ test "VACASK capacitor: ic= is a DC source in series, q= a behavioural source of
     // A charge: the current is its time derivative, times m.
     var r4: ir.Report = .init(a);
     const q = try tr(a, "ngspice", "vacask", "t\nV1 a 0 1\nR1 a b 100k\nCg b 0 q='1p*v(b)+min(v(b),0)*1f' m=2\n.tran 1n 300n\n.end\n", &r4);
-    try has(q, "Cg (b 0) i=2*ddt(1p*v(b)+min(v(b),0)*1f)\n");
+    try has(q, "cg (b 0) i=2*ddt(1p*v(b)+min(v(b),0)*1f)\n");
     try reported(&r4, .info, "capacitor 'Cg': vacask's capacitor takes no charge (q=)");
     try clean(&r4);
     // ngspice has no such restriction: its own capacitor, and ddt read back.
     var r5: ir.Report = .init(a);
-    try has(try tr(a, "vacask", "ngspice", q, &r5), "BCg b 0 i={2*ddt(1p*v(b)+min(v(b),0)*1f)}\n");
+    try has(try tr(a, "vacask", "ngspice", q, &r5), "bcg b 0 i={2*ddt(1p*v(b)+min(v(b),0)*1f)}\n");
     // ddt is a function of ngspice and VACASK alone.
     var r6: ir.Report = .init(a);
     _ = try tr(a, "ngspice", "xyce", "t\nB1 a 0 i='ddt(1p*v(a))'\nR1 a 0 1k\n.end\n", &r6);
@@ -4954,7 +4954,7 @@ test "a function the target lacks is written as what the source means by it (mea
     var r1: ir.Report = .init(a);
     const va = try tr(a, "ngspice", "vacask", "t\n.param p={pwr(-2,3)}\nR1 a 0 {p*1k}\nB1 b 0 V={pwr(v(a),3)}\nR2 b 0 1k\nV1 a 0 1\n.op\n.end\n", &r1);
     try has(va, "parameters p=pow(abs(-2),3)\n");
-    try has(va, "B1 (b 0) v=sign(pow(abs(v(a)),3),v(a))\n");
+    try has(va, "b1 (b 0) v=sign(pow(abs(v(a)),3),v(a))\n");
     try reported(&r1, .info, "expression 'pwr(-2,3)': vacask has no pwr; written as what ngspice means by it, pow(abs(x),y)");
     try testing.expectEqual(0, r1.count(.@"error"));
     // HSPICE keeps the sign everywhere; Xyce's is pow.
@@ -4977,7 +4977,7 @@ test "ngspice's power drops the sign of a negative base, and is written so into 
     const va = try tr(a, "ngspice", "vacask", "t\n.param b=-1.75 p={2**3**2} q={-b**2} r={1e-3**2} s={f(b)**-1}\nV1 a 0 {b^2.5}\nV4 e 0 {(-8)**(1/3)}\nB1 c 0 V={v(a)**2}\n.op\n.end\n", &r1);
     try has(va, "V1 (a 0) vsource dc=pow(abs(b),2.5)\n");
     try has(va, "V4 (e 0) vsource dc=pow(abs(-8),1/3)\n");
-    try has(va, "B1 (c 0) v=pow(abs(v(a)),2)\n");
+    try has(va, "b1 (c 0) v=pow(abs(v(a)),2)\n");
     // From the left, before a unary minus; a number's own exponent is its own.
     try has(va, "p=pow(abs(pow(abs(2),3)),2) q=-pow(abs(b),2) r=pow(abs(1m),2) s=pow(abs(f(b)),-1)");
     try reported(&r1, .info, "expression 'b**2.5': ngspice's x ** y is pow(abs(x),y), and vacask's power is not");

@@ -379,6 +379,9 @@ pub const Emit = struct {
         const v = e.st.at(n.slot);
         if (n.bare and v == .str and std.mem.indexOfAny(u8, v.str, " \t\"'") == null)
             text = v.str;
+        // `name!`: in lower case.
+        if (n.bare and std.mem.eql(u8, e.slot(n.slot).name, "name"))
+            text = try std.ascii.allocLowerString(e.arena, text);
         if (n.prefix.len > 0) text = try e.prefixed(n, text);
         try e.tok(text);
         e.mark(n.slot);

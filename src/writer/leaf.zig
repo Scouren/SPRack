@@ -81,6 +81,11 @@ pub fn leaf(w: *Writer, a: Allocator, st_in: *const ir.Stmt) Error!void {
         checked = c;
         st = &checked;
     }
+    var valued: ir.Stmt = undefined;
+    if (try modelAsValue(w, a, st)) |v| {
+        valued = v;
+        st = &valued;
+    }
 
     if (!w.canWriteHere(st.kind)) return notHere(w, a, st);
     if (try selector.unchosen(w, a, st)) return;
@@ -506,6 +511,32 @@ fn modelOrParam(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!void {
             master.atom, st.get("name").atom, w.sourceOf(st), w.g.name,
         });
     }
+}
+
+/// A resistor or capacitor of another dialect whose only word after the
+/// nodes is a name no model here declares (`C1 out 0 cval`): ngspice reads
+/// a parameter of the name there, so it is written as the value. Null where
+/// it is not such a statement (with parameters, `R3 a 0 rmod w=2u`, the
+/// name is a model's: `modelOrParam`).
+fn modelAsValue(w: *Writer, a: Allocator, st: *const ir.Stmt) Error!?ir.Stmt {
+    if (st.kind != .resistor and st.kind != .capacitor) return null;
+    if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return null;
+    const master = st.get("master");
+    // Both kinds have their value (r, c) after the two nodes, and a master.
+    const vi = 3;
+    const mi = schema.slotIndex(st.kind, "master").?;
+    assert(schema.info(st.kind).slots[vi].ty == .value);
+    if (master != .atom or st.at(vi) != .none or st.get("params") != .none) return null;
+    if (w.declared.contains(try std.ascii.allocLowerString(a, master.atom))) return null;
+    w.report.add(.warning, .ambiguous, st.line, "'{s}' on {s} names no model declared " ++
+        "here; it is written as the value, a parameter of that name", .{
+        master.atom, st.get("name").atom,
+    });
+    var out = st.*;
+    try out.own(a);
+    try out.set(a, vi, .{ .expr = master.atom });
+    try out.set(a, mi, .none);
+    return out;
 }
 
 /// A file an include of another dialect names is still in that dialect.

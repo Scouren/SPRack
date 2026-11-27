@@ -239,8 +239,8 @@ define wave = { dc=dc mag=acmag phase=acphase type="wave" val0=val0 val1=val1 de
 rule  vsource   = name "(" pos neg ")" "vsource" <wave>
 rule  isource   = name "(" pos neg ")" "isource" <wave>
 # docs/dev-builtin-behavioral.md: two terminals and no master name.
-rule  bsource   = name "(" pos neg ")" { v=v! ...params }
-rule  bsource   = name "(" pos neg ")" { i=i! ...params }
+rule  bsource   = name! "(" pos neg ")" { v=v! ...params }
+rule  bsource   = name! "(" pos neg ")" { i=i! ...params }
 # docs/dev-builtin-vcvs.md and the three next to it. gain is the gain, the
 # transconductance or the transresistance; a current is sensed in ctlinst.
 rule  vcvs      = name "(" pos neg cpos cneg ")" "vcvs" { gain=gain ...params }
@@ -341,7 +341,9 @@ no vswitch : VACASK has no switch device, built in or shipped; it has to be a us
 no cswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module
 no xspice  : XSPICE code models are ngspice's; VACASK has no such element
 
-caveat bsource name : VACASK (b2c1551) names the module it synthesizes after the instance but looks it up in lower case, so an instance name with capitals is not found
+# VACASK (b2c1551) names the module it synthesizes after the instance but
+# looks it up in lower case: an instance name with capitals is not found, so
+# the name is written in lower case (`name!`).
 caveat hdl path : VACASK loads compiled OSDI files, or compiles a .va file it is given
 caveat save signals : in VACASK's ac, noise, acxf and dcinc analyses v() saves the operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)
 # Observed on decks written for it: the operating point fails (homotopy

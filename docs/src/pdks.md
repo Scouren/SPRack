@@ -145,7 +145,7 @@ one device
 Xn out in 0 0 mine_nfet
 .end
 
-warning[caveat]: line 1: "mine/models.lib" is still sprack syntax; translate that file too (`sprack project` follows includes)
+warning[caveat]: line 2: "mine/models.lib" is still sprack syntax; translate that file too (`sprack project` follows includes)
 ```
 
 The library's dialect may be one given by its

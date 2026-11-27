@@ -373,8 +373,9 @@ const P = struct {
             } else if (p.eat('?')) {
                 n.default = if (p.quoted()) try p.string() else p.bare();
             } else if (p.eat('!')) {
-                if (n.slot == wild_slot or p.slotInfo(n.slot).ty != .path)
-                    return p.err("'{s}!' needs a path slot", .{name});
+                if (n.slot == wild_slot or !std.mem.eql(u8, name, "name") and
+                    p.slotInfo(n.slot).ty != .path)
+                    return p.err("'{s}!' needs a path slot or the name", .{name});
                 n.bare = true;
             } else if (p.eat('#')) {
                 if (n.slot == wild_slot or !p.slotInfo(n.slot).list)
