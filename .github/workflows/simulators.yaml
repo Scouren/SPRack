@@ -1,0 +1,64 @@
+name: Simulators
+
+# By hand: every error-free translation of the conformance suite loaded by
+# its target simulator (parse_check), then simulated beside its source and
+# judged against the suite's expected results (sim_check). The audit table
+# both read is made first. Nothing here fails on a count: the tables are
+# the result, uploaded for reading.
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: targets to load and simulate in (of ngspice, xyce, vacask)
+        required: true
+        default: ngspice,xyce,vacask
+
+permissions:
+  contents: read
+
+jobs:
+  simulators:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@9383ce2bf08796b65508822f5982f49151badc4e # main
+
+      - name: Corpus audit
+        run: |
+          nix develop .#verify --command sh -c '
+            zig build -Doptimize=ReleaseSafe &&
+            python3 -I tools/corpus_audit.py zig-out/bin/sprack "$SPRACK_SUITE/tests" audit.tsv ngspice,hspice &&
+            python3 -I tools/corpus_summary.py audit.tsv &&
+            python3 -I tools/corpus_compare.py tools/corpus-baseline.tsv audit.tsv'
+
+      - name: Loaded by the target simulator
+        if: always()
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          mkdir -p work
+          nix develop .#verify --command sh -c '
+            python3 -I tools/parse_check.py zig-out/bin/sprack "$SPRACK_SUITE/tests" audit.tsv parse.tsv \
+              --targets "$TARGETS" --jobs 4 --work work'
+
+      # The source runs in ngspice; its translations in Xyce and VACASK.
+      - name: Simulated beside the source
+        if: always()
+        run: |
+          mkdir -p work
+          nix develop .#verify --command sh -c '
+            python3 -I tools/sim_check.py zig-out/bin/sprack "$SPRACK_SUITE" audit.tsv sim.tsv \
+              --targets xyce,vacask --jobs 4 --work work'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: simulators
+          path: |
+            audit.tsv
+            parse.tsv
+            sim.tsv
