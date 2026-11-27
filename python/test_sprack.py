@@ -1484,6 +1484,33 @@ def test_schemify_save_is_a_print_for_xyce():
     assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
 
 
+def test_a_stage_name_is_never_renamed():
+    # cktImg's `stage <name>`: a stage may be named as a device is.
+    c = sprack.Circuit("t")
+    c.hint("stage", "M1", "M2")
+    c.hint("order", "M1", "M2")
+    c.M("1", "y", "a", 0, 0, "nch")
+    c.M("2", "y", "a", 0, 0, "nch")
+    assert c.hints.stages == {"M1"}
+    c.rename("M1", "MA")
+    c.rename("M2", "MB")
+    assert [h.text() for h in c.hints] == ["stage M1 MB", "order M1 MB"]
+    assert c.statements[2]["name"] == "MA"
+    with c.subckt("s", "a") as s:
+        s.hint("weak", "x")
+        s.hint("order", "M1")
+    c.scope("s").rename("M1", "MZ", space="instance")
+    assert c.scope("s").hints[1].args == ("MZ",)  # no stage M1 in that scope
+    assert sprack.Hint("stage", ("M1",)).renamed("m1", "X") == sprack.Hint("stage", ("M1",))
+    assert sprack.Hint("face", ("M1.g",)).renamed("m1", "X", {"M1"}).args == ("M1.g",)
+    # face <block> <port> <side>: the block is a device, the port is not.
+    assert sprack.Hint("face", ("X1", "X1", "left")).renamed("x1", "XA").args == ("XA", "X1", "left")
+    f = sprack.Circuit("t")
+    f.hint("face", "X1", "in", "left")
+    f.rename("in", "vin")
+    assert f.hints[0].args == ("X1", "in", "left")
+
+
 def test_statement_in_a_dialects_own_terms():
     c = sprack.Circuit("t")
     c.R("1", "a", 0, "1k")

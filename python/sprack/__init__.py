@@ -290,14 +290,27 @@ class Hint(NamedTuple):
         args = self.args.split() if isinstance(self.args, str) else self.args
         return " ".join((["weak"] if self.weak else []) + [self.verb, *args])
 
-    def renamed(self, old: str, new: str) -> "Hint":
+    def renamed(self, old: str, new: str, keep: Iterable[str] = ()) -> "Hint":
         """With a device or net `old` named `new` (case ignored): an argument
         that is the name, or the name before `.pin`, is renamed; a keyword, a
-        number or a pin is not."""
-        def one(arg: str) -> str:
+        number or a pin is not. Nor is an argument cktImg's vocabulary says
+        names no device (`_FIXED`): a stage's name, `stage <name> ...`, in
+        any hint of its scope (`keep`, the scope's `Hints.stages`; a stage
+        hint keeps its own), and the port of `face <block> <port> <side>`."""
+        fixed = _FIXED.get(self.verb)
+        own = [self.args[fixed]] if self.verb == "stage" and len(self.args) > fixed else []
+        if old.lower() in {k.lower() for k in (*keep, *own)}:
+            return self
+
+        def one(k: int, arg: str) -> str:
             head, dot, pin = arg.partition(".")
-            return new + dot + pin if head.lower() == old.lower() else arg
-        return self._replace(args=tuple(one(a) for a in self.args))
+            return new + dot + pin if head.lower() == old.lower() and k != fixed else arg
+        return self._replace(args=tuple(one(k, a) for k, a in enumerate(self.args)))
+
+
+#: The argument (from 0, after the verb) of a cktImg hint that names no
+#: device of the scope: a stage's name, a face's port of the block's subcircuit.
+_FIXED = {"stage": 0, "face": 1}
 
 
 class Hints:
@@ -359,6 +372,17 @@ class Hints:
 
     def __repr__(self) -> str:
         return f"Hints({list(self)!r})"
+
+    @property
+    def stages(self) -> set[str]:
+        """The names `stage` hints of this scope give: words no rename touches."""
+        return _stages(self._scope.statements)
+
+
+def _stages(sts: list[dict]) -> set[str]:
+    """The first argument of every `stage` annotation of one scope."""
+    hints = (Hint.parse(str(st.get("text", ""))) for st in sts if st.get("kind") == "annotation")
+    return {h.args[0] for h in hints if h.verb == "stage" and h.args}
 
 
 # --------------------------------------------------------------------- builder
@@ -844,9 +868,10 @@ class _Scope:
             return _rename_in(self.statements, old, new, space)
 
         def walk(sts: list[dict]) -> None:
+            stages = _stages(sts)
             for st in sts:
                 if st.get("kind") == "annotation":
-                    st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new).text()
+                    st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new, stages).text()
                 for key, val in list(st.items()):
                     if key in ("kind", "line", "body", "text", "raw", "tail"):
                         continue
@@ -881,10 +906,11 @@ def _rename_in(sts: list[dict], old: str, new: str, space: str) -> list[dict]:
         return _PROBE.sub(one, text)
 
     left: list[dict] = []
+    stages = _stages(sts)
     for st in sts:
         kind = st.get("kind")
         if kind == "annotation":
-            st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new).text()
+            st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new, stages).text()
             continue
         if kind not in KINDS:
             continue

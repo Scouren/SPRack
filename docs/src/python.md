@@ -467,6 +467,10 @@ vocabulary (per kind: its class, its slots, the dialects that can write it).
 - `c.rename(old, new, space="node")` renames within one name space (node,
   instance, definition or param) of one scope, and returns the statements
   whose expressions name `old` and were not rewritten.
+- A rename, yours or the writer's (`M1` written `XM1`), reaches the hints
+  that name the device, but never a word cktImg's vocabulary says names no
+  device of the scope: the name a `stage <name> ...` hint gives a stage, in
+  every hint of its scope, and the port of `face <block> <port> <side>`.
 - `c.place(...)` and `c.draw(...)` give a circuit to cktImg, its package
   where it can be imported, else its `cktimg-json` command, with
   `symbols=`, `target=` and `start=` (an earlier placement) passed through.

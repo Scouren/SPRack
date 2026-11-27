@@ -7909,6 +7909,30 @@ test "annotation: read back in its scope, and named as the target names its devi
     try has(back, "*@ order m1 m2\n.subckt inv a y vdd\n*@ left a\n*@ face XM1.g left\nXM1 y a vdd vdd pmos w=1u\n");
 }
 
+test "annotation: a stage named as a device keeps its name in every line of its scope" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Spectre reads M1 and M2 with no model card as instances: ngspice
+    // writes XM1 and XM2. The stage M1 is no device, so `M1` stays.
+    const sp =
+        \\// t
+        \\simulator lang=spectre
+        \\subckt inv (a y vdd)
+        \\// *@ stage M1 M2
+        \\// *@ weak order M1 M2
+        \\// *@ face M2 M2 left
+        \\M1 (y a vdd vdd) pmos w=1u
+        \\M2 (y a 0 0) nmos w=1u
+        \\ends inv
+        \\
+    ;
+    var report: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &report);
+    // `face <block> <port> <side>`: the block is a device, the port is not.
+    try has(back, "*@ stage M1 XM2\n*@ weak order M1 XM2\n*@ face XM2 M2 left\nXM1 y a vdd vdd pmos w=1u\n");
+}
+
 test "a unit after a value is ignored, in any script: 15kΩ is 15k" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();
