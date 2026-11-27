@@ -66,11 +66,13 @@ pub fn signalParts(text: []const u8, args: *[3][]const u8) ?struct { []const u8,
 }
 
 /// The space of the `k`th name of a signal of this form: the nodes of a
-/// voltage, the device of a current. The terminal of `ix` is no name.
+/// voltage, the device of a current or of a parameter (`p`). The terminal
+/// of `ix` and the parameter of `p` are no names.
 pub fn signalSpace(form: []const u8, k: usize) ?Space {
     if (form.len == 0) return null;
     if (form[0] == 'v') return .node;
-    return if (form[0] == 'i' and k == 0) .instance else null;
+    const device = form[0] == 'i' or std.mem.eql(u8, form, "p");
+    return if (device and k == 0) .instance else null;
 }
 
 /// A dotted version number, `3.3.0`: digits with two or more dots.

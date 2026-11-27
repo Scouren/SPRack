@@ -1484,6 +1484,24 @@ def test_schemify_save_is_a_print_for_xyce():
     assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
 
 
+def test_device_parameter_signal():
+    c = sprack.Circuit("t")
+    m1 = c.M("1", "d", "g", 0, 0, "nch")
+    c.model("nch", "bsim4", "n")
+    c.save(sprack.p(m1, "gm"), sprack.p("M2", "vth"), sprack.v("d"))
+    assert c.statements[-1]["signals"][0] == "p(M1,gm)"
+    assert ".save @M1[gm] @M2[vth] v(d)\n" in c.netlist("ngspice")
+    # A target with no spelling for it reports it, as any signal it cannot say.
+    raises(sprack.Unsupported, lambda: c.netlist("hspice"), "can say the signal p(M1,gm)")
+    # Read back from ngspice, and renamed with the device, never the parameter.
+    r = sprack.read("t\nM1 d g 0 0 nch\n.save @m1[gm]\n.end\n", "ngspice")
+    # The device as the netlist declares it.
+    assert r.statements[-1]["signals"] == ["p(M1,gm)"]
+    r.rename("m1", "mx", space="instance")
+    assert ".save @mx[gm]\n" in r.netlist("ngspice", strict=False)
+    assert 'c.save("p(m1,gm)")' in sprack.to_python("t\n.save @m1[gm]\n.end\n", "ngspice")
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

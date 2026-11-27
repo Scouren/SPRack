@@ -4343,6 +4343,31 @@ test "b4: output forms and measurements" {
     try has(try tr(a, "spectre", "ngspice", "// t\nsimulator lang=spectre\nsave m1:d\n", &r5), ".save @m1[id]\n");
 }
 
+test "a device's parameter is the signal p(dev,param); a target with no spelling for it says so" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src = "t\nM1 d g 0 0 nch\n.model nch nmos level=8\n.save @M1[gm] @m1[id] v(d)\n.end\n";
+    var r0: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &r0);
+    try clean(&r0);
+    var found = false;
+    for (nl.stmts) |st| if (st.kind == .save) {
+        const sigs = st.get("signals").list;
+        try testing.expectEqualStrings("p(M1,gm)", sigs[0].atom);
+        // A device named as the netlist declares it.
+        try testing.expectEqualStrings("ix(M1,d)", sigs[1].atom);
+        found = true;
+    };
+    try testing.expect(found);
+    var r1: ir.Report = .init(a);
+    try has(try tr(a, "ngspice", "ngspice", src, &r1), ".save @M1[gm] @M1[id] v(d)\n");
+    try clean(&r1);
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "hspice", src, &r2);
+    try reported(&r2, .@"error", "can say the signal p(M1,gm)");
+}
+
 test "b4: Spectre relay and port, VACASK control commands" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

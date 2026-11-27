@@ -40,7 +40,7 @@ from . import _core
 
 __all__ = [
     "Circuit", "PDK", "Report", "Entry", "Netlist", "SprackError", "Unsupported",
-    "DIALECTS", "KINDS", "dialects", "translate", "read", "to_python", "can_write", "why_not", "v", "i",
+    "DIALECTS", "KINDS", "dialects", "translate", "read", "to_python", "can_write", "why_not", "v", "i", "p",
     "word", "quoted", "expr", "Hint",
 ]
 
@@ -213,6 +213,12 @@ def v(node: Any, ref: Any = None) -> str:
 def i(device: Any) -> str:
     """The current through a source, as a signal to save or print."""
     return f"i({_name(device)})"
+
+
+def p(device: Any, param: str) -> str:
+    """A device's own parameter, as a signal to save or print:
+    `sprack.p(m1, "gm")` is ngspice's `@m1[gm]`."""
+    return f"p({_name(device)},{param})"
 
 
 def word(text: str) -> dict:
@@ -825,7 +831,7 @@ class _Scope:
 
 
 _SPACES = ("node", "instance", "definition", "param")
-_PROBE = re.compile(r"\b([vi])\(([^()]*)\)", re.I)
+_PROBE = re.compile(r"\b([vip])\(([^()]*)\)", re.I)
 
 
 def _rename_in(sts: list[dict], old: str, new: str, space: str) -> list[dict]:
@@ -837,11 +843,12 @@ def _rename_in(sts: list[dict], old: str, new: str, space: str) -> list[dict]:
     word = re.compile(rf"(?<![\w.]){re.escape(old)}(?![\w])", re.I)
 
     def probes(text: str) -> str:
-        # v(a,b) names nodes, i(x) a device.
+        # v(a,b) names nodes, i(x) a device, p(x,param) a device first.
         def one(m: re.Match) -> str:
-            if (m.group(1).lower() == "v") != (space == "node") or (m.group(1).lower() == "i") != (space == "instance"):
+            form = m.group(1).lower()
+            if ("node" if form == "v" else "instance") != space:
                 return m.group(0)
-            args = [new if same(a.strip()) else a for a in m.group(2).split(",")]
+            args = [new if same(a.strip()) and (k == 0 or form != "p") else a for k, a in enumerate(m.group(2).split(","))]
             return f"{m.group(1)}({','.join(args)})"
         return _PROBE.sub(one, text)
 

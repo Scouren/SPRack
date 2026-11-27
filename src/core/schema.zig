@@ -314,6 +314,8 @@ pub const signal_forms = [_][]const u8{
     // phase, real and imaginary part; a terminal current (`M1:d`, two
     // names); `expr` writes an expression recorded as a signal (`-i(vc)`).
     "idb", "im",    "ip", "ir",  "ii", "ix", "expr",
+    // A device's own parameter, `p(m1,gm)`: the device, then the parameter.
+    "p",
 };
 
 const Def = struct { Kind, Class, []const u8 };

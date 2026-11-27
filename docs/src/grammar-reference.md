@@ -348,8 +348,12 @@ differs pow : the exponent is cut to an integer  # a shared function or operator
 
 signals                            # how recordable things are written
   v = "v(%)"
-  i = "%:p"
-end
+  i = "%:p"                        # forms: v vdiff i vdb vm vp vr vi all
+end                                # idb im ip ir ii ix expr, and p: a
+                                   # device's parameter, p(m1,gm), the
+                                   # device first (ngspice "@%[%]"); a
+                                   # form not listed is a signal the
+                                   # dialect cannot say
 functions                          # canonical name = spellings here
   same abs sqrt exp
   ln = log

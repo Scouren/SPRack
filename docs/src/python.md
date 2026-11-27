@@ -65,7 +65,9 @@ What the calls are:
 * **Everything else.** `param`, `model`, `subckt`, `options`, `temp`, `save`,
   `ic`, `nodeset`, `measure`, `func`, `include`, `lib`, `hdl`, `comment`.
   `print_` and `global_` end in an underscore because Python keeps the words.
-  `sprack.v("out")` and `sprack.i("Vdd")` name signals to save or print.
+  `sprack.v("out")` and `sprack.i("Vdd")` name signals to save or print,
+  and `sprack.p("M1", "gm")` a device's own parameter (ngspice's
+  `@M1[gm]`; a dialect with no spelling for it reports the signal).
 * **Any kind.** Every statement kind in `sprack.KINDS` is a method of its own
   name, and `c.add(kind, ...)` is the one way in they all end up at.
 
