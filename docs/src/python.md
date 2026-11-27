@@ -331,6 +331,35 @@ True
 A `.lib` or `.include` line in a code block names a library in that dialect;
 see [PDKs](pdks.md#without-a-manifest) for what happens to it.
 
+The same without text: every builder call takes `dialect=`, and the
+statement is then in that dialect's terms, as a code block's are. A keyword
+the statement has no slot for is one of its parameters:
+
+```python
+o = sprack.Circuit("own options")
+o.R("1", "a", 0, "1k")
+o.options(dialect="ltspice", plotwinsize=0, numdgt=15)
+print(o.netlist("ltspice"))
+print(o.check("ngspice").errors[0].message)
+```
+
+```text
+own options
+R1 a 0 1k
+.options plotwinsize=0 numdgt=15
+.end
+
+options: 'plotwinsize=0' has no spelling in ngspice
+```
+
+`c.lib(path, section, dialect="hspice")` and `c.include(path,
+dialect=...)` say the file is in that dialect: it is named as it is for a
+netlist of that dialect, and for any other the file and what it includes
+are translated once into the cache and that copy is named. Without
+`dialect=`, the file is in the circuit's dialect (`Circuit(dialect=...)`,
+or the one it was read from), and in a circuit of none it is named as it
+is, whatever the target.
+
 ## A netlist as a builder script
 
 `sprack.to_python(text, dialect)` turns a netlist into a flat Python script

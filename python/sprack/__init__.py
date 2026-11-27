@@ -530,16 +530,35 @@ class _Scope:
         self.statements.append(out)
         return out
 
+    def _own(self, st: dict, dialect: Any) -> bool:
+        """Tag `st` with `dialect` (a built-in name or a `.spgrammar` path),
+        as a `code` block tags what it reads: for a target of that dialect
+        the statement is its own (an option of its own is written as it is),
+        for any other one of another dialect, reported where it has no
+        spelling there. A `lib` or `include` so tagged names a file in that
+        dialect, translated for any other target. Whether it tagged."""
+        if dialect is None:
+            return False
+        d = _dialect(dialect)
+        name = _grammar_name(d)
+        if d != name:
+            self._grammars[name] = d
+        st["dialect"] = name
+        return True
+
     # -- the one way in ---------------------------------------------------
     def add(self, kind: str, *args: Any, **kw: Any) -> _Stmt:
         """Add a statement of any kind in `sprack.KINDS`.
 
         The named methods (`R`, `tran`, `options`, ...) all end up here.
+        `dialect=` says the statement is in that dialect's own terms (see
+        `_own`): a keyword it has no slot for is then one of its parameters.
         """
         if kind not in KINDS:
             raise TypeError(f"unknown statement kind {kind!r}; known: {', '.join(sorted(KINDS))}")
         slots = _slots(kind)
         st: dict[str, Any] = {"kind": kind}
+        own = self._own(st, kw.pop("dialect", None))
         order = _POSITIONAL.get(kind, [n for n in slots if n not in ("name", "params")])
         rest = list(args)
         if "name" in slots and KINDS[kind]["class"] == "device":
@@ -586,7 +605,7 @@ class _Scope:
                 params.extend(value.items() if isinstance(value, dict) else value)
             elif key in slots:
                 st[key] = _val(value)
-            elif "params" in slots and KINDS[kind]["class"] == "device":
+            elif "params" in slots and (own or KINDS[kind]["class"] == "device"):
                 params.append((key, value))
             else:
                 valid = ", ".join(n for n in slots if n != "params")
@@ -712,14 +731,18 @@ class _Scope:
         return self.add(kind, str(name), *nodes, master=dev["name"], **params)
 
     # -- structure --------------------------------------------------------
-    def param(self, **values: Any) -> dict:
+    def param(self, *, dialect: str | None = None, **values: Any) -> dict:
         """Netlist parameters: `c.param(vdd=1.8, wn="2*wmin")`."""
-        return self._push({"kind": "param", "params": _val({_key(k): x for k, x in values.items()})})
+        st = {"kind": "param", "params": _val({_key(k): x for k, x in values.items()})}
+        self._own(st, dialect)
+        return self._push(st)
 
-    def model(self, name: str, family: str | None = None, polarity: str | None = None, *, type: str | None = None, **params: Any) -> dict:
+    def model(self, name: str, family: str | None = None, polarity: str | None = None, *, type: str | None = None,
+              dialect: str | None = None, **params: Any) -> dict:
         """A model card. `family` is canonical ("bsim4", "diode", "bjt", ...) with
         `polarity` "n", "p", "npn" or "pnp"; or give `type` for a Verilog-A module."""
         st: dict[str, Any] = {"kind": "model", "name": name}
+        self._own(st, dialect)
         if family:
             st["family"] = family
         if polarity:
@@ -730,11 +753,12 @@ class _Scope:
             st["params"] = _val({_key(k): x for k, x in params.items()})
         return self._push(st)
 
-    def subckt(self, name: str, *ports: Any, inline: Any = None, **params: Any) -> _Stmt:
+    def subckt(self, name: str, *ports: Any, inline: Any = None, dialect: str | None = None, **params: Any) -> _Stmt:
         """Define a subcircuit. Use as `with c.subckt("inv", "in", "out") as s: s.R(...)`.
         `inline=True`: an inline subcircuit (Spectre), whose devices are named
         as if they stood where its instance does."""
         st: dict[str, Any] = {"kind": "subckt", "name": name, "ports": [str(p) for p in ports], "body": []}
+        self._own(st, dialect)
         if params:
             st["params"] = _val(params)
         if inline is not None:
@@ -749,12 +773,16 @@ class _Scope:
     def temp(self, value: Any) -> dict:
         return self.add("options", temp=value)
 
-    def ic(self, values: dict | None = None, **more: Any) -> dict:
+    def ic(self, values: dict | None = None, *, dialect: str | None = None, **more: Any) -> dict:
         """Initial node voltages: `c.ic(out=0.9)` or `c.ic({"out": 0.9})`."""
-        return self._push({"kind": "ic", "values": _val({**(values or {}), **more})})
+        st = {"kind": "ic", "values": _val({**(values or {}), **more})}
+        self._own(st, dialect)
+        return self._push(st)
 
-    def nodeset(self, values: dict | None = None, **more: Any) -> dict:
-        return self._push({"kind": "nodeset", "values": _val({**(values or {}), **more})})
+    def nodeset(self, values: dict | None = None, *, dialect: str | None = None, **more: Any) -> dict:
+        st = {"kind": "nodeset", "values": _val({**(values or {}), **more})}
+        self._own(st, dialect)
+        return self._push(st)
 
     def code(self, text: str, dialect: str = "ngspice") -> list[dict]:
         """Add statements written as `dialect` text (a built-in name or a
@@ -1239,6 +1267,10 @@ def _calls(st: dict) -> Iterable[tuple[str, list, dict]]:
     elif kind in ("ic", "nodeset") and list(given) == ["values"]:
         yield kind, [everything["values"]], {}
     elif kind == "options":
+        # A dialect's own options are keywords of the call that names it.
+        rest = {k: v for k, v in everything.items() if k != "params"}
+        if st.get("dialect") and _plain_params(pv, ("self", "dialect", *slots)):
+            yield "options", [], {**rest, **pv}
         yield "options", [], everything
     elif isinstance(given.get("name"), str) or not device:
         method = kind + "_" if keyword.iskeyword(kind) or kind == "print" else kind
@@ -1311,6 +1343,9 @@ def _built(st: dict) -> str | None:
     body aside)."""
     want = _norm(st)
     for method, args, kw in _calls(st):
+        if st.get("dialect"):
+            # A statement in a dialect's own terms says so.
+            kw = {"dialect": st["dialect"], **kw}
         try:
             scratch = Circuit()
             getattr(scratch, method)(*args, **kw)

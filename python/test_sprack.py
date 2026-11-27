@@ -1484,6 +1484,34 @@ def test_schemify_save_is_a_print_for_xyce():
     assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
 
 
+def test_statement_in_a_dialects_own_terms():
+    c = sprack.Circuit("t")
+    c.R("1", "a", 0, "1k")
+    # Without a dialect the vocabulary is closed; with one, its own options.
+    raises(TypeError, lambda: c.options(plotwinsize=0), "options has no 'plotwinsize'")
+    o = c.options(dialect="ltspice", plotwinsize=0, numdgt=15)
+    assert o["dialect"] == "ltspice" and o["params"] == {"plotwinsize": "0", "numdgt": "15"}
+    assert ".options plotwinsize=0 numdgt=15\n" in c.netlist("ltspice")
+    # For another dialect it is reported as any line of another dialect is.
+    errs = c.check("ngspice").errors
+    assert [e.message for e in errs] == ["options: 'plotwinsize=0' has no spelling in ngspice",
+                                         "options: 'numdgt=15' has no spelling in ngspice"], errs
+    raises(ValueError, lambda: c.options(dialect="nosuch", x=1), "unknown dialect")
+    # A library in a dialect's terms: as is for that dialect, translated for another.
+    with tempfile.TemporaryDirectory() as d:
+        lib = os.path.join(d, "kit.lib")
+        with open(lib, "w") as f:
+            f.write(".lib tt\n.model nch nmos level=8\n.endl tt\n")
+        k = sprack.Circuit("t")
+        k.lib(lib, "tt", dialect="ngspice")
+        assert k.statements[0]["dialect"] == "ngspice"
+        assert f'.lib "{lib}" tt\n' in k.netlist("ngspice")
+        hs = k.netlist("hspice", strict=False)
+        assert lib not in hs and ".lib " in hs, hs
+    # The script says it again.
+    assert 'c.options(dialect="ltspice", plotwinsize=0, numdgt=15)' in c.python()
+
+
 def test_to_python_title_and_node_case():
     # The title line a dialect reads as a comment is that comment's text;
     # where `*` is no comment (VACASK), the title is the line.
