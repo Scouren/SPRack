@@ -61,10 +61,8 @@ pub inline fn restOfLine(
         if (self.slot(node.slot).ty == .value) {
             // The rest of the line is one expression: `.if (a > b)`.
             if (text.len == 0) return false;
-            try self.log.append(
-                self.arena,
-                .{ .slot = node.slot, .val = .{ .expr = unwrapParens(text) } },
-            );
+            const e = std.mem.trim(u8, lexer.unwrapWhole(text), " \t");
+            try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .expr = e } });
         } else if (text.len > 0) {
             try self.log.append(self.arena, .{ .slot = node.slot, .val = .{ .atom = text } });
         }
@@ -306,17 +304,4 @@ fn lineAfter(self: *const Matcher, ti: usize) []const u8 {
         off = @intFromPtr(prev.ptr) + prev.len - @intFromPtr(line.ptr);
     }
     return std.mem.trim(u8, line[off..], " \t");
-}
-
-/// `(a > b)` is `a > b`: parentheses around the whole text dropped.
-fn unwrapParens(text: []const u8) []const u8 {
-    if (!(text.len >= 2 and text[0] == '(' and text[text.len - 1] == ')')) return text;
-    var depth: usize = 0;
-    var whole = true;
-    for (text[0 .. text.len - 1]) |ch| {
-        if (ch == '(') depth += 1;
-        if (ch == ')') depth -= 1;
-        if (depth == 0) whole = false;
-    }
-    return if (whole) std.mem.trim(u8, text[1 .. text.len - 1], " \t") else text;
 }

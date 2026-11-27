@@ -6,6 +6,7 @@
 //!   text: []const u8, lno: u32, toks: *std.ArrayList(Tok)) Allocator.Error!void`
 //! - `pub fn isIdent(s: []const u8) bool`
 //! - `pub fn isNameLike(s: []const u8) bool`
+//! - `pub fn unwrapWhole(run: []const u8) []const u8`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -119,6 +120,22 @@ pub fn isIdent(s: []const u8) bool {
 /// quote, brace or bracket characters is a malformed expression instead.
 pub fn isNameLike(s: []const u8) bool {
     return s.len > 0 and std.mem.indexOfAny(u8, s, "{}'\"()=,") == null;
+}
+
+/// `(a + b)` is `a + b`: parentheses around the whole run dropped.
+pub fn unwrapWhole(run: []const u8) []const u8 {
+    if (!(run.len >= 2 and run[0] == '(' and run[run.len - 1] == ')')) return run;
+    // Whole: the first `(` closes at the last character, not before. A `)`
+    // that closes it sooner, or one with nothing open (`(a)) (b)`), means
+    // the parentheses are two groups or unbalanced; the text stays as it is.
+    var depth: usize = 0;
+    for (run[0 .. run.len - 1]) |ch| {
+        if (ch == '(') depth += 1;
+        if (ch != ')') continue;
+        if (depth <= 1) return run;
+        depth -= 1;
+    }
+    return run[1 .. run.len - 1];
 }
 
 // ---- private ----
@@ -261,19 +278,6 @@ fn bareEnd(cfg: *const LexCfg, text: []const u8, i: usize) usize {
             (ch == ' ' or ch == '\t' or (ch == ',' and !cfg.bare_expr))) break;
     }
     return j;
-}
-
-/// `(a + b)` is `a + b`: parentheses around the whole run dropped.
-fn unwrapWhole(run: []const u8) []const u8 {
-    if (!(run.len >= 2 and run[0] == '(' and run[run.len - 1] == ')')) return run;
-    var d: usize = 0;
-    var whole = true;
-    for (run[0 .. run.len - 1]) |ch| {
-        if (ch == '(') d += 1;
-        if (ch == ')') d -= 1;
-        if (d == 0) whole = false;
-    }
-    return if (whole) run[1 .. run.len - 1] else run;
 }
 
 /// `x = '-1*y' + z = 2`: a continuation mark left inside a line; ngspice

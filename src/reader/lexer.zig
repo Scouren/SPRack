@@ -14,7 +14,7 @@
 //! - `pub const Window = struct`, with `pub fn init`, `pub fn deinit`, `pub fn has`,
 //!   `pub fn rewind`, `pub fn drop`
 //! - `pub const Lines = lines.Lines` (`lines.zig`)
-//! - `pub const isIdent`, `pub const isNameLike` (`tokens.zig`)
+//! - `pub const isIdent`, `pub const isNameLike`, `pub const unwrapWhole` (`tokens.zig`)
 //! - `pub const parseNumber`, `pub const renderNumber` (`numbers.zig`)
 
 const std = @import("std");
@@ -157,6 +157,7 @@ pub const Window = struct {
 pub const Lines = logical.Lines;
 pub const isIdent = tokens.isIdent;
 pub const isNameLike = tokens.isNameLike;
+pub const unwrapWhole = tokens.unwrapWhole;
 pub const parseNumber = numbers.parseNumber;
 pub const renderNumber = numbers.renderNumber;
 

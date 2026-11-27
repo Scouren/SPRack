@@ -7791,3 +7791,19 @@ test "a unit after a value is ignored, in any script: 15kΩ is 15k" {
     try has(out, "R2 (b 0) resistor r=375\n");
     try testing.expectEqual(0, report.count(.@"error"));
 }
+
+test "parentheses that do not pair are text, not a crash" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A `)` with nothing open: once a counter that went below zero (an
+    // integer overflow in ReleaseSafe).
+    var r1: ir.Report = .init(a);
+    _ = try tr0(a, "ngspice", "xyce", "t\n.param a=1 b=2\n.if (a)) (b)\nr1 1 0 1k\n.endif\n.end\n", &r1);
+    var r2: ir.Report = .init(a);
+    _ = try tr0(a, "spectre", "ngspice", "simulator lang=spectre\nparameters x=(a[))]b)\nr1 (1 0) resistor r=x\n", &r2);
+    // Two groups side by side are not one: `(a) (b)` keeps its parentheses.
+    try testing.expectEqualStrings("(a) (b)", sprack.lexer.unwrapWhole("(a) (b)"));
+    try testing.expectEqualStrings("a) (b", sprack.lexer.unwrapWhole("((a) (b))")[1..6]);
+    try testing.expectEqualStrings("a+b", sprack.lexer.unwrapWhole("(a+b)"));
+}
