@@ -1453,6 +1453,17 @@ def test_place_and_draw_go_to_cktimg_package():
         del sys.modules["cktimg"]
 
 
+def test_schemify_script_keeps_run():
+    # A command built here is the target's own: ngspice keeps its `run`.
+    c = sprack.Circuit("t")
+    c.R("1", "a", 0, "1k")
+    c.V("1", "a", 0, 1)
+    with c.script() as s:
+        s.op()
+        s.simctl("run")
+    assert ".control\nop\nrun\n.endc\n" in c.netlist("ngspice"), c.netlist("ngspice")
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

@@ -61,8 +61,7 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
     // A command of one simulator's control language is no command of
     // another's: one with nothing to say there (run, quit) is left out,
     // any other is unsupported.
-    if (st.kind == .simctl and !std.mem.eql(u8, w.sourceOf(st), w.g.name))
-        return foreignCommand(w, st);
+    if (st.kind == .simctl and w.othersCommand(st)) return foreignCommand(w, st);
     if (try instparams.hoistParams(w, st)) |h| return stmt(w, &h);
     // A conditional block where there are none, but a choice inside an
     // expression: the same statements in every branch are written once,

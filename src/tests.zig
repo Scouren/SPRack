@@ -7205,6 +7205,26 @@ test "#50: an ngspice .control block is a script of statements" {
     try testing.expectEqual(0, countKind(try readAs(a, "ngspice", ng, &r4), .@"opaque"));
 }
 
+test "Schemify: a command of no dialect is the target's own; an inert line names elsewhere" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // What the Python builder makes of `with c.script() as s: s.op();
+    // s.simctl("run")`: ngspice's own `run`, kept in its script.
+    const json =
+        \\{"title":"t","dialect":"sprack","stmts":[{"kind":"resistor","name":"R1","pos":"a","neg":"0","r":"1k"},
+        \\{"kind":"script","body":[{"kind":"op"},{"kind":"simctl","cmd":"run"},{"kind":"simctl","cmd":"let","args":"x = 1"}]}]}
+    ;
+    var r1: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, json, &r1);
+    try has(try writeAs(a, "ngspice", &nl, &r1), ".control\nop\nrun\nlet x = 1\n.endc\n");
+    try clean(&r1);
+    // Into Xyce, `run` has nothing to say (ngspice's inert line).
+    var r2: ir.Report = .init(a);
+    _ = try writeAs(a, "xyce", &nl, &r2);
+    try reported(&r2, .info, "simctl: 'run' is not written");
+}
+
 test "#51: a statement only its dialect has is its words; HSPICE measure forms; VACASK embed" {
     var arena_state: Arena = .init(testing.allocator);
     defer arena_state.deinit();

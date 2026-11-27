@@ -15,7 +15,8 @@
 //! Contents:
 //! - `pub const Writer = struct`, with `pub const Hoisted = struct`,
 //!   `pub const Error`, and the methods `pub fn sourceOf`, `pub fn familyOf`,
-//!   `pub fn supporters`, `pub fn sourceGrammar`, `pub fn inertCommand`,
+//!   `pub fn supporters`, `pub fn sourceGrammar`, `pub fn othersCommand`,
+//!   `pub fn inertCommand`,
 //!   `pub fn origin`, `pub fn pass`, `pub fn emitter`, `pub fn canWriteHere`
 //! - `pub fn markUsed(stmts: []const ir.Stmt, used: *[schema.kind_count]bool) void`
 //! - `pub fn needLine(arena: Allocator, l: []const u8, family: []const u8, env: ?*const ir.Env)
@@ -34,6 +35,7 @@ const Refs = @import("refs.zig").Refs;
 const tables = @import("tables.zig");
 const name_passes = @import("names.zig");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Grammar = grammar.Grammar;
 const Kind = schema.Kind;
 const Caps = emit.Caps;
@@ -148,6 +150,24 @@ pub const Writer = struct {
         const c = w.caps orelse return null;
         for (c.grammars) |*g| if (std.mem.eql(u8, g.name, w.sourceOf(st))) return g;
         return null;
+    }
+
+    /// Whether `st`, a `simctl` statement, is a command of another
+    /// dialect's control language. One read in a dialect is that
+    /// dialect's. One of no built-in dialect (built from JSON or Python)
+    /// is this dialect's own, unless another dialect's `inert` line names
+    /// it and this one's does not: an `inert` line says the command has
+    /// nothing to say elsewhere, never in the dialect that has it.
+    pub fn othersCommand(w: *const Writer, st: *const ir.Stmt) bool {
+        assert(st.kind == .simctl);
+        if (std.mem.eql(u8, w.sourceOf(st), w.g.name)) return false;
+        if (w.sourceGrammar(st) != null) return true;
+        const cmd = if (st.get("cmd") == .atom) st.get("cmd").atom else "";
+        if (w.g.inertReason(st.kind, cmd) != null) return false;
+        for (if (w.caps) |c| c.grammars else &.{}) |*g| {
+            if (g.inertReason(st.kind, cmd) != null) return true;
+        }
+        return false;
     }
 
     /// Why command `cmd` of a `simctl` statement is left out here: the
