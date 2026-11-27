@@ -38,6 +38,7 @@ const ModelEntry = types.ModelEntry;
 const ModelParamTable = types.ModelParamTable;
 const Move = types.Move;
 const Needs = types.Needs;
+const Once = types.Once;
 const NoFamily = types.NoFamily;
 const NoParam = types.NoParam;
 const Omitted = types.Omitted;
@@ -73,6 +74,7 @@ pub const Grammar = struct {
     /// (`simulator lang=spectre insensitive=yes`). Read as the header too.
     header_folded: []const []const u8 = &.{},
     needs: []const Needs,
+    onces: []const Once = &.{},
     wraps: []const Wrap,
     raws: []const RawBlock,
     owns: []const Own = &.{},

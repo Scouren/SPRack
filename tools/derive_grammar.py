@@ -26,10 +26,10 @@ import sys
 # `.slot` after it.
 KIND_FIRST = {
     "rule", "read", "write", "block", "no", "inert", "implied", "enum", "caveat", "invalid",
-    "default", "omitted", "params", "spread", "rerun", "rewrite", "unique", "move",
+    "default", "omitted", "params", "spread", "rerun", "rewrite", "unique", "move", "once",
 }
 # Directives that open a section closed by a line `end`.
-SECTIONS = {"block", "needs", "params", "modelparams", "rewrite", "plugin", "signals",
+SECTIONS = {"block", "needs", "once", "params", "modelparams", "rewrite", "plugin", "signals",
             "functions", "variables", "operators", "models", "lexer", "header", "preamble"}
 
 

@@ -10,6 +10,7 @@
 //! - `pub fn assumedOptions(w: *Writer, nl: *const ir.Netlist) Allocator.Error!?ir.Stmt`
 //! - `pub fn markSole(w: *Writer, st: *const ir.Stmt, analyses: usize) void`
 //! - `pub fn wrapped(w: *Writer, stmts: []const ir.Stmt, analyses: usize) Writer.Error!void`
+//! - `pub fn onceLines(w: *Writer) Writer.Error!void`
 //! - `pub fn close(w: *Writer, library: bool) Writer.Error!void`
 
 const std = @import("std");
@@ -126,6 +127,20 @@ pub fn wrapped(w: *Writer, stmts: []const ir.Stmt, analyses: usize) Writer.Error
         };
         if (any) try output.line(w, wr.close);
     }
+}
+
+/// The lines of the grammar's `once` directives, in the grammar's order,
+/// each directive's sorted by the value they are for.
+pub fn onceLines(w: *Writer) Writer.Error!void {
+    const Line = Writer.OnceLine;
+    const lines = w.onces.items;
+    std.mem.sort(Line, lines, {}, struct {
+        fn lt(_: void, x: Line, y: Line) bool {
+            if (x.which != y.which) return x.which < y.which;
+            return std.mem.lessThan(u8, x.key, y.key);
+        }
+    }.lt);
+    for (lines) |l| try output.line(w, l.text);
 }
 
 /// The end marker, which an included file must not have (it would end the

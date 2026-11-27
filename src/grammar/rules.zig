@@ -70,10 +70,14 @@ pub fn rule(
     const dir: Dir = if (head[0] == 'r' and head[1] == 'u')
         .both
     else if (head[0] == 'r') .read else .write;
+    const pat = try pattern(c, no, kind, !g.lex.case_sensitive, rest[eq + 3 ..], defs);
+    // What a pick leaves out cannot be read back into its place.
+    if (c.picks > 0 and dir != .write)
+        return c.fail(no, "a pattern that picks items (`slot*@sel=word`) is only written", .{});
     g.rules = try c.add(Rule, g.rules, .{
         .kind = kind,
         .dir = dir,
-        .pat = try pattern(c, no, kind, !g.lex.case_sensitive, rest[eq + 3 ..], defs),
+        .pat = pat,
         .family = family,
         .within = within,
     });

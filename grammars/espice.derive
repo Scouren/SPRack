@@ -1,0 +1,26 @@
+# ESPice: ngspice's netlist, with Verilog-A and digital Verilog loaded by
+# the netlist itself (Schemify's spec, section 7.2a).
+#
+# A Verilog-A source is loaded by `.hdl "x.va"`, where ngspice loads the
+# OSDI file compiled from it inside a .control block; an N device of it
+# says its multiplier `mfactor`. A digital Verilog module is an N device
+# too, through VerA's bridges: its pins in the module's port order, every
+# bridge parameter the instance gives, then its model; each model a
+# `.model <model> <module>` card, each source a `.verilog "x.v"` line
+# after the cards, sorted.
+
+base ngspice
+drop hdl verilog
+---
+rule hdl = ".hdl" path
+write verilog = name~"N" nodes+ master {...params} -module -file -pins -dirs -code
+once verilog master
+  .model {master} {module|file.stem}
+end
+once verilog file
+  .verilog "{file}"
+end
+params device
+  m = mfactor
+  same ...
+end

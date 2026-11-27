@@ -156,6 +156,16 @@ rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
 rule  device    = name~"N" nodes+ master {...params}
 # XSPICE code models: a vector port's brackets are items of `nodes`.
 rule  xspice    = name~"A" nodes+ master {...params}
+# A digital Verilog module co-simulated by d_cosim, an XSPICE code model:
+# its inputs, outputs and inouts as three vectors, and a d_cosim card a
+# model that runs the module as Icarus Verilog compiled it (iverilog -o
+# x.vvp x.v). The bridge parameters have no place: ngspice puts its own
+# adc and dac bridges between the digital ports and the analog nets.
+write verilog = name~"A" "[" nodes*@dirs=in "]" "[" nodes*@dirs=out "]" [ "[" nodes+@dirs=inout "]" ] master -module -file -pins -code -params
+caveat verilog params : ngspice bridges a d_cosim port to an analog net with adc_bridge and dac_bridge models of its own, which take no parameter from the instance
+once verilog master
+  .model {master} d_cosim simulation="{file.stem}.vvp"
+end
 # ngspice accepts the PSpice-style params: keyword but does not need it.
 read  instance  = name~"X" nodes+ master "params:" {...params}
 rule  instance  = name~"X" nodes+ master {...params}

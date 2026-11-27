@@ -358,7 +358,8 @@ const P = struct {
         };
     }
 
-    /// The marks after a captured slot's name: `~"R"`, `*`, `+`, `?default`, `!`, `#`.
+    /// The marks after a captured slot's name: `~"R"`, `*`, `+`, `?default`, `!`, `#`,
+    /// `@sel=atom`.
     fn capFlags(p: *P, n: *Node, name: []const u8) Error!void {
         std.debug.assert(n.tag == .cap);
         // Until a character that is no mark; each pass takes one.
@@ -386,8 +387,24 @@ const P = struct {
                     n.count = try p.countSlot();
                     n.plus = true;
                 }
+            } else if (p.eat('@')) {
+                try p.picked(n, name);
             } else break;
         }
+    }
+
+    /// `@sel=atom` after a list capture: the items whose item of list slot
+    /// `sel` at the same place is `atom`.
+    fn picked(p: *P, n: *Node, name: []const u8) Error!void {
+        std.debug.assert(p.s[p.i - 1] == '@');
+        const sel = try p.slotOf(try p.ident());
+        if (!p.eat('=')) return p.err("expected `@slot=word` after '{s}'", .{name});
+        n.pick_atom = try p.ident();
+        const si = p.slotInfo(sel);
+        if (si.ty != .atom or !si.list or n.slot == wild_slot or !p.slotInfo(n.slot).list)
+            return p.err("'{s}@' picks from a list slot by a list slot of words", .{name});
+        n.pick = sel;
+        p.c.picks += 1;
     }
 
     /// Does a capture of a named slot take what the slot holds?
@@ -541,6 +558,7 @@ pub fn pattern(
 ) Error![]const Node {
     var p: P = .{ .s = text, .kind = kind, .fold = fold, .c = c, .line = line, .defs = defs };
     c.nodes = 0;
+    c.picks = 0;
     const out = try p.seq();
     if (p.i < p.s.len) return p.err("unexpected '{c}'", .{p.s[p.i]});
     if (out.len == 0) return p.err("empty pattern", .{});

@@ -19,6 +19,7 @@
 //! - `pub const NoFamily = struct`
 //! - `pub const Own = struct`
 //! - `pub const Needs = struct`
+//! - `pub const Once = struct`
 //! - `pub const Convert = struct`
 //! - `pub const Computes = struct`
 //! - `pub const Edge = struct`
@@ -208,6 +209,10 @@ pub const Node = struct {
     /// `vsrcs#dim`, `( cpos cneg )#dim`: as many items, or passes, as the
     /// number captured earlier in slot `count`.
     count: u8 = no_slot,
+    /// `nodes*@dirs=in`: only the items of the list whose item at the same
+    /// place of list slot `pick` is the word `pick_atom`; written only.
+    pick: u8 = no_slot,
+    pick_atom: []const u8 = "",
     kids: []const Node = &.{},
     bag: []const BagEntry = &.{},
     /// Separator of a repeated group: none, or one `lit` or `glue` node.
@@ -271,6 +276,13 @@ pub const Own = struct { word: []const u8, reason: []const u8, model: bool = fal
 /// Boilerplate this dialect needs when a kind, or a model of a family, is
 /// used (VACASK `load`).
 pub const Needs = struct { kind: Kind, family: []const u8 = "", lines: []const []const u8 };
+
+/// `once kind slot`: lines written after the last statement, once for each
+/// value of `slot` among the statements of `kind` this dialect writes,
+/// sorted by it. `{x}` in a line is slot `x` of the first such statement,
+/// `{x.stem}` the file name it holds without directory or suffix, and
+/// `{x|y}` the first of the two that has a value.
+pub const Once = struct { kind: Kind, slot: u8, lines: []const []const u8 };
 
 /// `convert kind [slot=atom] : a = b op c`: this dialect's slot `a` holds a
 /// function of canonical slots. Writing computes it; reading inverts it.

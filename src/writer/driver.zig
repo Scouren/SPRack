@@ -326,6 +326,9 @@ pub const Driver = struct {
         stats.asFunctions(w.g, s.functions, report);
         if (s.lower) |*l| try s.last(try l.end(w.arena));
         report.phase = ir.Phase.write;
+        // A `once` line is for a statement written, by a directive here.
+        assert(w.onces.items.len == 0 or w.g.onces.len > 0);
+        try frame.onceLines(w);
         try frame.wrapped(w, s.wrapped.items, s.analyses);
         report.phase = ir.Phase.caveat;
         try frame.close(w, s.nl.library);

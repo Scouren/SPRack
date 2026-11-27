@@ -365,6 +365,7 @@ pub const Emit = struct {
             return true;
         }
         if (!e.given(n.slot)) return e.capDefault(n);
+        if (n.pick != grammar.no_slot) return e.picked(n);
         if (n.count != grammar.no_slot and !try e.counted(
             n,
             if (e.st.at(n.slot) == .list) e.st.at(n.slot).list.len else 1,
@@ -385,6 +386,33 @@ pub const Emit = struct {
         if (n.prefix.len > 0) text = try e.prefixed(n, text);
         try e.tok(text);
         e.mark(n.slot);
+        return true;
+    }
+
+    /// `slot*@sel=atom`: the items of the list whose item of `sel` at the
+    /// same place is the word, case ignored. None: no text, which a `+`
+    /// capture refuses; a statement without `sel` is refused.
+    fn picked(e: *Emit, n: Node) Allocator.Error!bool {
+        assert(n.pick != grammar.no_slot);
+        assert(e.given(n.slot));
+        const sel = e.st.at(n.pick);
+        if (sel != .list) {
+            if (e.why.len == 0)
+                e.why = try e.arena.print("a statement without '{s}'", .{e.slot(n.pick).name});
+            return false;
+        }
+        const v = e.st.at(n.slot);
+        const items: []const Value = if (v == .list) v.list else &.{v};
+        var kept: std.ArrayList(Value) = .empty;
+        for (items, 0..) |it, i| {
+            if (i >= sel.list.len or sel.list[i] != .atom) continue;
+            if (std.ascii.eqlIgnoreCase(sel.list[i].atom, n.pick_atom))
+                try kept.append(e.arena, it);
+        }
+        if (kept.items.len == 0 and n.plus) return false;
+        if (kept.items.len > 0) try e.tok(try e.valueText(.{ .list = kept.items }, false));
+        e.mark(n.slot);
+        e.mark(n.pick);
         return true;
     }
 

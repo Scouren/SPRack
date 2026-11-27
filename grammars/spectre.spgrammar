@@ -243,6 +243,7 @@ no options trtol  : Spectre's truncation-error factor is lteratio, on a Newton t
 no options chgtol : Spectre has no charge tolerance: its quantity statement sets abstol for current, voltage, flux, power, temperature and unitless quantities, not charge
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
+no verilog : Spectre runs digital Verilog only in a mixed-signal (AMS) run, which this grammar does not write
 # analyses (b3)
 implied pnoise ref = 0
 implied pxf ref = 0

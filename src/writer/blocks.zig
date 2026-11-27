@@ -98,6 +98,7 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
         if (st.body.len == 0 and w.g.canWriteRule(st.kind)) break;
         return block(w, st, b);
     }
+    if (w.g.onces.len > 0 and w.g.canWrite(st.kind)) try noteOnce(w, st);
     {
         defer _ = w.scratch.reset(.retain_capacity);
         try leaf.leaf(w, w.scratch.allocator(), st);
@@ -111,6 +112,72 @@ pub fn stmt(w: *Writer, st: *const ir.Stmt) Error!void {
 }
 
 // ---- private ----
+
+/// The lines of the grammar's `once` directives for `st`'s kind, kept
+/// for the end of the file where its value of the directive's slot is new.
+fn noteOnce(w: *Writer, st: *const ir.Stmt) Error!void {
+    // `stmt` asks only where the grammar has a `once` and writes the kind.
+    assert(w.g.onces.len > 0);
+    for (w.g.onces, 0..) |o, which| {
+        if (o.kind != st.kind) continue;
+        const key = slotWord(st, o.slot, false) orelse continue;
+        const fold = !w.g.lex.case_sensitive;
+        const seen = for (w.onces.items) |l| {
+            if (l.which == which and (if (fold)
+                std.ascii.eqlIgnoreCase(l.key, key)
+            else
+                std.mem.eql(u8, l.key, key))) break true;
+        } else false;
+        if (seen) continue;
+        var text: std.ArrayList(u8) = .empty;
+        for (o.lines, 0..) |l, i| {
+            if (i > 0) try text.append(w.perm, '\n');
+            try fillOnce(w.perm, &text, l, st);
+        }
+        try w.onces.append(w.perm, .{
+            .which = which,
+            .key = try w.perm.dupe(u8, key),
+            .text = text.items,
+        });
+    }
+}
+
+/// `line` with each `{x}`, `{x.stem}` and `{x|y}` replaced by what `st`
+/// holds (the grammar's compiler checked the names).
+fn fillOnce(
+    a: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    line: []const u8,
+    st: *const ir.Stmt,
+) Error!void {
+    var rest = line;
+    while (std.mem.indexOfScalar(u8, rest, '{')) |open| {
+        const close = std.mem.indexOfScalarPos(u8, rest, open, '}').?;
+        try out.appendSlice(a, rest[0..open]);
+        var names = std.mem.splitScalar(u8, rest[open + 1 .. close], '|');
+        while (names.next()) |n| {
+            const stem = std.mem.endsWith(u8, n, ".stem");
+            const name = if (stem) n[0 .. n.len - ".stem".len] else n;
+            const slot = schema.slotIndex(st.kind, name).?;
+            if (slotWord(st, slot, stem)) |t| break try out.appendSlice(a, t);
+        }
+        rest = rest[close + 1 ..];
+    }
+    try out.appendSlice(a, rest);
+}
+
+/// The word or path `st` holds in `slot`, or its stem: no directory, no
+/// suffix. Null where it holds none.
+fn slotWord(st: *const ir.Stmt, slot: u8, stem: bool) ?[]const u8 {
+    const t = switch (st.at(slot)) {
+        .atom, .str => |x| x,
+        else => return null,
+    };
+    if (t.len == 0) return null;
+    if (!stem) return t;
+    const base = t[if (std.mem.lastIndexOfAny(u8, t, "/\\")) |i| i + 1 else 0..];
+    return base[0 .. std.mem.lastIndexOfScalar(u8, base, '.') orelse base.len];
+}
 
 fn inertStatement(w: *Writer, st: *const ir.Stmt, why: []const u8) Error!void {
     const k = @backingInt(st.kind);

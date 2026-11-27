@@ -202,6 +202,7 @@ plugin
   instance m=1 error : a {to} plugin has no device multiplier ($mfactor), so the module '{module}' is simulated as one device
 end
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
+no verilog : Xyce has no digital Verilog co-simulation in a netlist
 # analyses (b3)
 no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
 no pnoise     : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top

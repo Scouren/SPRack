@@ -9,7 +9,7 @@ const schema = sprack.schema;
 const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "ltspice", "cdl" };
 /// Dialects that are another for a different reader (`variant`): built in,
 /// compiled like the rest, and tested by what they are for.
-const variants = [_][]const u8{"cktimg"};
+const variants = [_][]const u8{ "cktimg", "espice" };
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -7851,6 +7851,95 @@ test "cktimg: the circuit only, devices and names as they are" {
     _ = try tr(a, "ngspice", "cktimg", "t\n.include \"models.lib\"\nE1 a 0 poly(1) b 0 0 1\n.end\n", &r2);
     try reported(&r2, .@"error", "cktImg reads one file");
     try reported(&r2, .@"error", "expand the polynomial first");
+}
+
+/// Schemify's dig_tb: an inverter of Verilog at the top and in a subcircuit.
+const dig_tb_json =
+    \\{"title":"dig_tb","stmts":[
+    \\{"kind":"verilog","name":"UX","nodes":["q[0]","qb"],"master":"dinv","file":"dinv.v",
+    \\ "pins":["A","Y"],"dirs":["in","out"],
+    \\ "code":"module dinv(input A, output Y);\n  assign Y = ~A;\nendmodule"},
+    \\{"kind":"instance","name":"B[0]","nodes":["d[0]","q[0]"],"master":"dbuf"},
+    \\{"kind":"instance","name":"B[1]","nodes":["d[1]","q[1]"],"master":"dbuf"},
+    \\{"kind":"subckt","name":"dbuf","ports":["A","Y"],"body":[
+    \\ {"kind":"verilog","name":"U1","nodes":["A","net_0w0001"],"master":"dinv","file":"dinv.v",
+    \\  "pins":["A","Y"],"dirs":["in","out"]},
+    \\ {"kind":"verilog","name":"U2","nodes":["net_0w0001","Y"],"master":"dinv","file":"dinv.v",
+    \\  "pins":["A","Y"],"dirs":["in","out"]}]}]}
+;
+
+/// Schemify's sar_tb, cut down: a Verilog-A DAC and the Verilog SAR logic.
+const sar_tb_json =
+    \\{"title":"sar_tb","stmts":[
+    \\{"kind":"device","name":"NDAC","nodes":["d[1]","d[0]","vdac"],"master":"cdac_m",
+    \\ "params":{"m":"2"}},
+    \\{"kind":"verilog","name":"U1","nodes":["clk","cmp","d[1]","d[0]","eoc"],"master":"sar_m",
+    \\ "module":"sar","file":"rtl/sar.v","pins":["clk","cmp","d","d","eoc"],
+    \\ "dirs":["in","in","out","out","out"],"params":{"vdd":"1.8","vth":"0.9"}},
+    \\{"kind":"verilog","name":"U2","nodes":["eoc","done"],"master":"dbuf_m","module":"dbuf",
+    \\ "file":"rtl/sar.v","pins":["A","Y"],"dirs":["in","out"]},
+    \\{"kind":"hdl","path":"cdac.va"},
+    \\{"kind":"model","name":"cdac_m","type":"cdac"}]}
+;
+
+fn fromJson(a: std.mem.Allocator, to: []const u8, json: []const u8, report: *ir.Report) ![]const u8 {
+    const nl = try sprack.json.parseNetlist(a, json, report);
+    return writeAs(a, to, &nl, report);
+}
+
+test "verilog: d_cosim in ngspice, by direction, a card a model" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const out = try fromJson(a, "ngspice", dig_tb_json, &report);
+    try has(out, "AUX [ q[0] ] [ qb ] dinv\nXB[0] d[0] q[0] dbuf\n");
+    try has(out, ".subckt dbuf A Y\nAU1 [ A ] [ net_0w0001 ] dinv\n" ++
+        "AU2 [ net_0w0001 ] [ Y ] dinv\n.ends dbuf\n");
+    // Once a model, after the last statement, the compiled module its stem.
+    try has(out, ".ends dbuf\n.model dinv d_cosim simulation=\"dinv.vvp\"\n.end\n");
+    try testing.expectEqual(0, report.count(.@"error"));
+    var r2: ir.Report = .init(a);
+    const sar = try fromJson(a, "ngspice", sar_tb_json, &r2);
+    try has(sar, "AU1 [ clk cmp ] [ d[1] d[0] eoc ] sar_m\n");
+    try has(sar, ".model dbuf_m d_cosim simulation=\"sar.vvp\"\n" ++
+        ".model sar_m d_cosim simulation=\"sar.vvp\"\n");
+    try reported(&r2, .warning, "verilog.params: ngspice bridges a d_cosim port");
+    // An inout port is a third vector; no direction is no form.
+    var r3: ir.Report = .init(a);
+    const io = try fromJson(a, "ngspice",
+        \\{"stmts":[{"kind":"verilog","name":"A1","nodes":["a","b","c"],"master":"m",
+        \\"file":"m.v","dirs":["in","inout","out"]},
+        \\{"kind":"verilog","name":"A2","nodes":["a"],"master":"m","file":"m.v"}]}
+    , &r3);
+    try has(io, "A1 [ a ] [ c ] [ b ] m\n");
+    try reported(&r3, .@"error", "verilog: no ngspice form of this statement can say a statement without 'dirs'");
+    // Every dialect without Verilog says so, and who has it.
+    var r4: ir.Report = .init(a);
+    _ = try fromJson(a, "xyce", dig_tb_json, &r4);
+    try reported(&r4, .@"error", "Xyce has no digital Verilog co-simulation in a netlist. " ++
+        "Dialects that define it: ngspice");
+}
+
+test "verilog: espice, an N card with its bridge parameters, .model and .verilog once each" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const out = try fromJson(a, "espice", sar_tb_json, &report);
+    try has(out, "NDAC d[1] d[0] vdac cdac_m mfactor=2\n" ++
+        "NU1 clk cmp d[1] d[0] eoc sar_m vdd=1.8 vth=0.9\nNU2 eoc done dbuf_m\n" ++
+        ".hdl \"cdac.va\"\n.model cdac_m cdac\n");
+    // The cards sorted by model, then each source once, as written.
+    try has(out, ".model cdac_m cdac\n.model dbuf_m dbuf\n.model sar_m sar\n" ++
+        ".verilog \"rtl/sar.v\"\n.end\n");
+    try testing.expectEqual(0, report.count(.@"error"));
+    // No module: the file's stem.
+    var r2: ir.Report = .init(a);
+    const stem = try fromJson(a, "espice",
+        \\{"stmts":[{"kind":"verilog","name":"U1","nodes":["a"],"master":"cnt","file":"cnt.sv"}]}
+    , &r2);
+    try has(stem, "NU1 a cnt\n.model cnt cnt\n.verilog \"cnt.sv\"\n");
 }
 
 test "annotation: a line for a tool is written whole, with each dialect's mark, in its scope" {

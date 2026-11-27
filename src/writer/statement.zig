@@ -13,7 +13,7 @@
 //! `blocks.stmt` for each statement.
 //!
 //! Contents:
-//! - `pub const Writer = struct`, with `pub const Hoisted = struct`,
+//! - `pub const Writer = struct`, with `pub const Hoisted = struct`, `pub const OnceLine`,
 //!   `pub const Error`, and the methods `pub fn sourceOf`, `pub fn familyOf`,
 //!   `pub fn supporters`, `pub fn sourceGrammar`, `pub fn othersCommand`,
 //!   `pub fn inertCommand`,
@@ -125,6 +125,12 @@ pub const Writer = struct {
     used: [schema.kind_count]bool = @splat(false),
     /// The terminals of the instances of each model (`collectTerminals`).
     terminals: facts.TerminalMap = .empty,
+    /// The lines of the grammar's `once` directives met so far, one a value
+    /// of each (`blocks.noteOnce`), written after the last statement.
+    onces: std.ArrayList(OnceLine) = .empty,
+
+    /// A line of the grammar's `once` directive `which`, for the value `key`.
+    pub const OnceLine = struct { which: usize, key: []const u8, text: []const u8 };
 
     pub const Hoisted = struct { n: usize = 0, name: []const u8 = "", source: []const u8 =
         "",

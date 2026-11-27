@@ -43,6 +43,8 @@ pub const C = struct {
     grown: std.AutoHashMapUnmanaged(usize, Grown) = .empty,
     /// Nodes the pattern being parsed has so far, defines expanded.
     nodes: u32 = 0,
+    /// Captures of the pattern being parsed that pick items (`slot*@sel=atom`).
+    picks: u32 = 0,
 
     const Grown = struct { len: usize, cap: usize };
 

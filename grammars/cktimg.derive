@@ -15,7 +15,7 @@ drop trannoise phasenoise envelope qpss step data alter montecarlo optimize fft 
 drop save print measure options ic nodeset simctl csparam script hdl
 drop statistics statgroup vary correlate
 drop include lib libsection library cond_if cond_elif cond_else
-drop xspice device ctlsrc lossyline[txl] lossyline[cpl] mosfet[psp103] mosfet[bsimcmg]
+drop xspice verilog device ctlsrc lossyline[txl] lossyline[cpl] mosfet[psp103] mosfet[bsimcmg]
 drop-head needs libsections
 ---
 # Analyses, the control script, outputs and options: a drawing has no use for them.
@@ -73,5 +73,6 @@ no cond_elif : cktImg draws one circuit; it has no conditional blocks
 no cond_else : cktImg draws one circuit; it has no conditional blocks
 no hdl : cktImg draws the circuit; it loads no Verilog-A
 no xspice : cktImg draws no XSPICE code models (A devices)
+no verilog : cktImg draws no digital Verilog modules
 no device : cktImg draws no Verilog-A instances (N devices); a device is named by its model or subcircuit
 no ctlsrc : cktImg draws no POLY or TABLE controlled sources; expand the polynomial first

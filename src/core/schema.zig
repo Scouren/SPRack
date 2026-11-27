@@ -190,6 +190,9 @@ pub const Kind = enum(u8) {
     // A line for a tool that reads the netlist (cktImg's `*@ order m1 m2`):
     // its text, written whole on a line of its own in every dialect.
     annotation,
+    // An instance of a digital Verilog module, co-simulated or written as
+    // structural Verilog.
+    verilog,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -624,6 +627,17 @@ const defs = [_]Def{
     .{ .native, .structure, "of:atom word:atom args:atom* params:params" },
     .{ .embed, .structure, "path:path text:text" },
     .{ .annotation, .other, "text:text" },
+    // `nodes`: one a bit, in the module's port order, a bus from its left
+    // index (`d[7]` ... `d[0]`); the caller expands buses. `pins`: for each
+    // node, the module port it is a bit of (a bus's name once a bit), and
+    // `dirs` its direction: `in`, `out` or `inout`. `master`: the model the
+    // instance names; `module`: the Verilog module (unset: the stem of
+    // `file`), from the source at `file`, as written. `code`: the module's
+    // text, where the caller has it, written once a module by a dialect
+    // that holds modules (structural Verilog). `params`: those of the
+    // bridges between the digital ports and the analog nets (vdd, vth, ...).
+    .{ .verilog, .device, "name nodes:node* master:ident module:ident file:path pins:atom* " ++
+        "dirs:atom* params:params code:text" },
 };
 
 pub fn info(kind: Kind) *const KindInfo {

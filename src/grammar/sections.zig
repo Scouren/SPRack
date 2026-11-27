@@ -1,10 +1,11 @@
 //! Directives of what a dialect writes around the statements, or keeps as
-//! it is: `preamble`, `header`, `needs`, `wrap`, `own` and `raw`.
+//! it is: `preamble`, `header`, `needs`, `once`, `wrap`, `own` and `raw`.
 //!
 //! Contents:
 //! - `pub fn preamble(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn header(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn needs(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
+//! - `pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void`
 //! - `pub fn wrap(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn own(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
 //! - `pub fn raw(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void`
@@ -21,8 +22,10 @@ const Lines = context.Lines;
 const args = context.args;
 const kindOf = context.kindOf;
 const literalLines = context.literalLines;
+const slotNamed = context.slotNamed;
 const Grammar = tables.Grammar;
 const Needs = types.Needs;
+const Once = types.Once;
 const Own = types.Own;
 const RawBlock = types.RawBlock;
 const Wrap = types.Wrap;
@@ -59,6 +62,33 @@ pub fn needs(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
             .{ .kind = kind, .lines = try literalLines(c, lines) },
         );
     }
+}
+
+/// `once kind slot`, then its lines up to `end`; each `{x}`, `{x.stem}`
+/// and `{x|y}` in them names slots of the kind.
+pub fn once(c: *C, g: *Grammar, lines: *Lines, rest: []const u8) Error!void {
+    const no = lines.no;
+    const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse
+        return c.fail(no, "once is `once kind slot`", .{});
+    const kind = try kindOf(c, no, rest[0..sp]);
+    const slot = try slotNamed(c, no, kind, std.mem.trim(u8, rest[sp + 1 ..], " \t"));
+    const body = try literalLines(c, lines);
+    // `literalLines` ends at `end`, after the directive's own line.
+    std.debug.assert(lines.no > no);
+    for (body) |l| {
+        var it = std.mem.splitScalar(u8, l, '{');
+        _ = it.next();
+        while (it.next()) |part| {
+            const close = std.mem.indexOfScalar(u8, part, '}') orelse
+                return c.fail(no, "a `{{` with no `}}` in `{s}`", .{l});
+            var names = std.mem.splitScalar(u8, part[0..close], '|');
+            while (names.next()) |n| {
+                const stem = std.mem.endsWith(u8, n, ".stem");
+                _ = try slotNamed(c, no, kind, if (stem) n[0 .. n.len - ".stem".len] else n);
+            }
+        }
+    }
+    g.onces = try c.add(Once, g.onces, .{ .kind = kind, .slot = slot, .lines = body });
 }
 
 /// `wrap "open" "close" : kind ...`.

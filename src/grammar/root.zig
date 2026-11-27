@@ -24,7 +24,7 @@
 //! - from `types.zig`, the directives: `Absent`, `Caveat`, `Check`, `Computes`,
 //!   `Convert`, `Differs`, `Each`, `Edge`, `EnumMap`, `EnumPair`, `Fill`, `Implied`,
 //!   `Inert`, `Means`, `Merge`, `ModelEntry`, `ModelKv`, `ModelParamTable`,
-//!   `ModelSpelling`, `ModelWhen`, `Move`, `Needs`, `NoFamily`, `NoParam`,
+//!   `ModelSpelling`, `ModelWhen`, `Move`, `Needs`, `NoFamily`, `NoParam`, `Once`,
 //!   `Omitted`, `Own`, `ParamTable`, `Plugin`, `RawBlock`, `Require`,
 //!   `Reserved`, `Rewrite`, `SignalForm`, `Spellings`, `Spread`, `Switch`,
 //!   `Threshold`, `Topo`, `UniqueAnalysis`, `Wrap`, `paramsOpen`
@@ -94,6 +94,7 @@ pub const ModelSpelling = types.ModelSpelling;
 pub const ModelWhen = types.ModelWhen;
 pub const Move = types.Move;
 pub const Needs = types.Needs;
+pub const Once = types.Once;
 pub const NoFamily = types.NoFamily;
 pub const NoParam = types.NoParam;
 pub const Omitted = types.Omitted;
@@ -120,6 +121,7 @@ const Head = enum {
     preamble,
     header,
     needs,
+    once,
     wrap,
     own,
     raw,
@@ -257,6 +259,7 @@ fn directive(
         .preamble => try sections.preamble(c, g, lines, rest),
         .header => try sections.header(c, g, lines, rest),
         .needs => try sections.needs(c, g, lines, rest),
+        .once => try sections.once(c, g, lines, rest),
         .wrap => try sections.wrap(c, g, no, rest),
         .own => try sections.own(c, g, no, rest),
         .raw => try sections.raw(c, g, no, rest),
@@ -386,6 +389,15 @@ test "a broken grammar at run time names the file and line" {
         .{
             .src = "dialect x\nlexer\nend\nrewrite capacitor ic\n  add vsource dc={ic}\nend\n",
             .msg = "x/bad.spgrammar:5: a rewrite starts with keep or become, and goes on with add",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nrule verilog = name nodes*@dirs=in master\n",
+            .msg = "x/bad.spgrammar:4: a pattern that picks items " ++
+                "(`slot*@sel=word`) is only written",
+        },
+        .{
+            .src = "dialect x\nlexer\nend\nonce verilog master\n  .model {master} {bogus}\nend\n",
+            .msg = "x/bad.spgrammar:4: unknown slot 'bogus' for kind 'verilog'",
         },
         .{
             .src = "dialect x\nlexer\nend\nrewrite capacitor ic\n  keep bogus={ic}\nend\n",

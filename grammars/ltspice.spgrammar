@@ -227,6 +227,7 @@ no cond_if   : LTspice has no conditional netlist blocks; use if() in an express
 no cond_elif : LTspice has no conditional netlist blocks; use if() in an expression
 no cond_else : LTspice has no conditional netlist blocks; use if() in an expression
 no xspice : XSPICE code models are ngspice's; LTspice's A devices are its own digital primitives with fixed pins
+no verilog : LTspice has no digital Verilog co-simulation
 # analyses (b3)
 no pac        : LTspice has no periodic steady-state analysis
 no pnoise     : LTspice has no periodic steady-state analysis
