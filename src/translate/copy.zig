@@ -1,5 +1,18 @@
 //! Project, pass two: each file read knowing the rest, and written into
 //! the copy or listed in the catalogue.
+//!
+//! Contents:
+//! - `pub fn outPath(r: *const Run, a: Allocator, root_dir: []const u8,
+//!   path: []const u8) Allocator.Error![]const u8`
+//! - `pub fn translateFile(r: *const Run, a: Allocator, path: []const u8, text: []const u8,
+//!   report: *ir.Report, library: bool, lines: *Lines,
+//!   fresh: *Fresh) (Allocator.Error || Writer.Error)!void`
+//! - `pub fn translateInto(r: *const Run, file: File,
+//!   done: *Done) (Allocator.Error || Writer.Error)!void`
+//! - `pub fn translateAll(r: *Run) (Allocator.Error || Writer.Error)!void`
+//! - `pub fn process(r: *Run) (Allocator.Error || Writer.Error)!void`
+//! - for `Ahead`, the slot of a file translated has `pub fn init`, `pub fn reset`,
+//!   `pub fn deinit`
 
 const std = @import("std");
 const ir = @import("ir");
@@ -11,7 +24,6 @@ const paths = @import("paths.zig");
 const ahead_ = @import("ahead.zig");
 const includes_ = @import("includes.zig");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const Run = run_.Run;
@@ -25,6 +37,52 @@ const relative = paths.relative;
 const commonDir = paths.commonDir;
 const Includes = includes_.Includes;
 const includes = includes_.includes;
+
+/// What translating one file gives the run: the lines of its log,
+/// their counts, and the `$NAME`s its include paths named.
+const Done = struct {
+    /// What the run takes of the file lives here; what translating it
+    /// needs and no one after, in `scratch`.
+    arena: std.heap.ArenaAllocator,
+    scratch: std.heap.ArenaAllocator,
+    /// The file was there to read.
+    read: bool,
+    log: []const u8,
+    errors: usize,
+    warnings: usize,
+    fresh: Fresh,
+    err: ?(Allocator.Error || Writer.Error),
+
+    pub fn init(d: *Done, gpa: Allocator) void {
+        d.* = .{
+            .arena = .init(gpa),
+            .scratch = .init(gpa),
+            .read = false,
+            .log = "",
+            .errors = 0,
+            .warnings = 0,
+            .fresh = undefined,
+            .err = null,
+        };
+        d.fresh = .{ .arena = d.arena.allocator() };
+    }
+
+    pub fn reset(d: *Done) void {
+        _ = d.arena.reset(.{ .retain_with_limit = slot_keep });
+        _ = d.scratch.reset(.{ .retain_with_limit = slot_keep });
+        d.read = false;
+        d.log = "";
+        d.errors = 0;
+        d.warnings = 0;
+        d.fresh = .{ .arena = d.arena.allocator() };
+        d.err = null;
+    }
+
+    pub fn deinit(d: *Done) void {
+        d.scratch.deinit();
+        d.arena.deinit();
+    }
+};
 
 /// Where the copy of `path` goes; its directory is made.
 pub fn outPath(
@@ -75,58 +133,6 @@ pub fn translateFile(
             out_path,
             .{ .sev = .@"error", .code = .invalid, .line = 0, .msg = "cannot write this file" },
         );
-}
-
-/// What translating one file gives the run: the lines of its log,
-/// their counts, and the `$NAME`s its include paths named.
-pub const Done = struct {
-    /// What the run takes of the file lives here; what translating it
-    /// needs and no one after, in `scratch`.
-    arena: std.heap.ArenaAllocator,
-    scratch: std.heap.ArenaAllocator,
-    /// The file was there to read.
-    read: bool,
-    log: []const u8,
-    errors: usize,
-    warnings: usize,
-    fresh: Fresh,
-    err: ?(Allocator.Error || Writer.Error),
-
-    pub fn init(d: *Done, gpa: Allocator) void {
-        d.* = .{
-            .arena = .init(gpa),
-            .scratch = .init(gpa),
-            .read = false,
-            .log = "",
-            .errors = 0,
-            .warnings = 0,
-            .fresh = undefined,
-            .err = null,
-        };
-        d.fresh = .{ .arena = d.arena.allocator() };
-    }
-
-    pub fn reset(d: *Done) void {
-        _ = d.arena.reset(.{ .retain_with_limit = slot_keep });
-        _ = d.scratch.reset(.{ .retain_with_limit = slot_keep });
-        d.read = false;
-        d.log = "";
-        d.errors = 0;
-        d.warnings = 0;
-        d.fresh = .{ .arena = d.arena.allocator() };
-        d.err = null;
-    }
-
-    pub fn deinit(d: *Done) void {
-        d.scratch.deinit();
-        d.arena.deinit();
-    }
-};
-
-pub fn translateOne(r: *const Run, file: File, done: *Done) void {
-    r.translateInto(file, done) catch |e| {
-        done.err = e;
-    };
 }
 
 /// `file`, read and translated straight into the copy, a statement at
@@ -289,8 +295,16 @@ pub fn process(r: *Run) (Allocator.Error || Writer.Error)!void {
     }
 }
 
+// ---- private ----
+
+fn translateOne(r: *const Run, file: File, done: *Done) void {
+    r.translateInto(file, done) catch |e| {
+        done.err = e;
+    };
+}
+
 /// Is `d` an entry that says to translate another file too? Within a
 /// project the other files are translated.
-pub fn withinProject(d: ir.Diag) bool {
+fn withinProject(d: ir.Diag) bool {
     return d.code == .caveat and std.mem.indexOf(u8, d.msg, "translate that file too") != null;
 }

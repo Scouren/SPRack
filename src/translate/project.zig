@@ -11,6 +11,19 @@
 //! The copy keeps the layout and file names of the original, so the include
 //! lines inside it stay valid; they are rewritten as paths relative to the
 //! including file.
+//!
+//! The run is in the files beside this one: `run.zig` (what a run is asked,
+//! gives and shares between its passes), `paths.zig`, `errata.zig` (a PDK's
+//! errata, and reading a file through them), `ahead.zig` (files worked on
+//! at once), `discover.zig` (pass one), `copy.zig` (pass two), `includes.zig`
+//! (include lines of the copy) and `catalog.zig`.
+//!
+//! Contents:
+//! - `pub const Summary`, `pub const Options` (`run.zig`)
+//! - `pub const Erratum`, `pub const parseErrata` (`errata.zig`)
+//! - `pub const normalize`, `pub const resolve`, `pub const relative` (`paths.zig`)
+//! - `pub fn run(io: std.Io, gpa: Allocator,
+//!   opts: Options) (Allocator.Error || Writer.Error)!Summary`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -18,7 +31,6 @@ const dialects = @import("dialects");
 const paths = @import("paths.zig");
 const errata_ = @import("errata.zig");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;

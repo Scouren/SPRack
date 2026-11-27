@@ -1,5 +1,16 @@
 //! Project, pass one: every file found by following includes, and what
 //! each declares learned.
+//!
+//! Contents:
+//! - `pub fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void`
+//! - `pub fn findIncludes(r: *Run, file: []const u8, stmts: []const ir.Stmt, scratch: Allocator,
+//!   top: bool) Allocator.Error!void`
+//! - `pub fn collectRefs(r: *Run, dir: []const u8, stmts: []const ir.Stmt, scratch: Allocator,
+//!   out: *std.ArrayList(Ref)) Allocator.Error!void`
+//! - `pub fn want(r: *Run, name: []const u8) Allocator.Error!void`
+//! - `pub fn discover(r: *Run) Allocator.Error!void`
+//! - for `Ahead`, the slot of a file read and parsed has `pub fn init`, `pub fn reset`,
+//!   `pub fn deinit`
 
 const std = @import("std");
 const ir = @import("ir");
@@ -10,7 +21,6 @@ const paths = @import("paths.zig");
 const errata_ = @import("errata.zig");
 const ahead_ = @import("ahead.zig");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const Run = run_.Run;
 const Ref = Run.Ref;
@@ -24,6 +34,29 @@ const resolve = paths.resolve;
 const pathOf = Run.pathOf;
 const sectionOf = Run.sectionOf;
 const spellingKey = Run.spellingKey;
+
+/// One file of the first pass, read and parsed.
+const Parsed = struct {
+    arena: std.heap.ArenaAllocator,
+    loaded: Loaded,
+    stmts: []ir.Stmt,
+    failed: bool,
+
+    pub fn init(p: *Parsed, gpa: Allocator) void {
+        p.* = .{ .arena = .init(gpa), .loaded = .{}, .stmts = &.{}, .failed = false };
+    }
+
+    pub fn reset(p: *Parsed) void {
+        _ = p.arena.reset(.{ .retain_with_limit = slot_keep });
+        p.loaded = .{};
+        p.stmts = &.{};
+        p.failed = false;
+    }
+
+    pub fn deinit(p: *Parsed) void {
+        p.arena.deinit();
+    }
+};
 
 pub fn noteSearch(r: *Run, dir: []const u8, st: *const ir.Stmt) Allocator.Error!void {
     if (st.kind != .options or st.get("search") != .str) return;
@@ -111,43 +144,6 @@ pub fn want(r: *Run, name: []const u8) Allocator.Error!void {
     }
 }
 
-/// One file of the first pass, read and parsed.
-pub const Parsed = struct {
-    arena: std.heap.ArenaAllocator,
-    loaded: Loaded,
-    stmts: []ir.Stmt,
-    failed: bool,
-
-    pub fn init(p: *Parsed, gpa: Allocator) void {
-        p.* = .{ .arena = .init(gpa), .loaded = .{}, .stmts = &.{}, .failed = false };
-    }
-
-    pub fn reset(p: *Parsed) void {
-        _ = p.arena.reset(.{ .retain_with_limit = slot_keep });
-        p.loaded = .{};
-        p.stmts = &.{};
-        p.failed = false;
-    }
-
-    pub fn deinit(p: *Parsed) void {
-        p.arena.deinit();
-    }
-};
-
-pub fn parseOne(r: *const Run, file: File, out: *Parsed) void {
-    const a = out.arena.allocator();
-    out.loaded = r.load(file.path, a);
-    const text = out.loaded.text orelse return;
-    // What the file says of itself alone: the report of this reading
-    // is the second pass's to give, with the other files known.
-    var report: ir.Report = .init(a);
-    const nl = reader.read(r.opts.from, a, text, &report, .{ .library = file.library }) catch {
-        out.failed = true;
-        return;
-    };
-    out.stmts = nl.stmts;
-}
-
 /// Pass one: find every file and learn what each declares.
 pub fn discover(r: *Run) Allocator.Error!void {
     var ahead: Ahead(Parsed, parseOne) = undefined;
@@ -219,4 +215,20 @@ pub fn discover(r: *Run) Allocator.Error!void {
         ) catch "a section not followed";
         r.logLine(sk.path, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
     }
+}
+
+// ---- private ----
+
+fn parseOne(r: *const Run, file: File, out: *Parsed) void {
+    const a = out.arena.allocator();
+    out.loaded = r.load(file.path, a);
+    const text = out.loaded.text orelse return;
+    // What the file says of itself alone: the report of this reading
+    // is the second pass's to give, with the other files known.
+    var report: ir.Report = .init(a);
+    const nl = reader.read(r.opts.from, a, text, &report, .{ .library = file.library }) catch {
+        out.failed = true;
+        return;
+    };
+    out.stmts = nl.stmts;
 }

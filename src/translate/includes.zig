@@ -1,12 +1,20 @@
 //! Project: the include lines of a translated copy, rewritten as paths to
 //! the copies of the files they name.
+//!
+//! Contents:
+//! - `pub const Includes = struct`
+//! - `pub fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool`
+//! - `pub fn rewriteIncludes(r: *const Run, path_of_file: []const u8, dir: []const u8,
+//!   stmts: []ir.Stmt, scratch: Allocator, report: *ir.Report,
+//!   fresh: *Fresh) Allocator.Error!void`
+//! - `pub fn includes(ctx: *anyopaque, a: Allocator, stmts: []ir.Stmt,
+//!   report: *ir.Report) Allocator.Error!void`
 
 const std = @import("std");
 const schema = @import("schema");
 const ir = @import("ir");
 const paths = @import("paths.zig");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const Run = run_.Run;
 const Fresh = Run.Fresh;
@@ -14,6 +22,8 @@ const relative = paths.relative;
 const pathOf = Run.pathOf;
 const sectionOf = Run.sectionOf;
 const spellingKey = Run.spellingKey;
+
+pub const Includes = struct { r: *const Run, path: []const u8, dir: []const u8, fresh: *Fresh };
 
 /// A section of `path` not followed, where the target opens the
 /// includes of every section (`libsections opened`): its includes would
@@ -29,24 +39,6 @@ pub fn emptied(r: *const Run, path: []const u8, st: *const ir.Stmt) bool {
         )) return true;
     }
     return false;
-}
-
-/// The includes of an emptied section, as comments.
-pub fn commentIncludes(scratch: Allocator, stmts: []ir.Stmt, n: *usize) Allocator.Error!void {
-    for (stmts) |*st| {
-        if (pathOf(st)) |p| {
-            const sec = sectionOf(st);
-            const raw = try std.fmt.allocPrint(
-                scratch,
-                "[sprack] not in this copy: {s} \"{s}\"{s}{s}",
-                .{ @tagName(st.kind), p, if (sec.len > 0) " " else "", sec },
-            );
-            st.* = .{ .kind = .comment, .raw = raw, .line = st.line };
-            n.* += 1;
-            continue;
-        }
-        try commentIncludes(scratch, st.body, n);
-    }
 }
 
 pub fn rewriteIncludes(
@@ -109,8 +101,6 @@ pub fn rewriteIncludes(
     }
 }
 
-pub const Includes = struct { r: *const Run, path: []const u8, dir: []const u8, fresh: *Fresh };
-
 pub fn includes(
     ctx: *anyopaque,
     a: Allocator,
@@ -119,4 +109,24 @@ pub fn includes(
 ) Allocator.Error!void {
     const in: *Includes = @ptrCast(@alignCast(ctx));
     try in.r.rewriteIncludes(in.path, in.dir, stmts, a, report, in.fresh);
+}
+
+// ---- private ----
+
+/// The includes of an emptied section, as comments.
+fn commentIncludes(scratch: Allocator, stmts: []ir.Stmt, n: *usize) Allocator.Error!void {
+    for (stmts) |*st| {
+        if (pathOf(st)) |p| {
+            const sec = sectionOf(st);
+            const raw = try std.fmt.allocPrint(
+                scratch,
+                "[sprack] not in this copy: {s} \"{s}\"{s}{s}",
+                .{ @tagName(st.kind), p, if (sec.len > 0) " " else "", sec },
+            );
+            st.* = .{ .kind = .comment, .raw = raw, .line = st.line };
+            n.* += 1;
+            continue;
+        }
+        try commentIncludes(scratch, st.body, n);
+    }
 }

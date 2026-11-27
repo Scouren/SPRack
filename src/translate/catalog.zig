@@ -1,30 +1,17 @@
 //! Project: the catalogue, a JSON list of every subcircuit and model a
 //! tree of files defines.
+//!
+//! Contents:
+//! - `pub fn catalogStmts(r: *Run, w: *Writer, path: []const u8, section: []const u8,
+//!   stmts: []const ir.Stmt) Writer.Error!void`
+//! - `pub fn noteOpaque(r: *Run, path: []const u8, stmts: []const ir.Stmt) void`
 
 const std = @import("std");
 const schema = @import("schema");
 const ir = @import("ir");
 const run_ = @import("run.zig");
-
 const Writer = std.Io.Writer;
 const Run = run_.Run;
-
-pub fn catalogParams(w: *Writer, ps: ir.Value, count: *usize) Writer.Error!void {
-    if (ps != .params) return;
-    for (ps.params) |p| {
-        if (count.* > 0) try w.writeByte(',');
-        count.* += 1;
-        try w.print("{f}:", .{std.json.fmt(p.key, .{})});
-        switch (p.val) {
-            .num => |n| if (n.exp10 == 0)
-                try w.print("\"{s}\"", .{n.digits()})
-            else
-                try w.print("\"{s}e{d}\"", .{ n.digits(), n.exp10 }),
-            .expr => |e| try w.print("{f}", .{std.json.fmt(e, .{})}),
-            else => try w.writeAll("null"),
-        }
-    }
-}
 
 pub fn catalogStmts(
     r: *Run,
@@ -109,5 +96,24 @@ pub fn noteOpaque(r: *Run, path: []const u8, stmts: []const ir.Stmt) void {
             );
         }
         r.noteOpaque(path, st.body);
+    }
+}
+
+// ---- private ----
+
+fn catalogParams(w: *Writer, ps: ir.Value, count: *usize) Writer.Error!void {
+    if (ps != .params) return;
+    for (ps.params) |p| {
+        if (count.* > 0) try w.writeByte(',');
+        count.* += 1;
+        try w.print("{f}:", .{std.json.fmt(p.key, .{})});
+        switch (p.val) {
+            .num => |n| if (n.exp10 == 0)
+                try w.print("\"{s}\"", .{n.digits()})
+            else
+                try w.print("\"{s}e{d}\"", .{ n.digits(), n.exp10 }),
+            .expr => |e| try w.print("{f}", .{std.json.fmt(e, .{})}),
+            else => try w.writeAll("null"),
+        }
     }
 }

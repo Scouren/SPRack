@@ -1,9 +1,18 @@
 //! Project: the errata of a PDK, and reading an input file through them.
+//!
+//! Contents:
+//! - `pub const Erratum`
+//! - `pub const Loaded = struct`
+//! - `pub fn parseErrata(arena: Allocator, text: []const u8)
+//!   error{ OutOfMemory, BadErrata }![]const Erratum`
+//! - `pub fn load(r: *const Run, path: []const u8, a: Allocator) Loaded`
+//! - `pub fn noteErrata(r: *Run, path: []const u8, hits: []const Loaded.Hit) Allocator.Error!void`
+//! - `pub fn readFile(r: *Run, path: []const u8, a: Allocator) ?[]const u8`
+//! - `pub fn staleErrata(r: *Run) Allocator.Error!void`
 
 const std = @import("std");
 const ir = @import("ir");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const Run = run_.Run;
 
@@ -11,6 +20,18 @@ const Run = run_.Run;
 /// `read`: a line the PDK's own simulator refuses (`why`).
 pub const Erratum =
     struct { file: []const u8, was: []const u8, read: []const u8, why: []const u8 = "" };
+
+/// What reading one input file gave: its text with the PDK's errata
+/// read through, or why there is none; and the errata that name it,
+/// each with the line its text stood on, if it stood there.
+pub const Loaded = struct {
+    text: ?[]const u8 = null,
+    /// Why the file was refused; empty: it could not be opened.
+    refusal: []const u8 = "",
+    hits: []const Hit = &.{},
+
+    const Hit = struct { erratum: usize, line: ?u32 };
+};
 
 /// Errata from JSON: a list of `{file, was, read, why}`, or an object that
 /// holds one under `errata` (a PDK manifest).
@@ -50,30 +71,6 @@ pub fn parseErrata(
     }
     return out.items;
 }
-
-/// Where `was` stands in `text` as whole lines, from `from` on.
-pub fn wholeLines(text: []const u8, was: []const u8, from: usize) ?usize {
-    var i = from;
-    while (std.mem.indexOfPos(u8, text, i, was)) |at| : (i = at + 1) {
-        const starts = at == 0 or text[at - 1] == '\n';
-        const end = at + was.len;
-        const ends = end == text.len or text[end] == '\n' or text[end] == '\r';
-        if (starts and ends) return at;
-    }
-    return null;
-}
-
-/// What reading one input file gave: its text with the PDK's errata
-/// read through, or why there is none; and the errata that name it,
-/// each with the line its text stood on, if it stood there.
-pub const Loaded = struct {
-    text: ?[]const u8 = null,
-    /// Why the file was refused; empty: it could not be opened.
-    refusal: []const u8 = "",
-    hits: []const Hit = &.{},
-
-    const Hit = struct { erratum: usize, line: ?u32 };
-};
 
 /// Reads `path`. It writes nothing of the run: files are read at once.
 pub fn load(r: *const Run, path: []const u8, a: Allocator) Loaded {
@@ -148,4 +145,18 @@ pub fn staleErrata(r: *Run) Allocator.Error!void {
         );
         r.logLine(e.file, .{ .sev = .info, .code = .cosmetic, .line = 0, .msg = msg });
     }
+}
+
+// ---- private ----
+
+/// Where `was` stands in `text` as whole lines, from `from` on.
+fn wholeLines(text: []const u8, was: []const u8, from: usize) ?usize {
+    var i = from;
+    while (std.mem.indexOfPos(u8, text, i, was)) |at| : (i = at + 1) {
+        const starts = at == 0 or text[at - 1] == '\n';
+        const end = at + was.len;
+        const ends = end == text.len or text[end] == '\n' or text[end] == '\r';
+        if (starts and ends) return at;
+    }
+    return null;
 }

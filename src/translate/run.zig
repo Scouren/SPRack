@@ -1,5 +1,21 @@
 //! Project: a run over the files of a project, what it is asked and what
 //! it gives, and the state the passes share.
+//!
+//! Contents:
+//! - `pub const Summary = struct`, with `pub fn root`
+//! - `pub const Options = struct`
+//! - `pub const Run = struct`, with `pub const Skipped`, `pub const Ref`,
+//!   `pub const Lines = struct` (`pub fn add`), `pub const Fresh = struct`, and the methods
+//!   `pub fn logLine`, `pub fn absorb`, `pub fn enqueue`, `pub fn pathOf`, `pub fn expand`,
+//!   `pub fn locateNow`, `pub fn locate`, `pub fn leadsWithDefined`, `pub fn writeExpanded`,
+//!   `pub fn exists`, `pub fn sectionOf`, `pub fn spellingKey`; from `errata.zig`
+//!   `pub const load`, `pub const noteErrata`, `pub const readFile`, `pub const staleErrata`;
+//!   from `discover.zig` `pub const noteSearch`, `pub const findIncludes`,
+//!   `pub const collectRefs`, `pub const want`, `pub const discover`; from `includes.zig`
+//!   `pub const emptied`, `pub const rewriteIncludes`; from `catalog.zig`
+//!   `pub const catalogStmts`, `pub const noteOpaque`; from `copy.zig` `pub const outPath`,
+//!   `pub const translateFile`, `pub const translateInto`, `pub const translateAll`,
+//!   `pub const process`
 
 const std = @import("std");
 const grammar = @import("grammar");
@@ -11,7 +27,6 @@ const discovery = @import("discover.zig");
 const includes = @import("includes.zig");
 const catalog = @import("catalog.zig");
 const copy = @import("copy.zig");
-
 const Allocator = std.mem.Allocator;
 const Grammar = grammar.Grammar;
 const Writer = std.Io.Writer;

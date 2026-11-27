@@ -1,9 +1,14 @@
 //! Project: the work on the files of a run done ahead of where its results
 //! are taken, by workers that are tasks of its `io`.
+//!
+//! Contents:
+//! - `pub const File = struct`
+//! - `pub const slot_keep`
+//! - `pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) type`,
+//!   with `pub fn init`, `pub fn take`, `pub fn release`, `pub fn deinit`
 
 const std = @import("std");
 const run_ = @import("run.zig");
-
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Run = run_.Run;
@@ -11,6 +16,14 @@ const Run = run_.Run;
 /// A file of the run as a task works on it: nothing of the run that
 /// changes while tasks run is reached through it.
 pub const File = struct { path: []const u8, library: bool };
+
+/// The most a slot keeps mapped from one file to the next. A file that
+/// takes more gives the rest back when the slot is used again.
+pub const slot_keep = 16 << 20;
+
+/// Slots for each worker: a file that takes long holds back only the
+/// files more than a turn of the slots after it.
+const slots_a_worker = 4;
 
 /// Work on the files of the run done ahead of where its results are
 /// taken. `opts.jobs` workers, each a task of `io`, take the files in
@@ -143,11 +156,3 @@ pub fn Ahead(comptime T: type, comptime work: fn (*const Run, File, *T) void) ty
         }
     };
 }
-
-/// Slots for each worker: a file that takes long holds back only the
-/// files more than a turn of the slots after it.
-pub const slots_a_worker = 4;
-
-/// The most a slot keeps mapped from one file to the next. A file that
-/// takes more gives the rest back when the slot is used again.
-pub const slot_keep = 16 << 20;
