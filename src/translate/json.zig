@@ -53,7 +53,8 @@ test "IR to JSON and back" {
     var report: ir.Report = .init(a);
     const text =
         \\{"title":"t","stmts":[
-        \\ {"kind":"resistor","name":"R1","pos":"a","neg":0,"r":"4.7k","params":{"tc1":"1m","noisy":null}},
+        \\ {"kind":"resistor","name":"R1","pos":"a","neg":0,"r":"4.7k",
+        \\  "params":{"tc1":"1m","noisy":null}},
         \\ {"kind":"tran","step":"10p","stop":2e-8,"skip_dc":true},
         \\ {"kind":"subckt","name":"x","ports":["a","b"],"params":{"w":"2*wmin"},"body":[
         \\   {"kind":"capacitor","name":"C1","pos":"a","neg":"b","c":"1p"}]}]}
@@ -76,7 +77,8 @@ test "IR to JSON and back" {
     var r2: ir.Report = .init(a);
     _ = try parseNetlist(
         a,
-        "{\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\",\"r\":\"1M\"}]}",
+        "{\"stmts\":[{\"kind\":\"resistor\",\"name\":\"R1\",\"pos\":\"a\",\"neg\":\"0\"," ++
+            "\"r\":\"1M\"}]}",
         &r2,
     );
     try std.testing.expect(r2.contains(.@"error", "'1M' is ambiguous"));

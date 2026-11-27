@@ -18,6 +18,7 @@ const grammar = @import("grammar");
 const lexer = @import("lexer");
 const reader = @import("reader");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Value = ir.Value;
 const J = std.json.Value;
 
@@ -92,6 +93,8 @@ const Parser = struct {
             // notation does not have, not an expression.
             var i: usize = 0;
             while (i < text.len and (std.ascii.isDigit(text[i]) or text[i] == '.')) i += 1;
+            // It starts with a digit: the run of digits is one long at least.
+            assert(i > 0);
             var letters = i < text.len;
             for (text[i..]) |c| {
                 if (!std.ascii.isAlphabetic(c)) letters = false;
@@ -109,6 +112,8 @@ const Parser = struct {
         return .{ .expr = text };
     }
 
+    // tidy: allow(recursion) through `params` too, bounded by ir.max_depth: `deep` refuses
+    // what is nested deeper.
     fn any(p: *Parser, j: J, line: u32) Allocator.Error!Value {
         switch (j) {
             .null => return .none,
@@ -121,6 +126,7 @@ const Parser = struct {
                 if (p.deep(line)) return .none;
                 p.depth += 1;
                 defer p.depth -= 1;
+                assert(p.depth <= ir.max_depth);
                 const out = try p.arena.alloc(Value, arr.items.len);
                 for (arr.items, 0..) |it, i| out[i] = try p.any(it, line);
                 return .{ .list = out };
@@ -129,6 +135,7 @@ const Parser = struct {
                 if (p.deep(line)) return .none;
                 p.depth += 1;
                 defer p.depth -= 1;
+                assert(p.depth <= ir.max_depth);
                 return typed(j) orelse p.params(obj, line);
             },
         }
@@ -181,6 +188,7 @@ const Parser = struct {
         return null;
     }
 
+    // tidy: allow(recursion) one level: the items of a list slot are read as single values.
     fn slotValue(p: *Parser, sl: schema.Slot, j: J, line: u32) Allocator.Error!Value {
         if (j == .null) return .none;
         if (sl.list) {
@@ -191,6 +199,8 @@ const Parser = struct {
             for (items, 0..) |it, i| out[i] = try p.slotValue(one, it, line);
             return .{ .list = out };
         }
+        // What follows reads one value, the items of a list included.
+        assert(!sl.list);
         if (sl.ty != .params) if (typed(j)) |v| return v;
         switch (sl.ty) {
             .name, .node, .ident, .ref, .atom, .signal, .text => {
@@ -214,6 +224,7 @@ const Parser = struct {
         }
     }
 
+    // tidy: allow(recursion) bounded by ir.max_depth: `deep` refuses a `body` nested deeper.
     fn stmtList(p: *Parser, j: J) Allocator.Error![]ir.Stmt {
         var out: std.ArrayList(ir.Stmt) = .empty;
         if (j != .array) {
@@ -260,8 +271,12 @@ const Parser = struct {
                     }
                 } else if (std.mem.eql(u8, key, "body")) {
                     if (!p.deep(st.line)) {
+                        // tidy: allow(member-accumulator) the depth is the parser's, read by
+                        // the nested call: a local would not reach it.
                         p.depth += 1;
+                        // tidy: allow(member-accumulator) as above, undone on the way out.
                         defer p.depth -= 1;
+                        assert(p.depth <= ir.max_depth);
                         st.body = try p.stmtList(val);
                     }
                 } else if (schema.slotIndex(kind, key)) |si| {
@@ -358,6 +373,8 @@ pub fn parseDocument(
     if (root.object.get("stmts")) |s| nl.stmts = try p.stmtList(s);
     if (root.object.get("env")) |e| nl.env = try parseEnv(&p, e);
     if (report.lost) return error.OutOfMemory;
+    // Every level gone down is come back up from.
+    assert(p.depth == 0);
     return nl;
 }
 
@@ -386,6 +403,8 @@ fn strings(arena: Allocator, obj: J, key: []const u8) Allocator.Error![]const []
 /// The reverse of `writeEnv`. What it does not know (a kind of another
 /// version of the core) is left out.
 fn parseEnv(p: *Parser, j: J) Allocator.Error!?*const ir.Env {
+    // The env is read at the top level of the document.
+    assert(p.depth == 0);
     const arena = p.arena;
     if (j != .object) return null;
     const env = try arena.create(ir.Env);

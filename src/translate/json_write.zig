@@ -12,6 +12,7 @@ const ir = @import("ir");
 const dialects = @import("dialects");
 const grammar = @import("grammar");
 const json_read = @import("json_read.zig");
+const assert = std.debug.assert;
 const Value = ir.Value;
 const Writer = std.Io.Writer;
 const Pos = json_read.Pos;
@@ -53,7 +54,9 @@ pub fn writeEnv(w: *Writer, env: *const ir.Env) Writer.Error!void {
     try keys(w, &env.funcs);
     try w.writeAll(",\"used\":[");
     first = true;
-    for (schema.table, env.used) |info, used| {
+    for (schema.table, env.used, 0..) |info, used, i| {
+        // `used` is indexed by kind, as the table is.
+        assert(@backingInt(info.kind) == i);
         if (!used) continue;
         if (!first) try w.writeByte(',');
         first = false;
@@ -102,6 +105,8 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
     }
     try w.writeAll("],\"kinds\":{");
     for (schema.table, 0..) |info, i| {
+        // The table is in the order of the kinds: `schema.info` indexes it so.
+        assert(@backingInt(info.kind) == i);
         if (i > 0) try w.writeByte(',');
         try w.print(
             "\"{s}\":{{\"class\":\"{s}\",\"slots\":[",
@@ -199,6 +204,8 @@ fn str(w: *Writer, s: []const u8) Writer.Error!void {
         }
         i += 1;
     }
+    // A sequence is written whole only where it fits: the last ends at the end.
+    assert(i == s.len);
     try w.writeByte('"');
 }
 
@@ -215,6 +222,8 @@ fn repeatsKey(ps: []const ir.Param) bool {
     return false;
 }
 
+// tidy: allow(recursion) through `list` and `params`, bounded by the nesting of a value's
+// lists, ir.max_depth
 fn value(w: *Writer, v: Value, pos: Pos) Writer.Error!void {
     switch (v) {
         .none => try w.writeAll("null"),
@@ -227,66 +236,81 @@ fn value(w: *Writer, v: Value, pos: Pos) Writer.Error!void {
             try w.writeByte('"');
         },
         .str => |s| try tagged(w, "str", s),
-        .list => |items| {
-            try w.writeByte('[');
-            for (items, 0..) |it, i| {
-                if (i > 0) try w.writeByte(',');
-                try value(w, it, pos);
-            }
-            try w.writeByte(']');
-        },
-        .params => |ps| {
-            // A JSON object holds a key once: `toxref=1.26n ... toxref=1.3n`
-            // is written as pairs.
-            const pairs = repeatsKey(ps);
-            try w.writeByte(if (pairs) '[' else '{');
-            for (ps, 0..) |p, i| {
-                if (i > 0) try w.writeByte(',');
-                if (pairs) try w.writeByte('[');
-                try str(w, p.key);
-                try w.writeByte(if (pairs) ',' else ':');
-                try value(w, p.val, .value);
-                if (pairs) try w.writeByte(']');
-            }
-            try w.writeByte(if (pairs) ']' else '}');
-        },
+        .list => |items| try list(w, items, pos),
+        .params => |ps| try params(w, ps),
     }
 }
 
-fn stmts(w: *Writer, list: []const ir.Stmt) Writer.Error!void {
+fn list(w: *Writer, items: []const Value, pos: Pos) Writer.Error!void {
     try w.writeByte('[');
-    for (list, 0..) |*s, i| {
-        if (i > 0) try w.writeAll(",\n");
-        try w.print("{{\"kind\":\"{s}\"", .{@tagName(s.kind)});
-        if (s.line > 0) try w.print(",\"line\":{d}", .{s.line});
-        if (s.kind == .@"opaque" or s.kind == .comment) {
-            try w.writeAll(",\"raw\":");
-            try str(w, if (std.mem.eql(u8, s.raw, ir.blank_line)) "" else s.raw);
-            if (s.kind == .comment and std.mem.eql(u8, s.raw, ir.blank_line))
-                try w.writeAll(",\"blank\":true");
-        }
-        if (s.tail.len > 0) {
-            try w.writeAll(",\"tail\":");
-            try str(w, s.tail);
-        }
-        if (s.dialect != 0) {
-            try w.writeAll(",\"dialect\":");
-            try str(w, dialects.nameOf(s.dialect));
-        }
-        for (schema.info(s.kind).slots, 0..) |sl, k| {
-            if (s.at(k) == .none) continue;
-            try w.writeByte(',');
-            try str(w, sl.name);
-            try w.writeByte(':');
-            try value(w, s.at(k), posOf(sl.ty));
-        }
-        if (s.body.len > 0 or s.kind == .subckt or s.kind == .libsection) {
-            try w.writeAll(",\"body\":");
-            try stmts(w, s.body);
-        }
-        try w.writeByte('}');
+    for (items, 0..) |it, i| {
+        if (i > 0) try w.writeByte(',');
+        try value(w, it, pos);
     }
     try w.writeByte(']');
+}
+
+fn params(w: *Writer, ps: []const ir.Param) Writer.Error!void {
+    // A JSON object holds a key once: `toxref=1.26n ... toxref=1.3n`
+    // is written as pairs.
+    const pairs = repeatsKey(ps);
+    try w.writeByte(if (pairs) '[' else '{');
+    for (ps, 0..) |p, i| {
+        if (i > 0) try w.writeByte(',');
+        if (pairs) try w.writeByte('[');
+        try str(w, p.key);
+        try w.writeByte(if (pairs) ',' else ':');
+        try value(w, p.val, .value);
+        if (pairs) try w.writeByte(']');
+    }
+    try w.writeByte(if (pairs) ']' else '}');
+}
+
+fn stmts(w: *Writer, all: []const ir.Stmt) Writer.Error!void {
+    try w.writeByte('[');
+    for (all, 0..) |*s, i| {
+        if (i > 0) try w.writeAll(",\n");
+        try stmt(w, s);
+    }
+    try w.writeByte(']');
+}
+
+// tidy: allow(recursion) through `stmts`, bounded by the nesting of blocks, ir.max_depth
+fn stmt(w: *Writer, s: *const ir.Stmt) Writer.Error!void {
+    try w.print("{{\"kind\":\"{s}\"", .{@tagName(s.kind)});
+    if (s.line > 0) try w.print(",\"line\":{d}", .{s.line});
+    try kept(w, s);
+    for (schema.info(s.kind).slots, 0..) |sl, k| {
+        if (s.at(k) == .none) continue;
+        try w.writeByte(',');
+        try str(w, sl.name);
+        try w.writeByte(':');
+        try value(w, s.at(k), posOf(sl.ty));
+    }
+    if (s.body.len > 0 or s.kind == .subckt or s.kind == .libsection) {
+        try w.writeAll(",\"body\":");
+        try stmts(w, s.body);
+    }
+    try w.writeByte('}');
+}
+
+/// What a statement keeps besides its slots: its text as read (a line
+/// no rule read, or a comment), the text after it, and its dialect.
+fn kept(w: *Writer, s: *const ir.Stmt) Writer.Error!void {
+    if (s.kind == .@"opaque" or s.kind == .comment) {
+        try w.writeAll(",\"raw\":");
+        try str(w, if (std.mem.eql(u8, s.raw, ir.blank_line)) "" else s.raw);
+        if (s.kind == .comment and std.mem.eql(u8, s.raw, ir.blank_line))
+            try w.writeAll(",\"blank\":true");
+    }
+    if (s.tail.len > 0) {
+        try w.writeAll(",\"tail\":");
+        try str(w, s.tail);
+    }
+    if (s.dialect != 0) {
+        try w.writeAll(",\"dialect\":");
+        try str(w, dialects.nameOf(s.dialect));
+    }
 }
 
 fn keys(w: *Writer, map: anytype) Writer.Error!void {
