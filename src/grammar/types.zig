@@ -611,7 +611,16 @@ pub const Spread = struct { kind: Kind, word: []const u8 = "" };
 /// `from`, which this dialect says only for an analysis, is written as a
 /// `to` once for each kind of `per` the netlist runs, the kind's name in
 /// `slot`; the slots the two kinds share are copied.
-pub const Each = struct { from: Kind, to: Kind, slot: u8, per: []const Kind, text: []const u8 };
+/// `each from -> to.slot kind[=word]... : text`: `words[i]` is what `per[i]`
+/// writes in the slot (its own name unless `=word` says another).
+pub const Each = struct {
+    from: Kind,
+    to: Kind,
+    slot: u8,
+    per: []const Kind,
+    words: []const []const u8,
+    text: []const u8,
+};
 
 /// `reserved name ... : reason`: parameter names the simulator refuses.
 /// `reserved [shadowed] name ... : reason`. `shadowed`: the simulator

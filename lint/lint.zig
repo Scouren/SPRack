@@ -103,6 +103,7 @@ pub const clean_paths = [_][]const u8{
     "src/writer/variants.zig",
     "src/writer/blocks.zig",
     "src/writer/leaf.zig",
+    "src/writer/modules.zig",
     "src/writer/notes.zig",
     "src/writer/output.zig",
     "src/writer/spread.zig",
@@ -154,7 +155,7 @@ pub fn addTo(b: *std.Build) *std.Build.Step {
     // A derived grammar is what its recipe makes from its base, never edited.
     const derived = b.addSystemCommand(&.{ "python3", "-I" });
     derived.addFileArg(b.path("tools/derive_grammar.py"));
-    derived.addArgs(&.{ "--check", "grammars/cktimg.derive" });
+    derived.addArgs(&.{ "--check", "grammars/cktimg.derive", "grammars/espice.derive" });
     derived.setCwd(b.path("."));
     derived.has_side_effects = true;
     step.dependOn(&derived.step);

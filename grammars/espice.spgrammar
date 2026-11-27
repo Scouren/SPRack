@@ -275,6 +275,10 @@ signals
   ii    = "imag(i(%))"
   i     = "%#branch"
   ix    = "@%1[i%2]"
+  # A device's own parameter, .save @m1[gm] (ngspice manual, .save and
+  # "Accessing internal device parameters"); after ix, so @m1[id] stays a
+  # terminal current.
+  p     = "@%[%]"
   expr  = "%"
 end
 functions

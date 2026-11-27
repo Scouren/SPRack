@@ -175,7 +175,7 @@ def why_not(kind: str, dialect: str) -> str | None:
     info = KINDS[kind]
     if d in info["writers"]:
         return None
-    who = ", ".join(info["writers"]) or "none"
+    who = ", ".join(w for w in info["writers"] if w not in _INFO["variants"]) or "none"
     return f"{info['absent'].get(d, f'{d}.spgrammar defines no rule for it')}. Dialects that define it: {who}"
 
 

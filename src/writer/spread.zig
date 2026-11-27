@@ -109,10 +109,16 @@ pub fn each(w: *Writer, st: *const ir.Stmt) Error!bool {
     if (said.items.len == 0) return false;
     w.report.add(.info, .oneway, st.line, "{s}: written as a {s} for each analysis the " ++
         "netlist runs ({s}): {s}", .{ @tagName(st.kind), @tagName(e.to), said.items, e.text });
-    for (e.per) |k| if (w.used[@backingInt(k)]) {
+    // One statement a word: `op=dc` and `dc` together give one.
+    assert(e.words.len == e.per.len);
+    for (e.per, e.words, 0..) |k, word, i| if (w.used[@backingInt(k)]) {
+        const before = for (e.per[0..i], e.words[0..i]) |k2, w2| {
+            if (w.used[@backingInt(k2)] and std.mem.eql(u8, w2, word)) break true;
+        } else false;
+        if (before) continue;
         var one = out;
         try one.own(w.arena);
-        try one.set(w.arena, e.slot, .{ .atom = @tagName(k) });
+        try one.set(w.arena, e.slot, .{ .atom = word });
         try blocks.stmt(w, &one);
     };
     return true;

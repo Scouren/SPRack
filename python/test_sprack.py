@@ -1485,6 +1485,13 @@ def test_schemify_save_is_a_print_for_xyce():
     c.save("v(a)")
     c.tran("1n", "10n")
     assert ".print tran v(a)\n" in c.netlist("xyce"), c.netlist("xyce")
+    # Xyce prints an operating point with .print dc: one line for .op and .dc.
+    o = sprack.Circuit("t")
+    o.R("1", "a", 0, "1k")
+    o.V("1", "a", 0, 1)
+    o.save("v(a)")
+    o.op()
+    assert ".print dc v(a)\n" in o.netlist("xyce"), o.netlist("xyce")
 
 
 def test_a_stage_name_is_never_renamed():
@@ -1552,6 +1559,8 @@ def test_to_python_title_and_node_case():
     # the top level's in and out are not the subcircuit's IN and OUT.
     src = "* tb\nVVIN in 0 dc 0.9\nX1 in out vdd! chain\n.subckt chain IN OUT VDD\nR1 IN OUT 1k\n.ends chain\n.end\n"
     for d in sprack.DIALECTS:
+        if d == "verilog":  # written, never read back
+            continue
         script = sprack.to_python(sprack.translate(src, frm="ngspice", to=d, strict=False), d)
         assert 'c.X("1", "in", "out", "vdd!", "chain")' in script, (d, script)
         assert 'with c.subckt("chain", "IN", "OUT", "VDD") as s:\n    s.R("1", "IN", "OUT", "1k")' in script, (d, script)

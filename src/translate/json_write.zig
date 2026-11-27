@@ -139,6 +139,14 @@ pub fn writeInfo(w: *Writer, grammars: []const grammar.Grammar) Writer.Error!voi
         if (i > 0) try w.writeByte(',');
         try str(w, g.name);
     }
+    // A variant (`variant base`) is left out where dialects are listed.
+    try w.writeAll("],\"variants\":[");
+    var none_yet = true;
+    for (grammars) |g| if (g.variant_of.len > 0) {
+        if (!none_yet) try w.writeByte(',');
+        none_yet = false;
+        try str(w, g.name);
+    };
     try w.writeAll("],\"kinds\":{");
     for (schema.table, 0..) |info, i| {
         // The table is in the order of the kinds: `schema.info` indexes it so.

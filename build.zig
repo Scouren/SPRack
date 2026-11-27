@@ -352,7 +352,7 @@ fn cliTests(c: Cli) void {
         "cdl\ncktimg\nespice\nhspice\nltspice\nngspice\nspectre\nvacask\nverilog\nxyce\n",
     );
     c.run(&.{"info"}, "", 0).expectStdOutMatch(
-        "{\"dialects\":[\"cdl\",\"cktimg\",\"espice\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"verilog\",\"xyce\"],\"kinds\":{\"resistor\":{\"class\":\"device\"",
+        "{\"dialects\":[\"cdl\",\"cktimg\",\"espice\",\"hspice\",\"ltspice\",\"ngspice\",\"spectre\",\"vacask\",\"verilog\",\"xyce\"],\"variants\":[\"cktimg\",\"espice\"],\"kinds\":{\"resistor\":{\"class\":\"device\"",
     );
     const caps = c.run(&.{"caps"}, "", 0);
     caps.expectStdOutMatch(

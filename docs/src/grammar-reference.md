@@ -265,10 +265,13 @@ variation inline                   # a parameter's variation is an entry of its
                                    # own after it (`p=1 dev/gauss=0.1`): written
                                    # so here, a random function in the
                                    # parameter's definition anywhere else
-each save -> print.analysis dc ac tran noise : ...   # a kind said here only
-                                   # for an analysis: written as the other
-                                   # kind once for each of these the netlist
-                                   # runs, the analysis's name in the slot,
+each save -> print.analysis op=dc dc ac tran noise : ...   # a kind said
+                                   # here only for an analysis: written as
+                                   # the other kind once for each of these
+                                   # the netlist runs, the analysis's name in
+                                   # the slot (or the word after `=`: Xyce
+                                   # prints an .op with .print dc; one line
+                                   # a word),
                                    # the slots the two share copied (Xyce's
                                    # `.print tran v(out)`), an `oneway`
                                    # info. With none of them, or a value

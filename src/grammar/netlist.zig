@@ -185,7 +185,7 @@ pub fn spread(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     );
 }
 
-/// `each kind -> kind.slot analysis... : why`.
+/// `each kind -> kind.slot analysis[=word]... : why`.
 pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     const colon = std.mem.indexOf(u8, rest, " : ") orelse rest.len;
     const a = try args(c, no, rest[0..colon]);
@@ -195,7 +195,12 @@ pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
     if (schema.info(to).slots[slot].ty != .atom)
         return c.fail(no, "each names a slot of a word, found '{s}'", .{a[2]});
     var per: []const Kind = &.{};
-    for (a[3..]) |k| per = try c.add(Kind, per, try kindOf(c, no, k));
+    var words: []const []const u8 = &.{};
+    for (a[3..]) |k| {
+        const eq = std.mem.indexOfScalar(u8, k, '=') orelse k.len;
+        per = try c.add(Kind, per, try kindOf(c, no, k[0..eq]));
+        words = try c.add([]const u8, words, if (eq < k.len) k[eq + 1 ..] else k);
+    }
     // `args` gave at least one analysis after the slot.
     std.debug.assert(per.len > 0);
     g.eaches = try c.add(Each, g.eaches, .{
@@ -203,6 +208,7 @@ pub fn each(c: *C, g: *Grammar, no: u32, rest: []const u8) Error!void {
         .to = to,
         .slot = slot,
         .per = per,
+        .words = words,
         .text = rest[colon + 3 ..],
     });
 }
