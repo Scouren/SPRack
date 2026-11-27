@@ -78,6 +78,18 @@ header folded ... end              # instead, when the source folds case
 preamble ... end                   # lines at the top of the top netlist only
 preamble unless global ... end     # unless a statement of that kind says it
 needs resistor ... end             # lines written once if the kind is used
+once verilog master ... end        # lines written after the last statement, once
+                                   # for each value of the slot among the
+                                   # statements of the kind written, sorted by
+                                   # it: `{x}` is slot x of the first of them,
+                                   # `{x.stem}` the file it names without
+                                   # directory or suffix, `{x|y}` the first
+                                   # that has a value (`.model {master}
+                                   # d_cosim simulation="{file.stem}.vvp"`).
+                                   # Several `once` sections: in their order
+modules ... end                    # the netlist written as modules that
+                                   # instantiate each other by named ports
+                                   # (structural Verilog); see below
 wrap "control" "endc" : op dc tran # these kinds are collected into one block
 raw ".control" ".endc"             # kept verbatim, never translated
 raw "embed" ">>>FILE" : reason     # and why no other dialect can take it
@@ -105,6 +117,7 @@ What may stand on the right of a rule, and on the lines of a block.
 | `~"("` | a literal glued to its neighbours when written (`v(out)`) |
 | `slot` | one value into the slot; `slot*` zero or more; `slot+` one or more; `slot#1` exactly one item of a list slot; `slot#n` as many items as slot `n` holds |
 | `slot~"R"` | the name must start with R; added, with a note, when writing |
+| `slot*@sel=word` | when writing, only the items of list `slot` whose item at the same place of list slot `sel` is the word, case ignored: ngspice's `A1 [ nodes*@dirs=in ] [ nodes*@dirs=out ] m` splits a `verilog` instance's nodes by direction. With `+`, none is no form; a statement without `sel` has none. Only in a `write` rule |
 | `path!` | a path written without quotes when it has no blank |
 | `name!` | the name written in lower case (VACASK looks up the module it makes for a B source so) |
 | `slot?default` | written when the slot is empty; `$other` and `$#` expand, and `$+list` is the number of items in a list slot |
@@ -500,6 +513,40 @@ parameter, which can be swept or altered) is an `unsupported` error that
 names the parameter, and the instance is not written: it is never taken
 for the default one.
 
+## Modules
+
+A `modules` section makes the dialect one that writes a netlist as
+modules (structural Verilog, `grammars/verilog.spgrammar`), never reads
+one. Each line is a text the writer fills, `{x}` its places:
+
+```text
+modules
+  open     "module {name} ({ports});"   # a module's first line
+  port     "  {dir} {port};"            # one a port, in pin order
+  net      "  wire {net};"              # one a net that is no port, sorted
+  instance "  {master} {name} ({pins});"
+  pin      ".{port}({net})"             # one a connection, by port name
+  join     ", "                         # between ports, pins, bits of a bus
+  bus      "{" "}"                      # around the nets of a port of several bits
+  close    "endmodule"
+  dirs     "input" "output" "inout"
+  name     "A-Za-z_" "A-Za-z0-9_$" "\" " "   # a name's first characters, the
+end                                     # rest, and the escapes around any other
+```
+
+The top level is a module named by the first word of the title (`top`
+without one), then each subcircuit, wherever it was defined, as a module
+of its own. A port is an `output` where an instance inside drives it, an
+`input` where those that use it only read it, through every level, and an
+`inout` where nothing says (a `verilog` instance's `dirs` say; a subcircuit's
+ports say what its own instances do). An `instance` names the ports of its
+subcircuit, which must be in the netlist; a `verilog` instance names its
+`pins`, the bits of one port joined as a bus, and is of its `module` (else
+the stem of its `file`). Each leaf module's `code`, where given, is written
+once after the modules. Parameters are not written (an info note, in the
+words of an `inert instance params` line); every other statement is
+written as the grammar's `inert` and `no` lines say: a note, or an error.
+
 ## Report codes
 
 Every entry of a translation's report has one of these codes.
@@ -526,4 +573,8 @@ the derived dialect leaves out, and the lines it adds after `---`;
 `grammars/<name>.spgrammar` from them, and `zig build lint` fails while the
 two differ. `cktimg` (the netlist cktImg draws schematics from) is ngspice
 without analyses, outputs or options, which it leaves out with a note, and
-without the devices cktImg refuses.
+without the devices cktImg refuses. `espice` is ngspice with Verilog-A loaded by
+`.hdl "x.va"`, its instances' `m` written `mfactor`, and a `verilog`
+instance an N card: its nodes, its bridge parameters, its model, with a
+`.model <model> <module>` card a model and a `.verilog "x.v"` line a source
+(two `once` sections).

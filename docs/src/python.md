@@ -70,6 +70,12 @@ What the calls are:
   `@M1[gm]`; a dialect with no spelling for it reports the signal).
 * **Any kind.** Every statement kind in `sprack.KINDS` is a method of its own
   name, and `c.add(kind, ...)` is the one way in they all end up at.
+* **Digital Verilog.** `c.verilog(name, *nodes, model, file=, pins=,
+  dirs=, module=, code=, **bridge_params)`: an instance of a Verilog
+  module, its nodes a bit each in port order, `pins` and `dirs` one a node
+  (see [Digital Verilog](simulators.md#digital-verilog)). ngspice writes it
+  for d_cosim, `espice` as an N card, `verilog` as structural Verilog:
+  `c.netlist("verilog")`.
 
 `c.model(name, family, polarity, **params)` takes a canonical family
 (`"bsim4"`, `"diode"`, `"bjt"`, ...) and a polarity (`"n"`, `"p"`, `"npn"`,

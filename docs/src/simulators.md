@@ -10,11 +10,14 @@ Python (`netlist`, `write`, `check`, `translate`, `read`, `code`,
 ```console
 $ sprack dialects
 cdl
+cktimg
+espice
 hspice
 ltspice
 ngspice
 spectre
 vacask
+verilog
 xyce
 ```
 
@@ -27,6 +30,9 @@ xyce
 | `hspice` | HSPICE | checked by loading translations in the simulator |
 | `ltspice` | LTspice | checked on LTspice 26.0.2 in batch mode, on decks written for the check |
 | `cdl` | CDL, the netlist of layout-versus-schematic checks | connectivity only: every source, analysis and control is an error that says so; no tool was run, and unsettled lines are marked `assumed` |
+| `cktimg` | the netlist cktImg draws schematics from | ngspice without analyses, outputs or options (left out with a note) and without the devices cktImg refuses; derived from ngspice (`grammars/cktimg.derive`) |
+| `espice` | ESPice | ngspice with Verilog-A loaded by `.hdl`, `m` written `mfactor`, and digital Verilog as N cards with `.verilog`; derived from ngspice, from Schemify's spec; not run |
+| `verilog` | structural Verilog | written, never read: one module a subcircuit and one for the top level, ports by name, leaves `verilog` instances (see below); other devices are errors, sources and analyses notes |
 
 The header of each file in `grammars/` says what it was written from, and
 the [verification log](verification.md) records what was measured.
@@ -173,6 +179,27 @@ Python a `ValueError`). Two things know only the built-in dialects:
 `sprack caps`, and the list of "dialects that define it" in error messages.
 
 [Adding a simulator](adding-a-simulator.md) writes such a file step by step.
+
+## Digital Verilog
+
+A `verilog` statement is an instance of a digital Verilog module: its
+nodes one a bit in the module's port order, a bus from its left index
+(`d[7]` ... `d[0]`; the caller expands buses), `pins` the port each node
+is a bit of, `dirs` its direction (`in`, `out`, `inout`), `master` its
+model, `module` the module (else the stem of `file`), `file` the source as
+written, `code` the module's text where it is at hand, and the bridge
+parameters (`vdd`, `vth`, `rout`, ...).
+
+* ngspice co-simulates it with d_cosim: `AU1 [ ins ] [ outs ] [ inouts ]
+  sar_m`, and once a model, after the last statement, `.model sar_m d_cosim
+  simulation="sar.vvp"`, the module as Icarus Verilog compiles it
+  (`iverilog -o sar.vvp sar.v`). The bridge parameters have no place: a
+  caveat.
+* espice writes `NU1 <nodes> sar_m vdd=1.8 ...`, then a `.model sar_m sar`
+  card a model and a `.verilog "sar.v"` line a source, sorted.
+* `verilog` writes it as an instance of its module, by port: `sar U1
+  (.clk(clk), .d({\d[7] , ...}))`, and its `code` once after the modules.
+* Every other dialect: an error that says it has no Verilog.
 
 ## Limits to know
 
