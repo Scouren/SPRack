@@ -159,6 +159,7 @@ op1 dc
 | `--lib` | the files named are libraries themselves, with no title line, as in a PDK |
 | `--section NAME` | follow only this library section (a corner) and the sections it names; repeatable. Without it, a section is followed when a followed `.lib` line names it, as the simulator reads it, and every section of a file named on the command line is followed (a library given itself is translated whole). The log lists each section not followed; a name no file read defines is an error |
 | `-D NAME=VALUE` | a value for `$NAME` in include paths; without it the environment is used. An include path that starts with the variable (`$PDK/corners.lib`) is the value's own path: a relative value is relative to the directory sprack runs in, whichever file names it. A variable inside a path (`lib/$CORNER.lib`) is text put into it, and the path stays relative to the including file |
+| `-j N` | how many files are read and translated at once: as many as the machine has processors, up to 8, when not given. The copy and the log are the same for any number; `-j 1` holds one file in memory at a time |
 
 The translated tree is copied under the directory the files have in common,
 so a deck whose library is outside its directory (`../pdk/models.lib`) is

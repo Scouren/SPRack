@@ -7,6 +7,9 @@ const ir = sprack.ir;
 const schema = sprack.schema;
 
 const dialects = [_][]const u8{ "ngspice", "hspice", "spectre", "vacask", "xyce", "ltspice", "cdl" };
+/// Dialects that are another for a different reader (`variant`): built in,
+/// compiled like the rest, and tested by what they are for.
+const variants = [_][]const u8{"cktimg"};
 
 // One circuit, written by hand in each dialect the way a person would write
 // it there: passives, sources, a parameterised subcircuit and an instance of
@@ -191,9 +194,9 @@ fn normalize(arena: std.mem.Allocator, nl: ir.Netlist, drop_noise: bool) !ir.Net
         if (drop_noise and s.kind == .noise) continue;
         var c = s;
         try c.own(arena);
-        if (schema.info(s.kind).class == .analysis) try c.set(arena, schema.slotIndex(s.kind, "name").?, .none);
+        if (schema.info(s.kind).class == .analysis) try c.set(arena, schema.slotOf(s.kind, "name").?, .none);
         if (s.kind == .noise) {
-            const ri = schema.slotIndex(.noise, "ref").?;
+            const ri = schema.slot(.noise, "ref");
             if (c.at(ri) == .atom and std.mem.eql(u8, c.at(ri).atom, "0")) try c.set(arena, ri, .none);
         }
         try out.append(arena, c);
@@ -267,11 +270,11 @@ fn jsonOf(a: std.mem.Allocator, nl: *const ir.Netlist) ![]const u8 {
 }
 
 var loaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-var loaded_grammars: [dialects.len]?*const sprack.Grammar = @splat(null);
+var loaded_grammars: [dialects.len + variants.len]?*const sprack.Grammar = @splat(null);
 
 /// The dialect's grammar file compiled now, at run time, once per process.
 fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
-    const i = for (dialects, 0..) |d, k| {
+    const i = for (dialects ++ variants, 0..) |d, k| {
         if (std.mem.eql(u8, d, name)) break k;
     } else unreachable;
     if (loaded_grammars[i]) |g| return g;
@@ -283,6 +286,14 @@ fn loadedGrammar(name: []const u8) !*const sprack.Grammar {
     };
     loaded_grammars[i] = g;
     return g;
+}
+
+/// A small grammar for one test, compiled now; it lives until the process ends.
+fn tinyGrammar(comptime src: []const u8) sprack.Grammar {
+    var diag: sprack.grammar.Diag = .{};
+    return sprack.grammar.compile(loaded_arena.allocator(), src, "", &diag) catch |e| {
+        std.debug.panic("{s}: {s}", .{ @errorName(e), diag.msg });
+    };
 }
 
 /// What holds for any input at all, damaged ones included: `out` is `src`
@@ -367,13 +378,15 @@ fn countKind(nl: ir.Netlist, kind: schema.Kind) usize {
 const Arena = std.heap.ArenaAllocator;
 
 test "all grammars compiled" {
-    try testing.expectEqual(dialects.len, sprack.dialect_count);
-    for (dialects) |n| try testing.expect(sprack.find(n) != null);
+    try testing.expectEqual(dialects.len + variants.len, sprack.dialect_count);
+    for (dialects ++ variants) |n| try testing.expect(sprack.find(n) != null);
+    for (variants) |n| try testing.expect(sprack.find(n).?.variant_of.len > 0);
 }
 
-test "each grammar file compiled at run time is the grammar compiled into the binary" {
-    // One compiler, run twice: every table of every dialect, field for field.
-    for (dialects) |d| {
+test "each grammar file compiled at run time is the grammar built into the binary" {
+    // One compiler, run when the binary is built and again now: every table
+    // of every dialect, field for field.
+    for (dialects ++ variants) |d| {
         errdefer std.debug.print("dialect {s}\n", .{d});
         try testing.expectEqualDeep(sprack.find(d).?.*, (try loadedGrammar(d)).*);
     }
@@ -381,13 +394,14 @@ test "each grammar file compiled at run time is the grammar compiled into the bi
 
 test "caps: every kind has a rule, a place or a reason in every dialect" {
     // `sprack caps` shows no `-`.
-    for (&sprack.grammars) |*g| for (schema.table) |info| {
-        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+    for (sprack.grammars) |*g| for (schema.table) |info| {
+        if (info.kind == .@"opaque" or info.kind == .comment or info.kind == .annotation) continue;
         const scoped = for (g.rules) |r| {
             if (r.kind == info.kind and r.dir != .read and r.within != null) break true;
         } else false;
         const said = g.canWrite(info.kind) or scoped or g.movedTo(info.kind) != null or g.absentReason(info.kind) != null or
-            (info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null);
+            g.statementInert(info.kind) != null or
+            (info.class == .device and g.canWrite(.instance) and schema.slotOf(info.kind, "master") != null);
         if (!said) {
             std.debug.print("{s} has no rule for '{s}' and no `no {s} : reason` line\n", .{ g.name, @tagName(info.kind), @tagName(info.kind) });
             return error.TestCapsGap;
@@ -433,7 +447,9 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
     var count: usize = 0;
     var silent: usize = 0;
     for (schema.table) |info| {
-        if (info.kind == .@"opaque" or info.kind == .comment) continue;
+        // Written as text by every dialect, as a comment is (an annotation
+        // has a test of its own).
+        if (info.kind == .@"opaque" or info.kind == .comment or info.kind == .annotation) continue;
         var only: ?usize = null;
         while (true) {
             _ = arena_state.reset(.retain_capacity);
@@ -464,7 +480,7 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
                 // the kind; where the grammar says why, the reason is given.
                 const g = sprack.find(to).?;
                 // (A device with a model may be written as an instance of it: `inst` in `sprack caps`.)
-                const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotIndex(info.kind, "master") != null;
+                const as_instance = info.class == .device and g.canWrite(.instance) and schema.slotOf(info.kind, "master") != null;
                 // Nothing to write is not a loss: an options statement that is
                 // only a heading.
                 const empty = info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package");
@@ -492,7 +508,7 @@ test "every `no` line: the kind is an error in that dialect, and the reason is t
     const a = arena_state.allocator();
     var count: usize = 0;
     var bad: usize = 0;
-    for (&sprack.grammars) |*g| for (g.absent) |no| {
+    for (sprack.grammars) |*g| for (g.absent) |no| {
         // Two kinds a dialect without the statement may still say another
         // way, so their reason is only given when that way fails: variations
         // as agauss() in the parameter (`stats.zig`), alters of parameters as
@@ -551,7 +567,7 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
     try reported(&r4, .@"error", "options.chgtol = 1e-20 has no spelling in xyce: Xyce's step control bounds the error of each unknown, not of a charge");
     try testing.expectEqual(3, r4.count(.@"error"));
     // Every such line of a grammar ends the error of its slot.
-    for (&sprack.grammars) |*g| for (g.absent) |no| {
+    for (sprack.grammars) |*g| for (g.absent) |no| {
         if (no.slot == sprack.grammar.no_slot) continue;
         if (std.mem.eql(u8, g.name, "xyce") and no.kind == .options) {
             try testing.expect(r4.contains(.@"error", no.reason));
@@ -561,7 +577,7 @@ test "xyce: a tolerance is three options, and vntol, trtol and chgtol are none" 
             var st = try sampleStmt(a, no.kind, null);
             try st.set(a, no.slot, .{ .num = .init("1", 0) });
             // A sweep's kind as a dialect spells it, not the sample's atom.
-            if (schema.slotIndex(no.kind, "sweep")) |i| try st.set(a, i, .{ .atom = "dec" });
+            if (schema.slotOf(no.kind, "sweep")) |i| try st.set(a, i, .{ .atom = "dec" });
             var stmts = [_]ir.Stmt{st};
             const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = &stmts };
             var rr: ir.Report = .init(a);
@@ -770,7 +786,7 @@ test "every pair of dialects: write, read back, same circuit, no errors" {
             const back = try readAs(a, to, text, &report2);
             try testing.expectEqual(0, countKind(back, .@"opaque"));
             // VACASK is given SPICE's step cap explicitly (a `synthesized` warning).
-            const mi = schema.slotIndex(.tran, "maxstep").?;
+            const mi = schema.slot(.tran, "maxstep");
             const src_tran = for (src_nl.stmts) |s| {
                 if (s.kind == .tran) break s;
             } else null;
@@ -848,7 +864,7 @@ test "an analysis the target cannot express is an error naming who can, and why"
 
     // Where the grammar simply has no rule, it says that instead.
     // No shipped grammar has such a gap any more; a tiny one does.
-    const tiny = comptime sprack.grammar.compileBuiltin(
+    const tiny = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\  title yes
@@ -2597,7 +2613,7 @@ test "corpus: a VACASK deck the way upstream writes them" {
 }
 
 test "define: a named pattern compiles to the same nodes as writing it out" {
-    const g = sprack.grammar.compileBuiltin(
+    const g = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\end
@@ -2644,7 +2660,7 @@ test "HSPICE .ac plus .noise is one noise analysis" {
 }
 
 test "repeated groups: list slots in lockstep, with a separator" {
-    const g = sprack.grammar.compileBuiltin(
+    const g = tinyGrammar(
         \\dialect tiny
         \\lexer
         \\  title yes
@@ -6368,7 +6384,7 @@ test "y1: HSPICE's step cap is .OPTION DELMAX, and a fourth .TRAN number is noth
     var r0: ir.Report = .init(a);
     const nl = try readAs(a, "hspice", "t\nr1 a 0 1k\n.tran 2n 50n\n.end\n", &r0);
     for (@constCast(nl.stmts)) |*st| {
-        if (st.kind == .tran) try st.set(a, sprack.schema.slotIndex(.tran, "maxstep").?, .{ .num = .init("50", -12) });
+        if (st.kind == .tran) try st.set(a, sprack.schema.slot(.tran, "maxstep"), .{ .num = .init("50", -12) });
     }
     var aw: std.Io.Writer.Allocating = .init(a);
     try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r0);
@@ -7435,4 +7451,411 @@ test "#76: HSPICE's floor resistance and Xyce's inductor multiplier are said" {
     try reported(&r2, .@"error", "Xyce's inductor card L multiplies the line's inductance");
     var r3: ir.Report = .init(a);
     try has(try tr(a, "xyce", "xyce", xy, &r3), ".model lmod l l=3 tc1=0.01\n");
+}
+
+test "a netlist says what the files it names declare" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // What a library declares, as its project's catalogue lists it.
+    const lib = try sprack.json.parseNetlist(a,
+        \\{"stmts":[{"kind":"model","name":"Rmod","family":"resistor"},{"kind":"func","name":"twice","args":["x"],"body":"2*x"},
+        \\ {"kind":"subckt","name":"cell","ports":["a"],"body":[{"kind":"model","name":"nch.1","family":"bsim4"}]}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&listed.writer, &env);
+
+    // A netlist of its own that uses them, written for HSPICE with and without.
+    for ([_][]const u8{ "", listed.written() }) |e| {
+        const text = try std.fmt.allocPrint(a,
+            \\{{"stmts":[{{"kind":"resistor","name":"R1","pos":"a","neg":0,"master":"rmod","params":{{"w":"1u"}}}},
+            \\ {{"kind":"resistor","name":"R2","pos":"a","neg":0,"master":"nowhere","params":{{"w":"1u"}}}},
+            \\ {{"kind":"vsource","name":"V1","pos":"a","neg":0,"dc":{{"expr":"twice(1)"}}}}]{s}{s}}}
+        , .{ if (e.len > 0) ",\"env\":" else "", e });
+        var r: ir.Report = .init(a);
+        const nl = try sprack.json.parseNetlist(a, text, &r);
+        if (nl.env) |back| {
+            // Nothing is lost on the way.
+            var again: std.Io.Writer.Allocating = .init(a);
+            try sprack.json.writeEnv(&again.writer, back);
+            try testing.expectEqualStrings(listed.written(), again.written());
+        }
+        var aw: std.Io.Writer.Allocating = .init(a);
+        try sprack.write(a, sprack.find("hspice").?, &aw.writer, &nl, &r);
+        try testing.expect(r.contains(.warning, "'nowhere' on R2 is a model name in sprack, but no model of that name is declared here"));
+        try testing.expectEqual(e.len == 0, r.contains(.warning, "'rmod' on R1"));
+        try testing.expectEqual(e.len == 0, r.contains(.@"error", "function 'twice' has no spelling in hspice"));
+    }
+}
+
+test "every field of Env is in its JSON form, and back (#71)" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const lib = try sprack.json.parseNetlist(a,
+        \\{"stmts":[{"kind":"param","params":{"vt":"0.4"}},{"kind":"model","name":"nch","family":"bsim4","params":{"vth0":{"expr":"vt"}}},
+        \\ {"kind":"model","name":"rpoly","type":"r3_cmc"}]}
+    , &report);
+    var env: ir.Env = .{};
+    try env.absorb(a, lib.stmts);
+    for (sprack.grammars) |*g| try sprack.writer.collectReserved(a, g, lib.stmts, &env.params, null);
+    try testing.expect(env.params.contains("vt"));
+    try testing.expectEqualStrings("bsim4", env.family_of.get("nch").?);
+    try testing.expectEqualStrings("r3_cmc", env.modules.get("rpoly").?);
+    var listed: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&listed.writer, &env);
+    // `provided` is what the command line gives, not what a file declares.
+    inline for (@typeInfo(ir.Env).@"struct".field_names) |name| {
+        if (comptime std.mem.eql(u8, name, "provided")) continue;
+        if (std.mem.indexOf(u8, listed.written(), "\"" ++ name ++ "\":") == null) {
+            std.debug.print("Env.{s} is not in its JSON form\n", .{name});
+            return error.TestUnexpectedResult;
+        }
+    }
+    var r: ir.Report = .init(a);
+    const nl = try sprack.json.parseNetlist(a, try std.fmt.allocPrint(a, "{{\"stmts\":[],\"env\":{s}}}", .{listed.written()}), &r);
+    var again: std.Io.Writer.Allocating = .init(a);
+    try sprack.json.writeEnv(&again.writer, nl.env.?);
+    try testing.expectEqualStrings(listed.written(), again.written());
+}
+
+// The engine names no device and no dialect for this: what a dialect's device
+// does not take and its other statements can say is a `rewrite` block of its
+// grammar. VACASK's capacitor (ic=, q=) is two such blocks; here a grammar
+// made up for the test does the same for a resistor.
+test "rewrite: a parameter a dialect's device lacks is said by other statements, from grammar lines alone" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const tiny = tinyGrammar(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3 u=-6
+        \\end
+        \\rule resistor = name~"R" pos neg r {...params}
+        \\rule isource  = name~"I" pos neg dc
+        \\rule bsource  = name~"B" pos neg { i=i }
+        \\functions
+        \\  same v
+        \\end
+        \\params resistor
+        \\  same m
+        \\end
+        \\rewrite resistor gleak
+        \\  when   bsource
+        \\  become bsource name={name} pos={pos} neg={neg} i=[{m}*]{gleak}*v({pos},{neg})
+        \\  loss   : resistor '{name}': {what} has no place on the source it is written as for {to}
+        \\  oneway : resistor '{name}': a leak alone is the current {i}
+        \\end
+        \\rewrite resistor leak
+        \\  when   isource
+        \\  keep
+        \\  add    isource name=I{name}__leak pos={pos} neg={neg} dc={leak}
+        \\  oneway : resistor '{name}': {to} has no leak= ({leak}); the source I{name}__leak carries it
+        \\end
+    );
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", "t\nR1 a 0 1k leak=1u m=2\nR2 b 0 gleak={g0*2} m=3\n.end\n", &report);
+    var out: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &tiny, &out.writer, &nl, &report);
+    // The statement stays, without the parameter, and another is added.
+    try has(out.written(), "R1 a 0 1k m=2\nIR1__leak a 0 1u\n");
+    try reported(&report, .info, "resistor 'R1': tiny has no leak= (1u); the source IR1__leak carries it");
+    // Another statement in its place: an expression among operands is
+    // parenthesised, a parameter the template names is used up, and what
+    // has no place is a loss in the grammar's words. (The source is a B
+    // device here, so its name gets the letter, as any renamed device.)
+    try has(out.written(), "BR2 b 0 i=3*(g0*2)*v(b,0)\n");
+    try reported(&report, .info, "resistor 'R2': a leak alone is the current 3*(g0*2)*v(b,0)");
+    try testing.expectEqual(0, report.count(.@"error"));
+
+    // The same netlist for a dialect whose grammar has no such block: the
+    // parameter is the loss it always was.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "xyce", "t\nR1 a 0 1k leak=1u\n.end\n", &r2);
+    try reported(&r2, .@"error", "'leak=1u' has no spelling in xyce");
+}
+
+/// One file of tests/fixtures: a netlist, the dialects it goes between, and
+/// the output and the report that must come out, byte for byte.
+const Fixture = struct {
+    from: []const u8 = "",
+    to: []const u8 = "",
+    input: []const u8 = "",
+    output: []const u8 = "",
+    report: []const u8 = "",
+
+    /// The parts of a fixture file (`tools/fixture.py` writes them): `from:`
+    /// and `to:` lines, then the three sections, each after its `--- name` line.
+    fn parse(text: []const u8) !Fixture {
+        var fixture: Fixture = .{};
+        const input_at = std.mem.indexOf(u8, text, "--- input\n") orelse return error.FixtureWithoutInput;
+        var head = std.mem.tokenizeScalar(u8, text[0..input_at], '\n');
+        while (head.next()) |line| {
+            if (std.mem.startsWith(u8, line, "from:")) fixture.from = std.mem.trim(u8, line[5..], " ");
+            if (std.mem.startsWith(u8, line, "to:")) fixture.to = std.mem.trim(u8, line[3..], " ");
+        }
+        const rest = text[input_at + "--- input\n".len ..];
+        const output_at = std.mem.indexOf(u8, rest, "--- output\n") orelse return error.FixtureWithoutOutput;
+        const after = rest[output_at + "--- output\n".len ..];
+        const report_at = std.mem.indexOf(u8, after, "--- report\n") orelse return error.FixtureWithoutReport;
+        fixture.input = rest[0..output_at];
+        fixture.output = after[0..report_at];
+        fixture.report = after[report_at + "--- report\n".len ..];
+        if (sprack.find(fixture.from) == null or sprack.find(fixture.to) == null) return error.FixtureOfUnknownDialect;
+        return fixture;
+    }
+};
+
+// A fix for a reported netlist adds a file here (docs/src/testing.md): the
+// netlist, and what it must be written as. `python3 -I tools/fixture.py new`
+// makes one from the binary's present answer.
+test "fixtures: every case of tests/fixtures gives the output and the report it holds" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = testing.io;
+    var dir = try std.Io.Dir.cwd().openDir(io, "tests/fixtures", .{ .iterate = true });
+    defer dir.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (try entries.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".case")) continue;
+        try names.append(a, try a.dupe(u8, entry.name));
+    }
+    try testing.expect(names.items.len > 0);
+    var failed: usize = 0;
+    for (names.items) |name| {
+        const fixture = try Fixture.parse(try dir.readFileAlloc(io, name, a, .limited(1 << 20)));
+        var report: ir.Report = .init(a);
+        const out = try sprack.translateAlloc(a, fixture.from, fixture.to, fixture.input, &report);
+        var said: std.Io.Writer.Allocating = .init(a);
+        try report.print(&said.writer);
+        if (!std.mem.eql(u8, fixture.output, out) or !std.mem.eql(u8, fixture.report, said.written())) {
+            failed += 1;
+            std.debug.print("\n--- tests/fixtures/{s}: expected\n{s}{s}--- got\n{s}{s}", .{
+                name, fixture.output, fixture.report, out, said.written(),
+            });
+            continue;
+        }
+        // What holds for any translation holds for these too.
+        _ = try anyInput(a, fixture.from, fixture.to, fixture.input, out);
+    }
+    try testing.expectEqual(0, failed);
+}
+
+test "plugin: what a dialect tells and leaves out for a compiled module is its grammar's, in any dialect" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A dialect made up here: another tool, another flag, two parameters
+    // of its own. Nothing of it is known to the writer.
+    const tiny = tinyGrammar(
+        \\dialect tiny
+        \\lexer
+        \\  title yes
+        \\  scale k=3 u=-6
+        \\end
+        \\rule model  = ".model" name type {...params}
+        \\rule device = module~"Z" name nodes+ master {...params}
+        \\plugin
+        \\  missing : compile it with zcc and pass --provide {module}=FILE
+        \\  given : load {file} into {to} with -z
+        \\  card version warning : a {to} module has one version
+        \\  instance area=1 error : the module '{module}' has no area in {to}
+        \\  instance trise=0 warning : {to} modules run at the circuit's temperature
+        \\end
+    );
+    const src = "t\n.model cv mosvar version=2 type=-1\nN1 g b cv l=1u area=1\n" ++
+        "N2 g b cv area=3 trise=5\n.end\n";
+    var none: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &none);
+    var out: std.Io.Writer.Allocating = .init(a);
+    try sprack.write(a, &tiny, &out.writer, &nl, &none);
+    try reported(&none, .@"error", "model 'cv' is of the Verilog-A module 'mosvar': tiny takes it only from a plugin of the module; compile it with zcc and pass --provide mosvar=FILE");
+    try reported(&none, .@"error", "device: tiny instantiates the Verilog-A module 'mosvar' only through a plugin of it: compile it with zcc and pass --provide mosvar=FILE");
+
+    const env: ir.Env = .{ .provided = &.{.{ "mosvar", "mosvar.z" }} };
+    var report: ir.Report = .init(a);
+    var given: std.Io.Writer.Allocating = .init(a);
+    try sprack.writeIn(a, &tiny, &given.writer, &nl, &report, &env);
+    try reported(&report, .warning, "device: the Verilog-A module 'mosvar' is the plugin mosvar.z: load mosvar.z into tiny with -z");
+    // The card's parameter goes whatever its value; an instance's at the
+    // plugin's own value goes in silence, at another with its line's text.
+    try has(given.written(), ".model cv mosvar type=-1\n");
+    try reported(&report, .warning, "model 'cv': version not written: a tiny module has one version");
+    try has(given.written(), "Zmosvar N1 g b cv l=1u\n");
+    try has(given.written(), "Zmosvar N2 g b cv\n");
+    try reported(&report, .@"error", "device: 'area=3' not written: the module 'mosvar' has no area in tiny");
+    try reported(&report, .warning, "device: 'trise=5' not written: tiny modules run at the circuit's temperature");
+    try testing.expectEqual(1, report.count(.@"error"));
+}
+
+test "plugin: a device rule that names the module and a plugin block go together" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const head = "dialect tiny\nlexer\n  title yes\nend\n";
+    const rule = "rule device = module~\"Z\" name nodes+ master {...params}\n";
+    const block = "plugin\n  missing : build it\n  given : load {file}\nend\n";
+    for ([_][]const u8{
+        head ++ rule,
+        head ++ block,
+        head ++ rule ++ "plugin\n  missing : build it\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  card level=1 warning : x\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  instance m=one error : x\nend\n",
+        head ++ rule ++ "plugin\n  missing : build it\n  given : load it\n  instance m=1 fatal : x\nend\n",
+        head ++ rule ++ block ++ block,
+    }) |src| {
+        var diag: sprack.grammar.Diag = .{};
+        try testing.expectError(error.BadGrammar, sprack.grammar.compile(a, src, "f.spgrammar", &diag));
+    }
+    var diag: sprack.grammar.Diag = .{};
+    _ = try sprack.grammar.compile(a, head ++ rule ++ block, "f.spgrammar", &diag);
+}
+
+test "cktimg: the circuit only, devices and names as they are" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    const out = try tr(a, "ngspice", "cktimg",
+        \\amp
+        \\.subckt inv in out vdd
+        \\M1 out in vdd vdd pmos w=1u
+        \\M2 out in 0 0 nmos w=1u
+        \\.ends
+        \\.model pmos pmos level=1
+        \\.model nmos nmos level=1
+        \\X1 vin vout vdd inv
+        \\V1 vdd 0 1.8
+        \\.tran 1n 1u
+        \\.meas tran t1 max v(vout)
+        \\.control
+        \\run
+        \\.endc
+        \\.options reltol=1e-4
+        \\.end
+        \\
+    , &report);
+    try has(out, "M1 out in vdd vdd pmos w=1u\nM2 out in 0 0 nmos w=1u\n");
+    try has(out, "X1 vin vout vdd inv\n");
+    for ([_][]const u8{ ".tran", ".meas", ".control", ".options" }) |gone|
+        try testing.expect(std.mem.indexOf(u8, out, gone) == null);
+    // Left out as changing nothing in a drawing: notes, once a kind, no error.
+    try reported(&report, .info, "tran: not written: cktimg draws the circuit");
+    try reported(&report, .info, "script: not written: cktimg draws the circuit");
+    try testing.expectEqual(0, report.count(.@"error"));
+    // What cktImg refuses is refused here, so it never gets there.
+    var r2: ir.Report = .init(a);
+    _ = try tr(a, "ngspice", "cktimg", "t\n.include \"models.lib\"\nE1 a 0 poly(1) b 0 0 1\n.end\n", &r2);
+    try reported(&r2, .@"error", "cktImg reads one file");
+    try reported(&r2, .@"error", "expand the polynomial first");
+}
+
+test "annotation: a line for a tool is written whole, with each dialect's mark, in its scope" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var top = try ir.newStmt(a, .annotation, 2);
+    try top.set(a, schema.slot(.annotation, "text"), .{ .atom = "order m1 m2" });
+    var inner = try ir.newStmt(a, .annotation, 4);
+    try inner.set(a, schema.slot(.annotation, "text"), .{ .atom = "left a" });
+    var sub = try ir.newStmt(a, .subckt, 3);
+    try sub.set(a, schema.slot(.subckt, "name"), .{ .atom = "inv" });
+    try sub.set(a, schema.slot(.subckt, "ports"), .{ .list = try a.dupe(ir.Value, &.{ .{ .atom = "a" }, .{ .atom = "y" } }) });
+    sub.body = try a.dupe(ir.Stmt, &.{inner});
+    const stmts = try a.dupe(ir.Stmt, &.{ top, sub });
+    const nl: ir.Netlist = .{ .title = "t", .dialect = "sprack", .stmts = stmts };
+    var report: ir.Report = .init(a);
+    const ng = try writeAs(a, "ngspice", &nl, &report);
+    try has(ng, "*@ order m1 m2\n.subckt inv a y\n*@ left a\n.ends inv\n");
+    const sp = try writeAs(a, "spectre", &nl, &report);
+    try has(sp, "// *@ order m1 m2\nsubckt inv (a y)\n// *@ left a\nends inv\n");
+    try testing.expectEqual(0, report.items.items.len);
+    // The JSON form holds it as it is.
+    const json = try jsonOf(a, &nl);
+    try has(json, "{\"kind\":\"annotation\",\"line\":2,\"text\":\"order m1 m2\"}");
+}
+
+test "annotation: read back in its scope, and named as the target names its devices" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const src =
+        \\amp
+        \\*@ order m1 m2
+        \\.subckt inv a y vdd
+        \\*@ left a
+        \\*@ face m1.g left
+        \\M1 y a vdd vdd pmos w=1u
+        \\.ends
+        \\X1 in out vdd inv
+        \\.end
+        \\
+    ;
+    var report: ir.Report = .init(a);
+    const nl = try readAs(a, "ngspice", src, &report);
+    try testing.expectEqual(.annotation, nl.stmts[0].kind);
+    try testing.expectEqual(.annotation, nl.stmts[1].body[0].kind);
+    // Through Spectre and back: every line where it was, as it was.
+    const sp = try tr(a, "ngspice", "spectre", src, &report);
+    try has(sp, "// *@ order m1 m2\nsubckt inv (a y vdd)\n// *@ left a\n// *@ face m1.g left\n");
+    // Spectre reads M1 with no model card as an instance, which ngspice
+    // names with an X: the line that names it in its scope does too, the
+    // one at the top level, where no M1 is, does not, and `left` is a word.
+    var r2: ir.Report = .init(a);
+    const back = try tr(a, "spectre", "ngspice", sp, &r2);
+    try has(back, "*@ order m1 m2\n.subckt inv a y vdd\n*@ left a\n*@ face XM1.g left\nXM1 y a vdd vdd pmos w=1u\n");
+}
+
+test "a unit after a value is ignored, in any script: 15kΩ is 15k" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var report: ir.Report = .init(a);
+    // ngspice 45 solves R1 a b 15kΩ as 15k: v(b) = 2.439024e-02 with 375Ω
+    // to ground, as with 15k and 375.
+    const out = try tr(a, "ngspice", "spectre", "t\nV1 a 0 1\nR1 a b 15kΩ\nR2 b 0 375Ω\n.op\n.end\n", &report);
+    try has(out, "R1 (a b) resistor r=15k\n");
+    try has(out, "R2 (b 0) resistor r=375\n");
+    try testing.expectEqual(0, report.count(.@"error"));
+}
+
+test "parentheses that do not pair are text, not a crash" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A `)` with nothing open: once a counter that went below zero (an
+    // integer overflow in ReleaseSafe).
+    var r1: ir.Report = .init(a);
+    _ = try tr0(a, "ngspice", "xyce", "t\n.param a=1 b=2\n.if (a)) (b)\nr1 1 0 1k\n.endif\n.end\n", &r1);
+    var r2: ir.Report = .init(a);
+    _ = try tr0(a, "spectre", "ngspice", "simulator lang=spectre\nparameters x=(a[))]b)\nr1 (1 0) resistor r=x\n", &r2);
+    // Two groups side by side are not one: `(a) (b)` keeps its parentheses.
+    try testing.expectEqualStrings("(a) (b)", sprack.lexer.unwrapWhole("(a) (b)"));
+    try testing.expectEqualStrings("a) (b", sprack.lexer.unwrapWhole("((a) (b))")[1..6]);
+    try testing.expectEqualStrings("a+b", sprack.lexer.unwrapWhole("(a+b)"));
+}
+
+test "annotation: a device keeps its name in a hint where the target keeps it" {
+    var arena_state: Arena = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // ngspice writes a PSP103 MOSFET as an N device; a BSIM4 one stays M1,
+    // and so does the hint that names it.
+    var report: ir.Report = .init(a);
+    const out = try tr(a, "spectre", "ngspice",
+        \\simulator lang=spectre
+        \\model nch bsim4 type=n
+        \\// *@ order m1 m2
+        \\M1 (d g 0 0) nch w=1u l=180n
+        \\
+    , &report);
+    try has(out, "*@ order m1 m2\nM1 d g 0 0 nch");
 }

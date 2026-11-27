@@ -1,132 +1,110 @@
-//! sprack: SPICE dialect translator.
+//! sprack: the public surface of the translator.
 //!
-//! Each file in `grammars/` is compiled at build time into a reader and a
-//! writer for one dialect. Any dialect can be read into the shared IR and
-//! written back out as any other.
+//! Text of one dialect → canonical statements (`ir.Netlist`) → text of
+//! another, with a report of what did not cross. Each file of `grammars/` is
+//! one dialect, compiled when the binary is built into the tables a reader
+//! and a writer run on; a `.spgrammar` file named by path is compiled when
+//! asked for (`resolve`).
+//!
+//! Contents:
+//! - modules: `schema`, `ir`, `grammar`, `lexer`, `reader`, `writer`, `expr`,
+//!   `json`, `project`, `stats`, `alter`, `stream`
+//! - `pub const Grammar`, `pub const dialect_count`, `pub const grammars`
+//! - `pub const caps: writer.Caps`
+//! - `pub const LoadError`, `pub const TranslateError`
+//! - `pub const find`, `pub const internDialect`, `pub const dialectName`
+//! - `pub fn isGrammarPath(name: []const u8) bool`
+//! - `pub fn resolve(arena, io, name, diag) LoadError!*const Grammar`
+//! - `pub fn Dialect(comptime name: []const u8) type` with `spec`, `read`, `write`
+//! - `pub fn read(arena, g, src, report) Allocator.Error!ir.Netlist`
+//! - `pub fn write(arena, g, out, nl, report) !void`
+//! - `pub fn readIn(arena, g, src, report, env) Allocator.Error!ir.Netlist`
+//! - `pub fn writeIn(arena, g, out, nl, report, env) !void`
+//! - `pub fn sameTranslation(arena, g, src, back) Allocator.Error!bool`
+//! - `pub fn translate(arena, from, to, src, out, report) TranslateError!void`
+//! - `pub fn translateAlloc(arena, from, to, src, report) TranslateError![]const u8`
 
 const std = @import("std");
-const registry = @import("registry");
-
-pub const schema = @import("schema.zig");
-pub const ir = @import("ir.zig");
-pub const grammar = @import("grammar.zig");
-pub const lexer = @import("lexer.zig");
-pub const reader = @import("reader.zig");
-pub const writer = @import("writer.zig");
-pub const expr = @import("expr.zig");
-pub const json = @import("json.zig");
-pub const project = @import("project.zig");
-pub const stats = @import("stats.zig");
-pub const alter = @import("alter.zig");
-pub const stream = @import("stream.zig");
-
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+const dialects = @import("dialects");
+pub const schema = @import("schema");
+pub const ir = @import("ir");
+pub const grammar = @import("grammar");
+pub const lexer = @import("lexer");
+pub const reader = @import("reader");
+pub const writer = @import("writer");
+pub const expr = @import("expr");
+pub const json = @import("json");
+pub const project = @import("project");
+pub const stats = @import("stats");
+pub const alter = @import("alter");
+pub const stream = @import("stream");
+
 pub const Grammar = grammar.Grammar;
 
-pub const dialect_count = registry.sources.len;
+pub const dialect_count = dialects.count;
 
-/// One compiled grammar per `.spgrammar` file. A mistake in any of them
-/// stops the build here.
-pub const grammars: [dialect_count]Grammar = blk: {
-    var out: [dialect_count]Grammar = undefined;
-    for (registry.sources, 0..) |src, i| out[i] = grammar.compileBuiltin(src);
-    break :blk out;
+/// One compiled grammar per `.spgrammar` file, in file name order: the
+/// table itself, so a grammar found by name is one of these by address.
+pub const grammars: *const [dialect_count]Grammar = &dialects.grammars;
+
+/// Which dialects can write each kind, each model family and each word of
+/// an expression, worked out when compiling from the grammars themselves.
+pub const caps: writer.Caps = .{
+    .kinds = kindCaps(),
+    .families = familyCaps(),
+    .words = wordCaps(),
+    .grammars = grammars,
 };
 
-/// Which dialects can write each kind and each model family, worked out at
-/// compile time from the grammars themselves.
-pub const caps: writer.Caps = blk: {
-    @setEvalBranchQuota(1_000_000);
-    var kinds: [schema.kind_count][]const u8 = undefined;
-    for (schema.table, 0..) |info, k| {
-        var s: []const u8 = "";
-        for (grammars) |g| {
-            if (g.canWrite(info.kind)) s = s ++ (if (s.len > 0) ", " else "") ++ g.name;
-        }
-        kinds[k] = s;
-    }
-    var fams: []const writer.Caps.FamilyCap = &.{};
-    for (schema.families) |f| {
-        for ([_][]const u8{ "", "n", "p", "npn", "pnp" }) |pol| {
-            var s: []const u8 = "";
-            for (grammars) |g| {
-                if (g.hasModel(f.name, pol)) s = s ++ (if (s.len > 0) ", " else "") ++ g.name;
-            }
-            if (s.len > 0) fams = fams ++ &[_]writer.Caps.FamilyCap{.{ .family = f.name, .polarity = pol, .dialects = s }};
-        }
-    }
-    var words: []const writer.Caps.WordCap = &.{};
-    for (.{ "functions", "variables", "operators" }) |field| {
-        for (@field(schema, field)) |name| {
-            var s: []const u8 = "";
-            for (grammars) |g| {
-                for (@field(g, field)) |e| {
-                    if (std.mem.eql(u8, e.canon, name)) s = s ++ (if (s.len > 0) ", " else "") ++ g.name;
-                }
-            }
-            if (s.len > 0) words = words ++ &[_]writer.Caps.WordCap{.{ .name = name, .dialects = s }};
-        }
-    }
-    break :blk .{ .kinds = kinds, .families = fams, .words = words, .grammars = &grammars };
-};
+pub const LoadError = error{ UnknownDialect, CannotRead, BadGrammar, TooManyDialects, OutOfMemory };
 
-pub fn find(name: []const u8) ?*const Grammar {
-    for (&grammars) |*g| if (std.ascii.eqlIgnoreCase(g.name, name)) return g;
-    return null;
-}
+pub const TranslateError = error{UnknownDialect} || Allocator.Error || std.Io.Writer.Error;
 
-/// Every dialect name a statement can carry (`ir.Stmt.dialect`), by index.
-/// 0 is "the netlist's"; the built-ins take 1..dialect_count in registry
-/// order; names met later (a grammar loaded at run time, a name in JSON) are
-/// added and keep their index for the life of the process.
-// ponytail: one process-wide table, not locked; a host that reads from
-// several threads at once needs a mutex around `internDialect`.
-var dialect_names: [256][]const u8 = blk: {
-    var t: [256][]const u8 = @splat("");
-    for (grammars, 1..) |g, i| t[i] = g.name;
-    break :blk t;
-};
-var dialect_len: usize = dialect_count + 1;
-
-/// The index of dialect `name` (case ignored), added to the table if new.
-/// Null when the table is full (255 names).
-pub fn internDialect(name: []const u8) Allocator.Error!?u8 {
-    std.debug.assert(name.len > 0);
-    for (dialect_names[1..dialect_len], 1..) |n, i| if (std.ascii.eqlIgnoreCase(n, name)) return @intCast(i);
-    if (dialect_len == dialect_names.len) return null;
-    dialect_names[dialect_len] = try std.heap.page_allocator.dupe(u8, name);
-    dialect_len += 1;
-    return @intCast(dialect_len - 1);
-}
-
+/// The built-in grammar of that name, case ignored.
+pub const find = dialects.find;
+/// The index a statement carries for dialect `name` (`ir.Stmt.dialect`).
+pub const internDialect = dialects.intern;
 /// The name behind an index from `internDialect`; "" for 0.
-pub fn dialectName(i: u8) []const u8 {
-    std.debug.assert(i < dialect_len);
-    return dialect_names[i];
-}
+pub const dialectName = dialects.nameOf;
+
+/// The largest grammar file `resolve` reads.
+const grammar_bytes_max = 16 << 20;
 
 /// Whether a dialect argument names a grammar file rather than a built-in.
 pub fn isGrammarPath(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".spgrammar");
 }
 
-pub const LoadError = error{ UnknownDialect, CannotRead, BadGrammar, TooManyDialects, OutOfMemory };
-
 /// A built-in dialect by name, or a `.spgrammar` file by path compiled now.
 /// A loaded grammar lives in `arena` with its source. On `CannotRead` and
 /// `BadGrammar`, `diag.msg` says why (`file:line: message` for the latter).
 /// `caps` knows only the built-ins, so an error naming "dialects that define
 /// it" never lists a loaded grammar.
-pub fn resolve(arena: Allocator, io: std.Io, name: []const u8, diag: *grammar.Diag) LoadError!*const Grammar {
+pub fn resolve(
+    arena: Allocator,
+    io: std.Io,
+    name: []const u8,
+    diag: *grammar.Diag,
+) LoadError!*const Grammar {
     if (!isGrammarPath(name)) return find(name) orelse error.UnknownDialect;
-    const src = std.Io.Dir.cwd().readFileAlloc(io, name, arena, .limited(16 << 20)) catch |e| {
+    assert(name.len > 0);
+    const cwd = std.Io.Dir.cwd();
+    const src = cwd.readFileAlloc(io, name, arena, .limited(grammar_bytes_max)) catch |e| {
         diag.msg = try std.fmt.allocPrint(arena, "cannot read {s}: {s}", .{ name, @errorName(e) });
         return error.CannotRead;
     };
     const g = try arena.create(Grammar);
     g.* = try grammar.compile(arena, src, name, diag);
+    assert(g.name.len > 0);
     if (try internDialect(g.name) == null) {
-        diag.msg = try std.fmt.allocPrint(arena, "{s}: dialect '{s}' is one more than the 255 dialect names a process can hold", .{ name, g.name });
+        diag.msg = try std.fmt.allocPrint(
+            arena,
+            "{s}: dialect '{s}' is one more than the 255 dialect names a process can hold",
+            .{ name, g.name },
+        );
         return error.TooManyDialects;
     }
     return g;
@@ -134,32 +112,81 @@ pub fn resolve(arena: Allocator, io: std.Io, name: []const u8, diag: *grammar.Di
 
 /// A dialect chosen at compile time. A misspelt name is a compile error.
 pub fn Dialect(comptime name: []const u8) type {
-    const g: *const Grammar = comptime find(name) orelse @compileError("no grammars/" ++ name ++ ".spgrammar");
+    const g: *const Grammar = comptime find(name) orelse
+        @compileError("no grammars/" ++ name ++ ".spgrammar");
     return struct {
         pub const spec = g;
 
-        pub fn read(arena: Allocator, src: []const u8, report: *ir.Report) Allocator.Error!ir.Netlist {
+        pub fn read(
+            arena: Allocator,
+            src: []const u8,
+            report: *ir.Report,
+        ) Allocator.Error!ir.Netlist {
             return reader.read(g, arena, src, report, .{});
         }
 
-        pub fn write(arena: Allocator, out: *std.Io.Writer, nl: *const ir.Netlist, report: *ir.Report) !void {
-            return writer.write(g, arena, out, nl, report, &caps, null);
+        pub fn write(
+            arena: Allocator,
+            out: *std.Io.Writer,
+            nl: *const ir.Netlist,
+            report: *ir.Report,
+        ) !void {
+            return writer.write(target(g, out, report, null), arena, nl);
         }
     };
 }
 
-pub fn read(arena: Allocator, g: *const Grammar, src: []const u8, report: *ir.Report) Allocator.Error!ir.Netlist {
+pub fn read(
+    arena: Allocator,
+    g: *const Grammar,
+    src: []const u8,
+    report: *ir.Report,
+) Allocator.Error!ir.Netlist {
     return reader.read(g, arena, src, report, .{});
 }
 
-pub fn write(arena: Allocator, g: *const Grammar, out: *std.Io.Writer, nl: *const ir.Netlist, report: *ir.Report) !void {
-    return writer.write(g, arena, out, nl, report, &caps, null);
+pub fn write(
+    arena: Allocator,
+    g: *const Grammar,
+    out: *std.Io.Writer,
+    nl: *const ir.Netlist,
+    report: *ir.Report,
+) !void {
+    return writer.write(target(g, out, report, null), arena, nl);
+}
+
+/// As `read` and `write`, for one file of a project: `env` holds the names
+/// the project's other files declare.
+pub fn readIn(
+    arena: Allocator,
+    g: *const Grammar,
+    src: []const u8,
+    report: *ir.Report,
+    env: ?*const ir.Env,
+) Allocator.Error!ir.Netlist {
+    return reader.read(g, arena, src, report, .{ .env = env });
+}
+
+pub fn writeIn(
+    arena: Allocator,
+    g: *const Grammar,
+    out: *std.Io.Writer,
+    nl: *const ir.Netlist,
+    report: *ir.Report,
+    env: ?*const ir.Env,
+) !void {
+    return writer.write(target(g, out, report, env), arena, nl);
 }
 
 /// `back`, a translation of `src` into `g` read back, is the same circuit,
 /// counting the options `g` was given because `src`'s dialect assumes other
 /// defaults (`writer.defaultOptions`).
-pub fn sameTranslation(arena: Allocator, g: *const Grammar, src: *const ir.Netlist, back: *const ir.Netlist) Allocator.Error!bool {
+pub fn sameTranslation(
+    arena: Allocator,
+    g: *const Grammar,
+    src: *const ir.Netlist,
+    back: *const ir.Netlist,
+) Allocator.Error!bool {
     const d = try writer.defaultOptions(arena, g, src) orelse return ir.sameCircuit(src, back);
     var with = src.*;
     with.stmts = try arena.alloc(ir.Stmt, src.stmts.len + 1);
@@ -167,18 +194,6 @@ pub fn sameTranslation(arena: Allocator, g: *const Grammar, src: *const ir.Netli
     @memcpy(with.stmts[1..], src.stmts);
     return ir.sameCircuit(&with, back);
 }
-
-/// As `read` and `write`, for one file of a project: `env` holds the names
-/// the project's other files declare.
-pub fn readIn(arena: Allocator, g: *const Grammar, src: []const u8, report: *ir.Report, env: ?*const ir.Env) Allocator.Error!ir.Netlist {
-    return reader.read(g, arena, src, report, .{ .env = env });
-}
-
-pub fn writeIn(arena: Allocator, g: *const Grammar, out: *std.Io.Writer, nl: *const ir.Netlist, report: *ir.Report, env: ?*const ir.Env) !void {
-    return writer.write(g, arena, out, nl, report, &caps, env);
-}
-
-pub const TranslateError = error{UnknownDialect} || Allocator.Error || std.Io.Writer.Error;
 
 /// Read `src` as dialect `from` and write it as dialect `to`. Check
 /// `report.hasErrors()` afterwards: output is still produced, with the
@@ -197,10 +212,95 @@ pub fn translate(
 }
 
 /// Convenience for tests and bindings: translate into a fresh buffer.
-pub fn translateAlloc(arena: Allocator, from: []const u8, to: []const u8, src: []const u8, report: *ir.Report) TranslateError![]const u8 {
+pub fn translateAlloc(
+    arena: Allocator,
+    from: []const u8,
+    to: []const u8,
+    src: []const u8,
+    report: *ir.Report,
+) TranslateError![]const u8 {
     var aw: std.Io.Writer.Allocating = .init(arena);
     try translate(arena, from, to, src, &aw.writer, report);
     return aw.written();
+}
+
+// ---- private ----
+
+/// Where `write` and its like write to: `g`, with what every dialect of
+/// this binary can say.
+fn target(
+    g: *const Grammar,
+    out: *std.Io.Writer,
+    report: *ir.Report,
+    env: ?*const ir.Env,
+) writer.Target {
+    return .{ .g = g, .out = out, .report = report, .caps = &caps, .env = env };
+}
+
+/// `names` and one more, separated as an error message lists them.
+fn joined(comptime names: []const u8, comptime name: []const u8) []const u8 {
+    return names ++ (if (names.len > 0) ", " else "") ++ name;
+}
+
+/// For each kind, the dialects whose grammar can write it.
+fn kindCaps() [schema.kind_count][]const u8 {
+    @setEvalBranchQuota(1_000_000);
+    var kinds: [schema.kind_count][]const u8 = undefined;
+    for (schema.table, &kinds) |info, *names| {
+        names.* = "";
+        for (grammars) |g| {
+            if (g.variant_of.len == 0 and g.canWrite(info.kind)) names.* = joined(names.*, g.name);
+        }
+    }
+    return kinds;
+}
+
+/// For each model family and polarity some dialect has, those dialects.
+fn familyCaps() []const writer.Caps.FamilyCap {
+    @setEvalBranchQuota(1_000_000);
+    var families: []const writer.Caps.FamilyCap = &.{};
+    for (schema.families) |f| {
+        for ([_][]const u8{ "", "n", "p", "npn", "pnp" }) |polarity| {
+            var names: []const u8 = "";
+            for (grammars) |g| {
+                if (g.variant_of.len == 0 and g.hasModel(f.name, polarity))
+                    names = joined(names, g.name);
+            }
+            if (names.len == 0) continue;
+            const cap: writer.Caps.FamilyCap = .{
+                .family = f.name,
+                .polarity = polarity,
+                .dialects = names,
+            };
+            families = families ++ &[_]writer.Caps.FamilyCap{cap};
+        }
+    }
+    assert(families.len > 0);
+    return families;
+}
+
+/// For each function, variable and operator some dialect spells, those
+/// dialects: one entry for each spelling line of the word.
+fn wordCaps() []const writer.Caps.WordCap {
+    @setEvalBranchQuota(1_000_000);
+    var words: []const writer.Caps.WordCap = &.{};
+    for (.{ "functions", "variables", "operators" }) |field| {
+        for (@field(schema, field)) |name| {
+            var names: []const u8 = "";
+            for (grammars) |g| {
+                // A variant is its base for another reader: not named apart.
+                if (g.variant_of.len > 0) continue;
+                for (@field(g, field)) |e| {
+                    if (std.mem.eql(u8, e.canon, name)) names = joined(names, g.name);
+                }
+            }
+            if (names.len == 0) continue;
+            words = words ++ &[_]writer.Caps.WordCap{.{ .name = name, .dialects = names }};
+        }
+    }
+    // Every dialect spells some function.
+    assert(words.len > 0);
+    return words;
 }
 
 test {

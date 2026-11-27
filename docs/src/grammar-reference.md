@@ -8,7 +8,7 @@ step by step; this page lists every directive.
 
 A grammar file is a list of directives. `#` starts a comment. The first
 directive is `dialect <name>`, the name the dialect is known by. Kinds and
-slots are the canonical vocabulary in `src/schema.zig`, which `sprack info`
+slots are the canonical vocabulary in `src/core/schema.zig`, which `sprack info`
 prints; naming anything else is a compile error with the file and line.
 
 ## lexer
@@ -22,6 +22,11 @@ lexer
   comment   line "*"               # whole-line comments
   comment   tail "$" ";"           # trailing comments
   comment   block "/*" "*/"
+  annotation "*@"                  # a line that starts with this mark is an
+                                   # annotation, a line for a tool that reads
+                                   # the netlist (cktImg's `*@ order m1 m2`):
+                                   # kept whole in its scope, written with the
+                                   # target's mark (a comment where it has none)
   continue  lead "+"               # continuation marker at the start of the next line
   continue  trail "\"              # or at the end of this one
   parens    space                  # ( ) , are blanks; or: token
@@ -140,6 +145,10 @@ caveat read options gmin : ...     # said when a netlist of this dialect is
                                    # translated out, not into it
 inert options post : ...           # a parameter that changes no result here:
                                    # left out crossing out, with an info note
+inert simctl run quit : a netlist for {to} runs its analyses without it
+                                   # several keys share a reason; for a kind
+                                   # that is a command, the key is its word;
+                                   # `{to}` is the dialect being written
 threshold vswitch : von voff = vt vh   # switch levels: on = vt + vh, off = vt - vh
 convert pss : fund = 1 / fund      # a value this dialect says differently:
 convert vsource wave=exp : td2 = td2 - td1    # a = b, a = a +/- c, a = 1 / a;
@@ -214,7 +223,7 @@ requires dc-path error : ...       # a topology the simulator cannot solve, and
                                    # analysis), no-vloop, no-vlloop, no-lloop (a loop of
                                    # voltage sources, of sources and inductors,
                                    # of inductors). An `invalid` entry naming
-                                   # the nodes or elements; src/topology.zig
+                                   # the nodes or elements; src/passes/topology.zig
 requires dc-path error [op dc ac] : ...  # only in a netlist with one of these
                                    # analyses (`tran`: one without UIC); with
                                    # no list, with any analysis
@@ -222,6 +231,17 @@ spread montecarlo                  # a block written by adding its rule to each
                                    # analysis of its body (`sweep monte=30`)
 spread step "sweep"                # the same; only the rules starting with
                                    # the word are endings (`.temp` is not)
+inert tran : {to} draws the circuit; ...   # with no parameter: the whole
+                                   # statement changes nothing here; it is left
+                                   # out, with an info note once a kind
+variant ngspice                    # this dialect is that one for another reader
+                                   # (cktimg: a drawing tool): not named apart
+                                   # where a message lists the dialects that
+                                   # have something
+variation inline                   # a parameter's variation is an entry of its
+                                   # own after it (`p=1 dev/gauss=0.1`): written
+                                   # so here, a random function in the
+                                   # parameter's definition anywhere else
 rerun alter                        # analyses run where they stand: written
                                    # again after each statement of the kind
 switch "simulator lang=spice" -> hspice   # from such a line on, read with
@@ -230,6 +250,59 @@ noparam jfet level=2 error : ...   # a model parameter (with that value) the
                                    # family's model here refuses: not written, a loss;
                                    # error (the card is another model now, said card
                                    # by card) or warning (the same model, once a file)
+rewrite capacitor ic               # an instance parameter this dialect's device
+  when   vsource                   # does not take (its `params` table lacks it),
+  keep   neg={name}__ic            # said by other statements instead. Applies to
+  add    vsource name=V{name}__ic pos={name}__ic neg={neg} dc={ic}
+  clash  ic.values pos neg : ...   # a statement read in another dialect; the
+  oneway : capacitor '{name}': ... # first block of the kind whose parameter
+end                                # is given decides. `when`: the kinds this
+                                   # dialect must write and the functions it
+                                   # must spell, else the parameter is the
+                                   # loss it was. `keep`: the statement stays,
+                                   # these slots replaced, the parameter gone.
+                                   # `add`: one more statement. `clash`: an
+                                   # error where a statement of that kind
+                                   # names, among the keys of that slot, a
+                                   # node of this one. `oneway`: the note
+rewrite capacitor q
+  when   bsource ddt
+  become bsource name={name} pos={pos} neg={neg} i=[{m}*]ddt({q})
+  loss   : capacitor '{name}': {what} has no place on ...
+  oneway : ...                     # `become`: another statement in its place;
+end                                # every slot and parameter of the original
+                                   # no template names is a `loss` error in
+                                   # the words of the `loss` line, `{what}`
+                                   # being the thing lost.
+                                   # In a template `{x}` is slot or parameter
+                                   # `x` of the original (a parameter a
+                                   # template names is used up); `[...]` is
+                                   # left out when a name inside has no
+                                   # value; in a value slot the text is an
+                                   # expression, and a value that is one is
+                                   # put in parentheses unless it stands
+                                   # alone as an argument. In a message
+                                   # `{to}` and `{from}` are the dialects,
+                                   # `{node}` the node of a clash, and a name
+                                   # the original lacks is that slot of the
+                                   # first statement written
+plugin                             # a Verilog-A module is taken only compiled
+  missing : build one with ...     # here, and named on the instance by a
+  given : run {to} with ...        # device rule that says `module` (the two go
+  card level warning : ...         # together: one without the other is refused).
+  instance m=1 error : ...         # `missing`: what gets one, the end of the
+end                                # error for a module no plugin of was given
+                                   # to the translation (`--provide`). `given`:
+                                   # how the one given is loaded, a caveat once
+                                   # a module. `card key` and `instance key`: a
+                                   # parameter a plugin's model card, or its
+                                   # instance, has no place for: not written,
+                                   # an error or a warning in the line's words;
+                                   # `instance key=value`: at that value
+                                   # leaving it out changes nothing, and
+                                   # nothing is said. In a text `{to}` is this
+                                   # dialect, `{module}` the module, `{file}`
+                                   # the plugin given
 computes resistor narrow short : R = RSH (L - 2 SHORT) / (W - 2 NARROW)
                                    # how the family's model here computes with
                                    # these parameters, as measured: said, with
@@ -421,3 +494,13 @@ Every entry of a translation's report has one of these codes.
 | `rename` | info | a name got the device letter the target needs, or a parameter the target's spelling or number |
 | `oneway` | info | written in a form the target's own grammar does not read back |
 | `cosmetic` | info | something without meaning was not written (an analysis label) |
+
+## A dialect derived from another
+
+`grammars/<name>.derive` names a base grammar, the kinds and directive heads
+the derived dialect leaves out, and the lines it adds after `---`;
+`python3 -I tools/derive_grammar.py grammars/<name>.derive` writes
+`grammars/<name>.spgrammar` from them, and `zig build lint` fails while the
+two differ. `cktimg` (the netlist cktImg draws schematics from) is ngspice
+without analyses, outputs or options, which it leaves out with a note, and
+without the devices cktImg refuses.

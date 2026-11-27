@@ -101,7 +101,7 @@ def test_vocabulary_is_closed():
     assert sprack.can_write("tran", "vacask") and not sprack.can_write("pz", "xyce")
     assert "Xyce has no pole-zero analysis" in sprack.why_not("pz", "xyce")
     assert sprack.why_not("tran", "xyce") is None
-    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl"}
+    assert set(sprack.DIALECTS) == {"ngspice", "hspice", "xyce", "spectre", "vacask", "ltspice", "cdl", "cktimg"}
     c2 = sprack.Circuit("t")
     c2.B("1", "out", 0, v="v(inp)*2 + ln(k)")
     c2.global_("vdd", "vss")
@@ -1346,6 +1346,33 @@ def _limit_memory(gib):
         pass
 
 
+def test_hints_are_annotation_lines_in_their_scope():
+    c = sprack.Circuit("amp")
+    c.hint("order", "m1", "m2")
+    with c.subckt("inv", "a", "y", "vdd") as s:
+        s.hint("left", "a")
+        s.M("1", "y", "a", "vdd", "vdd", model="pmos", w="1u")
+    c.X("1", "in", "out", "vdd", model="inv")
+    c.tran("1n", "1u")
+    c.hints.append(sprack.Hint("face", ("m1.g", "left"), weak=True))
+    assert [h.verb for h in c.hints] == ["order", "face"]
+    assert c.subckt_hints("inv")[0] == sprack.Hint("left", ("a",), scope="inv")
+    # A rename reaches the hints: a name, and the device before `.pin`; never
+    # a keyword.
+    c.rename("m1", "mp")
+    assert list(c.hints)[1].args == ("mp.g", "left")
+    ng = c.netlist("ngspice", strict=False)
+    assert "*@ order mp m2\n*@ weak face mp.g left\n.subckt inv a y vdd\n*@ left a\n" in ng
+    assert "// *@ left a\n" in c.netlist("spectre", strict=False)
+    # The drawing target: the circuit only, the hints as they are.
+    ck = c.netlist("cktimg", strict=False)
+    assert ".tran" not in ck and "*@ left a\n" in ck
+    assert any("not written: cktimg draws the circuit" in e.message for e in ck.report)
+    del c.hints[0]
+    c.hints.insert(0, sprack.Hint("order", ("m2", "mp")))
+    assert [h.args for h in c.hints] == [("m2", "mp"), ("mp.g", "left")]
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.
@@ -1375,3 +1402,4 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"{failed} failed, {skipped} skipped")
     sys.exit(1 if failed else 0)
+

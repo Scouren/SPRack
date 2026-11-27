@@ -1,0 +1,20 @@
+# a SIN without its frequency into Xyce is an error (b6567bf5).
+# What the fix was for, as the ledger has it: the source gives no frequency, which Xyce's sin( )
+# needs: every value of the waveform is a loss and the source is written without it
+from: ngspice
+to: xyce
+--- input
+t
+V1 a 0 SIN(0 1)
+.tran 10n 1u
+.end
+--- output
+t
+V1 a 0
+.tran 10n 1u
+.end
+--- report
+error[loss]: line 2: vsource.wave = sine has no spelling in xyce
+error[loss]: line 2: vsource.sinedc = 0 has no spelling in xyce
+error[loss]: line 2: vsource.ampl = 1 has no spelling in xyce
+warning[caveat]: line 3: tran.step: the first .TRAN number only sets the initial step in Xyce

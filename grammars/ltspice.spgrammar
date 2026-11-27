@@ -23,6 +23,7 @@ lexer
   case      insensitive
   title     yes
   comment   line "*"
+  annotation "*@"          # a line a tool reads (cktImg's `*@ order m1 m2`), whole, in its scope
   comment   tail ";"
   continue  lead "+"
   parens    space

@@ -1,0 +1,14 @@
+# Xyce: level 57 is BSIMSOI, no pss, fmod and db (63f08969, part f).
+# What the fix was for, as the ledger has it: the card reads with family `bsimsoi` (not an `is not
+# in the xyce models table` error) and is written `.model ms nmos level=10`.
+from: xyce
+to: ngspice
+--- input
+t
+.model ms nmos level=57
+.end
+--- output
+t
+.model ms nmos level=10
+.end
+--- report

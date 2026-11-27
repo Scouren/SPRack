@@ -21,6 +21,7 @@ lexer
   case       sensitive
   title      yes
   comment    line "//"
+  annotation "// *@"       # a line a tool reads, as a comment that keeps the `*@` of SPICE
   comment    tail "//"
   comment    block "/*" "*/"
   continue   trail "\"
@@ -384,6 +385,27 @@ end
 params capacitor
   same bv_max dtemp l scale tc1 tc2 temp w
   m = $mfactor
+end
+# What VACASK's capacitor does not take, other devices say, as measured in
+# ngspice 45 and VACASK b2c1551 (docs/verification.md 4.16).
+# A charge: a behavioural source whose current is ddt of it, times m.
+rewrite capacitor q
+  when   bsource ddt
+  become bsource name={name} pos={pos} neg={neg} i=[{m}*]ddt({q})
+  loss   : capacitor '{name}': {what} has no place on the behavioural source a capacitor given by its charge is written as for {to}
+  oneway : capacitor '{name}': {to}'s capacitor takes no charge (q=); it is written as a behavioural source whose current is {i}, which reads back as that source
+end
+# An initial voltage: the capacitor to a node of its own, and from there to
+# its second node a DC source of that voltage. With UIC the capacitor starts
+# at 0 and the pair at ic; at an operating point and in AC the source is the
+# short it adds. ngspice lets the capacitor's ic win over an .ic on one of
+# its nodes; the source in series adds the two.
+rewrite capacitor ic
+  when   vsource
+  keep   neg={name}__ic
+  add    vsource name=V{name}__ic pos={name}__ic neg={neg} dc={ic}
+  clash  ic.values pos neg : capacitor '{name}': ic={ic}, and an .ic sets node {node} too; {from} takes the capacitor's, and the source in series that says it for {to} adds the two
+  oneway : capacitor '{name}': {to}'s capacitor takes no initial voltage (ic={ic}); it is written to node {name}__ic, with a DC source of {ic} from there to {neg}, which reads back as the two
 end
 params inductor
   same dtemp nt scale tc1 tc2 temp

@@ -22,6 +22,7 @@ lexer
   case      insensitive
   title     yes
   comment   line "*"
+  annotation "*@"          # a line a tool reads (cktImg's `*@ order m1 m2`), whole, in its scope
   comment   tail "$"
   continue  lead "+"
   continue  trail "\"                  # `\\` too: the lexer takes a doubled one
@@ -231,6 +232,10 @@ block library
 end
 caveat library name : HSPICE has no library wrapper around .LIB sections; it is written as a comment
 caveat subckt inline : HSPICE has no inline subcircuits; the subcircuit is written as an ordinary one, so the devices in it are named one level deeper
+# A parameter's variation follows it on its own line as an entry of its
+# own: `.param p=1 dev/gauss=0.1 lot/unif=0.05`. Another dialect gets a
+# random function in the parameter's definition.
+variation inline
 # Monte Carlo is a sweep added to each analysis: `.tran 1n 1u sweep monte=30`.
 spread montecarlo
 rule  montecarlo = "sweep" "monte" ~"=" ~"list" ~"(" ( trials )+ ~")" -seed -runs

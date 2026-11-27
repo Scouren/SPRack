@@ -1,0 +1,190 @@
+# Architecture
+
+SPRack reads a netlist in one simulator's dialect and writes it in another's.
+This page says where every piece lives, why, and where a change goes. It
+describes the design the code is being moved to, block by block; the table at
+the end says which blocks have landed.
+
+## The rule the design serves
+
+**The engine knows no dialect, no device and no issue.** A dialect is a
+`grammars/<name>.spgrammar` file; a kind of statement is a row of
+`src/core/schema.zig`. Zig code may name neither a simulator nor a parameter. What
+one simulator means and another does not is a row of a grammar's tables, read
+by a mechanism that works for any kind and slot. A fix for a reported netlist
+is then a grammar row and a fixture, and the next netlist of the same shape
+passes without anyone having met it.
+
+The first half is held by the build: a string of the engine that is a
+dialect's name fails `zig build lint`. Where the code breaks the rest of
+that rule today is counted, not guessed: 180 special
+cases in the writer (81 of them a device, a dialect or an issue written out in
+Zig), and their like in the reader and the passes. The blocks below remove
+them by mechanism, never one by one.
+
+## One translation
+
+```
+bytes ──lex──▶ lines, tokens ──match──▶ statements ──read passes──▶ canonical statements
+                                                                         │
+report ◀── rows appended by every stage, rendered once ──┐               ▼
+bytes ◀──emit── statements for the target ◀──write passes── canonical statements
+```
+
+| stage | reads | returns | owner |
+|---|---|---|---|
+| lex | bytes, the dialect's `lexer` record | logical lines, tokens, exact numbers | `lex` |
+| match | tokens, the dialect's rules | statements with slots bound | `read` |
+| read passes | statements, the source dialect's facts | canonical statements | `read` |
+| write passes | canonical statements, both dialects' facts | statements the target can say | `write` |
+| emit | statements, the target's rules | bytes | `write` |
+
+A pass is one file: statements in, statements out, report rows appended. The
+spine lists the passes in order, one line each, and the same list drives a
+netlist read whole and one streamed a statement at a time: a pass declares
+its scope (statement, group, netlist), and a netlist streams exactly when no
+netlist-scope pass has work in it.
+
+## Modules
+
+Each module owns its tables; `build.zig` lists the modules leaves first and
+hands each only the modules above it, so a cycle cannot be written.
+
+| module | file | owns | imports |
+|---|---|---|---|
+| `schema` | `core/schema.zig` | kinds, slots, model families, canonical words | |
+| `grammar` | `grammar/root.zig` | the `.spgrammar` compiler and the tables it makes | `schema` |
+| `registry` | generated | the seven compiled grammars (`tools/grammar_gen.zig`) | `grammar` |
+| `ir` | `core/ir.zig` | values, statements, netlists, names, the report | `schema` |
+| `dialects` | `core/dialects.zig` | the dialect table: built-in grammars and the names statements carry | `grammar`, `registry` |
+| `lexer` | `reader/lexer.zig` | lines, tokens, numbers | `grammar`, `ir` |
+| `expr` | `core/expr.zig` | expressions | `grammar`, `ir`, `lexer` |
+| `cond`, `alter`, `stats`, `topology` | `passes/` | conditional blocks, alters, statistics, circuits a target cannot solve | `ir`, `grammar`, `expr` |
+| `reader` | `reader/root.zig` | matcher, read passes | `lexer`, `expr`, `dialects` |
+| `writer` | `writer/root.zig` | write passes, emitter | `expr`, `dialects`, `reader`, the passes |
+| `json` | `translate/json.zig` | the statements as JSON | `ir`, `dialects`, `reader` |
+| `stream` | `translate/stream.zig` | one translation, a statement at a time | `reader`, `writer` |
+| `project` | `translate/project.zig` | trees of files, catalogue | `stream`, `json` |
+| `sprack` | `root.zig` | the public surface | all of the above |
+| `main`, `pyext`, `capi` | `host/` | the command, the Python extension, the C ABI | `sprack` |
+
+The folders of `src/` are the stages and what they share: `core/` (what a
+netlist is), `grammar/` (what a dialect is), `reader/`, `passes/`,
+`writer/`, `translate/` (a translation end to end), `host/` (who calls the
+library). A module is entered by name, never by path: two modules may share
+a folder and still not reach into each other.
+
+The writer is a directory, a file an owner:
+
+| file | owns |
+|---|---|
+| `root.zig` | what other modules may name |
+| `driver.zig` | the order of the passes; the survey of a netlist; `write` |
+| `frame.zig` | what stands around the statements: title, header, boilerplate, control blocks, end marker, notes |
+| `names.zig` | names the target would refuse: case, uniqueness, renames |
+| `analyses.zig` | analyses and options the target says another way |
+| `rewrite.zig` | the `rewrite` blocks of a grammar |
+| `statement.zig` | one statement: the rule chosen, what it holds, what is lost; the notes said once a file |
+| `cards.zig` | a model card as the target's model of its family takes it; binned cards |
+| `instparams.zig` | the parameters a device is given, as the target's device takes them; parameters hoisted to a header |
+| `plugins.zig` | a module the target takes only compiled (`plugin`) |
+| `variants.zig` | a subcircuit written once for each branch of a conditional block |
+| `defaults.zig` | what one dialect assumes and the other must be told: `default`, `omitted`, `invalid`, `move` |
+| `emit.zig` | one statement and one pattern to text |
+| `refs.zig`, `tables.zig` | references met before what they name; lookups several files share |
+
+## What must not change
+
+These are contracts other people's files and scripts hold:
+
+- The `.spgrammar` syntax (docs/src/grammar-reference.md). New general forms
+  are added; an existing line keeps meaning what it means.
+- The command line, its exit statuses (0, 1, 2) and the report format.
+- The JSON form of a netlist and of an environment.
+- The Python package and the C ABI.
+- The report codes. The wording of a message is pinned by tests and docs
+  today; a message changes only in a commit that says so.
+
+## Data
+
+- A number is its digits and a power of ten, never a float.
+- A statement holds its slots sparsely (a bit mask and the values given).
+- Text points into the source; what must outlive a line is copied once.
+- Names are compared as their dialect compares them. (Planned: interned once
+  per space, an id from then on; today each table hashes the text again.)
+- Threads share nothing while they work: a file of a project is read,
+  parsed and translated by one worker into a slot of its own, and the run
+  takes the slots in the order of the files. The one table every thread
+  reads, the dialect names, is added to under a flag.
+- Compiled grammars are constant tables in the binary. (Planned: indexed by
+  kind and first token, so a line is offered only the rules that can read it.)
+
+## Seams
+
+Each is a place where behaviour varies without that place being edited.
+
+| seam | axis | cases today | mechanism |
+|---|---|---|---|
+| S1 dialect | which simulator | 7 grammar files, any file by path | a table file (rung 3) |
+| S2 kind | which statement | 80 kinds in `schema.zig` | a row (rung 3) |
+| S3 pass | which transformation | ~40 | one driver, `src/writer/driver.zig`: the order of the passes is `Driver.group` and `Driver.tail`, a line each; a pass that needs every statement at once is a line of `Driver.netlistPasses` (rung 2: a call in a list) |
+| S4 fact | what a dialect means by a slot | `implied`, `caveat`, `omitted`, `no`, ... | facts indexed by kind and slot (rung 3) |
+| S5 rewrite | a statement the target says as other statements | capacitor `ic=` and `q=` into VACASK (two `rewrite` blocks of its grammar); `maxord` and the pole-zero ports still in Zig | `rewrite` blocks in the grammar, one executor (rung 3) |
+| S7 plugin | a module the target takes only compiled | Xyce (`plugin` block: what to tell who has none, how one is loaded, the parameters a plugin has no place for) | a block of the grammar (rung 3) |
+| S6 word | a name both dialects have under other spellings | functions, parameters, model types | word tables (rung 3) |
+
+No seam is above rung 3: every variation is data, and no call on the path of
+a statement is indirect.
+
+## Change drills
+
+Taken from the issues that produced the most fixes (docs/dev/fix-ledger.md).
+
+| ID | Change | Source | Edits wanted | Today |
+|---|---|---|---|---|
+| D1 | a model card parameter one target refuses | issues 30, 57, 76; 32 fixes | one grammar row, one fixture; 0 bodies | passes (`noparam`), but precedence between the card directives lives in `unmapModel`, 189 lines |
+| D2 | a device parameter the target says as another device | issue 28 | one `rewrite` block, one fixture; 0 bodies | passes: the capacitor is two blocks of vacask.spgrammar, and a test rewrites a resistor from a grammar made up for it |
+| D3 | a new simulator | LTspice (l1, z2) | one `.spgrammar` file; 0 bodies | passes for syntax; fails where the simulator needs a transformation no directive names |
+| D4 | a new whole-netlist transformation | alters (c2), statistics (b2) | one pass file, one line of the spine; 0 bodies | passes in the writer: one line of `Driver.netlistPasses`, and one of `needsAll` in the same file for what in a statement is its work |
+
+## Gates
+
+| gate | command | must hold |
+|---|---|---|
+| tests | `zig build test` | all pass |
+| goldens | `python3 -I tools/golden.py snapshot` then `diff`; again with `SPRACK_WHOLE=1` set for both snapshots | IDENTICAL for a refactor, read as a stream and read whole; a behaviour change names the cases it moved |
+| format | `zig fmt --check build.zig src tools` | clean |
+| speed | `python3 -I tools/bench.py <sprack> [<other>]`, with `perf` on PATH | instructions a line no higher than the last recorded |
+| threads | `zig build -Doptimize=ReleaseSafe -Dtsan`, then `sprack project -j 8` on a PDK | no `WARNING: ThreadSanitizer`; the tree and the log those of `-j 1` |
+| lint | `zig build lint` (part of `zig build` and `zig build test`) | clean for every file in `lint/lint.zig`'s `clean_paths`; and in every source file, no string that is a dialect's name outside a test |
+
+## Where a change goes
+
+- **A simulator reads or writes a statement another way**: its `.spgrammar`
+  file. Add the fixture that shows it.
+- **A statement no dialect has yet**: a row of `src/core/schema.zig`, then a rule
+  in each grammar that has it and a `no` line in each that does not.
+- **A transformation of the whole netlist**: a pass file and its line in the
+  spine.
+- **A bug in how text is cut or matched**: `lex` or `read`, with a test
+  beside the function and a fuzz case if the input was malformed.
+
+## Blocks
+
+Each block is one transformation with a boundary, landed alone, with the
+tests green and the goldens IDENTICAL unless it says otherwise.
+
+| # | block | state | measured |
+|---|---|---|---|
+| 0 | golden snapshots as the refactor gate | done | 31,034 cases, 50 s |
+| 1 | grammars compiled when the binary is built, by a tool | done | `zig build test` 3:20 to 1:10; Debug build 2 min to 9 s; start-up unchanged |
+| 2 | module DAG enforced by the build; the dialect table a leaf | done | 15 modules, a test binary each; no module imports `root.zig` |
+| 3 | lint and style gate in the build, module by module | wired; the files listed in `lint/lint.zig` are held to it | 2,562 findings at the start |
+| 4 | read path: rules offered by first byte, slot names as constants, byte classes in the lexer | done; one pass over the input is next | 27 MB mesh into ngspice: 66.3K to 42.3K instructions a line (1.57x) |
+| 5 | write path: one rendering where the first form says the statement, rules by kind | done; tables by kind for the facts are next | mesh 1.39x to 1.57x, sky130 cells 1.31x to 1.50x fewer instructions |
+| 6 | one driver for whole and streamed netlists | done in the writer: a netlist held in memory is one group holding all of it; the reasons a netlist is read whole are still listed apart from the passes they are for | two drivers of 760 lines were one of 617 and a frame of 149; both ways of writing byte-identical over the 31,034 cases, before and after |
+| 7 | facts, maps, rewrites and word tables as the compiled grammar | | |
+| 8 | the special cases of the writer, by mechanism | begun: control commands (`inert`), capacitor `ic=`/`q=` (`rewrite`), compiled Verilog-A modules (`plugin`) | 81 hard-coded at the start; 18 moved to grammar lines |
+| 5b | a project's files worked on at once, results taken in file order (`project.Ahead`) | done | sky130 into Spectre 3.9 s to 0.9 s, into Xyce 3.5 s to 1.0 s (8 workers; 29 MB to 103 MB); 408K page faults a run to 302K by keeping each slot's memory |
+| 9 | the special cases of the reader and the passes, by mechanism | | |
+| 10 | tests by module, a fixture a fix, fuzz targets a stage | | 55 fixes not fully pinned today |

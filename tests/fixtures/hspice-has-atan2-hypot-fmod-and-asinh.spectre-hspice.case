@@ -1,0 +1,17 @@
+# HSPICE has atan2, hypot, fmod and asinh (33dfc935).
+# What the fix was for, as the ledger has it: output `.param
+# p='atan2(1,2)+hypot(3,4)+fmod(7,2)+asinh(1)'`; the report has no `function '...' has no spelling
+# in hspice` entry (clean, or caveats only).
+from: spectre
+to: hspice
+--- input
+// t
+simulator lang=spectre
+parameters p=atan2(1,2)+hypot(3,4)+fmod(7,2)+asinh(1)
+--- output
+t
+.option tnom=27
+.param p='atan2(1,2)+hypot(3,4)+fmod(7,2)+asinh(1)'
+.end
+--- report
+warning[caveat]: options: spectre assumes other defaults for tnom than hspice does; they are written out

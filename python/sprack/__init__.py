@@ -39,7 +39,7 @@ from . import _core
 __all__ = [
     "Circuit", "PDK", "Report", "Entry", "Netlist", "SprackError", "Unsupported",
     "DIALECTS", "KINDS", "dialects", "translate", "read", "to_python", "can_write", "why_not", "v", "i",
-    "word", "quoted", "expr",
+    "word", "quoted", "expr", "Hint",
 ]
 
 _INFO = json.loads(_core.info())
@@ -229,12 +229,103 @@ class _Stmt(dict):
     def __enter__(self) -> "_Scope":
         body = _Scope(self._scope._pdk)
         body.statements = self.setdefault("body", [])
+        body._scope_name = str(self.get("name", ""))
         body._report = self._scope._report
         body._grammars = self._scope._grammars
         return body
 
     def __exit__(self, *exc: Any) -> None:
         return None
+
+
+# ----------------------------------------------------------------------- hints
+
+class Hint(NamedTuple):
+    """An annotation line for a tool that reads the netlist (cktImg's
+    `*@ [weak] <verb> <args...>`): a statement of kind `annotation`, written
+    whole on a line of its own in every dialect, in the scope it was given in.
+    `scope` is the subcircuit it belongs to ("" at the top level), `line`
+    the line it was read from (0 for one made here); neither is written."""
+    verb: str
+    args: tuple[str, ...] = ()
+    weak: bool = False
+    scope: str = ""
+    line: int = 0
+
+    @classmethod
+    def parse(cls, text: str, scope: str = "", line: int = 0) -> "Hint":
+        words = text.split()
+        weak = bool(words) and words[0] == "weak"
+        if weak:
+            words = words[1:]
+        return cls(words[0] if words else "", tuple(words[1:]), weak, scope, line)
+
+    def text(self) -> str:
+        return " ".join((["weak"] if self.weak else []) + [self.verb, *self.args])
+
+    def renamed(self, old: str, new: str) -> "Hint":
+        """With a device or net `old` named `new` (case ignored): an argument
+        that is the name, or the name before `.pin`, is renamed; a keyword, a
+        number or a pin is not."""
+        def one(arg: str) -> str:
+            head, dot, pin = arg.partition(".")
+            return new + dot + pin if head.lower() == old.lower() else arg
+        return self._replace(args=tuple(one(a) for a in self.args))
+
+
+class Hints:
+    """The hints of one scope, in order, as a list that writes through to the
+    scope's statements: append, insert, remove, reorder. A hint added after
+    the last one stands where that one stands; with none yet, at the end."""
+
+    def __init__(self, scope: "_Scope", name: str):
+        self._scope = scope
+        self._name = name
+
+    def _at(self) -> list[int]:
+        return [i for i, st in enumerate(self._scope.statements) if st.get("kind") == "annotation"]
+
+    def _hint(self, st: dict) -> Hint:
+        return Hint.parse(str(st.get("text", "")), self._name, int(st.get("line", 0) or 0))
+
+    def __len__(self) -> int:
+        return len(self._at())
+
+    def __iter__(self):
+        sts = self._scope.statements
+        return iter([self._hint(sts[i]) for i in self._at()])
+
+    def __getitem__(self, k: int) -> Hint:
+        return self._hint(self._scope.statements[self._at()[k]])
+
+    def __setitem__(self, k: int, h: Hint) -> None:
+        self._scope.statements[self._at()[k]] = {"kind": "annotation", "text": h.text()}
+
+    def __delitem__(self, k: int) -> None:
+        del self._scope.statements[self._at()[k]]
+
+    def insert(self, k: int, h: Hint) -> None:
+        at = self._at()
+        k = max(0, min(k, len(at)))
+        pos = (at[k] if k < len(at) else at[-1] + 1) if at else len(self._scope.statements)
+        self._scope.statements.insert(pos, {"kind": "annotation", "text": h.text()})
+
+    def append(self, h: Hint) -> None:
+        self.insert(len(self), h)
+
+    def remove(self, h: Hint) -> None:
+        for k, have in enumerate(self):
+            if (have.verb, have.args, have.weak) == (h.verb, h.args, h.weak):
+                del self[k]
+                return
+        raise ValueError(f"no hint {h.text()!r} in this scope")
+
+    def clear(self) -> None:
+        for i in reversed(self._at()):
+            del self._scope.statements[i]
+
+    def __repr__(self) -> str:
+        return f"Hints({list(self)!r})"
 
 
 # --------------------------------------------------------------------- builder
@@ -570,6 +661,35 @@ class _Scope:
     def comment(self, text: str) -> dict:
         return self._push({"kind": "comment", "raw": text})
 
+    @property
+    def hints(self) -> Hints:
+        """The annotation lines of this scope (`Hint`), as a list that writes
+        through: `c.hints.append(sprack.Hint("order", ("m1", "m2")))`."""
+        return Hints(self, getattr(self, "_scope_name", ""))
+
+    def hint(self, verb: str, *args: Any, weak: bool = False) -> dict:
+        """Add an annotation line here: `c.hint("order", "m1", "m2")`."""
+        h = Hint(str(verb), tuple(str(a) for a in args), weak)
+        self.hints.append(h)
+        return self.statements[[i for i, st in enumerate(self.statements) if st.get("kind") == "annotation"][-1]]
+
+    def rename(self, old: str, new: str) -> None:
+        """Name the device or net `old` (case ignored) `new` everywhere in this
+        scope and the subcircuits in it, the hints that name it too."""
+        def walk(sts: list[dict]) -> None:
+            for st in sts:
+                if st.get("kind") == "annotation":
+                    st["text"] = Hint.parse(str(st.get("text", ""))).renamed(old, new).text()
+                for key, val in list(st.items()):
+                    if key in ("kind", "line", "body", "text", "raw", "tail"):
+                        continue
+                    if isinstance(val, str) and val.lower() == old.lower():
+                        st[key] = new
+                    elif isinstance(val, list):
+                        st[key] = [new if isinstance(x, str) and x.lower() == old.lower() else x for x in val]
+                walk(st.get("body", []))
+        walk(self.statements)
+
 
 class Circuit(_Scope):
     """A circuit, its analyses and what to record, independent of any simulator."""
@@ -684,6 +804,39 @@ class Circuit(_Scope):
     def check(self, dialect: str) -> Report:
         """What writing this circuit for `dialect` would report, without raising."""
         return self.netlist(dialect, strict=False).report
+
+    def subckt_hints(self, name: str) -> Hints:
+        """The hints of subcircuit `name` (case ignored)."""
+        for st in self.statements:
+            if st.get("kind") == "subckt" and str(st.get("name", "")).lower() == name.lower():
+                body = _Scope(self._pdk)
+                body.statements = st.setdefault("body", [])
+                return Hints(body, str(st["name"]))
+        raise KeyError(f"no subcircuit {name!r}")
+
+    def draw(self, cktimg: str = "cktimg-json", *, config: str | None = None,
+             strict: bool = True) -> tuple[str, dict]:
+        """The circuit drawn as a schematic by cktImg: written in the `cktimg`
+        dialect (no analyses, hints as `*@` lines), given to `cktimg`'s
+        command, and its SVG and its report (`requests`: what became of each
+        hint) returned."""
+        import subprocess
+        deck = self.netlist("cktimg", strict=strict)
+        with tempfile.TemporaryDirectory(prefix="sprack-draw-") as d:
+            sp, js, svg, rep = (os.path.join(d, n) for n in ("deck.sp", "d.json", "d.svg", "r.json"))
+            with open(sp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(deck)
+            argv = [cktimg, "--svg", svg, "--report", rep]
+            if config:
+                argv += ["--config", config]
+            done = subprocess.run(argv + [sp, js], capture_output=True, text=True)
+            if done.returncode != 0:
+                raise SprackError(f"{cktimg}: {done.stderr.strip() or 'failed'}")
+            with open(svg, encoding="utf-8") as f:
+                image = f.read()
+            with open(rep, encoding="utf-8") as f:
+                report = json.load(f)
+        return image, report
 
 
 # ------------------------------------------------------------------- as Python

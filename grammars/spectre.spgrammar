@@ -24,6 +24,7 @@ lexer
   case       sensitive
   title      yes "// "
   comment    line "//" "*"
+  annotation "// *@"       # a line a tool reads, as a comment that keeps the `*@` of SPICE
   comment    tail "//"
   continue   trail "\"
   parens     token

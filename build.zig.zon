@@ -4,5 +4,5 @@
     .fingerprint = 0xd93577b739fdc7af,
     .minimum_zig_version = "0.17.1",
     .dependencies = .{},
-    .paths = .{ "build.zig", "build.zig.zon", "src", "grammars", "python", "README.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "grammars", "tools/grammar_gen.zig", "lint", "python", "README.md" },
 }

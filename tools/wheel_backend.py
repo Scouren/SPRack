@@ -23,7 +23,7 @@ import base64, hashlib, io, os, platform, re, subprocess, sys, sysconfig, tarfil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.join(ROOT, "python", "sprack")
 # What `zig build py` needs, and what the sdist ships.
-SDIST = ["build.zig", "build.zig.zon", "src", "grammars", "python", "tools/wheel_backend.py",
+SDIST = ["build.zig", "build.zig.zon", "src", "grammars", "python", "tools/wheel_backend.py", "tools/grammar_gen.zig", "lint",
          "pyproject.toml", "LICENSE", "README.md"]
 GLIBC = "2.28"
 

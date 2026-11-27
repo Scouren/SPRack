@@ -1,0 +1,28 @@
+# VACASK: SFFM defaults, $abstime, chgtol, the save caveat (062bcac0, part k).
+# What the fix was for, as the ledger has it: `save v(in)` in the control block and
+# `warning[caveat]` `save.signals: in VACASK's ac, noise, acxf and dcinc analyses v() saves the
+# operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)`.
+from: ngspice
+to: vacask
+--- input
+t
+V1 in 0 AC 1
+R1 in 0 1k
+.ac dec 4 10 10k
+.save v(in)
+.end
+--- output
+t
+ground 0
+load "spice/resistor.osdi"
+model resistor sp_resistor
+model vsource vsource
+V1 (in 0) vsource mag=1
+R1 (in 0) resistor r=1k
+control
+save v(in)
+analysis ac1 ac from=10 to=10k mode="dec" points=4
+endc
+--- report
+warning[caveat]: line 5: save.signals: in VACASK's ac, noise, acxf and dcinc analyses v() saves the operating point; the small-signal value is dv() (docs/cmd-analysis-ac.md)
+warning[caveat]: line 4: ac.points: VACASK counts points per decade with no rounding tolerance and spaces a span that is not a whole number of steps evenly up to the stop, not on SPICE's per-decade grid

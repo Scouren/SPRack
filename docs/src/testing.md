@@ -4,6 +4,68 @@ Four layers, from the fastest to the slowest. The first two run in CI on
 every push to `main` and every pull request; the others need a corpus of
 decks or the simulators themselves.
 
+## Adding a test for a netlist that went wrong
+
+A fix for a reported netlist adds one file to `tests/fixtures/`: the
+netlist, the dialect it is in, the dialect it is written for, and the output
+and the report that must come out, byte for byte.
+
+```sh
+python3 -I tools/fixture.py new zig-out/bin/sprack capacitor-ic-into-vacask ngspice vacask < deck.sp
+```
+
+writes `tests/fixtures/capacitor-ic-into-vacask.case` with what the binary
+answers now. Read the two sections it filled in before you commit them: they
+are the claim. Say in the first line what the case holds and the issue it
+comes from. `zig build test` runs every case (the test named `fixtures:`),
+and puts each through the checks every translation of the suite goes
+through. After a change that is meant to move a case,
+`python3 -I tools/fixture.py bless zig-out/bin/sprack <file>` rewrites its
+expected sections, and the diff in review shows what moved.
+
+## Changing the engine without changing what it does
+
+A change that is not meant to move any output is checked against a snapshot
+of everything the command prints:
+
+```sh
+python3 -I tools/golden.py snapshot before/bin/sprack before.snap --suite "$SPRACK_SUITE" --pdks "$SPRACK_TEST_PDKS"
+python3 -I tools/golden.py snapshot zig-out/bin/sprack  after.snap  --suite "$SPRACK_SUITE" --pdks "$SPRACK_TEST_PDKS"
+python3 -I tools/golden.py diff before.snap after.snap
+```
+
+31,034 cases: every deck of the conformance suite read in its own dialect,
+as ngspice and as HSPICE, and written for all seven (`translate`, `read`,
+`audit`); the model libraries of the five PDKs as projects; and two damaged
+copies of each deck. `diff` prints `IDENTICAL` or the cases that differ and
+exits 1. A refactor is done when it prints `IDENTICAL`; a change of
+behaviour names the cases it moved in its commit.
+
+## Speed
+
+```sh
+python3 -I tools/bench.py zig-out/bin/sprack [other/bin/sprack] --pdks "$SPRACK_TEST_PDKS"
+```
+
+times a 27 MB RC mesh and 49 MB of sky130 cells into four dialects, by the
+process's own time and, with `perf` on `PATH`, by instructions retired: on a
+machine that is doing other work the wall clock moves by a third from run
+to run, the instruction count does not. Build with
+`-Doptimize=ReleaseFast` to measure.
+
+## The rules the build holds the code to
+
+`zig build lint` runs with every `zig build` and `zig build test`: `zig fmt
+--check`; `lint/perf_tidy.py`, the linter of the performance guide (a
+function is at most 70 lines and a line 100 columns, no recursion without a
+stated bound, an assertion in every function of some length, no swallowed
+error, no allocation or I/O in a loop without a reason); and
+`lint/check_style.py`, the order of a file (what goes in and what comes out
+and a list of its public items first, then imports, public before private,
+tests last). The second and third hold the files listed in `lint/lint.zig`;
+a module joins the list when it is moved to the rules
+(`docs/dev/ARCHITECTURE.md`), and cannot slide back.
+
 ## 1. `zig build test`
 
 ```sh
@@ -12,7 +74,7 @@ zig build test-cli    # only the command-line cases
 ```
 
 The tests are in `src/tests.zig`, with a few unit tests beside the code they
-test (`src/lexer.zig`, `src/expr.zig`, `src/grammar.zig` and others). The
+test (`src/reader/lexer.zig`, `src/core/expr.zig`, `src/grammar/root.zig` and others). The
 names say what each one holds to; `grep -n '^test "' src/tests.zig` lists
 them. By kind:
 
@@ -144,6 +206,27 @@ includes) under `zig build test --fuzz`, and the 20,000 damaged netlists
 from a seed of the night's own, printed when they fail
 (`SPRACK_FUZZ_SEED`; `zig build test` keeps a fixed one).
 
+## Threads
+
+`sprack project` works on several files at once, and three things hold
+that they share nothing while they do. A test of `src/translate/project.zig`
+translates a tree of thirteen files one at a time and four at once and
+compares the copies, the logs and the names expanded. The goldens take
+every PDK as a project at the default of eight. And `zig build -Dtsan`
+builds the command with the thread sanitizer, which stops at the first
+write two threads make to one place unguarded:
+
+```sh
+zig build -Doptimize=ReleaseSafe -Dtsan
+zig-out/bin/sprack project -j 8 --from ngspice --to spectre --lib --out out sky130.lib.spice
+```
+
+No `WARNING: ThreadSanitizer` is the result to hold (sky130, IHP and
+gf180 give none). Under the sanitizer the large tables come from libc's
+allocator: the page allocator grows them with `mremap`, which the
+sanitizer does not follow, and a page one thread gave back and another
+was given then reads as a race between the two.
+
 ## Coverage
 
 `zig build coverage` runs the Zig tests built with the LLVM backend under
@@ -157,26 +240,28 @@ floor in `tools/coverage-floor-zig.tsv` or `tools/coverage-floor-py.tsv`.
 
 | file | lines covered | measured |
 |---|---|---|
-| `src/alter.zig` | 95.4 % (185 of 194) | 2026-11-26, at f2d3eb02 |
-| `src/cond.zig` | 95.2 % (278 of 292) | 2026-11-26, at f2d3eb02 |
-| `src/expr.zig` | 96.4 % (719 of 746) | 2026-11-26, at f2d3eb02 |
-| `src/grammar.zig` | 98.3 % (1115 of 1134) | 2026-11-26, at f2d3eb02 |
-| `src/ir.zig` | 98.5 % (600 of 609) | 2026-11-26, at f2d3eb02 |
-| `src/json.zig` | 97.5 % (433 of 444) | 2026-11-26, at f2d3eb02 |
-| `src/lexer.zig` | 99.4 % (659 of 663) | 2026-11-26, at f2d3eb02 |
-| `src/project.zig` | 91.9 % (582 of 633) | 2026-11-26, at f2d3eb02 |
-| `src/reader.zig` | 96.5 % (1811 of 1877) | 2026-11-26, at f2d3eb02 |
+| `src/passes/alter.zig` | 95.4 % (185 of 194) | 2026-11-26, at f2d3eb02 |
+| `src/passes/cond.zig` | 95.2 % (278 of 292) | 2026-11-26, at f2d3eb02 |
+| `src/core/expr.zig` | 96.4 % (719 of 746) | 2026-11-26, at f2d3eb02 |
+| `src/grammar/root.zig` | 98.3 % (1115 of 1134) | 2026-11-26, at f2d3eb02 |
+| `src/core/ir.zig` | 98.5 % (600 of 609) | 2026-11-26, at f2d3eb02 |
+| `src/translate/json.zig` | 97.5 % (433 of 444) | 2026-11-26, at f2d3eb02 |
+| `src/reader/lexer.zig` | 99.4 % (659 of 663) | 2026-11-26, at f2d3eb02 |
+| `src/translate/project.zig` | 91.9 % (582 of 633) | 2026-11-26, at f2d3eb02 |
+| `src/reader/root.zig` | 96.5 % (1811 of 1877) | 2026-11-26, at f2d3eb02 |
 | `src/root.zig` | 98.1 % (52 of 53) | 2026-11-26, at f2d3eb02 |
-| `src/schema.zig` | 100.0 % (23 of 23) | 2026-11-26, at f2d3eb02 |
-| `src/stats.zig` | 98.2 % (383 of 390) | 2026-11-26, at f2d3eb02 |
-| `src/stream.zig` | 99.6 % (274 of 275) | 2026-11-26, at f2d3eb02 |
+| `src/core/schema.zig` | 100.0 % (23 of 23) | 2026-11-26, at f2d3eb02 |
+| `src/passes/stats.zig` | 98.2 % (383 of 390) | 2026-11-26, at f2d3eb02 |
+| `src/translate/stream.zig` | 99.6 % (274 of 275) | 2026-11-26, at f2d3eb02 |
 | `src/tests.zig` | 99.0 % (4476 of 4523) | 2026-11-26, at f2d3eb02 |
-| `src/topology.zig` | 98.4 % (440 of 447) | 2026-11-26, at f2d3eb02 |
-| `src/writer.zig` | 98.5 % (2765 of 2808) | 2026-11-26, at f2d3eb02 |
+| `src/passes/topology.zig` | 98.4 % (440 of 447) | 2026-11-26, at f2d3eb02 |
+| `src/writer/` (one file then) | 98.5 % (2765 of 2808) | 2026-11-26, at f2d3eb02 |
 | `src/` in all | 97.9 % (14795 of 15111) | 2026-11-26, at f2d3eb02 |
 | `python/sprack/__init__.py` | 92.8 % (827 of 891) | 2026-11-24, with the five PDKs, the installed trees skipped |
 
-The `src/` rows are kcov's over the test binary of the `sprack` module,
+The files are named as they are now; they were measured before they were
+grouped into folders, and the writer before it was a folder of files, whose
+floors the next `coverage_floor.py --update` writes. The `src/` rows are kcov's over the test binary of the `sprack` module,
 and `tools/coverage-floor-zig.tsv` holds them. kcov counts only the lines
 the binary has: a function nothing calls is not compiled, so it is not
 counted, and `main.zig`, `pyext.zig` and `capi.zig` are not in the
