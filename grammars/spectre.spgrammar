@@ -244,6 +244,7 @@ no options chgtol : Spectre has no charge tolerance: its quantity statement sets
 no measure : Spectre's own language has no measure statement; measurements are written in MDL or done in the waveform calculator
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : Spectre runs digital Verilog only in a mixed-signal (AMS) run, which this grammar does not write
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 # analyses (b3)
 implied pnoise ref = 0
 implied pxf ref = 0

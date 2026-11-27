@@ -193,6 +193,8 @@ pub const Kind = enum(u8) {
     // An instance of a digital Verilog module, co-simulated or written as
     // structural Verilog.
     verilog,
+    // The ports of the top level, where it is a module of its own.
+    ports,
 };
 
 pub const KindInfo = struct { kind: Kind, class: Class, slots: []const Slot };
@@ -640,6 +642,11 @@ const defs = [_]Def{
     // bridges between the digital ports and the analog nets (vdd, vth, ...).
     .{ .verilog, .device, "name nodes:node* master:ident module:ident file:path pins:atom* " ++
         "dirs:atom* params:params code:text" },
+    // `nodes`: the top level's ports, in order; `dirs`, where given, the
+    // direction of each: `in`, `out` or `inout`. Written by a dialect that
+    // makes the top level a module (structural Verilog); a SPICE netlist's
+    // top level has no ports.
+    .{ .ports, .structure, "nodes:node* dirs:atom*" },
 };
 
 pub fn info(kind: Kind) *const KindInfo {

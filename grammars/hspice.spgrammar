@@ -296,6 +296,7 @@ no cswitch : HSPICE's W element is a transmission line; there is no current-cont
 no disto   : HSPICE's .DISTO measures distortion power into a named load resistor; the SPICE form has no load resistor to name
 no xspice : XSPICE code models are ngspice's; this grammar has no form for them
 no verilog : HSPICE co-simulates no Verilog module in a netlist
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 
 # Observed on decks written for it (Y-2026.03): an island reached only
 # through capacitors is solved and left at 0 V, where ngspice divides the

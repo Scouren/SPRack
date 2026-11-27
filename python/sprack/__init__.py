@@ -404,7 +404,7 @@ _POSITIONAL = {
     "vccs": ["pos", "neg", "cpos", "cneg", "gm"], "cccs": ["pos", "neg", "vsrc", "gain"],
     "ccvs": ["pos", "neg", "vsrc", "gain"], "tline": ["p1", "n1", "p2", "n2"],
     "diode": "*", "bjt": "*", "mosfet": "*", "jfet": "*", "mesfet": "*", "vswitch": "*", "cswitch": "*",
-    "device": "*", "instance": "*", "verilog": "*",
+    "device": "*", "instance": "*", "verilog": "*", "ports": ["nodes"],
     # analyses and the rest
     "op": [], "dc": ["src", "start", "stop", "step"], "ac": ["sweep", "points", "fstart", "fstop"],
     "tran": ["step", "stop", "start", "maxstep"], "noise": ["out", "src", "sweep", "points", "fstart", "fstop"],
@@ -1299,7 +1299,9 @@ def _calls(st: dict) -> Iterable[tuple[str, list, dict]]:
     device = KINDS[kind]["class"] == "device"
     if kind == "subckt":
         kw = {} if "inline" not in given else {"inline": True if given["inline"] == "yes" else given["inline"]}
-        if isinstance(given.get("name"), str) and _plain_params(pv or {}, ("self", "name", "ports", "inline")):
+        if "dirs" in given:
+            kw["dirs"] = given["dirs"]
+        if isinstance(given.get("name"), str) and _plain_params(pv or {}, ("self", "name", "ports", "inline", "dirs")):
             yield "subckt", [given["name"], *given.get("ports", [])], {**kw, **(pv or {})}
     elif kind == "param" and _plain_params(pv, ("self",)):
         yield "param", [], pv

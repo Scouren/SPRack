@@ -60,13 +60,32 @@ pub fn write(w: *Writer, m: *const Modules, title: []const u8, stmts: []const ir
     var x: M = .{ .w = w, .m = m, .a = a, .defs = defs.items };
     directions(&x);
     var first = std.mem.tokenizeAny(u8, title, " \t");
-    try module(&x, first.next() orelse "top", &.{}, &.{}, stmts);
+    const top = try topPorts(a, stmts);
+    try module(&x, first.next() orelse "top", top.ports, top.uses, stmts);
     for (x.defs) |d| try module(&x, text(d.st.get("name")), d.ports, d.uses, d.st.body);
     var seen: std.ArrayList([]const u8) = .empty;
     try leaves(&x, stmts, &seen);
 }
 
 // ---- private ----
+
+/// The top level's ports, from its `ports` statement (the last, where
+/// several), with what its `dirs` say; none without one.
+fn topPorts(a: Allocator, stmts: []const ir.Stmt) Allocator.Error!struct {
+    ports: []const []const u8,
+    uses: []const u8,
+} {
+    var ports: []const []const u8 = &.{};
+    var uses: []u8 = &.{};
+    for (stmts) |*st| {
+        if (st.kind != .ports) continue;
+        ports = try words(a, st.get("nodes"));
+        const dirs = try words(a, st.get("dirs"));
+        uses = try a.alloc(u8, ports.len);
+        for (uses, 0..) |*u, i| u.* = if (i < dirs.len) bitOf(dirs[i]) else 0;
+    }
+    return .{ .ports = ports, .uses = uses };
+}
 
 // tidy: allow(recursion) bounded by the nesting of blocks, ir.max_depth
 fn collect(a: Allocator, stmts: []const ir.Stmt, defs: *std.ArrayList(Def)) Allocator.Error!void {
@@ -236,7 +255,7 @@ fn module(
     for (said, uses) |p, u| try line(x, m.port, &.{ .{ "dir", dirOf(m, u) }, .{ "port", p } });
     for (try nets(x, ports, body)) |n| try line(x, m.net, &.{.{ "net", try ident(x, n) }});
     for (body) |*st| switch (st.kind) {
-        .subckt => {},
+        .subckt, .ports => {},
         .instance, .verilog => try instance(x, st),
         else => try blocks.stmt(x.w, st),
     };

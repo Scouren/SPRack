@@ -163,6 +163,7 @@ rule  xspice    = name~"A" nodes+ master {...params}
 # adc and dac bridges between the digital ports and the analog nets.
 write verilog = name~"A" "[" nodes*@dirs=in "]" "[" nodes*@dirs=out "]" [ "[" nodes+@dirs=inout "]" ] master -module -file -pins -code -params
 caveat verilog params : ngspice bridges a d_cosim port to an analog net with adc_bridge and dac_bridge models of its own, which take no parameter from the instance
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 once verilog master
   .model {master} d_cosim simulation="{file.stem|module}.vvp"
 end

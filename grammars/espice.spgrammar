@@ -156,6 +156,7 @@ rule  tline     = name~"T" p1 n1 p2 n2 { z0=z0 td=td f=f nl=nl ...params }
 rule  device    = name~"N" nodes+ master {...params}
 # XSPICE code models: a vector port's brackets are items of `nodes`.
 rule  xspice    = name~"A" nodes+ master {...params}
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 # ngspice accepts the PSpice-style params: keyword but does not need it.
 read  instance  = name~"X" nodes+ master "params:" {...params}
 rule  instance  = name~"X" nodes+ master {...params}

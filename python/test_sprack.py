@@ -1668,6 +1668,18 @@ def test_schemify_subckt_port_directions():
     raises(TypeError, lambda: c.subckt("x", "a", dirs=["in", "out"]), "2 directions for 1 ports")
 
 
+def test_schemify_top_module_ports():
+    # The top level's ports: the top module's in Verilog, a note elsewhere.
+    c = sprack.Circuit("amp")
+    c.ports("inp", "inn", "out", dirs=["in", "in", "out"])
+    v = c.netlist("verilog")
+    assert v == "// amp\nmodule amp (inp, inn, out);\n  input inp;\n  input inn;\n  output out;\nendmodule\n", v
+    ng = c.netlist("ngspice")
+    assert "inp" not in ng and "ports: not written" in str(ng.report), (ng, ng.report)
+    assert "inp" not in c.netlist("cdl")
+    assert 'c.ports("inp", "inn", "out", dirs=["in", "in", "out"])' in c.python(), c.python()
+
+
 if __name__ == "__main__":
     # Room for the ngspice runs the tests start (separate processes with
     # their own limit, inherited); SPRACK_TEST_MEMORY_GIB changes it.

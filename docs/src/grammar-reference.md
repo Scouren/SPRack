@@ -545,11 +545,13 @@ end                                     # rest, and the escapes around any other
 ```
 
 The top level is a module named by the first word of the title (`top`
-without one), then each subcircuit, wherever it was defined, as a module
+without one), its ports those of its `ports` statement (none without one),
+then each subcircuit, wherever it was defined, as a module
 of its own. A port is an `output` where an instance inside drives it, an
 `input` where those that use it only read it, through every level, and an
 `inout` where nothing says (a `verilog` instance's `dirs` say; a subcircuit's
-ports say what its own instances do). An `instance` names the ports of its
+ports say what its own instances do). The `dirs` of a subcircuit or of
+`ports`, where given, win over all of that. An `instance` names the ports of its
 subcircuit, which must be in the netlist; a `verilog` instance names its
 `pins`, the bits of one port joined as a bus, and is of its `module` (else
 the stem of its `file`). Each leaf module's `code`, where given, is written

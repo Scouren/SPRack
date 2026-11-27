@@ -489,7 +489,9 @@ test "every kind, every slot, every dialect: written without a crash, and the JS
                 // Nothing to write is not a loss: an options statement that is
                 // only a heading.
                 const empty = info.kind == .options and only != null and std.mem.eql(u8, info.slots[only.?].name, "package");
-                if (!g.canWrite(info.kind) and g.movedTo(info.kind) == null and !as_instance and !empty and r1.count(.@"error") == 0) {
+                // A kind the grammar says changes nothing there (`inert`) is a note.
+                const inert = g.statementInert(info.kind) != null;
+                if (!g.canWrite(info.kind) and g.movedTo(info.kind) == null and !as_instance and !empty and !inert and r1.count(.@"error") == 0) {
                     std.debug.print("SILENT {s} slot {?d} to {s}\n", .{ @tagName(info.kind), only, to });
                     silent += 1;
                 }

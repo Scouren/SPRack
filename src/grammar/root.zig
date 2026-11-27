@@ -239,7 +239,7 @@ pub fn compile(gpa: Allocator, src: []const u8, file: []const u8, diag: *Diag) E
         );
     g.read_index = try readIndex(c, g.rules, g.blocks, g.raws);
     // What a `modules` section writes: the instances and what they name.
-    if (g.modules != null) for ([_]schema.Kind{ .subckt, .instance, .verilog }) |k| {
+    if (g.modules != null) for ([_]schema.Kind{ .subckt, .instance, .verilog, .ports }) |k| {
         g.read_index.writes |= ReadIndex.kindBit(k);
     };
     // The index lists every rule once in `all`.

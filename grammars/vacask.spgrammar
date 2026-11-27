@@ -341,6 +341,7 @@ no vswitch : VACASK has no switch device, built in or shipped; it has to be a us
 no cswitch : VACASK has no switch device, built in or shipped; it has to be a user Verilog-A module
 no xspice  : XSPICE code models are ngspice's; VACASK has no such element
 no verilog : VACASK has no digital Verilog co-simulation; its devices are Verilog-A modules compiled with OpenVAF
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 
 # VACASK (b2c1551) names the module it synthesizes after the instance but
 # looks it up in lower case: an instance name with capitals is not found, so

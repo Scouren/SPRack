@@ -81,6 +81,10 @@ What the calls are:
   "inout"])`: one a port. Structural Verilog declares each port so (over
   what its instances do), CDL writes `*.PININFO IN:I OUT:O VDD:B` after the
   `.SUBCKT` line, every other dialect leaves them out.
+* **Top-level ports.** `c.ports(*nodes, dirs=[...])`: the ports of the
+  circuit itself, written by structural Verilog as the top module's
+  (`module amp (inp, inn, out); input inp; ...`); a SPICE netlist's top
+  level has none, so the others leave the statement out with a note.
 
 `c.model(name, family, polarity, **params)` takes a canonical family
 (`"bsim4"`, `"diode"`, `"bjt"`, ...) and a polarity (`"n"`, `"p"`, `"npn"`,

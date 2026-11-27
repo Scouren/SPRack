@@ -204,6 +204,7 @@ plugin
 end
 no xspice : XSPICE code models are ngspice's; Xyce's digital devices are U and Y elements of their own
 no verilog : Xyce has no digital Verilog co-simulation in a netlist
+inert ports : in {to} the top level of a netlist has no ports; they are those of the module structural Verilog makes of it
 # analyses (b3)
 no pac        : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
 no pnoise     : Xyce's periodic analyses (.HB, .MPDE) have no small-signal analyses on top
