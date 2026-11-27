@@ -8,6 +8,7 @@
 const std = @import("std");
 const sprack = @import("sprack");
 const ir = sprack.ir;
+const Allocator = std.mem.Allocator;
 
 const PyObject = opaque {};
 
@@ -46,6 +47,56 @@ extern fn PyUnicode_FromStringAndSize(s: [*]const u8, n: isize) ?*PyObject;
 extern fn PyErr_SetString(ty: *PyObject, msg: [*:0]const u8) void;
 extern fn PyErr_NoMemory() ?*PyObject;
 extern fn PyObject_IsTrue(o: *PyObject) c_int;
+
+const METH_VARARGS = 1;
+
+const Fail = error{ Raised, OutOfMemory, WriteFailed };
+
+var threaded: std.Io.Threaded = .init_single_threaded;
+
+var methods = [_]PyMethodDef{
+    .{
+        .name = "info",
+        .meth = pyInfo,
+        .flags = METH_VARARGS,
+        .doc = "info() -> JSON: dialects, statement kinds and their slots, who can write what.",
+    },
+    .{
+        .name = "translate",
+        .meth = pyTranslate,
+        .flags = METH_VARARGS,
+        .doc = "translate(from, to, source) -> (netlist, report JSON)",
+    },
+    .{
+        .name = "read",
+        .meth = pyRead,
+        .flags = METH_VARARGS,
+        .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)",
+    },
+    .{
+        .name = "write",
+        .meth = pyWrite,
+        .flags = METH_VARARGS,
+        .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)",
+    },
+    .{
+        .name = "project",
+        .meth = pyProject,
+        .flags = METH_VARARGS,
+        .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata[, " ++
+            "provided]]]) -> (summary or catalogue JSON, log)",
+    },
+    .{ .name = null, .meth = null, .flags = 0, .doc = null },
+};
+
+var module: PyModuleDef = .{
+    .m_name = "_core",
+    .m_doc = "SPRack core: SPICE dialect readers and writers generated from .spgrammar files.",
+    .m_methods = &methods,
+};
+
+// ---- private ----
+
 /// `PyExc_ValueError`. A Windows DLL's data is reached through its
 /// import-table slot.
 fn valueError() *PyObject {
@@ -56,11 +107,6 @@ fn valueError() *PyObject {
         extern var PyExc_ValueError: *PyObject;
     }.PyExc_ValueError;
 }
-
-const METH_VARARGS = 1;
-const Allocator = std.mem.Allocator;
-
-const Fail = error{ Raised, OutOfMemory, WriteFailed };
 
 fn arg(args: ?*PyObject, i: isize) Fail![]const u8 {
     const t = args orelse return error.Raised;
@@ -203,8 +249,6 @@ fn vars(arena: Allocator, s: []const u8) Fail![]const [2][]const u8 {
     return out.items;
 }
 
-var threaded: std.Io.Threaded = .init_single_threaded;
-
 /// project(from, to, tops, out_dir, vars, library) -> (summary_json, log)
 /// catalog: the same with to == "" and out_dir == "" -> (catalog_json, log)
 fn projectBody(arena: Allocator, args: ?*PyObject) Fail!*PyObject {
@@ -278,47 +322,6 @@ fn pyWrite(_: ?*PyObject, a: ?*PyObject) callconv(.c) ?*PyObject {
 fn pyProject(_: ?*PyObject, a: ?*PyObject) callconv(.c) ?*PyObject {
     return call(projectBody, a);
 }
-
-var methods = [_]PyMethodDef{
-    .{
-        .name = "info",
-        .meth = pyInfo,
-        .flags = METH_VARARGS,
-        .doc = "info() -> JSON: dialects, statement kinds and their slots, who can write what.",
-    },
-    .{
-        .name = "translate",
-        .meth = pyTranslate,
-        .flags = METH_VARARGS,
-        .doc = "translate(from, to, source) -> (netlist, report JSON)",
-    },
-    .{
-        .name = "read",
-        .meth = pyRead,
-        .flags = METH_VARARGS,
-        .doc = "read(from, source[, library[, JSON with env]]) -> (IR JSON, report JSON)",
-    },
-    .{
-        .name = "write",
-        .meth = pyWrite,
-        .flags = METH_VARARGS,
-        .doc = "write(to, IR JSON[, library]) -> (netlist, report JSON)",
-    },
-    .{
-        .name = "project",
-        .meth = pyProject,
-        .flags = METH_VARARGS,
-        .doc = "project(from, to, files, out_dir, vars, library[, sections[, errata[, " ++
-            "provided]]]) -> (summary or catalogue JSON, log)",
-    },
-    .{ .name = null, .meth = null, .flags = 0, .doc = null },
-};
-
-var module: PyModuleDef = .{
-    .m_name = "_core",
-    .m_doc = "SPRack core: SPICE dialect readers and writers generated from .spgrammar files.",
-    .m_methods = &methods,
-};
 
 export fn PyInit__core() ?*PyObject {
     return PyModule_Create2(&module, 3);
